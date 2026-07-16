@@ -69,8 +69,10 @@ const GRASS_WIND_STRENGTH = 5.0; // world px of tip sway at full amplitude (visi
 const GRASS_WIND_FREQ = 1.3;      // rad/s — calmer than a fast flutter
 /** Tree/shrub billboard sway shares the grass wind DIRECTION + FREQ (so canopy and
  *  ground cover ripple together) but its own strength dial: the lit shader scales the
- *  tip offset by this × per-species flexibility × sprite height (see lit-wgsl.ts). */
-const TREE_WIND_STRENGTH = 9.0;
+ *  tip offset by this × per-species flexibility × sprite height (see lit-wgsl.ts).
+ *  Kept intentionally LOW so the default scene is near-still — a barely-perceptible
+ *  drift, not a visible sway (a gust/weather pass can raise it later). 0 = frozen. */
+const TREE_WIND_STRENGTH = 1.5;
 
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
