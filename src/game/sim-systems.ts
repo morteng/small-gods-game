@@ -70,7 +70,7 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
     if (r.status === 'applied' && r.verb === 'author_set_climate') {
       deps.onClimateApplied();
     }
-  }, deps.authorLog, () => state.weather));
+  }, deps.authorLog, () => state.weather, () => state));
   scheduler.register(new NpcMovementSystem(() => state.map));
   // Desire-line trample: deposit footfall (~3 Hz, gated to soft ground) + a
   // low-Hz promote/decay pass that wears trails to dirt and fades them back.

@@ -342,7 +342,7 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
     inspect(target: CommandTarget, spiritId: SpiritId = PLAYER_SPIRIT_ID): InspectorView | null {
       const world = state.world;
       if (!world) return null;
-      const ctx: CommandCtx = { world, spirits: state.spirits, log: state.eventLog };
+      const ctx: CommandCtx = { world, spirits: state.spirits, log: state.eventLog, state };
       const affordances: InspectorAffordance[] =
         affordancesForTarget(target, spiritId, ctx, beliefUnlocks(world, spiritId))
           .map(a => ({ verb: a.verb, label: a.label, cost: a.preview.cost, unlocked: a.unlocked, affordable: a.preview.affordable }));

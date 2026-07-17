@@ -51,7 +51,7 @@ export class DivineActionsController {
     const world = this.deps.state.world;
     if (!world) return false;
     const cmd: Command = { verb, source: 'player', target, seq: 0 };
-    const ctx: CommandCtx = { world, spirits: this.deps.state.spirits, log: this.deps.state.eventLog };
+    const ctx: CommandCtx = { world, spirits: this.deps.state.spirits, log: this.deps.state.eventLog, state: this.deps.state };
     if (previewCommand(cmd, ctx) !== null) return false;
     this.deps.queue.emit({ verb, source: 'player', target });
     return true;

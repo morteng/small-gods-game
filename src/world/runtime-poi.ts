@@ -54,6 +54,10 @@ export interface RuntimePoiProvenance {
   cause: string;
   /** The complexType that stamped the ground, e.g. 'motte_and_bailey'. */
   complexTypeId: string;
+  /** M4 S4: the settlement whose seated lord founded this place — the
+   *  `found_castle` verb's one-castle-per-seat gate keys on it. Absent on
+   *  harness/studio foundations. */
+  foundedFromPoiId?: string;
 }
 
 /** A runtime-created place: the projected POI record + its provenance + the
