@@ -9,6 +9,7 @@ import type { ApertureBox } from '@/assetgen/geometry/solids';
 import type { Manifold } from 'manifold-3d';
 import { solidArchCurved, archVoussoirProjector, type ArchStyle } from '@/assetgen/geometry/arch';
 import { solidColumn, columnProjector, type ColumnShape, type ColumnBand } from '@/assetgen/geometry/column';
+import { solidRoundwood } from '@/assetgen/geometry/roundwood';
 import type { Wing, RoofStyle, BuildingFeatures, BuildingAnchors } from '@/assetgen/geometry/building';
 import { linearFacets } from '@/assetgen/geometry/linear';
 import { tubeFacets, blobFacets, rockFacets, type CrownMode } from '@/assetgen/geometry/flora/mesh';
@@ -39,6 +40,11 @@ type PartVariant =
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
   | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
   | { prim: 'column'; center: [number, number]; baseZ?: number; shape?: ColumnShape; sides?: number; radius: number; topRadius?: number; height: number; base?: ColumnBand | null; capital?: ColumnBand | null; material?: Mat; work?: string }
+  // A HORIZONTAL round timber (a log): a cylinder laid along a bearing, optionally tapered
+  // butt→tip, optionally adze-flattened on top (`flatDepth` — a crown cut in the log's own
+  // frame, so the walkable flat rides the log through pitch/yaw). `center` is the axis
+  // MIDPOINT. Additive prim (roadwear S0-redux); no existing prim path touched.
+  | { prim: 'roundwood'; center: Vec3; length: number; radius: number; tipRadius?: number; yawDeg?: number; pitchDeg?: number; flatDepth?: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
   | { prim: 'building'; wings: Wing[]; wallMat?: Mat; roofMat?: Mat; roofStyle?: RoofStyle; features?: BuildingFeatures; seed?: number; apertures?: ApertureBox[]; wallWork?: string; wallFinish?: string; roofFinish?: string; finishTint?: RGB; baseCourse?: number; cutaway?: boolean; interior?: { partitions: number[]; floorDrop: number[]; screens?: boolean[]; levels?: number[] } }
   | { prim: 'flora'; limbs: Limb[]; leaves: Leaf[]; barkMat?: Mat; foliageMat?: Mat; foliageTint?: RGB; crownCenter?: Vec3; crownMode?: CrownMode }
   | { prim: 'rock'; center: [number, number]; baseZ: number; radius: number; seed: number; jitter?: number; aspect?: number; mat?: Mat; subdiv?: number }
@@ -162,6 +168,15 @@ export async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; ancho
       const opts = { baseZ: p.baseZ, shape: p.shape, sides: p.sides, radiusU: p.radius, topRadiusU: p.topRadius, heightU: p.height, base: p.base, capital: p.capital };
       const m = await solidColumn(p.center, opts);
       return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', p.work, columnProjector(p.center, opts)) };
+    }
+    case 'roundwood': {
+      // Horizontal round timber; planar (normal-derived) UV frame — the round flanks and the
+      // hewn flat each get their own face family, which is exactly the two-tone read wanted.
+      const m = await solidRoundwood({
+        center: p.center, length: p.length, radius: p.radius, tipRadius: p.tipRadius,
+        yawDeg: p.yawDeg, pitchDeg: p.pitchDeg, flatDepth: p.flatDepth,
+      });
+      return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'timber', p.work, undefined, p.finish, p.tint) };
     }
     case 'building':  return buildingFacets(p.wings, p.wallMat, p.roofMat, p.roofStyle, p.features, p.seed, p.apertures, p.wallWork, p.baseCourse, p.cutaway, p.interior,
       p.wallFinish || p.roofFinish || p.finishTint ? { wall: p.wallFinish, roof: p.roofFinish, tint: p.finishTint } : undefined);

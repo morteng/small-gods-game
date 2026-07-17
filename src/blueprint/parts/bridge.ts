@@ -205,6 +205,58 @@ export const deckPartType: PartType = {
   },
 };
 
+/** A LOG — one horizontal ROUND timber (the `roundwood` prim): a real trunk with round
+ *  flanks and end-grain ends, optionally tapered butt→tip, optionally adze-flattened on top
+ *  so feet have somewhere to land while the sides stay round. The tier-0 crossing member the
+ *  deck BOX could never be ("the log looks like a plank"). Pitched ±90° it doubles as a
+ *  rustic round post/pier with the end grain facing up — the log-rail / bent vocabulary. */
+export const logPartType: PartType = {
+  type: 'log',
+  paramSchema: {
+    lengthM: { kind: 'number', min: 0.1, max: 40, default: 6 },
+    /** Butt-end radius (m) — a generous trunk, not a pole. */
+    radiusM: { kind: 'number', min: 0.02, max: 0.8, default: 0.3 },
+    // Tip-end radius (m) — the natural taper. `any` so an unset caller emits an untapered
+    // member (byte-identical to radiusM at both ends).
+    tipRadiusM: { kind: 'any', doc: 'tip-end radius (m), < radiusM = natural taper; unset ⇒ no taper' },
+    /** Axis-centre height above the part z datum (m) — the log RESTS with its underside at
+     *  baseZM − radiusM, so seat it on blocks via baseZM = seatTop + radiusM. */
+    baseZM: { kind: 'number', min: -10, max: 40, default: 0.5 },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
+    // TRUE bearing °, CCW from +x; overrides `dir` (same convention as deck/arch/abutment).
+    yawDeg: { kind: 'any', doc: 'true bearing °, CCW from +x; overrides dir' },
+    // Incline °; positive lifts the far (+bearing) end. ±90 stands the log up as a post.
+    pitchDeg: { kind: 'any', doc: 'incline °, + lifts the tip end; ±90 ⇒ a vertical post' },
+    // Adze-flattened top: chord depth (m) cut from the crown in the log's own frame.
+    flatDepthM: { kind: 'any', doc: 'hewn-flat top: chord depth (m) cut from the crown; unset ⇒ fully round' },
+  },
+  resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
+  toPrims(p, ctx): Prim[] {
+    const mat = matOf(ctx);
+    const len = mToTiles((p.params.lengthM as number) ?? 6);
+    const r = mToTiles((p.params.radiusM as number) ?? 0.3);
+    const tipM = p.params.tipRadiusM as number | undefined | null;
+    const flatM = p.params.flatDepthM as number | undefined | null;
+    const pitchDeg = p.params.pitchDeg as number | undefined | null;
+    // Centred on the part box (the deck convention), so yaw/pitch swing inside the footprint.
+    const cx = p.at.x + (p.size?.w ?? len) / 2, cy = p.at.y + (p.size?.h ?? 1) / 2;
+    return [{
+      prim: 'roundwood',
+      center: [cx, cy, mToTiles((p.params.baseZM as number) ?? 0.5)],
+      length: len, radius: r,
+      ...(tipM !== undefined && tipM !== null ? { tipRadius: mToTiles(tipM) } : {}),
+      yawDeg: deckYaw(p.params),
+      ...(pitchDeg !== undefined && pitchDeg !== null ? { pitchDeg: Number(pitchDeg) } : {}),
+      ...(flatM !== undefined && flatM !== null ? { flatDepth: mToTiles(flatM) } : {}),
+      material: mat,
+    }];
+  },
+  // Walkable — traffic crosses ON the log (deck/pier/arch block nothing for the same reason).
+  toCollision: () => [],
+  toAnchors: () => [],
+  toBrief: () => 'log',
+};
+
 /** A pier — a vertical support standing from the riverbed up to the deck underside.
  *  A pier IS a (square) Column — it emits the kit's `column` prim so its batter is a
  *  TRUE taper (the old code faked it with a non-tapering 4-gon prism). `batter` maps to
