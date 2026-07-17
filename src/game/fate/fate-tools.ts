@@ -9,18 +9,22 @@
  * never invents. F3 adds the ARC tools: `seed_arc` opens a long-range intention
  * from the shape library (gated on the shape's `seedWhen` predicates — the "no
  * plot devices" gate — and MAX_LIVE_ARCS), `abandon_arc` folds an arc Fate can no
- * longer reach. `parseFateToolCalls` returns staged beats (armed on discovery),
- * immediate commands (emitted now onto the command channel), and validated arc
- * operations (applied to the snapshot-backed FateArcStore by the brain). Any
- * rejected call is DROPPED AND LOGGED — a bad call never kills the deliberation.
+ * longer reach. F5 adds WEAVING: `advance_arc` wraps one immediate lever in a
+ * `servedArcs` attribution (each claim validated against the arc's UNMET goals —
+ * the audit trail of which pressure served which intention). `parseFateToolCalls`
+ * returns staged beats (armed on discovery), immediate commands (emitted now onto
+ * the command channel), and validated arc operations (applied to the
+ * snapshot-backed FateArcStore by the brain). Any rejected call is DROPPED AND
+ * LOGGED — a bad call never kills the deliberation.
  */
 import type { LLMTool, LLMToolCall } from '@/llm/llm-client';
-import type { Command } from '@/sim/command/types';
+import type { Command, CommandVerb } from '@/sim/command/types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { SettlementEventType } from '@/core/types';
 import type { ArcCast } from '@/sim/fate/arc-types';
 import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
 import { ARC_SHAPE_KEYS, ARC_PORTENT_KINDS, getArcShape } from '@/sim/fate/arc-library';
+import { verbAdvancesGoal } from '@/sim/fate/arc-advance';
 import { authorBlueprint } from '@/blueprint/authoring';
 import { BUILDING_BLUEPRINTS } from '@/blueprint/presets';
 import type { BlueprintLint } from '@/blueprint/lint';
@@ -55,6 +59,17 @@ const MAX_STANCE_DELTA = 0.2;
 /** M3: per-call cap on a set_lord_stance tithe delta — same magnitude discipline
  *  as the rival stance fields (the verb's apply independently re-caps). */
 const MAX_TITHE_DELTA = 0.2;
+
+/** F5: the immediate levers `advance_arc` may wrap, and the capability-registry
+ *  verb each resolves to (pinned against the registry by fate-weaving.test.ts —
+ *  a pressure is always a LEGAL SIM MUTATION). Staged tools (arm_staged_beat)
+ *  are NOT here: a beat already carries single-arc attribution via `arcId`. */
+export const ADVANCE_ARC_TOOLS: Record<string, CommandVerb> = {
+  nudge_event_severity: 'nudge_severity',
+  force_next_event: 'bias_event',
+  set_rival_stance: 'set_rival_stance',
+  set_lord_stance: 'set_lord_stance',
+};
 
 export const FATE_TOOLS: LLMTool[] = [
   {
@@ -234,6 +249,36 @@ export const FATE_TOOLS: LLMTool[] = [
     },
   },
   {
+    name: 'advance_arc',
+    description:
+      'WEAVING: apply ONE pressure in service of one or more of your live arcs. It carries no effect of ' +
+      'its own — `tool` names one of your immediate levers (nudge_event_severity, force_next_event, ' +
+      'set_rival_stance, set_lord_stance), `args` is that tool\'s own arguments (validated exactly as if ' +
+      'called directly), and `servedArcs` names every live arc this pressure advances. A claimed arc must ' +
+      'hold an UNMET goal the pressure plausibly moves (each arc\'s "advance via" levers are listed in ' +
+      'context) and pressure budget left — invalid claims are dropped, and a pressure serving no arc is ' +
+      'rejected whole (just call the tool directly if it serves no arc). PREFER the single pressure that ' +
+      'advances the MOST arcs: one drought serving two arcs is how plot braids rather than queues.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tool: {
+          type: 'string', enum: Object.keys(ADVANCE_ARC_TOOLS),
+          description: 'Which immediate lever to apply. Required.',
+        },
+        args: {
+          type: 'object',
+          description: "The named tool's own arguments (e.g. { subjectPoiId, delta } for nudge_event_severity). Required.",
+        },
+        servedArcs: {
+          type: 'array', items: { type: 'integer' },
+          description: 'Every live arc id (from your arcs list) this pressure advances. Required, at least one.',
+        },
+      },
+      required: ['tool', 'args', 'servedArcs'],
+    },
+  },
+  {
     name: 'author_building',
     description:
       'Raise a NEW building in a settlement the unfolding story already touches — a shrine after a miracle, ' +
@@ -347,11 +392,18 @@ export interface FateArcToolCtx {
   arcMeta?: Map<number, ArcToolMeta>;
 }
 
-/** What the F4 portent tools know about one live arc at deliberation time. */
+/** What the F4 portent tools know about one live arc at deliberation time.
+ *  F5 adds the weaving inputs — both OPTIONAL with an absent-⇒-refuse default:
+ *  an advance_arc claim against a meta with no `unmetGoals`/`budget` is dropped
+ *  (safe default, same discipline as validNpcIds). */
 export interface ArcToolMeta {
   shape: string;
   castPoiIds: readonly string[];
   portentCount: number;
+  /** Predicates of the arc's currently-UNMET goals — what a pressure may claim to advance. */
+  unmetGoals?: readonly string[];
+  /** Pressure budget left; a spent arc (≤0) accepts no further claims. */
+  budget?: number;
 }
 
 /** An `author_building` call that resolved+linted to a REJECT (malformed geometry) —
@@ -379,6 +431,15 @@ export interface ArcSeedRequest {
 export interface ArcAbandonRequest {
   arcId: number;
   reason: string;
+}
+
+/** F5: a validated advance_arc call — the inner tool call already re-validated by
+ *  its own parser (so `command` is exactly what a direct call would have built),
+ *  plus the surviving servedArcs claims. The brain emits the command AND records
+ *  the pressure on each served arc (the weaving audit trail). */
+export interface ArcAdvanceRequest {
+  command: Omit<Command, 'seq'>;
+  servedArcs: number[];
 }
 
 /** F4: a validated plant_portent call — the ledger entry's raw material. The brain
@@ -418,6 +479,8 @@ export interface ParsedFateActions {
   arcPortents: ArcPortentRequest[];
   /** F4: heavy beats rejected by the portents-first gate (empty when none). */
   portentRejections: PortentGateRejection[];
+  /** F5: validated advance_arc calls (inner tool re-validated; servedArcs all live w/ a matching unmet goal). */
+  arcAdvances: ArcAdvanceRequest[];
 }
 
 /** Validate the model's tool calls into armable beats + immediate commands + arc
@@ -433,6 +496,7 @@ export function parseFateToolCalls(
   const arcAbandons: ArcAbandonRequest[] = [];
   const arcPortents: ArcPortentRequest[] = [];
   const portentRejections: PortentGateRejection[] = [];
+  const arcAdvances: ArcAdvanceRequest[] = [];
   // F4: portents planted earlier in THIS response count toward the heavy-beat gate,
   // so a single "plant, then land" response passes — foreshadow-first is rewarded.
   const plantedThisResponse = new Map<number, number>();
@@ -469,9 +533,12 @@ export function parseFateToolCalls(
     } else if (c.name === 'abandon_arc') {
       const ab = parseAbandonArc(c, ctx);
       if (ab) arcAbandons.push(ab);
+    } else if (c.name === 'advance_arc') {
+      const adv = parseAdvanceArc(c, ctx);
+      if (adv) arcAdvances.push(adv);
     }
   }
-  return { beats, commands, authoringRejections, arcSeeds, arcAbandons, arcPortents, portentRejections };
+  return { beats, commands, authoringRejections, arcSeeds, arcAbandons, arcPortents, portentRejections, arcAdvances };
 }
 
 /** W-I: causal-site ids are poiId-compatible but name an ephemeral place, not a
@@ -698,6 +765,64 @@ function parseAbandonArc(c: LLMToolCall, ctx: FateToolCtx): ArcAbandonRequest | 
   const reason = typeof a.reason === 'string' ? a.reason.trim() : '';
   if (!reason) { console.warn('[fate] dropped abandon_arc: a reason is required', arcId); return null; }
   return { arcId, reason };
+}
+
+/**
+ * F5: apply one pressure in service of ≥1 live arcs (spec §5, `advance_arc`).
+ * The call CARRIES NO EFFECT OF ITS OWN — the inner `tool`+`args` are re-run
+ * through that tool's OWN existing parser (identical drift guards + caps as a
+ * direct call; a pressure is always a legal sim mutation), and `servedArcs` is
+ * validated claim by claim: each id must be a LIVE arc, with pressure budget
+ * left, holding an UNMET goal the resolved verb plausibly moves (the §8.4
+ * "goal, not subject overlap" guard, via arc-advance.ts). Invalid claims drop
+ * (logged); a call with NO surviving claim drops whole — an advance that
+ * serves nothing is just a tool call the model should make directly. Every
+ * failure is a logged drop, never a throw.
+ */
+function parseAdvanceArc(c: LLMToolCall, ctx: FateToolCtx): ArcAdvanceRequest | null {
+  const a = c.arguments as { tool?: unknown; args?: unknown; servedArcs?: unknown };
+  const arcMeta = ctx.arcs?.arcMeta;
+  if (!arcMeta) { console.warn('[fate] dropped advance_arc: no arc context supplied'); return null; }
+  const toolName = typeof a.tool === 'string' ? a.tool : '';
+  if (!(toolName in ADVANCE_ARC_TOOLS)) {
+    console.warn('[fate] dropped advance_arc: not an advanceable tool', a.tool);
+    return null;
+  }
+  if (!a.args || typeof a.args !== 'object' || Array.isArray(a.args)) {
+    console.warn('[fate] dropped advance_arc: args must be the inner tool\'s argument object', toolName);
+    return null;
+  }
+  // Re-validate the inner call with ITS OWN parser — same guards as a direct call.
+  const inner: LLMToolCall = { id: c.id, name: toolName, arguments: a.args as Record<string, unknown> };
+  let command: Omit<Command, 'seq'> | null = null;
+  if (toolName === 'nudge_event_severity') command = parseNudge(inner, ctx);
+  else if (toolName === 'force_next_event') command = parseForceEvent(inner, ctx);
+  else if (toolName === 'set_rival_stance') command = parseSetRivalStance(inner, ctx);
+  else if (toolName === 'set_lord_stance') command = parseSetLordStance(inner, ctx);
+  if (!command) {
+    console.warn(`[fate] dropped advance_arc: the underlying ${toolName} call failed its own validation`);
+    return null;
+  }
+  // Validate the weaving claims: live, budgeted, and GOAL-advancing (never mere overlap).
+  const claimed = Array.isArray(a.servedArcs) ? a.servedArcs : [];
+  const servedArcs: number[] = [];
+  for (const id of claimed) {
+    if (typeof id !== 'number' || !Number.isInteger(id)) { console.warn('[fate] advance_arc: dropped claim, bad arc id', id); continue; }
+    if (servedArcs.includes(id)) continue;                    // dedupe
+    const meta = arcMeta.get(id);
+    if (!meta) { console.warn('[fate] advance_arc: dropped claim, not a live arc', id); continue; }
+    if ((meta.budget ?? 0) <= 0) { console.warn('[fate] advance_arc: dropped claim, pressure budget spent', id); continue; }
+    if (!(meta.unmetGoals ?? []).some((p) => verbAdvancesGoal(command!.verb, p))) {
+      console.warn(`[fate] advance_arc: dropped claim, arc ${id} has no unmet goal that ${command.verb} moves`);
+      continue;
+    }
+    servedArcs.push(id);
+  }
+  if (servedArcs.length === 0) {
+    console.warn('[fate] dropped advance_arc: no valid servedArcs claim survived', toolName);
+    return null;
+  }
+  return { command, servedArcs };
 }
 
 /**

@@ -16,7 +16,9 @@
  *    so a pulse cannot pile onto a just-fired event deliberation. NOT duplicated.
  *
  * IDLE: the pulse SKIPS entirely — without consuming the day cadence — when no arc
- * is live AND no seed condition is met. Fate is allowed to do nothing.
+ * is live AND no seed condition is met. Fate is allowed to do nothing. The F5
+ * dispositions sweep (land / precondition-abandon, `arc-sweep.ts`) runs BEFORE the
+ * idle check, so a dead-premise arc folds within one pulse even on an idle day.
  *
  * OFFLINE (no capable LLM): a deterministic stub arc is seeded (spec §8.5, the
  * permanent fallback) so the plumbing works with no LLM; the gated deliberation
@@ -31,6 +33,7 @@ import type { GameState } from '@/core/state';
 import { TICKS_PER_DAY } from '@/core/calendar';
 import { stubSeedCondition, seedStubArc } from '@/sim/fate/arc-stub';
 import { anySeedableShape } from '@/sim/fate/arc-library';
+import { sweepArcs } from '@/sim/fate/arc-sweep';
 import type { FateFocus } from './fate-context';
 
 export interface FatePulseDeps {
@@ -63,8 +66,11 @@ export class FatePulse {
     const state = this.deps.getState();
     const arcs = state.fateArcs;
     if (!arcs) return;
-    // Goals are recomputed every pulse — never trusted from disk.
-    arcs.recomputeGoals(state);
+    // F5 dispositions sweep (spec §3, checked EVERY pulse): recomputes goal truth
+    // (never trusted from disk), LANDS a worked arc whose goals all hold, and
+    // ABANDONS an arc whose seedWhen preconditions collapsed — expiring its
+    // still-armed beats so an unreachable arc never fires its blow.
+    sweepArcs(state);
     const anyLive = arcs.live().length > 0;
     // Seedability is path-honest (F3): offline, the deterministic stub's own
     // condition; online, whether ANY library shape's `seedWhen` currently holds

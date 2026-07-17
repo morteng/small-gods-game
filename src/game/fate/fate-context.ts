@@ -18,6 +18,8 @@ import { getNpc, npcProps } from '@/world/npc-helpers';
 import { TICKS_PER_DAY } from '@/core/calendar';
 import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
 import { getArcShape, seedableShapes } from '@/sim/fate/arc-library';
+import { advancingVerbsFor } from '@/sim/fate/arc-advance';
+import { ADVANCE_ARC_TOOLS } from './fate-tools';
 
 /**
  * What woke Fate. Two shapes, discriminated by `kind`:
@@ -54,7 +56,12 @@ const SYSTEM_CHARTER =
   'You also hold LONG-RANGE intentions as ARCS: seed_arc opens a story shape from the library — only a ' +
   'shape whose preconditions currently hold (an unmet shape is rejected; you never get a plot device) and ' +
   'never beyond the live-arc cap — while abandon_arc folds a live arc whose preconditions have become ' +
-  'unreachable rather than forcing it through. PORTENTS FIRST: every heavy blow must be foreshadowed. ' +
+  'unreachable rather than forcing it through. WEAVING: when you press toward an arc, apply the lever ' +
+  'through advance_arc, naming EVERY live arc the pressure serves (servedArcs) — and prefer the single ' +
+  'pressure that advances the MOST arcs at once: one drought serving two arcs is how plot braids rather ' +
+  'than queues. A claimed arc must hold an UNMET goal that pressure plausibly moves (each arc lists its ' +
+  '"advance via" levers) and pressure budget left; false claims are dropped. ' +
+  'PORTENTS FIRST: every heavy blow must be foreshadowed. ' +
   'plant_portent lays an omen on a live arc (kind from that arc\'s listed portent kinds; at most one per ' +
   'deliberation); a HEAVY beat (hard=inject_npc) armed on an arc whose portent ledger is empty is ' +
   'REJECTED — omens make you readable. ' +
@@ -256,7 +263,17 @@ export function describeArcsForFate(state: GameState): string {
           : 'portents: none (this shape carries no omens)')
       : `portents: ${a.portents.length} planted (${discovered} discovered)` +
         (kinds.length ? `; kinds: ${kinds.join(', ')}` : '');
-    return `- arc ${a.id} "${a.shape}" (${a.stage}); goals: ${goals}; ${portents}; budget ${a.pressureBudget}`;
+    // F5 weaving: which levers could still move this arc's UNMET goals — named as
+    // TOOLS (what the model actually calls): the advance_arc-wrappable levers, plus
+    // arm_staged_beat when the goal wants a stranger (inject_npc rides a beat).
+    const verbs = new Set(advancingVerbsFor(a.goals));
+    const levers = Object.entries(ADVANCE_ARC_TOOLS)
+      .filter(([, verb]) => verbs.has(verb)).map(([tool]) => tool);
+    if (verbs.has('inject_npc')) levers.push('arm_staged_beat');
+    const pressure = `pressure: ${a.applied.length} applied, budget ${a.pressureBudget} left` +
+      (a.pressureBudget <= 0 ? ' (SPENT — no more pressure; land or fold)'
+        : levers.length ? `; advance via ${levers.join(', ')}` : '');
+    return `- arc ${a.id} "${a.shape}" (${a.stage}); goals: ${goals}; ${portents}; ${pressure}`;
   });
   return `Your live arcs (standing intentions):\n${lines.join('\n')}`;
 }
@@ -303,8 +320,9 @@ export function buildFateContext(
     : `Triggering event: ${describeEvent(focus.event)}`;
   const closing = isPulse
     ? 'Decide what long-range intention to advance, if any. You may open a new arc (seed_arc) from the ' +
-      'seedable shapes, fold one that has become unreachable (abandon_arc), or prepare one grounded beat ' +
-      'to be discovered — or, just as often, do nothing this turn.'
+      'seedable shapes, press toward your live arcs with ONE lever (advance_arc — prefer a pressure that ' +
+      'serves several arcs at once), fold one that has become unreachable (abandon_arc), or prepare one ' +
+      'grounded beat to be discovered — or, just as often, do nothing this turn.'
     : 'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads, a flooded settlement, or a causal site listed above.';
   const user = [
     buildWorldSummary(state),
