@@ -215,6 +215,35 @@ export interface NoiseGenResult {
 // ─── Primary noise-based generator ───────────────────────────────────────────
 
 /**
+ * The exact `TerrainConfig` `generateWithNoise` derives its fields from — exported so a
+ * standalone harness (the Crossing Site studio) can rebuild the SAME `TerrainField` for a
+ * generated map (`generateTerrainFields(config)` + `erodeElevation`) and drive the road
+ * walker over it without re-running full worldgen. Pure; keep in lockstep with the
+ * generator by construction (it calls this).
+ */
+export function terrainConfigFor(
+  seed: number, width: number, height: number, worldSeed: WorldSeed | null,
+): TerrainConfig {
+  const maxDim = Math.max(width, height);
+  return {
+    seed,
+    width,
+    height,
+    elevationScale: 6.0 / maxDim,
+    moistureScale:  8.0 / maxDim,
+    seaLevel: 0.35,
+    poleFalloff: true,
+    continentWarp: 2.0,
+    island: styledIslandSpec(worldSeed) ?? undefined,
+    climate: styledClimate(worldSeed),
+    shape: styledShapeSpec(worldSeed),
+    // Absolute relief (metres) so biome classification gates snow/rock on real
+    // altitude, not a fraction — a low-relief world won't snow-cap a 7 m bump.
+    reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
+  };
+}
+
+/**
  * Primary world generation: noise fields → biomes → tiles → settlements.
  * Replaces WFC as the main generation path.
  */
@@ -233,25 +262,8 @@ export async function generateWithNoise(
     notify(msg);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   };
-  const maxDim = Math.max(width, height);
-
   await report('Generating terrain fields...');
-  const config: TerrainConfig = {
-    seed,
-    width,
-    height,
-    elevationScale: 6.0 / maxDim,
-    moistureScale:  8.0 / maxDim,
-    seaLevel: 0.35,
-    poleFalloff: true,
-    continentWarp: 2.0,
-    island: styledIslandSpec(worldSeed) ?? undefined,
-    climate: styledClimate(worldSeed),
-    shape: styledShapeSpec(worldSeed),
-    // Absolute relief (metres) so biome classification gates snow/rock on real
-    // altitude, not a fraction — a low-relief world won't snow-cap a 7 m bump.
-    reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
-  };
+  const config: TerrainConfig = terrainConfigFor(seed, width, height, worldSeed);
 
   const fields = generateTerrainFields(config);
 
