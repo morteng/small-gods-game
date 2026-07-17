@@ -346,3 +346,22 @@ wall system.
 `src/game.ts:522,855-856,977,1043-1053` · `src/ui/minimap-panel.ts:227-232` ·
 `src/render/map-layers.ts:126-145` · `src/render/gpu/water-dynamics.ts:199,231-234` ·
 `src/llm/world-summary.ts:16` · `src/studio/site-studio.ts:285-292`
+
+---
+
+## 7. Decisions (2026-07-17, session call — "you choose")
+
+1. **Terrain shelf:** natural hilltop (`siteSelect` + `DEFENSIVE_SITE_WEIGHTS`) + motte/earthworks
+   is enough for v1. No terrace primitive until a rendered castle proves it's needed.
+2. **`gate.road-connected`:** EXEMPT runtime complex rings, with an explicit contract note.
+   Desire-line trample is the organic access story. Runtime road-graph mutation = its own epic, later.
+3. **Population at foundation:** named garrison only. No cohort entry ⇒ no statistical tier to
+   double-account (vacuously consistent); rival-claims keying off `cohorts.keys()` means a fresh
+   castle isn't rival-claimable — acceptable and on-theme. Seed a band only if the bailey grows.
+4. **Growth:** no castle `SettlementPlan`. The neighbouring village accretes under `keepProximity`
+   (the spec's Norman mechanism).
+5. **Studio:** stays POI-less (pure geometry harness); the game path is the single POI creator.
+6. **Ids:** plain `castle:0001`; founder/cause live in store provenance, not the id.
+
+Slicing: S1+S2 land together (store+projection+guards are only honest with the scrub reconcile);
+S3–S5 follow.
