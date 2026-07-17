@@ -6,7 +6,8 @@ import {
   ROAD_CLASS_LADDER, PROMOTE_USE, DEMOTE_USE, N_UP, N_DOWN,
   stepEdgeClass, type UseStreaks,
   tierForUse, CROSSING_LAG, RICH_CROSSING_MIN, CLASS_CROSSING_TIER,
-  CROSSING_TIER_RECIPES, CROSSING_TIER_LABELS,
+  CROSSING_TIER_RECIPES, CROSSING_TIER_LABELS, CROSSING_EARN_USE,
+  CROSSING_TIER_MAX_SPAN_T, tierSpans, minViableTier, type CrossingTier,
 } from '@/world/road-use';
 import { BRIDGE_RECIPES } from '@/blueprint/presets/bridges';
 import type { RoadClass } from '@/world/road-graph';
@@ -122,45 +123,74 @@ describe('stepEdgeClass — the class ladder (§3)', () => {
   });
 });
 
-describe('tierForUse — the crossing-tier ladder (§4, LAG + wealth buyback)', () => {
-  it('the tier ladder has FIVE rungs with the log at the bottom (§9 decision 4)', () => {
-    expect(CROSSING_TIER_RECIPES).toHaveLength(5);
-    expect(CROSSING_TIER_LABELS).toHaveLength(5);
-    expect(CROSSING_TIER_RECIPES[0]).toBe('log');
+describe('tierForUse — the crossing-tier ladder (§4 + §10, LAG + wealth buyback)', () => {
+  it('the built ladder has SEVEN rungs with the log at the bottom (§10 redirect)', () => {
+    expect(CROSSING_TIER_RECIPES).toEqual(['log', 'twin-log', 'log-rail', 'plank-walk', 'timber-beam', 'timber-arch', 'stone-arch']);
+    expect(CROSSING_TIER_LABELS).toHaveLength(7);
     // Drift guard: every tier's recipe key exists in the buildable bridge library.
     for (const key of CROSSING_TIER_RECIPES) expect(BRIDGE_RECIPES[key], key).toBeTruthy();
+    // "No affordance" is NOT a tier — the ladder starts at the log; the trestle recipe still
+    // exists (other consumers) but is no longer a rung.
+    expect(CROSSING_TIER_RECIPES).not.toContain('timber-trestle');
+    expect(BRIDGE_RECIPES['timber-trestle']).toBeTruthy();
   });
 
-  it('LAG=1: the crossing sits one tier behind the class it has earned', () => {
+  it('EARN thresholds interpolate between the §3 promote points (documented anchors)', () => {
+    // Anchors: the class-cap tiers sit exactly ON the class promote points.
+    expect(CROSSING_EARN_USE[0]).toBe(0);
+    expect(CROSSING_EARN_USE[3]).toBe(PROMOTE_USE.track);      // track cap = plank walk
+    expect(CROSSING_EARN_USE[5]).toBe(PROMOTE_USE.road);       // road cap = timber arch
+    expect(CROSSING_EARN_USE[6]).toBe(PROMOTE_USE.highway);    // highway cap = stone arch
+    // In-between rungs subdivide the gaps evenly (tiers 1–2 in thirds, tier 4 halfway).
+    expect(CROSSING_EARN_USE[1]).toBeCloseTo(PROMOTE_USE.track / 3, 9);
+    expect(CROSSING_EARN_USE[2]).toBeCloseTo((2 * PROMOTE_USE.track) / 3, 9);
+    expect(CROSSING_EARN_USE[4]).toBeCloseTo((PROMOTE_USE.track + PROMOTE_USE.road) / 2, 9);
+    // Strictly increasing — every rung is individually earnable.
+    for (let t = 1; t < CROSSING_EARN_USE.length; t++) {
+      expect(CROSSING_EARN_USE[t]).toBeGreaterThan(CROSSING_EARN_USE[t - 1]);
+    }
+  });
+
+  it('use walks EVERY rung one by one (rich highway: lag bought back, no cap in the way)', () => {
+    for (let t = 0; t < CROSSING_EARN_USE.length; t++) {
+      expect(tierForUse(CROSSING_EARN_USE[t], 'highway', 1)).toBe(t);
+      if (t > 0) expect(tierForUse(CROSSING_EARN_USE[t] - 1e-9, 'highway', 1)).toBe(t - 1);
+    }
+  });
+
+  it('LAG=1: the crossing sits one tier behind the class cap it has earned', () => {
     expect(CROSSING_LAG).toBe(1);
-    // Saturating use, poor endpoints: tier = classTier − 1 on every class.
-    expect(tierForUse(1, 'path', 0)).toBe(0);      // the humble log
-    expect(tierForUse(1, 'track', 0)).toBe(1);     // log-plank trestle
-    expect(tierForUse(1, 'road', 0)).toBe(2);      // timber-beam
-    expect(tierForUse(1, 'highway', 0)).toBe(3);   // timber-arch — stone needs wealth
+    // Saturating use, poor endpoints: tier = classCap − 1 on every class.
+    expect(tierForUse(1, 'path', 0)).toBe(1);      // twin logs (cap 2 − lag)
+    expect(tierForUse(1, 'track', 0)).toBe(2);     // log + rail (cap 3 − lag)
+    expect(tierForUse(1, 'road', 0)).toBe(4);      // timber beam (cap 5 − lag)
+    expect(tierForUse(1, 'highway', 0)).toBe(5);   // timber arch — stone needs wealth
   });
 
   it('wealth buyback: wealth ≥ RICH_CROSSING_MIN ⇒ LAG 0 (bridges ahead of traffic)', () => {
-    expect(tierForUse(1, 'highway', RICH_CROSSING_MIN)).toBe(4);          // the grand stone arch
-    expect(tierForUse(1, 'highway', RICH_CROSSING_MIN - 1e-9)).toBe(3);   // one coin short
-    expect(tierForUse(1, 'path', 1)).toBe(1);
-    expect(tierForUse(0, 'path', 1)).toBe(1);      // a rich hamlet planks its stream early
+    expect(tierForUse(1, 'highway', RICH_CROSSING_MIN)).toBe(6);          // the grand stone arch
+    expect(tierForUse(1, 'highway', RICH_CROSSING_MIN - 1e-9)).toBe(5);   // one coin short
+    expect(tierForUse(1, 'path', 1)).toBe(2);      // a rich hamlet rails its logs
+    // Wealth buys back the LAG, never a rung: a dead edge keeps its log however rich.
+    expect(tierForUse(0, 'path', 1)).toBe(0);
   });
 
   it('use must EARN the rung: the class caps but does not grant', () => {
     // A highway whose traffic has collapsed: earned rung follows use, not the class label.
     expect(tierForUse(0.0, 'highway', 0)).toBe(0);
-    expect(tierForUse(PROMOTE_USE.track, 'highway', 0)).toBe(1);
-    expect(tierForUse(PROMOTE_USE.road, 'highway', 0)).toBe(2);
-    expect(tierForUse(PROMOTE_USE.highway, 'highway', 0)).toBe(3);
-    // And the actual class caps a use spike: heavy traffic on a mere track stays tier 1.
-    expect(tierForUse(0.99, 'track', 0)).toBe(1);
+    expect(tierForUse(PROMOTE_USE.track, 'highway', 0)).toBe(2);
+    expect(tierForUse(PROMOTE_USE.road, 'highway', 0)).toBe(4);
+    expect(tierForUse(PROMOTE_USE.highway, 'highway', 0)).toBe(5);
+    // And the actual class caps a use spike: heavy traffic on a mere track holds at its cap
+    // minus the lag — the road must earn its class before the crossing can follow.
+    expect(tierForUse(0.99, 'track', 0)).toBe(2);
+    expect(tierForUse(0.99, 'track', 1)).toBe(3);   // rich: at the cap, never past it
   });
 
-  it('floors at tier 0 and caps at tier 4 for any input', () => {
+  it('floors at tier 0 and respects the class cap for any input', () => {
     expect(tierForUse(0, 'path', 0)).toBe(0);
     expect(tierForUse(-5, 'path', -5)).toBe(0);
-    expect(tierForUse(99, 'highway', 99)).toBe(4);
+    expect(tierForUse(99, 'highway', 99)).toBe(6);
     expect(tierForUse(Number.NaN, 'road', Number.NaN)).toBe(0);
     for (const cls of ROAD_CLASS_LADDER) {
       for (const u of [0, 0.2, 0.4, 0.6, 0.8, 1]) {
@@ -175,9 +205,31 @@ describe('tierForUse — the crossing-tier ladder (§4, LAG + wealth buyback)', 
 
   it('wealth never moves the tier by more than the lag it buys back', () => {
     for (const cls of ROAD_CLASS_LADDER) {
-      for (const u of [0, 0.3, 0.5, 0.7, 0.9, 1]) {
+      for (const u of [0, 0.15, 0.3, 0.5, 0.7, 0.9, 1]) {
         expect(tierForUse(u, cls, 1) - tierForUse(u, cls, 0)).toBeLessThanOrEqual(CROSSING_LAG);
       }
+    }
+  });
+});
+
+describe('stream width vs structure — min viable tier (§10 "what happens at different streams?")', () => {
+  it('a log spans ~2 tiles; bents walk wider; the widest water is high-tier only', () => {
+    expect(CROSSING_TIER_MAX_SPAN_T).toHaveLength(CROSSING_TIER_RECIPES.length);
+    expect(minViableTier(1)).toBe(0);        // a stride of water: the log does it
+    expect(minViableTier(2)).toBe(0);
+    expect(minViableTier(2.4)).toBe(2);      // past the single log: railed logs stretch a hair
+    expect(minViableTier(3)).toBe(3);        // real width wants BENTS — the plank walk
+    expect(minViableTier(6)).toBe(3);
+    expect(minViableTier(8.5)).toBe(5);      // wider still: only the arches
+    expect(minViableTier(12)).toBe(6);
+    expect(minViableTier(15)).toBeNull();    // that's a ferry, not a bridge
+  });
+
+  it('tierSpans is honest about the beam: a plank walk out-spans a single sawn beam', () => {
+    expect(tierSpans(3 as CrossingTier, 6)).toBe(true);    // bents multiply
+    expect(tierSpans(4 as CrossingTier, 6)).toBe(false);   // one beam between footings does not
+    for (let t = 0 as CrossingTier; t <= 6; t++) {
+      expect(tierSpans(t as CrossingTier, 0.5)).toBe(true);   // everyone crosses a rill
     }
   });
 });

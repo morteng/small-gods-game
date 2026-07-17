@@ -9,18 +9,45 @@
 // is its springing origin (springs +x for span, depth +y for thickness).
 import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
 import { METRES_PER_TILE } from '@/render/scale-contract';
+import { createRng, type Rng } from '@/core/rng';
 
 const M = METRES_PER_TILE; // 2 m per tile
 
 export type BridgePart = NonNullable<Blueprint['parts']>[string];
 
 /** A bridge recipe: geometry (`build`) + its material + a human blurb. `ttiSubject` is the
- *  geometry-true text-to-image clause the reference-library probe uses (dev-only prose). */
+ *  geometry-true text-to-image clause the reference-library probe uses (dev-only prose).
+ *
+ *  `build(seed?)` — the low (roundwood) rungs accept an optional VARIATION seed ("variety is
+ *  the spice"): it runs through the repo's seeded sfc32 (never Math.random) and modulates log
+ *  girth/taper/askew/spacing/stub placement/rail style within tasteful bounds. Every recipe's
+ *  DEFAULT (seed omitted ⇒ 0) is a deterministic canonical build — tests pin that default; the
+ *  masonry tiers ignore the seed entirely. */
 export interface BridgeRecipe {
   desc: string;
   walls: string;
   ttiSubject?: string;
-  build(): Record<string, BridgePart>;
+  build(seed?: number): Record<string, BridgePart>;
+}
+
+/** Uniform in [lo, hi] off the recipe's seeded rng. */
+const between = (rng: Rng, lo: number, hi: number): number => lo + rng.next() * (hi - lo);
+
+/** ±1 with equal probability — an askew direction pick. */
+const sign = (rng: Rng): number => (rng.next() < 0.5 ? -1 : 1);
+
+/** Two HUMBLE seat blocks — a low rough stone block per bank (the log-tier grounding: NOT
+ *  `addAbutments`, whose deck-width+1 m battered mass is far too grand for a log). Mutates
+ *  `parts`; emits exactly the 2 abutment-type parts the preset invariant requires. */
+function addSeatBlocks(
+  parts: Record<string, BridgePart>, xLo: number, xHi: number, cyT: number, seatHM: number, widthM = 1.0,
+): void {
+  for (const [key, cxT] of [['abut0', xLo], ['abut1', xHi]] as const) {
+    parts[key] = {
+      type: 'abutment', material: 'stone', at: { x: cxT - 0.5, y: cyT - 0.5 }, size: { w: 1, h: 1 },
+      params: { heightM: seatHM, widthM, depthM: 0.7, batter: 0.12, dir: 'ew' },
+    };
+  }
 }
 
 /** Masonry ring-depth above the intrados crown, in metres — a proud archivolt (matches
@@ -99,43 +126,242 @@ export function archBridge(opts: {
 /** The buildable bridge library, keyed by SHORT name (the canonical preset is `bridge-<short>`
  *  and the reference-library slug is the same). Diagnostics-only recipes live in the dev script. */
 export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
-  // Tier-0 log crossing (road-wear economy S0): ONE squared log dropped across the stream with a
-  // flat treadway spiked on top. No rails, no masonry beyond two low seating blocks at the banks.
-  // Humble and slightly ASKEW by construction — the log and the treadway carry small opposed
-  // yaws + lateral offsets (fixed deterministic constants, no RNG), so it reads as something a
-  // farmer levered into place, not something an engineer set out. Additive prims only.
+  // Tier-0 log crossing (road-wear economy S0 redux): ONE round trunk levered across the
+  // stream — a real roundwood member (bark-round flanks, end-grain ends, natural taper), NOT
+  // a squared plank. A subtle adze-hewn flat on the crown makes it walkable; 1–3 trimmed
+  // branch stubs at seeded stations sell "felled tree", per the crossing-log TTI reference.
+  // Slightly askew and pitched (seeded, sfc32) — a farmer levered it in, no engineer set it
+  // out. Grounding = two humble stone seat blocks only (the preset invariant's 2 abutments).
   'log': {
-    desc: 'log crossing (one squared log + flat treadway, no rails, seat blocks only)',
+    desc: 'log crossing (ONE round trunk, hewn-flat top, branch stubs, stone seat blocks)',
     walls: 'timber',
-    ttiSubject: 'a humble log crossing over a small stream, ONE heavy squared timber log laid ' +
-      'slightly askew from bank to bank with a narrow flat plank treadway fixed on top, no ' +
-      'handrails, no arch, resting on a single low rough stone block at each bank; ' +
-      'weathered grey-brown wood',
-    build: () => {
+    ttiSubject: 'a humble log crossing over a small stream, ONE generous round tree trunk laid ' +
+      'slightly askew from bank to bank, visible growth-ring end grain on the cut ends, a few ' +
+      'short trimmed branch stubs along it, a lighter adze-hewn flat strip along the top, no ' +
+      'handrails, each end resting on a low rough stone block; weathered grey-brown bark',
+    build: (seed = 0) => {
+      const rng = createRng(seed);
       const spanTiles = 3, y0 = 1;             // a stream, not a river: ~6 m bank to bank
-      const logZ = 0.5;                        // log underside above the datum (clears the water)
-      const logThick = 0.4;                    // the squared log: a stout 0.4 m baulk
+      const cx = 0.5 + spanTiles / 2, cy = y0 + 0.5;
+      const r = between(rng, 0.34, 0.42);      // a GENEROUS trunk (~0.7–0.85 m diameter)
+      const seatH = 0.5;
+      const logZ = seatH + r;                  // the trunk RESTS on its seats (axis height)
+      const yawDeg = sign(rng) * between(rng, 1.2, 4);
       const parts: Record<string, BridgePart> = {
-        // The squared log — one narrow "deck" slab, nudged off the centreline and yawed a hair.
         log: {
-          type: 'deck', at: { x: 0.5, y: y0 - 0.04 }, size: { w: spanTiles, h: 1 },
-          params: { lengthM: spanTiles * M, widthM: 0.45, thicknessM: logThick, dir: 'ew',
-            parapet: 'none', baseZM: logZ, yawDeg: -1.5 },
-        },
-        // The flat treadway — a thin plank course on the log's back, offset the OTHER way and
-        // counter-yawed, so the two members read as separately laid timber.
-        tread: {
-          type: 'deck', at: { x: 0.65, y: y0 + 0.05 }, size: { w: spanTiles, h: 1 },
-          params: { lengthM: (spanTiles - 0.3) * M, widthM: 0.7, thicknessM: 0.12, dir: 'ew',
-            parapet: 'none', baseZM: logZ + logThick, yawDeg: 2 },
+          type: 'log', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: 1 },
+          params: {
+            lengthM: spanTiles * M + between(rng, 0.6, 1.1),   // overhangs the banks
+            radiusM: r, tipRadiusM: r * between(rng, 0.78, 0.9),
+            baseZM: logZ, yawDeg, pitchDeg: between(rng, -1.6, 1.6),
+            flatDepthM: r * 0.35,
+          },
         },
       };
-      // Minimal seating only — NOT addAbutments (that block is deck-width + 1 m, far too grand
-      // for a log): one low rough stone block per bank, just enough to keep the log ends dry.
+      // Trimmed branch stubs: short roundwood jutting up-and-out from the trunk's upper flank
+      // at seeded stations (clear of the ends, so they never collide with the seats).
+      const nStubs = 1 + rng.nextInt(3);
+      const yawRad = (yawDeg * Math.PI) / 180;
+      for (let i = 0; i < nStubs; i++) {
+        const uT = between(rng, -0.55, 0.55) * (spanTiles / 2);   // station along the axis, tiles
+        const sx = cx + uT * Math.cos(yawRad), sy = cy + uT * Math.sin(yawRad);
+        parts[`stub${i + 1}`] = {
+          type: 'log', at: { x: sx - 0.5, y: sy - 0.5 }, size: { w: 1, h: 1 },
+          params: {
+            lengthM: between(rng, 0.55, 0.95), radiusM: r * between(rng, 0.28, 0.36),
+            baseZM: logZ + r * 0.45,
+            yawDeg: yawDeg + sign(rng) * between(rng, 55, 105),
+            pitchDeg: between(rng, 18, 42),
+          },
+        };
+      }
+      addSeatBlocks(parts, 0.5, 0.5 + spanTiles, cy, seatH, 1.1);
+      return parts;
+    },
+  },
+  // Tier-1 twin-log crossing: TWO round logs laid side by side — different girths, slightly
+  // opposed yaws (each levered in on its own day), hewn flats on both — reading as a narrow
+  // rustic two-log tread, with a pair of short round pier posts standing in the stream under
+  // the mid-span (end grain up), per the crossing-twin-log TTI reference.
+  'twin-log': {
+    desc: 'twin-log crossing (two round logs side by side, differing girth, mid pier posts)',
+    walls: 'timber',
+    ttiSubject: 'a rustic twin-log crossing over a stream, TWO round tree-trunk logs of ' +
+      'clearly different thickness laid side by side from bank to bank, visible growth-ring ' +
+      'end grain, lighter adze-hewn flat strips along their tops, a pair of short round ' +
+      'timber pier posts standing in the water under the middle, no handrails, the ends ' +
+      'resting on low rough stone blocks; weathered grey-brown bark',
+    build: (seed = 0) => {
+      const rng = createRng(seed);
+      const spanTiles = 3, y0 = 1, cy = y0 + 0.5;
+      const r1 = between(rng, 0.19, 0.25), r2 = between(rng, 0.13, 0.18);   // differing girth
+      const seatH = 0.45;
+      const sepT = (r1 + r2 + between(rng, 0.05, 0.12)) / M;   // centre separation, tiles
+      const parts: Record<string, BridgePart> = {};
+      const logs = [
+        { key: 'log', r: r1, off: -sepT / 2, yaw: between(rng, 0.6, 2.4) },
+        { key: 'log2', r: r2, off: sepT / 2, yaw: -between(rng, 0.6, 2.4) },   // opposed
+      ];
+      for (const L of logs) {
+        parts[L.key] = {
+          type: 'log', at: { x: 0.5, y: cy + L.off - 0.5 }, size: { w: spanTiles, h: 1 },
+          params: {
+            lengthM: spanTiles * M + between(rng, 0.5, 0.9),
+            radiusM: L.r, tipRadiusM: L.r * between(rng, 0.8, 0.9),
+            baseZM: seatH + L.r, yawDeg: L.yaw, flatDepthM: L.r * 0.32,
+          },
+        };
+      }
+      // The mid-stream pier pair: short verticals (±90° pitch ⇒ end grain up), feet in the
+      // water below the datum, tops tucked under each log.
+      const px = 0.5 + spanTiles * between(rng, 0.45, 0.55);
+      for (const [key, L] of [['post1', logs[0]], ['post2', logs[1]]] as const) {
+        const len = 1.2;
+        parts[key] = {
+          type: 'log', at: { x: px - 0.5, y: cy + L.off - 0.5 }, size: { w: 1, h: 1 },
+          params: {
+            lengthM: len, radiusM: 0.08,
+            baseZM: seatH - len / 2,               // top at the log underside, foot in the bed
+            pitchDeg: 90 + between(rng, -6, 6),
+          },
+        };
+      }
+      addSeatBlocks(parts, 0.5, 0.5 + spanTiles, cy, seatH, 1.2);
+      return parts;
+    },
+  },
+  // Tier-2 log-rail: the twin-log tread grows its FIRST safety affordance — a single-side
+  // handrail of roundwood: 2–3 round posts (run down into the water as piers, end grain up),
+  // ONE thin rail pole (sometimes a second, lower one), and a lashing collar where each post
+  // carries the pole — the post/lashing/pole language of the crossing-log-rail TTI reference.
+  'log-rail': {
+    desc: 'log-rail crossing (twin logs + single-side roundwood handrail: posts, lashings, rail pole)',
+    walls: 'timber',
+    ttiSubject: 'a rustic twin-log stream crossing with a simple handrail on ONE side only, ' +
+      'two round logs side by side as the tread, round timber posts with visible end grain ' +
+      'standing down into the water, a single thin roundwood rail pole lashed to the post ' +
+      'tops with rope bands, ends resting on low rough stone blocks; weathered brown wood',
+    build: (seed = 0) => {
+      const rng = createRng(seed);
+      const spanTiles = 3, y0 = 1, cy = y0 + 0.5;
+      const r1 = between(rng, 0.19, 0.23), r2 = between(rng, 0.15, 0.18);
+      const seatH = 0.45;
+      const sepT = (r1 + r2 + between(rng, 0.04, 0.1)) / M;
+      const parts: Record<string, BridgePart> = {};
+      for (const L of [
+        { key: 'log', r: r1, off: -sepT / 2, yaw: between(rng, 0.5, 1.8) },
+        { key: 'log2', r: r2, off: sepT / 2, yaw: -between(rng, 0.5, 1.8) },
+      ]) {
+        parts[L.key] = {
+          type: 'log', at: { x: 0.5, y: cy + L.off - 0.5 }, size: { w: spanTiles, h: 1 },
+          params: {
+            lengthM: spanTiles * M + between(rng, 0.5, 0.8),
+            radiusM: L.r, tipRadiusM: L.r * between(rng, 0.82, 0.9),
+            baseZM: seatH + L.r, yawDeg: L.yaw, flatDepthM: L.r * 0.32,
+          },
+        };
+      }
+      // The single-side rail: posts on the NEAR edge only (spec §10 — one simple handrail).
+      const postR = 0.055;
+      const postY = cy - (sepT / 2 + (r1 + postR) / M + 0.03);
+      const railZ = seatH + r1 * 2 + 0.75;         // pole axis ~0.75 m over the tread
+      const nPosts = rng.next() < 0.45 ? 3 : 2;
+      const postLen = 1.7;
+      for (let k = 0; k < nPosts; k++) {
+        const t = nPosts === 2 ? 0.16 + 0.68 * k : 0.12 + 0.38 * k;
+        const px = 0.5 + spanTiles * t;
+        parts[`post${k + 1}`] = {
+          type: 'log', at: { x: px - 0.5, y: postY - 0.5 }, size: { w: 1, h: 1 },
+          params: {
+            lengthM: postLen, radiusM: postR,
+            baseZM: railZ + 0.12 - postLen / 2,    // head proud of the pole, foot in the water
+            pitchDeg: 90 + between(rng, -5, 5),
+          },
+        };
+        // The lashing collar: a short coaxial sleeve around the post at pole height.
+        parts[`lash${k + 1}`] = {
+          type: 'log', at: { x: px - 0.5, y: postY - 0.5 }, size: { w: 1, h: 1 },
+          params: { lengthM: 0.14, radiusM: postR + 0.025, baseZM: railZ, pitchDeg: 90 },
+        };
+      }
+      parts.rail = {
+        type: 'log', at: { x: 0.5, y: postY - 0.5 }, size: { w: spanTiles, h: 1 },
+        params: {
+          lengthM: spanTiles * M + 0.4, radiusM: 0.035, baseZM: railZ,
+          yawDeg: between(rng, -0.8, 0.8),
+        },
+      };
+      if (rng.next() < 0.4) {                      // rail style variation: a second, lower pole
+        parts.rail2 = {
+          type: 'log', at: { x: 0.5, y: postY - 0.5 }, size: { w: spanTiles, h: 1 },
+          params: { lengthM: spanTiles * M + 0.3, radiusM: 0.03, baseZM: railZ - 0.42, yawDeg: between(rng, -0.8, 0.8) },
+        };
+      }
+      addSeatBlocks(parts, 0.5, 0.5 + spanTiles, cy, seatH, 1.2);
+      return parts;
+    },
+  },
+  // Tier-3 plank walk: the first SAWN timber — a plank tread over two round log stringers,
+  // carried mid-stream by a light A-FRAME trestle bent (raked roundwood legs + a crossbar)
+  // standing in the water, the ends resting on low squared TIMBER sills. NO stone, NO heavy
+  // driven piles — the crossing-plank-walk TTI reference's exact rung.
+  'plank-walk': {
+    desc: 'plank walk (sawn plank tread on log stringers, A-frame trestle bent, timber sills — no stone)',
+    walls: 'timber',
+    ttiSubject: 'a light wooden plank-walk footbridge over a stream, a flat sawn plank tread ' +
+      'laid across two round log stringers, carried mid-stream by one light A-frame timber ' +
+      'trestle bent standing in the water, the ends resting on low squared timber sills on ' +
+      'the banks, no handrails, no stone anywhere; weathered brown wood',
+    build: (seed = 0) => {
+      const rng = createRng(seed);
+      const spanTiles = 5, y0 = 1, cy = y0 + 0.5, cx = 0.5 + spanTiles / 2;
+      const rStr = between(rng, 0.1, 0.13);        // the round log stringers
+      const sillH = 0.8;
+      const strZ = sillH + rStr;                   // stringer axis resting on the sills
+      const sepT = between(rng, 0.34, 0.42);       // stringer separation (~0.7–0.85 m)
+      const deckZ = strZ + rStr;                   // plank underside on the stringer crowns
+      const plankW = between(rng, 1.15, 1.35);
+      const parts: Record<string, BridgePart> = {
+        tread: {
+          type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: 1 },
+          params: { lengthM: spanTiles * M, widthM: plankW, thicknessM: 0.07, dir: 'ew',
+            parapet: 'none', baseZM: deckZ },
+        },
+      };
+      for (const [key, s] of [['str1', -1], ['str2', 1]] as const) {
+        parts[key] = {
+          type: 'log', at: { x: 0.5, y: cy + s * sepT / 2 - 0.5 }, size: { w: spanTiles, h: 1 },
+          params: {
+            lengthM: spanTiles * M + 0.6, radiusM: rStr, baseZM: strZ,
+            yawDeg: between(rng, -0.8, 0.8),
+          },
+        };
+      }
+      // The A-frame bent: two raked legs (bearing ACROSS the stream, opposed pitches — feet
+      // spread in the water, tops converge under the deck) + a crossbar between them.
+      const bx = cx + between(rng, -0.15, 0.15);
+      const rake = between(rng, 64, 74);
+      const legLen = (deckZ + 0.3) / Math.sin((rake * Math.PI) / 180);
+      for (const [key, s] of [['leg1', 1], ['leg2', -1]] as const) {
+        parts[key] = {
+          type: 'log', at: { x: bx - 0.5, y: cy - 0.5 }, size: { w: 1, h: 1 },
+          params: {
+            lengthM: legLen, radiusM: 0.07, dir: 'ns',
+            baseZM: (deckZ - 0.05 - 0.3) / 2,      // top under the stringers, foot in the bed
+            pitchDeg: s * rake,
+          },
+        };
+      }
+      parts.bar = {
+        type: 'log', at: { x: bx - 0.5, y: cy - 0.5 }, size: { w: 1, h: 1 },
+        params: { lengthM: 0.95, radiusM: 0.045, dir: 'ns', baseZM: deckZ * 0.5 },
+      };
+      // Low squared TIMBER sills (no `material` ⇒ the recipe's timber walls) — the invariant's
+      // two abutment parts, without a stone block anywhere on this rung.
       for (const [key, cxT] of [['abut0', 0.5], ['abut1', 0.5 + spanTiles]] as const) {
         parts[key] = {
-          type: 'abutment', material: 'stone', at: { x: cxT - 0.5, y: y0 }, size: { w: 1, h: 1 },
-          params: { heightM: logZ, widthM: 0.9, depthM: 0.7, batter: 0.1, dir: 'ew' },
+          type: 'abutment', at: { x: cxT - 0.5, y: cy - 0.5 }, size: { w: 1, h: 1 },
+          params: { heightM: sillH, widthM: plankW + 0.3, depthM: 0.45, batter: 0.04, dir: 'ew' },
         };
       }
       return parts;
@@ -161,20 +387,30 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
       'both edges, landing on low grey stone footing blocks at each bank; weathered brown timber',
     build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 1.8, style: 'round', parapet: 'rails', camberM: 1.2 }),
   },
-  // Timber beam bridge: the everyday small wooden crossing — a low, flat plank deck on beams
-  // between two stone footings, simple rails, no arch and no mid-stream piles.
+  // Timber beam bridge: the everyday small wooden crossing, and the ladder's SAWN-timber
+  // boundary — everything square and framed where the rungs below are roundwood: two visible
+  // square-sawn edge beams carry the plank deck, proper post-and-rail handrails ride both
+  // edges, and the frame lands on dressed STONE footings. No arch, no piles in the water.
   'timber-beam': {
-    desc: 'timber beam footbridge (low flat plank deck on stone footings, rails)',
+    desc: 'timber beam footbridge (framed: square edge beams under a plank deck, rails, stone footings)',
     walls: 'timber',
-    ttiSubject: 'a small simple wooden beam footbridge over a stream, a low flat plank deck ' +
-      'carried on two heavy timber beams, plain post-and-rail wooden handrails along both edges, ' +
-      'resting on a low grey stone footing block at each bank, no arch and no piles in the water; ' +
-      'weathered brown timber',
+    ttiSubject: 'a small carpenter-framed wooden beam footbridge over a stream, a low flat ' +
+      'plank deck carried on two visible heavy SQUARE-sawn timber edge beams, plain ' +
+      'post-and-rail wooden handrails along both edges, resting on a dressed grey stone ' +
+      'footing block at each bank, no arch and no piles in the water; weathered brown timber',
     build: () => {
       const spanTiles = 4, roadTiles = 1, y0 = 1, deckZ = 1.4;
+      const beamW = 0.3, beamT = 0.4;                    // the square sawn members
+      const beamOffT = (roadTiles * M / 2 - beamW / 2 - 0.06) / M;   // under the deck edges
       const parts: Record<string, BridgePart> = {
         deck: { type: 'deck', at: { x: 0.5, y: y0 }, size: { w: spanTiles, h: roadTiles }, params: { lengthM: spanTiles * M, widthM: roadTiles * M, thicknessM: 0.5, dir: 'ew', parapet: 'rails', baseZM: deckZ, camberM: 0.15 } },
       };
+      for (const [key, s] of [['beam1', -1], ['beam2', 1]] as const) {
+        parts[key] = {
+          type: 'deck', at: { x: 0.5, y: y0 + roadTiles / 2 + s * beamOffT - 0.5 }, size: { w: spanTiles, h: 1 },
+          params: { lengthM: spanTiles * M, widthM: beamW, thicknessM: beamT, dir: 'ew', parapet: 'none', baseZM: deckZ - beamT },
+        };
+      }
       addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, deckZ);
       return parts;
     },
@@ -230,9 +466,11 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
 };
 
 /** Assemble a recipe into a single `prop`-class Blueprint. `preset` carries the canonical
- *  `bridge-<short>` name so the resolved blueprint keeps a stable art-cache identity per bridge. */
-export function bridgeBlueprint(recipe: BridgeRecipe, presetName = 'bridge'): Blueprint {
-  const parts = recipe.build();
+ *  `bridge-<short>` name so the resolved blueprint keeps a stable art-cache identity per bridge.
+ *  `seed` (optional) is the low-rung VARIATION seed — omitted ⇒ the deterministic canonical
+ *  build every cache key and golden pin sees. */
+export function bridgeBlueprint(recipe: BridgeRecipe, presetName = 'bridge', seed?: number): Blueprint {
+  const parts = recipe.build(seed);
   let maxX = 0, maxY = 0;
   for (const p of Object.values(parts)) {
     const at = p.at ?? { x: 0, y: 0 };
@@ -257,8 +495,9 @@ export function isBridgePreset(name: string): boolean {
   return name.startsWith('bridge-') && Object.prototype.hasOwnProperty.call(BRIDGE_RECIPES, name.slice('bridge-'.length));
 }
 
-/** Resolve a canonical bridge preset name into its assembled Blueprint (undefined if not a bridge). */
-export function bridgeBlueprintByName(name: string): Blueprint | undefined {
+/** Resolve a canonical bridge preset name into its assembled Blueprint (undefined if not a
+ *  bridge). `seed` = optional low-rung variation seed (omitted ⇒ canonical build). */
+export function bridgeBlueprintByName(name: string, seed?: number): Blueprint | undefined {
   if (!isBridgePreset(name)) return undefined;
-  return bridgeBlueprint(BRIDGE_RECIPES[name.slice('bridge-'.length)], name);
+  return bridgeBlueprint(BRIDGE_RECIPES[name.slice('bridge-'.length)], name, seed);
 }

@@ -94,22 +94,26 @@ export function stepEdgeClass(
   return { next: current, streaks: { up: 0, down: 0 }, changed: false };
 }
 
-// ── the crossing-tier ladder (§4 + §9 decision 4) ────────────────────────────
-/** Crossing tiers, bottom→top. Tier 0 (`log`) is the epic's founding image — §9 decision 4 puts
- *  it under promoted trample corridors pre-adoption too, so the ladder has FIVE rungs. */
-export type CrossingTier = 0 | 1 | 2 | 3 | 4;
+// ── the crossing-tier ladder (§4 + §9 decision 4 + §10 redirect) ─────────────
+/** Crossing tiers, bottom→top — the SEVEN-rung BUILT ladder (§10: "variety is the spice").
+ *  Tier 0 (`log`) is the epic's founding image — §9 decision 4 puts it under promoted trample
+ *  corridors pre-adoption too. "No affordance" is NOT a tier: it is the absence of a crossing
+ *  entity; natural fords/stepping stones are a property of the WATER, not of this store. */
+export type CrossingTier = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 /** Tier → the `BRIDGE_RECIPES` key that realizes it (canonical preset = `bridge-<key>`).
- *  Tier 1 "log-plank" is the shipped driven-pile trestle recipe. Kept as plain strings so this
- *  module stays pure (no blueprint import); guarded against drift by the S0 unit tests. */
-export const CROSSING_TIER_RECIPES = ['log', 'timber-trestle', 'timber-beam', 'timber-arch', 'stone-arch'] as const;
+ *  Kept as plain strings so this module stays pure (no blueprint import); guarded against
+ *  drift by the S0 unit tests. (`timber-trestle` still exists as a recipe but is no longer a
+ *  ladder rung — `plank-walk` is the light-timber rung above the roundwood grammars.) */
+export const CROSSING_TIER_RECIPES = ['log', 'twin-log', 'log-rail', 'plank-walk', 'timber-beam', 'timber-arch', 'stone-arch'] as const;
 
 /** Human labels for the tiers (studio readouts / events). */
-export const CROSSING_TIER_LABELS = ['log', 'log-plank', 'timber-beam', 'timber-arch', 'stone-arch'] as const;
+export const CROSSING_TIER_LABELS = ['log', 'twin logs', 'log + rail', 'plank walk', 'timber beam', 'timber arch', 'stone arch'] as const;
 
 /** The tier a road class SUPPORTS (before the lag): the crossing can never outrun the road's
- *  earned class. 5 tiers over 4 classes — only a `highway` can carry the grand stone arch. */
-export const CLASS_CROSSING_TIER: Record<RoadClass, CrossingTier> = { path: 1, track: 2, road: 3, highway: 4 };
+ *  earned class. 7 tiers over 4 classes — a path saturates at the railed logs, a track at the
+ *  plank walk, a road at the timber arch; only a `highway` carries the grand stone arch. */
+export const CLASS_CROSSING_TIER: Record<RoadClass, CrossingTier> = { path: 2, track: 3, road: 5, highway: 6 };
 
 /** Bridges are expensive: the road earns its class FIRST, the crossing catches up a year-pass
  *  later — the crossing holds at most `CLASS_CROSSING_TIER[class] − CROSSING_LAG`. */
@@ -119,12 +123,33 @@ export const CROSSING_LAG = 1;
 export const RICH_CROSSING_MIN = 0.7;
 
 /**
+ * Per-tier EARN thresholds on `use.ema01`, INTERPOLATED between the §3 promote points (one
+ * statistic, two consumers — the class ladder's thresholds anchor the crossing ladder):
+ *
+ *   anchors:  use 0 ⇒ tier 0 (the log floor) · PROMOTE_USE.track ⇒ tier 3 (the track cap)
+ *             · PROMOTE_USE.road ⇒ tier 5 (the road cap) · PROMOTE_USE.highway ⇒ tier 6
+ *
+ * The rungs BETWEEN anchors get thresholds at even subdivisions of the gap: tiers 1–2 split
+ * [0, PROMOTE.track] in thirds; tier 4 sits halfway across [PROMOTE.track, PROMOTE.road].
+ * So a corridor's use walks the low roundwood rungs one by one instead of jumping grammar.
+ */
+export const CROSSING_EARN_USE: readonly number[] = [
+  0,                                                       // 0 log — the floor
+  PROMOTE_USE.track / 3,                                   // 1 twin logs
+  (2 * PROMOTE_USE.track) / 3,                             // 2 log + rail
+  PROMOTE_USE.track,                                       // 3 plank walk   (track cap)
+  (PROMOTE_USE.track + PROMOTE_USE.road) / 2,              // 4 timber beam
+  PROMOTE_USE.road,                                        // 5 timber arch  (road cap)
+  PROMOTE_USE.highway,                                     // 6 stone arch   (highway cap)
+];
+
+/**
  * The crossing tier an edge's crossing has EARNED (§4). Pure; the S3 store applies the same
  * streak/hysteresis discipline as the class ladder on top of this target (and never physically
  * un-builds on demotion — a stranded stone bridge on a demoted track just stops being maintained).
  *
- *  - `use01` earns a rung through the SAME promote thresholds as the class ladder (one statistic,
- *    two consumers): the earned rung is the tier of the class this use level would sustain;
+ *  - `use01` earns a rung through `CROSSING_EARN_USE` (interpolated off the SAME promote
+ *    thresholds as the class ladder — one statistic, two consumers);
  *  - the edge's ACTUAL class caps it (tier-behind-class);
  *  - LAG = 1 is subtracted (wealth ≥ RICH_CROSSING_MIN buys it back to 0);
  *  - floored at tier 0 — any graph/adopted edge crossing water gets at least the log.
@@ -132,11 +157,32 @@ export const RICH_CROSSING_MIN = 0.7;
 export function tierForUse(use01: number, roadClass: RoadClass, wealth01: number): CrossingTier {
   const u = clamp01(use01);
   const lag = clamp01(wealth01) >= RICH_CROSSING_MIN ? 0 : CROSSING_LAG;
-  let earned: CrossingTier = 1;                 // any graph edge sustains at least the path rung
-  if (u >= PROMOTE_USE.track) earned = 2;
-  if (u >= PROMOTE_USE.road) earned = 3;
-  if (u >= PROMOTE_USE.highway) earned = 4;
-  const cap = CLASS_CROSSING_TIER[roadClass] ?? 1;
+  let earned = 0;
+  for (let t = 1; t < CROSSING_EARN_USE.length; t++) if (u >= CROSSING_EARN_USE[t]) earned = t;
+  const cap = CLASS_CROSSING_TIER[roadClass] ?? 2;
   const tier = Math.min(earned, cap) - lag;
   return (tier < 0 ? 0 : tier) as CrossingTier;
+}
+
+// ── stream width vs structure (the §10 "what happens at different streams?" seam) ──
+/** Max CLEAR span (tiles; 1 tile = 2 m) each tier's structure can carry across open water
+ *  before physics says no: a single log spans ~2 tiles; the twin/railed logs the same
+ *  (rails add safety, not span); the plank walk multiplies BENTS so it walks much wider;
+ *  a single sawn beam is span-limited between its footings; the arches grow by adding bays.
+ *  Studio display + S3's min-viable-structure check both read this one table. */
+export const CROSSING_TIER_MAX_SPAN_T: readonly number[] = [2, 2, 2.5, 8, 5, 9, 14];
+
+/** True iff `tier` can physically carry a crossing of this clear span. */
+export function tierSpans(tier: CrossingTier, spanTiles: number): boolean {
+  return spanTiles <= (CROSSING_TIER_MAX_SPAN_T[tier] ?? 0);
+}
+
+/** The LOWEST tier able to span this water (the min viable structure), or null when nothing
+ *  on the ladder can (that's a ferry, not a bridge). NOT monotonic in tier — a plank walk
+ *  (bents) out-spans a single sawn beam — which is exactly the studio's teaching point. */
+export function minViableTier(spanTiles: number): CrossingTier | null {
+  for (let t = 0; t < CROSSING_TIER_MAX_SPAN_T.length; t++) {
+    if (spanTiles <= CROSSING_TIER_MAX_SPAN_T[t]) return t as CrossingTier;
+  }
+  return null;
 }
