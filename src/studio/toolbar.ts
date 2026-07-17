@@ -39,6 +39,38 @@ const moonLabel = (p: number): string =>
   p <= 0.03 ? 'new (dark)' : p >= 0.97 ? 'full' : `${Math.round(p * 100)}% ${p < 0.5 ? 'waxing' : 'gibbous'}`;
 interface ToolbarHandle { el: HTMLElement; refresh: () => void }
 
+// ── shared zoom group (− readout +) + fit button ─────────────────────────────
+// The one viewport-zoom widget every workspace mounts (buttons over shortcuts —
+// wheel/drag alone is not enough). The full object-studio toolbar composes it;
+// map-scene workspaces (Crossing Site) mount it standalone in their own bar.
+export interface ZoomGroupDeps {
+  zoomLabel: (z: number) => string;
+  getZoom: () => number;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  /** Fit/frame the subject to the view. */
+  onFit: () => void;
+  /** Fit button label/title (defaults: 'Fit' / 'Fit subject to view  F'). */
+  fitLabel?: string;
+  fitTitle?: string;
+}
+export interface ZoomGroupHandle { el: HTMLElement; fitBtn: HTMLElement; refresh: () => void }
+
+export function buildZoomGroup(deps: ZoomGroupDeps): ZoomGroupHandle {
+  const zoomRead = h('span', { class: 'sg-read' });
+  const group = h('div', { class: 'sg-group' },
+    h('button', { class: 'sg-btn', text: '−', title: 'Zoom out  [', on: { click: deps.zoomOut } }),
+    zoomRead,
+    h('button', { class: 'sg-btn', text: '+', title: 'Zoom in  ]', on: { click: deps.zoomIn } }),
+  );
+  const fitBtn = h('button', {
+    class: 'sg-btn', html: `⤢ <span style="opacity:.7">${deps.fitLabel ?? 'Fit'}</span>`,
+    title: deps.fitTitle ?? 'Fit subject to view  F', on: { click: deps.onFit },
+  });
+  const el = h('span', { style: 'display:inline-flex;align-items:center;gap:9px' }, group, fitBtn);
+  return { el, fitBtn, refresh: () => { zoomRead.textContent = deps.zoomLabel(deps.getZoom()); } };
+}
+
 const SHADOW_MODES: ShadowMode[] = ['geometry', 'silhouette', 'blob', 'off'];
 
 export function buildToolbar(host: HTMLElement, state: StudioState, deps: ToolbarDeps): ToolbarHandle {
@@ -157,14 +189,15 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     renderSkirtControls();
   }, { width: 248 });
 
-  // ── zoom group + fit toggle ──
-  const zoomRead = h('span', { class: 'sg-read' });
-  const zoomGroup = h('div', { class: 'sg-group' },
-    h('button', { class: 'sg-btn', text: '−', title: 'Zoom out  [', on: { click: () => { deps.zoomOut(); state.fit = false; } } }),
-    zoomRead,
-    h('button', { class: 'sg-btn', text: '+', title: 'Zoom in  ]', on: { click: () => { deps.zoomIn(); state.fit = false; } } }),
-  );
-  const fitBtn = h('button', { class: 'sg-btn', html: '⤢ <span style="opacity:.7">Fit</span>', title: 'Fit subject to view  F', on: { click: () => { state.fit = true; } } });
+  // ── zoom group + fit toggle (the shared widget — see buildZoomGroup) ──
+  const zoom = buildZoomGroup({
+    zoomLabel: deps.zoomLabel,
+    getZoom: deps.getZoom,
+    zoomIn: () => { deps.zoomIn(); state.fit = false; },
+    zoomOut: () => { deps.zoomOut(); state.fit = false; },
+    onFit: () => { state.fit = true; },
+  });
+  const fitBtn = zoom.fitBtn;
   // Scale mode: 'proper' = one fixed true-metric scale across every subject (a church
   // reads bigger than a cottage, both measured against the 1.7 m reference NPC);
   // 'game' = fit-to-fill each subject (the convenient ≈ in-game framing). Toggling
@@ -196,7 +229,7 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
     ));
   }, { align: 'right', width: 230 });
 
-  bar.append(sunBtn, sunReadout, dispBtn, h('span', { class: 'sg-vsep' }), faceGroup, h('span', { class: 'sg-vsep' }), zoomGroup, fitBtn, scaleBtn, h('span', { class: 'sg-vsep' }), renderBtn, kebab);
+  bar.append(sunBtn, sunReadout, dispBtn, h('span', { class: 'sg-vsep' }), faceGroup, h('span', { class: 'sg-vsep' }), zoom.el, scaleBtn, h('span', { class: 'sg-vsep' }), renderBtn, kebab);
   host.appendChild(bar);
 
   // ── keyboard shortcuts (ignored while typing in a field) ──
@@ -222,7 +255,7 @@ export function buildToolbar(host: HTMLElement, state: StudioState, deps: Toolba
       const ks = deps.keyStatus();
       const noKey = /no key/i.test(ks);
       keyTag.innerHTML = `<span style="color:${noKey ? 'var(--bad)' : 'var(--ok)'}">●</span> ${ks}`;
-      zoomRead.textContent = deps.zoomLabel(deps.getZoom());
+      zoom.refresh();
       if (state.sunMode === 'solar') {
         const sky = celestial(state.hour, state.yearFrac, state.lat, state.moonPhase);
         sunIcon.textContent = sky.body === 'moon' ? '🌙' : '☀';

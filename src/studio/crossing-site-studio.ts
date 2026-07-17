@@ -30,9 +30,10 @@ import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
-import { createCamera } from '@/render/camera';
+import { createCamera, zoomAt } from '@/render/camera';
 import { attachControls } from '@/ui/controls';
 import { fitTilesToView, quantizeStudioZoom, STUDIO_ZOOM_MAX } from './studio-camera';
+import { buildZoomGroup } from './toolbar';
 import { evaluateConnectome, type Diagnostic } from '@/world/connectome-diagnostics';
 import { buildRoadGraph, type RoadClass } from '@/world/road-graph';
 import { detectCrossings } from '@/world/connectome/detect-crossings';
@@ -46,6 +47,7 @@ import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { curveRenderElev } from '@/render/gpu/terrain-field';
 import { worldStyleOf } from '@/core/world-style';
 import { bumpTilesRev } from '@/core/tile-rev';
+import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { bridgeBlueprintByName } from '@/blueprint/presets/bridges';
 import { resolveBlueprint } from '@/blueprint/resolve';
 import { blueprintEntity } from '@/blueprint/entity';
@@ -61,7 +63,9 @@ import { injectStudioTheme, COLORS, h } from './theme';
 
 export interface StudioHandle { dispose(): void; }
 
-const PATCH = 96;  // tiles square — same site-scale patch the Site studio frames
+// Larger than the Site studio's 96: the scene should read as a LANDSCAPE — a solid landmass
+// with the stream incised into it — not a minimal test patch the river slices apart.
+const PATCH = 128;
 
 /** Default seed — verified to yield a vale channel with a clean perpendicular crossing. */
 const DEFAULT_SEED = 0x5170;
@@ -87,11 +91,14 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     container.style.background = COLORS.bg0;
     injectStudioTheme(container);
 
-    // ── scaffold: [controls | view] ──────────────────────────────────────────
+    // ── scaffold: [controls | (bar over view)] ───────────────────────────────
     const root = h('div', { style: 'position:absolute;inset:0;display:flex;flex-direction:row;overflow:hidden' });
     const panel = h('div', { class: 'sg-panel', style: 'flex:0 0 auto;width:272px;border-right:1px solid var(--line);overflow:auto;padding:12px' });
-    const viewPane = h('div', { style: 'position:relative;flex:1 1 auto;min-width:0;overflow:hidden' });
-    root.append(panel, viewPane);
+    const rightCol = h('div', { style: 'flex:1 1 auto;min-width:0;display:flex;flex-direction:column;overflow:hidden' });
+    const topBar = h('div', { class: 'sg-bar', style: 'flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:7px 10px' });
+    const viewPane = h('div', { style: 'position:relative;flex:1 1 auto;min-height:0;overflow:hidden' });
+    rightCol.append(topBar, viewPane);
+    root.append(panel, rightCol);
     container.appendChild(root);
 
     const sceneCanvas = h('canvas', { style: 'position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0' }) as HTMLCanvasElement;
@@ -103,8 +110,8 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     const gen = {
       seed: DEFAULT_SEED,
       terrain: 'vale' as 'vale' | 'plain' | 'knoll' | 'wild',
-      relief: 16,          // mountainRelief style override (m)
-      riverDensity: 0.45,  // stream scale — inverse-tunes the flow threshold (W ∝ √Q)
+      relief: 32,          // mountainRelief style override (m) — thick land, banks above water
+      riverDensity: 0.5,   // stream scale — inverse-tunes the flow threshold (W ∝ √Q)
     };
     const econ = {
       use: 0.4, wealth: 0.3, cls: 'road' as RoadClass,
@@ -129,7 +136,12 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     const cam = createCamera();
     const dev: Record<string, unknown> = {};
 
-    const buildingSource = new ParametricBuildingSource();
+    // keepStages ⇒ the INLINE compose path (offthread=false). The bridge is a `building`
+    // to the draw list, and its arch/manifold geometry composes on the MAIN thread here
+    // (mount ran initManifoldWasm) — the worker pool's manifold isn't initialised, so the
+    // default off-thread path silently hangs on the bridge (flora needs no manifold, so it
+    // rendered while the crossing never appeared). Every other studio keeps this inline path.
+    const buildingSource = new ParametricBuildingSource({ keepStages: true });
     const plantSource = new ParametricPlantSource();
     const barrierSource = new ParametricBarrierSource();
 
@@ -151,6 +163,23 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
       getMaxZoom: () => STUDIO_ZOOM_MAX,
       onRedraw: () => {},
     });
+
+    // ── top bar: status tag + the SHARED zoom group (same widget as the object
+    // studio's toolbar; buttons drive zoomAt through the same rung quantizer the
+    // wheel uses — one zoom code path). "Frame crossing" is this scene's Fit.
+    const sceneTag = h('span', { class: 'sg-tag', style: 'font-size:12px', text: '🏞 crossing site' });
+    const zoomStep = (dir: 1 | -1): void =>
+      zoomAt(cam, dir > 0 ? 2 : 0.5, cssW / 2, cssH / 2, quantizeStudioZoom, STUDIO_ZOOM_MAX);
+    const zoomBar = buildZoomGroup({
+      zoomLabel: (z) => (z >= 1 ? `${Math.round(z)}×` : `1/${Math.round(1 / z)}×`),
+      getZoom: () => cam.zoom,
+      zoomIn: () => zoomStep(1),
+      zoomOut: () => zoomStep(-1),
+      onFit: () => frameCrossing(),
+      fitLabel: 'Frame crossing',
+      fitTitle: 'Fit the view on the detected crossing',
+    });
+    topBar.append(sceneTag, h('span', { style: 'flex:1 1 auto' }), zoomBar.el);
 
     // ── controls ─────────────────────────────────────────────────────────────
     panel.appendChild(h('div', { style: 'font:700 13px var(--font-mono);color:#e8eef6;margin-bottom:10px', text: '🏞 Crossing Site' }));
@@ -201,7 +230,8 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     slider('Stream scale (riverDensity)', 0.2, 1.5, 0.05, () => gen.riverDensity, (v) => { gen.riverDensity = v; }, () => void regenerate());
 
     const regenBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-top:12px', text: '↻ Regenerate patch' });
-    regenBtn.onclick = () => void regenerate(); panel.appendChild(regenBtn);
+    regenBtn.onclick = () => void regenerate();
+    panel.appendChild(regenBtn);
 
     // — crossing-economy (re-expression) dials —
     panel.appendChild(h('div', { style: 'border-top:1px solid var(--line);margin:14px 0 2px' }));
@@ -237,6 +267,18 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     // ── expression ───────────────────────────────────────────────────────────
     const invalidateDrawCache = (): void =>
       (window as unknown as { __invalidateDrawCache?: () => void }).__invalidateDrawCache?.();
+
+    // Art-settle reveal: async sprite packs (flora, the bridge) stream in AFTER the
+    // static draw list first builds, and in the studio context their rev stream doesn't
+    // reliably reach the cache's debounce — so after every (re)expression, re-cut the
+    // static list on a decaying schedule to pick up whatever has settled. Bounded cost
+    // (a handful of rebuilds), and a dial move reschedules it anyway.
+    let revealTimers: number[] = [];
+    function scheduleArtReveal(): void {
+      for (const t of revealTimers) clearTimeout(t);
+      revealTimers = [2000, 5000, 10000, 20000, 40000, 80000].map((ms) =>
+        window.setTimeout(() => { if (!disposed) invalidateDrawCache(); }, ms));
+    }
 
     function currentTier(): CrossingTier { return tierForUse(econ.use, econ.cls, econ.wealth); }
 
@@ -274,7 +316,7 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
               return edge ? edgeRoadProfile(map, edge, nodeById, poiById)?.state.surfaceMaterial : undefined;
             },
           });
-          if (e) { world.addEntity(e); bridgeIds.push(e.id); }
+          if (e) { world.addEntity(e); bridgeIds.push(e.id); buildingSource.warm(e); }
         } else {
           // The tier-recipe preview — the S3 CrossingTierStore's swap, done live: the earned
           // rung's canonical `bridge-<recipe>` preset (or the min-viable structure when the
@@ -296,11 +338,13 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
             (e.properties as Record<string, unknown>).liftElev = Math.max(elev(b0.x, b0.y), elev(b1.x, b1.y));
             world.addEntity(e);
             bridgeIds.push(e.id);
-          }
+            buildingSource.warm(e);   // kick the compose NOW — don't wait for the draw list to
+          }                           // iterate it (the static cache is cut before it settles)
         }
       }
       syncReadout();
       invalidateDrawCache();
+      scheduleArtReveal();
     }
 
     /** Re-express the road + crossing over the SAME terrain (class dial / after regen). */
@@ -325,6 +369,11 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
         map.roadGraph = graph;
         reconcileCenterlineBows(map);          // pin bowed splines back onto the walked row
         reconcileRoadTileVisibility(map);      // orphaned carve cells paint honestly
+        // The same reconcile worldgen runs AFTER its road carve: trees standing on the
+        // fresh road/bridge tiles are cleared, so the crossing isn't swallowed by the
+        // riverside canopy. (Flora cleared by a previous expression stays gone until
+        // the next regen — the patch regenerates it with the terrain.)
+        clearObstructedVegetation(world, map);
         const wet = getRenderWaterMask(map);
         specs = detectCrossings(graph, map.width, {
           isWater: wet, bridgeAt: wet,
@@ -337,6 +386,26 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
           return (mx - pick!.site.x) ** 2 + (my - pick!.site.y) ** 2;
         };
         spec = specs.length ? specs.reduce((a, b) => (d2(b) < d2(a) ? b : a)) : null;
+        // Open the crossing SURROUNDS: riverside canopy a tile off the road still
+        // overhangs the deck in iso view, hiding the studio's whole subject. A used
+        // crossing approach is trampled/cut clear in reality, so fell flora within a
+        // small disc of the crossing midpoint.
+        if (spec) {
+          const [b0, b1] = bankAnchors(spec);
+          const mx = (b0.x + b1.x) / 2, my = (b0.y + b1.y) / 2;
+          const md = mx + my;    // the crossing's iso depth (screen-y ∝ x+y)
+          for (const e of world.query({ kind: 'vegetation' })) {
+            const dx = e.x - mx, dy = e.y - my;
+            const near = dx * dx + dy * dy <= 6 * 6;   // a disc immediately around the deck
+            // Canopy sprites draw UP from their foot, so a tree standing in FRONT (greater
+            // iso depth) still overhangs the deck from several tiles back. Clear that forward
+            // lobe: trees within a screen-column of the crossing (screen-x ∝ x−y) and 0–9
+            // tiles nearer the camera. Without it the studio's whole subject hides under a crown.
+            const front = e.x + e.y - md;
+            const overhang = front >= 0 && front <= 9 && Math.abs(dx - dy) <= 6;
+            if (near || overhang) world.removeEntity(e.id);
+          }
+        }
       } else {
         map.roadGraph = undefined;
       }
@@ -349,6 +418,12 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     // ── full regen (terrain dials) ───────────────────────────────────────────
     async function regenerate(refit = false): Promise<void> {
       const token = ++regenToken;
+      // Honest feedback BEFORE the long await: a cold first gen (manifold wasm + a 128²
+      // patch + erosion + brushes) is ~50s of black canvas, and silence reads as broken.
+      // Set the status the moment we start — the browser paints it before the await blocks.
+      sceneTag.textContent = '🏞 generating terrain…';
+      readout.textContent = 'generating terrain + hydrology…\n(a cold first patch takes a moment)';
+      diagBox.textContent = '';
       // Same site-scale framing as the Site studio: a land patch (island:false), warm
       // shallow-lapse climate, style knobs under `overrides` (bare style is dropped).
       const ws: WorldSeed = {
@@ -373,8 +448,24 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
       if (refit) fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH);
     }
 
+    /** Fit the view on the detected crossing (falls back to the site pick / whole patch). */
+    function frameCrossing(): void {
+      if (!map) return;
+      const c = spec
+        ? (() => { const [b0, b1] = bankAnchors(spec); return { x: (b0.x + b1.x) / 2, y: (b0.y + b1.y) / 2 }; })()
+        : pick?.site;
+      if (!c) { fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH); return; }
+      const R = 14;   // half-window (tiles) — the crossing + both approaches in frame
+      fitTilesToView(cam,
+        Math.max(0, c.x - R), Math.max(0, c.y - R),
+        Math.min(map.width, c.x + R), Math.min(map.height, c.y + R), cssW, cssH);
+    }
+
     // ── readouts ─────────────────────────────────────────────────────────────
     function syncReadout(): void {
+      sceneTag.textContent = !map
+        ? '🏞 generating…'
+        : `🏞 seed ${gen.seed} · ${gen.terrain} · ${spec ? `crossing ${spec.spanTiles}t` : 'no crossing'}`;
       if (!map) { readout.textContent = 'generating…'; return; }
       if (!pick) {
         readout.textContent = '✕ no crossable stream on this patch\n— reroll the seed or raise the stream scale';
@@ -433,6 +524,10 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
         npcs: [], npcSheets: new Map(),
         world, lighting, visualMap: visualMap ?? undefined,
         devMode: dev as unknown,
+        // Folds into the static draw-cache art-rev debounce so flora/bridge sprites
+        // texture in as their async packs settle (without it the first draw-list
+        // snapshot freezes dot/flatblock placeholders forever — game parity).
+        buildingArtRev: buildingSource.version() + plantSource.version() + barrierSource.version(),
         resolveParametricBuildingArt: (e: Entity) => { const s = buildingSource.peek(e); if (s) return s; buildingSource.warm(e); return null; },
         resolveParametricPlantArt: (kind: string) => { const s = plantSource.peek(kind); if (s) return s; plantSource.warm(kind); return null; },
         resolveParametricBarrierArt: (e: Entity) => { const s = barrierSource.peek(e); if (s) return s; barrierSource.warm(e); return null; },
@@ -442,6 +537,7 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     function frame(): void {
       if (disposed) return;
       if (map) render(ctx, renderContext());
+      zoomBar.refresh();
       rafId = requestAnimationFrame(frame);
     }
     rafId = requestAnimationFrame(frame);
@@ -474,8 +570,23 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
         return regenerate();
       },
       map: () => map,
+      frame: () => frameCrossing(),
       state: () => ({ ...gen, ...econ, pick, crossings: specs.length, spanTiles: spec?.spanTiles ?? null }),
+      /** Read-only inspector: the crossing structure entities + whether their sprite has
+       *  composed yet (mirrors __siteStudio). Handy from the bus/console while tuning. */
+      bridges: () => bridgeIds.map((id) => {
+        const e = world.query({}).find((x) => x.id === id);
+        if (!e) return { id, missing: true };
+        return {
+          id: e.id, kind: e.kind, x: e.x, y: e.y,
+          liftElev: (e.properties as { liftElev?: number }).liftElev,
+          composed: buildingSource.peek(e) ? true : false,
+        };
+      }),
       grab: () => {
+        // A WebGPU canvas detaches its swap chain after present — render one fresh frame
+        // and read it back in the SAME task (the debug-api capture lesson).
+        if (map) render(ctx, renderContext());
         const out = document.createElement('canvas');
         out.width = sceneCanvas.width; out.height = sceneCanvas.height;
         const g = out.getContext('2d')!;

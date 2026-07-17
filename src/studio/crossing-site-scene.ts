@@ -40,9 +40,9 @@ export interface CrossingSitePick {
  *  (CROSSING_TIER_MAX_SPAN_T tops out at 14; the raster run is usually narrower than the
  *  spanned ribbon, so keep some headroom under that). */
 const MAX_CHANNEL_T = 8;
-/** How far (tiles) each road endpoint sits back from its bank — enough approach for the
- *  walker to express a real ribbon, short enough to stay a site-scale scene. */
-const SETBACK_T = 7;
+/** How far (tiles) each road endpoint sits back from its bank — a generous approach so the
+ *  expressed ribbon reads as a ROAD arriving at a crossing, not a stub (still site-scale). */
+const SETBACK_T = 16;
 /** Extra outward steps allowed when the setback cell lands in water (a meander loop). */
 const SETBACK_EXTRA_T = 6;
 /** Keep endpoints this far off the patch edge (the walker needs working room). */
@@ -90,7 +90,10 @@ export function pickCrossingSite(map: GameMap): CrossingSitePick | null {
     const a = landEndpoint(map, bankA, horizontal ? -1 : 0, horizontal ? 0 : -1);
     const b = landEndpoint(map, bankB, horizontal ? 1 : 0, horizontal ? 0 : 1);
     if (!a || !b) return;
-    const score = width * 2 + (Math.abs(site.x - cx) + Math.abs(site.y - cy)) * 0.05;
+    // Prefer a REAL stream (~3 tiles) over the narrowest neck: a 1-cell head reads as a
+    // ditch and the bridge stands on barely-visible water; too wide and only the top
+    // tiers span it. Then prefer central (the scene's focal point).
+    const score = Math.abs(width - 3) * 2 + (Math.abs(site.x - cx) + Math.abs(site.y - cy)) * 0.05;
     if (score < bestScore) {
       bestScore = score;
       best = { site, axis: pickAxis, channelT: width, a, b };
