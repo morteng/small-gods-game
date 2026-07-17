@@ -391,3 +391,76 @@ owned-stamp deformation-memo key (S4); runtime complex rings exempt from
 this section: blocker 2 (the bare 28-gon ring vs `deriveSettlementRing` geometry),
 `keepProximity` growth weights, timber→stone `keepTier` progression, and any automatic
 foundation trigger / Fate tool exposure.
+
+---
+
+## Reality check (2026-07-17) — M5 SHIPPED (knights: the garrison gets teeth)
+
+Implemented per the slice table (needs M3 + M4 — both shipped above): **knights are
+`kind:'npc'`, `role:'soldier'`** exactly as this section demands — no new entity kind, no
+GPU-pass work, no combat system, no auto-foundation trigger. The slice makes the castle's
+garrison DO the two things the spec's paragraph asks of it — *patrol out from the keep* and
+*carry the extraction (M0.c)* — plus become bindable by M6 from the crowd it preys on.
+
+- **Dominion links (the extraction radius).** `world.dominions` (gripped settlement →
+  castle poiId) is DERIVED truth, re-derived from runtime-POI provenance
+  (`foundedFromPoiId` — the same key as the one-castle-per-seat gate) by
+  `rebuildDominions` in three places: LordSystem hourly, `foundCastle` on commit, and
+  `restoreSnapshot` (so the reach is correct immediately after a scrub, never an hour
+  stale). Link *existence* is provenance; link *activeness* is read-time
+  (`grippingSeatOf`: seated castle lord AND `garrison > 0`) — **no knights, no reach**.
+  Kill or lure away the garrison and the village breathes on the very next read.
+- **The knights CARRY the tithe.** `titheRateFor` (the ONE M0.c read, and the rate
+  LordSystem presses onto cohorts) is now the settlement's *effective* rate:
+  `max(local seat, gripping castle seat)` — a local lord and a gripping castle never
+  stack (the heavier hand takes; rival-lord contention over the difference is future
+  work, same bucket as rival-vs-rival). **Both population tiers, by construction:** the
+  named tier reads `titheRateFor` per work completion (unchanged choke point); LordSystem
+  presses the same effective rate onto every gripped settlement's cohorts — including
+  gripped settlements with NO local seat, which previously fell outside the seats loop.
+  A gripped village's local seat also relaxes its `unrest` toward the effective rate (the
+  crowd's anger tracks what it actually loses).
+- **Grip transitions are events with real consumers.** `grip_taken` / `grip_broken`
+  (fields: `castlePoiId`, `poiId`, garrison on take) are logged hourly by LordSystem off
+  the castle seat's new `gripsPoiId` transition memory (rides the snapshotted `LordState`
+  — replay/scrub honest; pre-M5 saves restore ungripped and re-take within a game hour).
+  A castle seat that LAPSES (line spent) logs `grip_broken` on the way out. Consumed by
+  the chronicler (weight 7 both, annalistic clauses) and the seek/landing interest band
+  (`grip_taken` rank 64, `grip_broken` 56); Fate's lord digest names the gripped
+  settlement per castle seat. Boundary guard green.
+- **Patrols ride the existing movement.** New `NpcActivity` `'patrol'`: a soldier homed
+  at a castle whose seat grips a settlement legs between keep and the gripped anchor
+  (`patrolAnchorFor` reads the projected POI directory; `PATROL_TURN_RADIUS` 5 tiles —
+  spatial, not a tick constant), through the normal activity-target → pathfinding →
+  desire-line-trample machinery — the castle's road wears in under their hooves (M4 S5's
+  access story, now with a standing traffic source). Village soldiers still drill at
+  `work` — ambient behavior unchanged.
+- **Knight pay IS the upkeep loop, minimally.** The spec's economic rationale ("a knight
+  is expensive ⇒ he must extract") is modeled without a wealth stock (M0.c model (b)
+  stays rejected): completing a patrol restores prosperity scaled by
+  `castleTithe / DEFAULT_TITHE` (capped at full). At the customary tithe a knight eats;
+  under a sworn Peace cap (0.05) his pay HALVES; a tithe-0 lord starves his knights until
+  they pray like any desperate mortal (M0.a) — bind the lord and the knights themselves
+  become a mission field. No revolt/desertion mechanics — unrest still has no consumer
+  beyond the Fate digest (unchanged future-work bucket, per M3/M6 notes).
+- **The Peace of God now binds the coercion where it is felt.** `proclaim_peace` binds
+  every seat whose armed men hold the target ground (`assemblySeatIdsAt`: the local seat
+  AND the gripping castle's seat), one devotion cost from the TARGET settlement's
+  congregation — so a gripped village with no lord of its own can call the castle's
+  knights before the relics, paid for by the crowd that suffers them (historically the
+  point of the institution). Per bound seat: own `PeaceOath`, own `peace_proclaimed`
+  event (they lapse independently), sworn men from that seat's residents; sworn knights
+  living at the castle get the memory stamp the crowd stamp can't reach. The registry
+  precondition mirrors the resolution (`invalid_target` only when NO seat answers for
+  the place). `bind_oath` needed no change. No new verbs ⇒ no registry-count or
+  hover-ranking pin movement.
+
+**Ambiguities resolved (minimal honest slice):** the spec's patrol sentence says knights
+patrol "along the existing road/desire-line network" — patrols path with the ordinary
+pathfinder (which already prefers roads) and *deposit* desire lines rather than being
+constrained to them; extraction reach is binary-per-settlement (the founding village via
+provenance), not a geometric radius — a real radius wants the affordance-graph epic.
+Statistical-tier BELIEF response to the grip remains absent (P2 of the two-tier epic, the
+standing M3/M6 resolution). No `SAVE_VERSION` / `WORLD_CONTENT_VERSION` bump: `gripsPoiId`
+is an optional field on an already-snapshotted record, `world.dominions` is derived, and
+nothing about generation changed.
