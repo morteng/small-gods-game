@@ -296,3 +296,35 @@ gotcha). ART_RECIPE_VERSION: expected untouched (additive prims precedent); conf
 7. **Rival/Fate hooks:** should Fate get a constrained tool to nudge an edge's use/wealth
    (era-authoring: "the pilgrim road"), or does it only *observe* the SimEvents in S2? Spec'd
    observe-only; a `nudge_road_use` tool is a natural follow-up under the ±cap discipline.
+
+---
+
+## 9 · Decisions (2026-07-17, user-ratified)
+
+Rulings on §8, in force for the slice plan. Where a ruling overrides a spec'd default above,
+this section wins.
+
+1. **Gate now, spend later.** `highway` requires a gripping lord seat (boolean gate) in S2.
+   Upgrading to a real tithe spend waits until the lord economy has a competing drain (revolt /
+   pressure consumer) — spending from a purse nothing else drains is fake tension.
+2. **Separate.** Trample footfall never feeds edge `use`; trails earn adoption through the wear
+   ledger only. (As spec'd.)
+3. **One-way in S4; reversibility is a named follow-up.** Un-adoption (an `emergent` path
+   demoted out of the graph, reverting to trample dirt that fades) is wanted eventually — the
+   full circle of a path being born and forgotten — but not in the first cut of the hairiest
+   slice.
+4. **The trail gets its log — OVERRIDES the §4 adoption-gated default.** A *promoted trample
+   corridor* (pre-adoption) that crosses a stream gets the strategically-placed tier-0 log:
+   the corridor ledger (§5) gains an optional crossing-site entry
+   `{ corridorId, x, y, tier: 0, entityId }` and S3's `CrossingTierStore`/reconcile machinery
+   owns the entity exactly as it owns edge crossings (same store, `edgeId | corridorId` union
+   key — no parallel system). Adoption (S4) inherits the site onto the new edge. The log on the
+   humble trail is the epic's founding image; it must not wait for graph membership. Slice
+   impact: S3 grows the union key + corridor-crossing detection (promoted-cell chain crossing a
+   water run ≤ 3 tiles wide); S4's inheritance is a ledger re-key.
+5. **Threshold shape approved** (one step per year-pass, promote-fast 2 / demote-slow 4).
+   Numbers settle in the S0 studio dials.
+6. **Gen-time use-prior convergence: deferred to the roadmap.** (As spec'd.)
+7. **Fate observes in S2** (`road_promoted/demoted/adopted` SimEvents → tidings/chronicle/eras).
+   A constrained `nudge_road_use` tool joins the Fate-pacing epic later, under the ±cap
+   discipline. (As spec'd.)
