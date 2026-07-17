@@ -11,8 +11,8 @@
  * sets it true, from the pure predicate registry.
  */
 import type { GameState } from '@/core/state';
-import type { ArcPortent, FateArc } from './arc-types';
-import { isArcLive } from './arc-types';
+import type { ArcPortent, ArcPressure, FateArc } from './arc-types';
+import { isArcLive, MAX_APPLIED_PRESSURES } from './arc-types';
 import { evalArcPredicate } from './arc-predicates';
 
 export class FateArcStore {
@@ -50,6 +50,46 @@ export class FateArcStore {
     arc.stage = 'abandoned';
     arc.abandonedReason = reason;
     return true;
+  }
+
+  /**
+   * F5: the arc LANDED — every goal holds. Returns false (no mutation) for an
+   * unknown or already-finished arc, mirroring `abandon`.
+   */
+  land(id: number): boolean {
+    const arc = this.arcs.get(id);
+    if (!arc || !isArcLive(arc)) return false;
+    arc.stage = 'landed';
+    return true;
+  }
+
+  /**
+   * F5: record one applied pressure onto every LIVE arc it served — the weaving
+   * audit trail. Per served arc: append to `applied` (a bounded ring —
+   * MAX_APPLIED_PRESSURES — so the snapshot stays small, spec §8.1), spend one
+   * point of `pressureBudget` (floored at 0; parse refuses claims on a spent
+   * arc), and promote a 'seeded' arc to 'building' (Fate has now ACTED on it).
+   * `servedArcs` is deduped and filtered to the arcs actually live at apply time
+   * — the recorded trail never names an arc the pressure did not truly serve.
+   * Returns the ids recorded; empty means the pressure served nothing (the
+   * caller should drop it — same race discipline as plantPortent).
+   */
+  recordPressure(pressure: ArcPressure): number[] {
+    const served = [...new Set(pressure.servedArcs)].filter((id) => {
+      const a = this.arcs.get(id);
+      return !!a && isArcLive(a);
+    });
+    if (served.length === 0) return [];
+    for (const id of served) {
+      const arc = this.arcs.get(id)!;
+      arc.applied.push({ ...structuredClone(pressure), servedArcs: [...served] });
+      if (arc.applied.length > MAX_APPLIED_PRESSURES) {
+        arc.applied.splice(0, arc.applied.length - MAX_APPLIED_PRESSURES);
+      }
+      arc.pressureBudget = Math.max(0, arc.pressureBudget - 1);
+      if (arc.stage === 'seeded') arc.stage = 'building';
+    }
+    return served;
   }
 
   /**
