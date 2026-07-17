@@ -20,8 +20,13 @@ describe('bridge presets (shared game-code bridge module)', () => {
       expect(rb!.preset).toBe(n);
       const parts = Object.values(rb!.parts ?? {});
       expect(parts.length).toBeGreaterThan(0);
-      // Every bridge grounds its ends on two abutments (resolve re-keys parts to indices).
-      expect(parts.filter((p) => p.type === 'abutment').length).toBe(2);
+      // Every bridge grounds its ends on at least two abutment-type parts. Multi-bay masonry
+      // bridges add MORE of them (joint piers + plinth footings reuse the stepped-batter
+      // abutment vocabulary), so the invariant is a floor, and always an even count (the
+      // pier/plinth pairs come in twos, as do the end footings).
+      const abuts = parts.filter((p) => p.type === 'abutment').length;
+      expect(abuts, n).toBeGreaterThanOrEqual(2);
+      expect(abuts % 2, n).toBe(0);
     }
   });
 

@@ -113,10 +113,33 @@ export function archBridge(opts: {
         parapet, baseZM: deckBaseZM, camberM },
     };
   }
-  for (let i = 0; i < bays; i++) {    // arches abut edge-to-edge → continuous spandrel wall
+  // Masonry multi-bay: adjacent openings must NOT abut edge-to-edge — that leaves only the
+  // thin cusp between two arcs as the "pier", vanishing to nothing at the springing line with
+  // no mass at the waterline. Real practice (and the bridge-stone-arch TTI reference): a stout
+  // battered pier stands between the openings on a flared plinth footing. The timber perBayHump
+  // path keeps the historic abutting layout (its joints get their own stout round piers).
+  const roadM = roadTiles * M;
+  const pierM = !perBayHump && bays >= 2 ? Math.max(1.2, roadM * 0.35) : 0;
+  const openM = (spanTiles * M - (bays - 1) * pierM) / bays;
+  for (let i = 0; i < bays; i++) {
     parts[`arch${i + 1}`] = {
-      type: 'arch_span', at: { x: 0.5 + i * bay, y: y0 }, size: { w: Math.ceil(bay), h: roadTiles },
-      params: { spanM: bay * M, riseM, thicknessM: roadTiles * M, dir: 'ew', style, ringDepthM: ARCH_RING_M },
+      type: 'arch_span', at: { x: 0.5 + (i * (openM + pierM)) / M, y: y0 }, size: { w: Math.ceil(openM / M), h: roadTiles },
+      params: { spanM: openM, riseM, thicknessM: roadM, dir: 'ew', style, ringDepthM: ARCH_RING_M },
+    };
+  }
+  for (let j = 1; j < bays && pierM > 0; j++) {
+    const cxT = 0.5 + (j * openM + (j - 0.5) * pierM) / M;
+    const cyT = y0 + roadTiles / 2;
+    // Battered pier shaft, bed → deck underside, proud of the spandrel faces; the reference's
+    // pier mass. The stepped-batter abutment stack IS the flared foot.
+    parts[`pier${j}`] = {
+      type: 'abutment', at: { x: cxT - 0.5, y: cyT - 0.5 }, size: { w: 1, h: 1 },
+      params: { heightM: deckBaseZM, widthM: roadM + 0.7, depthM: pierM, batter: 0.18, dir: 'ew' },
+    };
+    // Distinct plinth footing at the waterline, a step wider than the shaft all round.
+    parts[`plinth${j}`] = {
+      type: 'abutment', at: { x: cxT - 0.5, y: cyT - 0.5 }, size: { w: 1, h: 1 },
+      params: { heightM: 0.55, widthM: roadM + 1.5, depthM: pierM + 0.8, batter: 0.2, dir: 'ew' },
     };
   }
   addAbutments(parts, 0.5, 0.5 + spanTiles, y0 + roadTiles / 2, roadTiles, deckBaseZM);
