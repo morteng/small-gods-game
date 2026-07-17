@@ -8,6 +8,7 @@ import type { FateArc } from '@/sim/fate/arc-types';
 import type { ChronicleEntry } from '@/core/chronicle-store';
 import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
+import type { RuntimePoiSnapshot } from '@/world/runtime-poi';
 import type { TrampleSnapshot } from '@/sim/trample';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
@@ -15,6 +16,7 @@ import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 import { TrampleGrid } from '@/sim/trample';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
+import { projectRuntimePois, reconcileRuntimePoiStamps } from '@/world/runtime-poi';
 
 export interface Snapshot {
   /** Sim tick count at capture time. */
@@ -54,6 +56,13 @@ export interface Snapshot {
   /** W-I: live causal sites (ephemeral event-born places). Optional so pre-W-I saves
    *  + partial test states deserialize without it. */
   causalSites?: CausalSiteSnapshot;
+  /** M4: permanent runtime-created POIs (the lord's castle) + the physical stamp
+   *  each owns. Restore re-projects `worldSeed.pois` and reconciles the owned
+   *  `map.earthworks`/`map.barrierRuns`, so a scrub to before a foundation
+   *  un-builds it. Optional so pre-M4 saves + hand-built test snapshots restore
+   *  to an empty store (no SAVE_VERSION bump — the established optional-field
+   *  precedent, spike §1.8). */
+  runtimePois?: RuntimePoiSnapshot;
   /** Desire-line trample grid (sparse accumulator + promoted-trail originals).
    *  Optional so pre-trample saves + partial test states deserialize without it. */
   trample?: TrampleSnapshot;
@@ -128,6 +137,9 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     weather: state.weather?.serialize(),
     floodedPlaces: state.floodWatch?.floodedPlaceIds(),
     causalSites: state.causalSites?.serialize(),
+    // Optional chaining: partial test states may omit the store; `serialize()`
+    // deep-clones internally (entries are tiny), so the live/deep split is moot.
+    runtimePois: state.runtimePois?.serialize(),
     trample: state.trample?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
@@ -213,6 +225,21 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   state.floodWatch?.hydrateFlooded(snap.floodedPlaces ?? []);
   // W-I: restore live causal sites (or clear them for a pre-W-I snapshot).
   state.causalSites?.hydrate(snap.causalSites ?? { sites: [], nextId: 0 });
+
+  // M4: restore the runtime-POI store (or clear it for a pre-M4 snapshot), then
+  // re-assert BOTH of its world projections: the POI directory (`worldSeed.pois`
+  // — a scrub un-lists a castle founded after the restore point, and a stale
+  // save projection is dropped as an orphan) and the physical stamp
+  // (`map.earthworks`/`map.barrierRuns` — the motte, ditch and walls un-build /
+  // re-build with the store; the deformation memo re-keys off the counts, and
+  // no `tile.type` is written so no `bumpTilesRev`). Barrier/keep ENTITIES come
+  // back via `snap.entities` above — this keeps the map-level dual
+  // representation in lockstep with them.
+  if (state.runtimePois) {
+    state.runtimePois.hydrate(snap.runtimePois ?? { entries: [], nextId: 1 });
+    projectRuntimePois(state.runtimePois, [state.worldSeed, state.map.worldSeed]);
+    reconcileRuntimePoiStamps(state.map, state.runtimePois);
+  }
 
   // WP-D scrub-ghost pattern: restore internal tick-system state (cooldowns,
   // edge-detection sides, believed/lapsed history) so a committed scrubbed

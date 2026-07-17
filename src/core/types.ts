@@ -158,6 +158,16 @@ export interface POI {
    * absent → the type default (optionally grown by `size` via summitSizeBoost).
    */
   summitM?: number;
+  /**
+   * TRUE for a POI created AT RUNTIME (an M4 `RuntimePoiStore` projection — the
+   * lord's castle), never authored by hand. Runtime POIs are HEIGHTFIELD-INERT by
+   * rule: `poiHeightSignature` and `applyPoiInfluences` skip them (their ground
+   * expression is earthworks via the deformation channel, so founding a castle
+   * never regenerates base terrain), and the projection into `worldSeed.pois` is
+   * reconciled against the store on every snapshot restore (add missing, remove
+   * orphans). See `src/world/runtime-poi.ts`.
+   */
+  runtime?: boolean;
 }
 
 /** NPC definition */

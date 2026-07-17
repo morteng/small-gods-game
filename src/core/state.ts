@@ -11,6 +11,7 @@ import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { FateArcStore } from '@/sim/fate/arc-store';
 import { ChronicleStore } from '@/core/chronicle-store';
 import { SystemStateRegistry } from '@/core/system-state';
+import { RuntimePoiStore } from '@/world/runtime-poi';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
@@ -89,6 +90,12 @@ export interface GameState {
    *  Reconciled by `WeatherSystem` against the flood field each tick; its live sites
    *  are snapshotted. Null until a world is seeded. */
   causalSites: CausalSiteStore | null;
+  /** M4: permanent runtime-created POIs (the lord's castle) — the snapshot-
+   *  authoritative store whose entries are PROJECTED into `worldSeed.pois` as
+   *  real `runtime: true` POI records and whose owned earthworks/barrier runs
+   *  are reconciled onto the map on every snapshot restore (a scrub un-builds
+   *  the castle). See `@/world/runtime-poi`. */
+  runtimePois: RuntimePoiStore;
   /** Emergent desire-line trample grid: NPC footfall accumulates here and wears
    *  soft ground down to `dirt` trails (`@/sim/trample`). Prewarmed at gen from
    *  authored roads/markets, fed at runtime by the trample systems, captured in
@@ -156,6 +163,7 @@ export function createState(): GameState {
     weather: null,
     floodWatch: null,
     causalSites: null,
+    runtimePois: new RuntimePoiStore(),
     trample: null,
     cohorts: new Map(),
   };

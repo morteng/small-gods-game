@@ -77,7 +77,16 @@ export interface BarrierRun {
 /** A barrier as committed by worldgen: its entity id + the run. Persisted on `GameMap`
  *  (plain data → rides `structuredClone(map)` in the save) so the terrain foundation carve
  *  is a pure function of the map, like settlement plans and the road graph. */
-export interface PlacedBarrier { id: string; run: BarrierRun }
+export interface PlacedBarrier {
+  id: string;
+  run: BarrierRun;
+  /** M4 provenance: the runtime POI (`castle:0001`) that committed this run to
+   *  `map.barrierRuns`. Absent on gen-time/studio runs. Owned entries are
+   *  reconciled against the `RuntimePoiStore` on snapshot restore, so a scrub to
+   *  before the foundation removes the ring walls — in lockstep with the barrier
+   *  ENTITIES the snapshot restores (`@/world/runtime-poi`). */
+  ownerPoiId?: string;
+}
 
 export const BARRIER_DEFAULTS: Record<BarrierKind, Omit<BarrierRun, 'kind' | 'path' | 'gates'>> = {
   wall:      { height: mToTiles(3.0), thickness: 1, material: 'stone',  crenellated: false }, // 3.0 m
