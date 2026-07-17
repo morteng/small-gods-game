@@ -59,6 +59,7 @@ import { mountGalleryStudio } from './gallery-studio';
 import { mountZooStudio } from './zoo-studio';
 import { mountSiteStudio } from './site-studio';
 import { mountCrossingStudio } from './crossing-studio';
+import { mountCrossingSiteStudio } from './crossing-site-studio';
 import { buildAbSection } from './ab-section';
 import { buildTree } from './blueprint-tree';
 import { buildToolbar } from './toolbar';
@@ -1772,6 +1773,7 @@ const WORKSPACES: Workspace[] = [
   { id: 'world', label: '🌍 World', mount: (host, ctx) => mountWorldStudio(host, { onEdit: (k) => ctx.open('object', k) }) },
   { id: 'site', label: '🏰 Site', mount: (host) => mountSiteStudio(host) },
   { id: 'crossings', label: '🌉 Crossings', mount: (host) => mountCrossingStudio(host) },
+  { id: 'crossing-site', label: '🏞 Crossing Site', mount: (host) => mountCrossingSiteStudio(host) },
 ];
 
 /** Map a ?studio= param to an initial (workspace id, arg). Unknown → Object/<param>. */
@@ -1780,6 +1782,7 @@ function initialWorkspace(param: string | null): { id: string; arg?: string } {
     case 'world': return { id: 'world' };
     case 'site': return { id: 'site' };
     case 'crossings': case 'crossing': return { id: 'crossings' };
+    case 'crossingsite': case 'crossing-site': return { id: 'crossing-site' };
     case 'zoo': return { id: 'zoo' };
     case 'gallery': case '1': case null: return param === 'gallery' ? { id: 'gallery' } : { id: 'object' };
     case 'arboretum': return { id: 'gallery', arg: 'plant' };
