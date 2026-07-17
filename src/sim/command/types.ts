@@ -19,6 +19,9 @@ export type CommandVerb =
   // divine tier — belief-CONTENT gated dramatic actions (Track B, what believers
   // think you can do unlocks the verb; see src/sim/belief-domains.ts)
   | 'smite' | 'summon_storm'
+  // divine tier — the Peace of God (mortal-power M6): spends the congregation's
+  // DEVOTION (never power) to bind a seated lord's armed men by oath
+  | 'proclaim_peace' | 'bind_oath'
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
   | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building' | 'grow_settlement'
   | 'rename_ward' | 'retype_ward' | 'set_rival_stance' | 'set_lord_stance'

@@ -10,6 +10,7 @@ import type { NpcRole, SettlementEventType } from '@/core/types';
 import type { Command, ApplyCtx, CommandCtx, RejectionReason } from './types';
 import { initNpcProps } from '@/world/npc-helpers';
 import { strategyForPersonality } from '@/sim/rival-spirit';
+import { boundTitheCap } from '@/sim/lord';
 import { resolveCenter, findPlacement } from './editor-verbs';
 
 const P = (cmd: Command): Record<string, unknown> => cmd.payload ?? {};
@@ -196,6 +197,10 @@ export function setLordStanceApply(cmd: Command, ctx: ApplyCtx): boolean {
   if (typeof t === 'number' && Number.isFinite(t)) {
     const delta = Math.max(-MAX_TITHE_DELTA, Math.min(MAX_TITHE_DELTA, t));
     seat.tithe = Math.round(Math.max(0, Math.min(1, seat.tithe + delta)) * 100) / 100;
+    // M6 — a lord sworn to an active Peace of God cannot be coached above his
+    // oath's tithe cap (Fate's greed lever hits the oath and stops there).
+    const cap = boundTitheCap(seat, ctx.now);
+    if (cap !== null && seat.tithe > cap) seat.tithe = cap;
   }
   const endow = P(cmd).endowRivalId;
   if (typeof endow === 'string' && endow) {

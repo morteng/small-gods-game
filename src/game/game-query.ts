@@ -703,6 +703,29 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         });
       }
 
+      // ── M6: the Peace of God lapsing reaches the player as a tiding — the
+      // lord's armed men are unbound again, and re-proclaiming is the answer.
+      // Event-log windowed like the portents (auto-expiring, no stored state);
+      // only lapses of a peace THIS spirit proclaimed are this god's news.
+      const lapses = state.eventLog.range(now - PORTENT_NOTICE_HORIZON_TICKS, now + 1)
+        .filter(a => a.event.type === 'peace_lapsed' && a.event.spiritId === spiritId);
+      for (const a of lapses) {
+        const ev = a.event as { type: 'peace_lapsed'; poiId: string };
+        const poi = state.worldSeed?.pois.find(pp => pp.id === ev.poiId);
+        const id = `peacelapse:${a.id}`;
+        const surfaced = surfacedSet.has(id);
+        items.push({
+          id,
+          kind: 'tiding',
+          title: `The Peace of God has lapsed at ${poi?.name ?? ev.poiId}`,
+          detail: 'The oath has run its term — the armed men there are no longer bound.',
+          salience: scoreAffordance({ kind: 'tiding', count: 2, surfaced }),
+          surfaced,
+          target: { kind: 'settlement', poiId: ev.poiId },
+          ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+        });
+      }
+
       // ── M1: the chronicler's voice — the latest daily annal, surfaced as one
       // low-salience inbox item (no new panel; reuses the existing tiding lens).
       const chronicle = deps.chronicleLatest?.();

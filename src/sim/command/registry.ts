@@ -12,6 +12,8 @@ import type { Entity } from '@/core/types';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import {
   whisper, omen, dream, miracle, answerPrayer, smite, smiteLocation, summonStorm,
+  proclaimPeace, bindOath, devotionPoolAt,
+  PROCLAIM_PEACE_DEVOTION_COST, BIND_OATH_DEVOTION_COST,
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
 } from '@/sim/divine-actions';
 import { aggregateDomain, DOMAIN_DEFS } from '@/sim/belief-domains';
@@ -209,6 +211,54 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
       return summonStorm(ctx.spirits.get(cmd.source)!, poiId, ctx.log, ctx.weather);
     },
     describe: (cmd) => `summon a deluge over ${targetLabel(cmd)}`,
+  },
+
+  // ── The Peace of God (mortal-power M6) — spends DEVOTION, never power ────────
+  // Both verbs carry `cost: 0` deliberately: the currency is the congregation's
+  // accumulated devotion (checked in the precondition, drawn down pro-rata by the
+  // effect in divine-actions.ts), so the power gate never fires and a devotion
+  // shortfall reads as `precondition_failed` — 'insufficient_power' would lie.
+  proclaim_peace: {
+    verb: 'proclaim_peace', tier: 'divine', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition(cmd, ctx) {
+      if (cmd.target.kind !== 'settlement') return 'invalid_target';
+      const seat = ctx.world.lords.get(cmd.target.poiId);
+      if (!seat) return 'invalid_target';                // no seated lord — nothing to bind
+      // One peace at a time. CommandCtx carries no `now` (expiry is reaped hourly
+      // by LordSystem + re-checked with ApplyCtx.now in the apply), so any
+      // still-recorded oath blocks here — at worst an hour conservative.
+      if (seat.peace) return 'precondition_failed';
+      if (devotionPoolAt(ctx.world, cmd.source, cmd.target.poiId) < PROCLAIM_PEACE_DEVOTION_COST) {
+        return 'precondition_failed';                    // the crowd's devotion can't carry it
+      }
+      return null;
+    },
+    apply(cmd, ctx) {
+      const poiId = (cmd.target as { poiId: string }).poiId;
+      return proclaimPeace(ctx.spirits.get(cmd.source)!, poiId, ctx.world, ctx.log, ctx.now);
+    },
+    describe: (cmd) => `proclaim the Peace of God over ${targetLabel(cmd)}`,
+  },
+  bind_oath: {
+    verb: 'bind_oath', tier: 'divine', cost: 0, targetKind: 'npc', implemented: true,
+    precondition(cmd, ctx) {
+      const npc = npcOf(cmd, ctx);
+      if (!npc) return 'invalid_target';
+      const p = npcProps(npc);
+      const seat = p.homePoiId ? ctx.world.lords.get(p.homePoiId) : undefined;
+      if (!seat?.peace) return 'precondition_failed';    // no standing peace to bind into
+      if (seat.peace.spiritId !== cmd.source) return 'precondition_failed'; // not your relics
+      if (p.role !== 'soldier' && npc.id !== seat.npcId) return 'invalid_target'; // armed men only
+      if (seat.peace.sworn.includes(npc.id)) return 'precondition_failed';  // already bound
+      if (devotionPoolAt(ctx.world, cmd.source, p.homePoiId!) < BIND_OATH_DEVOTION_COST) {
+        return 'precondition_failed';
+      }
+      return null;
+    },
+    apply(cmd, ctx) {
+      return bindOath(ctx.spirits.get(cmd.source)!, npcOf(cmd, ctx)!, ctx.world, ctx.log, ctx.now);
+    },
+    describe: (cmd) => `bind ${targetLabel(cmd)} by oath to the Peace`,
   },
 
   // ── Authoring tier — declared, executor pending (Fate cycle) ─────────────────

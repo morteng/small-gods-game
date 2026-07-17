@@ -19,11 +19,45 @@
  */
 import type { World } from '@/world/world';
 import type { Entity, EntityId } from '@/core/types';
+import type { SpiritId } from '@/core/spirit';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import { cohortPopulation } from '@/sim/cohorts';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { clamp01 } from '@/sim/npc-sim';
 import { prayerAge, PRAYER_CLAIM_WARNING_TICKS } from '@/sim/rival-claims';
+import { TICKS_PER_DAY } from '@/core/calendar';
+
+/**
+ * M6 — the Peace of God. A standing oath on a lord's seat: relics were paraded,
+ * a crowd witnessed, and the armed men listed in `sworn` swore not to prey on
+ * the peasantry. While the peace holds AND the current seat-holder is among the
+ * sworn, the seat's tithe is bound to `titheCap` (enforced hourly by LordSystem
+ * and at the `set_lord_stance` boundary — Fate cannot coach a sworn lord past
+ * his oath). A successor who rises UNSWORN is not bound until `bind_oath`
+ * brings him before the relics. Plain data — rides the snapshot inside
+ * `LordState` (structuredClone handles the nesting).
+ */
+export interface PeaceOath {
+  /** The god whose relics were paraded — only that spirit may bind more men. */
+  spiritId: SpiritId;
+  /** Tick the oath lapses (LordSystem reaps it and logs `peace_lapsed`). */
+  untilTick: number;
+  /** The tithe ceiling the sworn seat-holder is bound to. */
+  titheCap: number;
+  /** The armed men (soldiers + the lord) who swore, sorted for determinism. */
+  sworn: EntityId[];
+}
+
+/** How long a proclaimed peace binds — a fiction-scale constant, so a
+ *  TICKS_PER_DAY multiple (never a raw tick literal). */
+export const PEACE_DURATION_TICKS = 7 * TICKS_PER_DAY;
+
+/** The tithe ceiling sworn on the relics — half the customary DEFAULT_TITHE:
+ *  the land breathes, but the oath does not beggar the seat. */
+export const PEACE_TITHE_CAP = 0.05;
+
+/** One-time unrest relief when the crowd sees its armed men bound. */
+export const PEACE_UNREST_RELIEF = 0.2;
 
 /** The lord's seat at one settlement. Plain data — rides the snapshot via
  *  `World.lords` (captured/restored like `activeEvents`), so a scrub un-seats
@@ -46,6 +80,9 @@ export interface LordState {
   /** Keep ladder rung. Always 0 until M4 (castles are blocked on the runtime-POI
    *  question); kept in the state shape so saves need no migration then. */
   keepTier: number;
+  /** M6 — a standing Peace of God on this seat, if one holds. Absent on
+   *  pre-M6 saves (they restore to an unbound seat, no migration needed). */
+  peace?: PeaceOath;
 }
 
 /** A fresh seat starts at a customary mild extraction — Fate coaches it up
@@ -107,6 +144,36 @@ export function titheRateFor(world: World, poiId: string | undefined): number {
  *  bit-for-bit). */
 export function workRestoreScale(tithe: number): number {
   return 1 - clamp01(tithe);
+}
+
+// ── M6: the Peace of God (helpers shared by divine-actions / LordSystem / verbs) ─
+
+/** True while the seat holds an unexpired Peace of God at `now`. Expiry is
+ *  reaped hourly by LordSystem; time-sensitive callers pass `now` so a stale
+ *  (not-yet-reaped) oath never binds past its tick. */
+export function peaceActive(seat: LordState, now: number): boolean {
+  return seat.peace !== undefined && now < seat.peace.untilTick;
+}
+
+/** The tithe ceiling the CURRENT seat-holder is bound to, or null when unbound
+ *  (no peace, peace lapsed, or the holder never swore — e.g. an unsworn
+ *  successor: dynasty passes the seat, not the oath). */
+export function boundTitheCap(seat: LordState, now: number): number | null {
+  if (!peaceActive(seat, now)) return null;
+  return seat.peace!.sworn.includes(seat.npcId) ? seat.peace!.titheCap : null;
+}
+
+/** The settlement's armed men — resident soldiers plus the seated lord (the
+ *  men an assembly binds). Sorted by id for deterministic oath lists. */
+export function armedMenOf(world: World, poiId: string, seat: LordState): Entity[] {
+  const out: Entity[] = [];
+  forEachNpc(world, (e) => {
+    const p = npcProps(e);
+    if (p.homePoiId !== poiId) return;
+    if (p.role === 'soldier' || e.id === seat.npcId) out.push(e);
+  });
+  out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out;
 }
 
 // ── the situation (buildRivalSituation → buildLordSituation, same pattern) ───

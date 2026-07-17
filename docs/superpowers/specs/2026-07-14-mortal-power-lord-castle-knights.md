@@ -314,3 +314,61 @@ tithe (no revolt mechanics — a consumer for `unrest` beyond the Fate digest is
 is an honest headcount only (knights/patrols are M5); no worldgen-time seeding — seats
 attach lazily on the first hourly fire, which also covers strangers/births growing a noble
 line later.
+
+---
+
+## Reality check (2026-07-17) — M6 SHIPPED (the Peace of God)
+
+Implemented per the slice table: **M6 needs M3 (something to bind) and gives `devotion` a
+job** — no M4/M5 work (still blocked/ordered as specced). Both verbs registered
+`implemented: true` (the story-pack allowlist reads `Object.keys(CAPABILITY_REGISTRY)`, so
+packs may name them from day one).
+
+- **`proclaim_peace`** (divine tier, settlement target): the open-air assembly. Requires a
+  seated lord and pays **`PROCLAIM_PEACE_DEVOTION_COST` from the resident congregation's
+  devotion pool** (`devotionPoolAt`, drawn down pro-rata — every believer keeps the same
+  fraction). `cost: 0` in the registry is deliberate: the power gate must never fire, and a
+  devotion shortfall rejects `precondition_failed` — `insufficient_power` would lie. A
+  power-rich, devotion-poor god (the cheap-fear build — smite bleeds devotion by design)
+  **cannot call this crowd**: the fearful-faith trap's consequence, as briefed.
+- **The oath is data on the seat:** `LordState.peace?: PeaceOath { spiritId, untilTick,
+  titheCap, sworn[] }`. Every armed man PRESENT (resident soldiers + the seated lord —
+  `armedMenOf`) swears at the assembly; the tithe clamps to `PEACE_TITHE_CAP` (0.05, half
+  the customary `DEFAULT_TITHE`) immediately and unrest eases by `PEACE_UNREST_RELIEF`.
+  Duration `PEACE_DURATION_TICKS = 7 × TICKS_PER_DAY` (fiction-day constants rule). One
+  peace per seat at a time.
+- **`bind_oath`** (divine tier, npc target): brings ONE later armed man — a new soldier, or
+  an **unsworn successor lord** — before the relics of a standing peace, for
+  `BIND_OATH_DEVOTION_COST`. Only the spirit whose relics were paraded may bind more men.
+  **Dynasty passes the seat, not the oath:** succession seats an heir UNBOUND (the cap does
+  not hold him until the player binds him) — the felt loop that makes the verb matter.
+- **Enforcement with real teeth:** `LordSystem` (hourly) reaps a lapsed oath
+  (`peace_lapsed`) and holds a SWORN seat-holder to `titheCap` (tithe creep is re-clamped
+  every fire); `set_lord_stance` clamps Fate's tithe coaching to the cap while the oath
+  binds (`boundTitheCap` at the verb apply — Fate's greed lever hits the oath and stops).
+- **Both population tiers, by construction:** the binding effect IS the tithe cap, which
+  flows through the two shipped M0.c choke points — `workRestoreScale(titheRateFor(...))`
+  for named souls, `applyCohortTithe` for the statistical bands. No second accounting path
+  exists to drift.
+- **Events consumed for real** (sim-event-boundary guard): `peace_proclaimed` /
+  `oath_sworn` / `peace_lapsed` are narrated by the chronicler (weighted 8/5/6), the first
+  and last join the seek/landing interest band (`interest-predicate.ts`), a lapse surfaces
+  as a divine-inbox **tiding** ("the armed men there are no longer bound" — windowed off
+  the log like the portent tidings, no stored state), and the assembly/oath enter witness
+  memory rings (`rememberEvent`). Fate's lord digest names an active peace per seat and
+  says explicitly whether the holder is sworn (and therefore uncoachable above the cap).
+- **Snapshot:** `PeaceOath` rides `LordState` through the existing `World.lords`
+  capture/restore (structuredClone; deep — tested). Pre-M6 saves restore to unbound seats,
+  no migration.
+
+**Ambiguities resolved (minimal honest slice):** the spec's two named verbs were split
+assembly-vs-latecomer (proclaim binds all armed men present, bind_oath binds one more) —
+the historically honest reading that also gives each verb non-redundant teeth. The
+DEVOTION SPEND touches the NAMED tier only: statistical cohort devotion sums (`sumD`) are
+structurally zero in P1 (statistical belief drift is P2 of the two-tier epic — the same
+resolution M3 recorded for statistical belief response), and the cohort `sumContribution`
+invariant cannot be rescaled exactly from running sums anyway, so folding the statistical
+tier in would add exactly 0 to the pool today while risking a lying power number.
+Excommunication (the historical sanction) is future work — today the oath cannot be
+BROKEN, only lapse or die with its swearer; a `peace_broken` beat wants revolt/defiance
+mechanics that don't exist yet (the same future-work bucket as unrest consumers).

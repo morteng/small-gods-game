@@ -206,10 +206,17 @@ export function describeLordsForFate(state: GameState): { text: string; lordPoiI
     const prosperity = pop > 0
       ? (sit.meanProsperityNamed * sit.namedPopulation + sit.meanProsperityStat * sit.statPopulation) / pop
       : 0;
+    // M6: an active Peace of God is part of the seat's situation — a SWORN lord
+    // cannot be coached above his oath's tithe cap (set_lord_stance clamps).
+    const peace = seat.peace && now < seat.peace.untilTick
+      ? (seat.peace.sworn.includes(seat.npcId)
+        ? ` Bound by a sworn Peace of God (tithe capped at ${seat.peace.titheCap.toFixed(2)}) — he cannot be coached above it.`
+        : ' A Peace of God stands there, but this lord never swore it (he rules unbound).')
+      : '';
     lines.push(
       `- ${lordName}, lord of "${poiName.get(poiId) ?? poiId}" (${poiId}): tithe ${seat.tithe.toFixed(2)}, ` +
       `unrest ${seat.unrest.toFixed(2)}, garrison ${sit.garrison}; ${pop} soul(s), ` +
-      `mean prosperity ${prosperity.toFixed(2)}, ${sit.prayerPressure} standing plea(s) at risk.`,
+      `mean prosperity ${prosperity.toFixed(2)}, ${sit.prayerPressure} standing plea(s) at risk.${peace}`,
     );
   }
   return { text: `Lords (mortal power — coach via set_lord_stance):\n${lines.join('\n')}`, lordPoiIds };

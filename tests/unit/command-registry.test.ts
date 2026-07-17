@@ -16,6 +16,7 @@ const META_VERBS: CommandVerb[] = ['set_time_rate', 'skip_to_next_event', 'cance
 
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind', 'smite', 'summon_storm',
+  'proclaim_peace', 'bind_oath',
   'bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement',
   'rename_ward', 'retype_ward', 'set_rival_stance', 'set_lord_stance',
   ...EDITOR_VERBS,
@@ -23,8 +24,8 @@ const ALL_VERBS: CommandVerb[] = [
 ];
 
 describe('capability registry', () => {
-  it('declares all 26 verbs', () => {
-    expect(listCapabilities()).toHaveLength(26);
+  it('declares all 28 verbs', () => {
+    expect(listCapabilities()).toHaveLength(28);
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
@@ -48,6 +49,20 @@ describe('capability registry', () => {
     expect(def.targetKind).toBe('npc');
     expect(typeof def.apply).toBe('function');
     expect(typeof def.precondition).toBe('function');
+  });
+
+  it('wires the Peace of God verbs as divine, DEVOTION-funded (power cost 0), gated by precondition', () => {
+    // M6: the currency is the congregation's devotion, drawn down in the effect —
+    // cost stays 0 so the power gate NEVER fires (spends devotion, not power).
+    for (const [verb, targetKind] of [['proclaim_peace', 'settlement'], ['bind_oath', 'npc']] as const) {
+      const def = CAPABILITY_REGISTRY[verb];
+      expect(def.tier).toBe('divine');
+      expect(def.implemented).toBe(true);
+      expect(def.cost).toBe(0);
+      expect(def.targetKind).toBe(targetKind);
+      expect(typeof def.apply).toBe('function');
+      expect(typeof def.precondition).toBe('function');
+    }
   });
 
   it('declares the editor verbs as implemented, cost-0, editor-tier', () => {
