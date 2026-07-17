@@ -7,9 +7,12 @@
 // expressing live as the dials move (the studio never reloads to refresh).
 //
 // Route: AUTHORED GRAPH over a bare patch (not POI worldgen-and-hope). `generateWithNoise`
-// makes terrain+hydrology only (pois:[]); `pickCrossingSite` scans the water raster for a
-// narrow perpendicular crossing; two synthetic bank POIs + one connection drive the SAME
-// `buildRoadGraph` walker+carve worldgen runs (class via its own classForConnection);
+// makes terrain+hydrology only (pois:[]); `rankCrossingSites` scans the water raster for every
+// narrow perpendicular neck and ranks them; the studio WALKS them in order (two synthetic bank
+// POIs + one connection drive the SAME `buildRoadGraph` walker+carve worldgen runs, class via its
+// own classForConnection) and keeps the first the walker actually bridges — because the walker
+// detours water when a dry route is cheaper, the best-scored neck alone crosses only ~54 % of the
+// time, so the retry is what makes a bridge reliably appear;
 // `detectCrossings` finds the road×water claim on the render-water mask; the crossing then
 // renders either as the tier-recipe preset the economy dials earn through the REAL
 // `tierForUse` (previewing exactly what the S3 CrossingTierStore will do), or as the
@@ -58,7 +61,7 @@ import {
   ROAD_CLASS_LADDER, RICH_CROSSING_MIN, CROSSING_LAG,
   CROSSING_EARN_USE, CROSSING_TIER_MAX_SPAN_T, minViableTier, tierSpans,
 } from '@/world/road-use';
-import { pickCrossingSite, poisForCrossing, shownCrossingTier, type CrossingSitePick } from './crossing-site-scene';
+import { rankCrossingSites, poisForCrossing, shownCrossingTier, type CrossingSitePick } from './crossing-site-scene';
 import { injectStudioTheme, COLORS, h } from './theme';
 
 export interface StudioHandle { dispose(): void; }
@@ -69,6 +72,13 @@ const PATCH = 128;
 
 /** Default seed — verified to yield a vale channel with a clean perpendicular crossing. */
 const DEFAULT_SEED = 0x5170;
+
+/** How many ranked crossing candidates to walk before giving up and showing a dry route. The
+ *  road walker detours water when a dry route is cheaper, so the best-scored neck often yields
+ *  no crossing; walking the next-best candidates recovers ~100 % of seeds (measured worst case
+ *  ~11 tries). Bounded so a pathological patch can't spin the walker forever — the walks are
+ *  cheap next to a full regen, so a generous cap is free insurance. */
+const MAX_CROSSING_TRIES = 20;
 
 export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
   let disposed = false;
@@ -125,6 +135,7 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
     let visualMap: ReturnType<typeof Autotiler.computeVisualMap> | null = null;
     let fields: TerrainField | null = null;
     let pristine: { type: string; walkable: boolean }[][] = [];
+    let candidates: CrossingSitePick[] = [];   // ranked crossable sites; resolveCrossing walks them
     let pick: CrossingSitePick | null = null;
     let specs: CrossingSpec[] = [];
     let spec: CrossingSpec | null = null;
@@ -347,26 +358,57 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
       scheduleArtReveal();
     }
 
-    /** Re-express the road + crossing over the SAME terrain (class dial / after regen). */
-    function expressRoad(): void {
-      if (!map || !fields) return;
-      // Restore the pre-road tiles so a re-express never stacks carves.
+    /** Restore the pre-road tiles so a re-express (or a discarded candidate walk) never stacks carves. */
+    function restorePristine(): void {
       for (let y = 0; y < map.height; y++) {
         for (let x = 0; x < map.width; x++) {
           const t = map.tiles[y][x], p = pristine[y][x];
           if (t.type !== p.type || t.walkable !== p.walkable) { t.type = p.type; t.walkable = p.walkable; }
         }
       }
+    }
+
+    /** Author `cand`'s road over the freshly-restored terrain (the REAL walker+carve, class-true)
+     *  and return the crossings it makes. Leaves map.tiles + map.roadGraph holding THIS carve, so
+     *  the caller that keeps a candidate need not re-walk it. Pre-reconcile — used to DECIDE which
+     *  candidate bridges; expressRoad re-detects the winner post-reconcile for the final specs. */
+    function walkCandidate(cand: CrossingSitePick, style: ReturnType<typeof worldStyleOf>): CrossingSpec[] {
+      restorePristine();
+      const { pois, connections } = poisForCrossing(econ.cls, cand.a, cand.b);
+      const graph = buildRoadGraph(connections, pois, map.tiles, fields!, { reliefM: style.mountainRelief });
+      graph.rev = (exprSeq += 100);   // unique per expression → deformation/feature-SDF caches re-key
+      map.roadGraph = graph;
+      const wet = getRenderWaterMask(map);
+      return detectCrossings(graph, map.width, {
+        isWater: wet, bridgeAt: wet, defaults: { era: 'late-medieval', prosperity: 'modest' },
+      });
+    }
+
+    /** Resolve which candidate the authored road actually BRIDGES: walk the ranked sites in score
+     *  order and keep the FIRST that yields a crossing (its carve is left in place). The walker
+     *  detours water when a dry route is cheaper, so the best-scored narrow neck frequently doesn't
+     *  bridge — trying the next candidates lifts crossing reliability from ~54 % to ~100 %. When none
+     *  bridge, re-author the best-scored site honestly (the scene then shows the dry route it found,
+     *  and the readout says so). Null only when the patch has no crossable candidate at all. */
+    function resolveCrossing(style: ReturnType<typeof worldStyleOf>): CrossingSitePick | null {
+      if (!candidates.length) return null;
+      for (const cand of candidates.slice(0, MAX_CROSSING_TRIES)) {
+        if (walkCandidate(cand, style).length) return cand;   // bridges — carve + roadGraph kept
+      }
+      const best = candidates[0];
+      walkCandidate(best, style);   // honest dry fallback — leave its carve for the scene
+      return best;
+    }
+
+    /** Re-express the road + crossing over the SAME terrain (class dial / after regen). */
+    function expressRoad(): void {
+      if (!map || !fields) return;
       for (const id of bridgeIds) world.removeEntity(id);
       bridgeIds = [];
       specs = []; spec = null;
+      const style = worldStyleOf(map.worldSeed ?? undefined);
+      pick = resolveCrossing(style);   // map.tiles + map.roadGraph now hold the chosen candidate's carve
       if (pick) {
-        const { pois, connections } = poisForCrossing(econ.cls, pick.a, pick.b);
-        const style = worldStyleOf(map.worldSeed ?? undefined);
-        // The REAL walker+carve — grade envelope, water bridging, tile stamp, all class-true.
-        const graph = buildRoadGraph(connections, pois, map.tiles, fields, { reliefM: style.mountainRelief });
-        graph.rev = (exprSeq += 100);   // unique per expression → deformation/feature-SDF caches re-key
-        map.roadGraph = graph;
         reconcileCenterlineBows(map);          // pin bowed splines back onto the walked row
         reconcileRoadTileVisibility(map);      // orphaned carve cells paint honestly
         // The same reconcile worldgen runs AFTER its road carve: trees standing on the
@@ -375,7 +417,8 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
         // the next regen — the patch regenerates it with the terrain.)
         clearObstructedVegetation(world, map);
         const wet = getRenderWaterMask(map);
-        specs = detectCrossings(graph, map.width, {
+        // The FINAL, authoritative detection — post-reconcile, mirroring worldgen's own order.
+        specs = detectCrossings(map.roadGraph!, map.width, {
           isWater: wet, bridgeAt: wet,
           defaults: { era: 'late-medieval', prosperity: 'modest' },
         });
@@ -443,7 +486,7 @@ export function mountCrossingSiteStudio(container: HTMLElement): StudioHandle {
       fields = generateTerrainFields(config);
       fields.elevation = erodeElevation(fields.elevation, PATCH, PATCH, { seed: gen.seed });
       pristine = map.tiles.map((row) => row.map((t) => ({ type: t.type, walkable: t.walkable })));
-      pick = pickCrossingSite(map);
+      candidates = rankCrossingSites(map);   // ranked crossable sites; expressRoad walks them in order
       expressRoad();
       if (refit) fitTilesToView(cam, 0, 0, map.width, map.height, cssW, cssH);
     }

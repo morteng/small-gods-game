@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import type { GameMap, Tile } from '@/core/types';
 import {
-  pickCrossingSite, poisForCrossing, shownCrossingTier, CLASS_POI_IMPORTANCE,
+  pickCrossingSite, rankCrossingSites, poisForCrossing, shownCrossingTier, CLASS_POI_IMPORTANCE,
 } from '@/studio/crossing-site-scene';
 import { minViableTier, tierSpans, type CrossingTier } from '@/world/road-use';
 import { terrainConfigFor } from '@/map/map-generator';
@@ -56,6 +56,61 @@ describe('pickCrossingSite', () => {
   it('refuses a channel too wide for the ladder headroom', () => {
     const map = mapWithBand(48, 48, { x0: 16, x1: 31 });   // 16 tiles of water
     expect(pickCrossingSite(map)).toBeNull();
+  });
+});
+
+describe('rankCrossingSites', () => {
+  /** A W×H grass map with an arbitrary set of vertical river bands (each x ∈ [x0..x1]). */
+  function mapWithBands(W: number, H: number, bands: { x0: number; x1: number }[]): GameMap {
+    const wetAt = (x: number) => bands.some((b) => x >= b.x0 && x <= b.x1);
+    const tiles: Tile[][] = [];
+    for (let y = 0; y < H; y++) {
+      const row: Tile[] = [];
+      for (let x = 0; x < W; x++) row.push({ type: wetAt(x) ? 'river' : 'grass', x, y, walkable: !wetAt(x), state: 'realized' });
+      tiles.push(row);
+    }
+    return { tiles, width: W, height: H, villages: [], seed: 1, success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
+  }
+
+  it('returns MANY candidates for a channel and puts the best-scored one first', () => {
+    const map = mapWithBand(48, 48, { x0: 22, x1: 24 });
+    const ranked = rankCrossingSites(map);
+    expect(ranked.length).toBeGreaterThan(1);        // one per crossable row, not just the single best
+    // Best-first: pickCrossingSite is exactly the head of the ranked list.
+    expect(pickCrossingSite(map)).toEqual(ranked[0]);
+  });
+
+  it('ranks a ~3-tile central neck ahead of a wider off-centre channel', () => {
+    // A narrow (3) channel at centre (x44–46) and a wide (6) channel off to the west (x20–25).
+    // Both sit far enough from the edges for the 16-tile road setback to land on dry ground.
+    const map = mapWithBands(90, 48, [{ x0: 20, x1: 25 }, { x0: 44, x1: 46 }]);
+    const ranked = rankCrossingSites(map);
+    expect(ranked[0].channelT).toBe(3);              // width-3 beats width-6 (|w-3| term dominates)
+    // The head sits on the narrow central channel (x≈45), not the wide western one.
+    expect(ranked[0].site.x).toBeGreaterThan(40);
+    expect(ranked[0].site.x).toBeLessThan(50);
+  });
+
+  it('every candidate straddles the channel with both endpoints on dry ground', () => {
+    const map = mapWithBand(48, 48, { x0: 22, x1: 24 });
+    const ranked = rankCrossingSites(map);
+    for (const c of ranked) {
+      expect(map.tiles[c.a.y][c.a.x].type).toBe('grass');
+      expect(map.tiles[c.b.y][c.b.x].type).toBe('grass');
+      expect(c.a.x).toBeLessThan(22);
+      expect(c.b.x).toBeGreaterThan(24);
+    }
+  });
+
+  it('is deterministic and stably ordered — same map, same ranking', () => {
+    const map = mapWithBand(48, 48, { x0: 22, x1: 24 });
+    expect(rankCrossingSites(map)).toEqual(rankCrossingSites(map));
+  });
+
+  it('returns an empty list on a dry patch (and pickCrossingSite is then null)', () => {
+    const dry = mapWithBand(48, 48);
+    expect(rankCrossingSites(dry)).toEqual([]);
+    expect(pickCrossingSite(dry)).toBeNull();
   });
 });
 

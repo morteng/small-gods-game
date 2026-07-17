@@ -67,17 +67,25 @@ function landEndpoint(
   return undefined;
 }
 
+/** A scored crossing candidate — a `CrossingSitePick` plus its rank score (lower = better). */
+interface ScoredPick extends CrossingSitePick { score: number }
+
 /**
- * Pick the best authored-crossing site on a generated patch: scan every maximal water run
- * along both axes, keep runs of width ≤ MAX_CHANNEL_T whose two banks both offer a dry
- * road endpoint SETBACK_T tiles out, and score narrow + central best. Pure + deterministic;
- * null when the patch offers no crossable channel (then the panel says so honestly).
+ * ALL viable authored-crossing candidates on a generated patch, best-scored FIRST: scan every
+ * maximal water run along both axes, keep runs of width ≤ MAX_CHANNEL_T whose two banks both
+ * offer a dry road endpoint SETBACK_T tiles out, and score narrow + central best. Pure +
+ * deterministic (stable sort of a deterministic scan). Empty when the patch offers no crossable
+ * channel at all.
+ *
+ * Why a RANKED LIST, not a single best: the road walker realistically DETOURS around water when
+ * a dry route is cheaper than bridging, so the single best-scored narrow neck frequently yields
+ * no crossing (measured: ~46 % of seeds). The studio walks candidates in this order until the
+ * real `buildRoadGraph` actually bridges one — which lifts crossing reliability to ~100 %.
  */
-export function pickCrossingSite(map: GameMap): CrossingSitePick | null {
+export function rankCrossingSites(map: GameMap): CrossingSitePick[] {
   const W = map.width, H = map.height;
   const cx = W / 2, cy = H / 2;
-  let best: CrossingSitePick | null = null;
-  let bestScore = Infinity;
+  const out: ScoredPick[] = [];
 
   const consider = (pickAxis: 'ew' | 'ns', runStart: number, runEnd: number, cross: number): void => {
     const width = runEnd - runStart + 1;
@@ -94,10 +102,7 @@ export function pickCrossingSite(map: GameMap): CrossingSitePick | null {
     // ditch and the bridge stands on barely-visible water; too wide and only the top
     // tiers span it. Then prefer central (the scene's focal point).
     const score = Math.abs(width - 3) * 2 + (Math.abs(site.x - cx) + Math.abs(site.y - cy)) * 0.05;
-    if (score < bestScore) {
-      bestScore = score;
-      best = { site, axis: pickAxis, channelT: width, a, b };
-    }
+    out.push({ site, axis: pickAxis, channelT: width, a, b, score });
   };
 
   // Horizontal water runs (crossed by an E–W road) — one pass per row.
@@ -120,7 +125,21 @@ export function pickCrossingSite(map: GameMap): CrossingSitePick | null {
       if (s > 0 && y < H) consider('ns', s, y - 1, x);
     }
   }
-  return best;
+  // Stable order: score asc, then a deterministic geometric tie-break (axis, then site), so the
+  // ranking never depends on scan/insertion order — two seeds with the same water look identical.
+  out.sort((p, q) => p.score - q.score
+    || (p.axis === q.axis ? 0 : p.axis === 'ew' ? -1 : 1)
+    || p.site.y - q.site.y || p.site.x - q.site.x);
+  return out.map(({ score: _score, ...pick }) => pick);
+}
+
+/**
+ * The single best authored-crossing site on a patch — `rankCrossingSites(map)[0]`, or null when
+ * the patch offers no crossable channel. Kept for callers that want just the top pick; the studio
+ * uses the full ranked list so a walker that detours the best neck can fall through to the next.
+ */
+export function pickCrossingSite(map: GameMap): CrossingSitePick | null {
+  return rankCrossingSites(map)[0] ?? null;
 }
 
 /** POI `importance` per road-class dial — `classForConnection` (road-graph.ts) ranks the
