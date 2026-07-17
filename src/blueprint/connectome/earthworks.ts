@@ -51,6 +51,11 @@ export interface Earthwork {
   slope?: number;
   /** Signed earth volume moved (+ fill, − cut). */
   volume: number;
+  /** M4 provenance: the runtime POI (`castle:0001`) that committed this earthwork
+   *  to `map.earthworks`. Absent on gen-time/studio earthworks. Owned entries are
+   *  reconciled against the `RuntimePoiStore` on snapshot restore, so a scrub to
+   *  before the foundation removes the motte/ditch (`@/world/runtime-poi`). */
+  ownerPoiId?: string;
 }
 
 const PI = Math.PI;

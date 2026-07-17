@@ -44,6 +44,10 @@ export interface PlaceComplexOpts {
   centre: { x: number; y: number };
   seed: number;
   era: Era;
+  /** Prefix for every entity id this placement mints (rings, buildings, fixtures).
+   *  `foundCastle` passes `"<poiId>:"` so two runtime castles of the same
+   *  complexType never collide; absent (the studio path) → the legacy bare ids. */
+  idPrefix?: string;
 }
 
 export interface PlaceComplexResult {
@@ -93,6 +97,7 @@ function ringRun(typeId: string, path: [number, number][], gates: BarrierGate[])
 export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceComplexOpts): PlaceComplexResult {
   loadDefaultPacks();
   const { complexTypeId, centre, seed, era } = opts;
+  const idPrefix = opts.idPrefix ?? '';
 
   // Terrain probe: the affordance the siting step reads. We pre-choose the patch centre as
   // the single candidate (the studio decides WHERE; the grammar decides WHAT), so siteSelect
@@ -128,7 +133,7 @@ export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceCompl
     if (!Number.isFinite(radius) || radius <= 1) return;
     const { path, gateT } = ringPathWithGate(centre.x, centre.y, radius);
     const run = ringRun(b.type, path, [{ t: gateT, width: 3 }]);
-    const id = `${complexTypeId}-ring${i}`;
+    const id = `${idPrefix}${complexTypeId}-ring${i}`;
     barrierIds.push(String(placeBarrier(world, run, id)));
     barriers.push({ id, run });
   });
@@ -168,7 +173,7 @@ export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceCompl
     const df = cardinal(faceWorld[0], faceWorld[1]);
     const o = orientationForFacing(cf[0], cf[1], df[0], df[1]) as Orientation;
     const rb = o ? { ...base, orientation: o } : base;
-    const id = `${complexTypeId}-${buildingType}-${idx}`;
+    const id = `${idPrefix}${complexTypeId}-${buildingType}-${idx}`;
     const e: Entity = blueprintEntity(id, rb, Math.round(x), Math.round(y));
     world.addEntity(e);
     buildingIds.push(id);
@@ -199,7 +204,7 @@ export function placeComplexOnPatch(world: World, map: GameMap, opts: PlaceCompl
     const spread = plan.fixtures.length > 1 ? (i - (plan.fixtures.length - 1) / 2) * 3 : 0;
     const fxX = Math.round(centre.x + spread);
     const fxY = Math.round(centre.y + yardR);
-    const id = `${complexTypeId}-fixture-${fx.type}-${i}`;
+    const id = `${idPrefix}${complexTypeId}-fixture-${fx.type}-${i}`;
     const e: Entity = blueprintEntity(id, rb, fxX, fxY, {});
     e.properties!.civic = fx.type;
     e.tags = [...new Set([...(e.tags ?? []), 'civic', 'fixture'])];
