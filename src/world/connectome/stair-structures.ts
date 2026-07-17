@@ -271,7 +271,17 @@ export function placeStairsFromLinks(
     .sort((p, q) => p.edge.localeCompare(q.edge) || p.footElev - q.footElev || p.foot.x - q.foot.x || p.foot.y - q.foot.y);
 
   const out: Entity[] = [];
+  // ONE flight per (edge, foot cell). An edge's polyline visits a cell at most once on a
+  // simple climb, so a foot uniquely names a flight — but a route that revisits a cell
+  // (e.g. a detour bending back around a lake margin) can seed TWO over-grade runs from
+  // the same foot, which would stack two stairs on that one tile AND collide their
+  // foot-keyed ids (`re2:stair:33_20:0`). The deterministic sort above already orders
+  // runs foot-first up each edge; keep the first at each foot, drop the rest.
+  const seenFoot = new Set<string>();
   for (const run of runs) {
+    const footKey = `${run.edge}:${run.foot.x}_${run.foot.y}`;
+    if (seenFoot.has(footKey)) continue;
+    seenFoot.add(footKey);
     const cls = classOf.get(run.edge) ?? 'path';
     const subpath: SpanPoint[] = [{ x: run.foot.x, y: run.foot.y }, { x: run.head.x, y: run.head.y }];
     const segs = sampleSpanSegments(subpath, { elevAt: opts.elevAt, reliefM: opts.reliefM, maxSegTiles: STAIR_STACK_SEG_TILES });
