@@ -168,8 +168,15 @@ export class WaterDynamics implements WeatherStepper {
   private timeOfDaySec = 0;
   /** POI id → tile centre, for `floodPoi` (the `summon_storm` target lookup). */
   private readonly poiPos = new Map<string, { x: number; y: number }>();
+  /** The live directory reference, so a RUNTIME POI (M4 — `projectRuntimePois`
+   *  mutates `worldSeed.pois` in place after construction) is storm-targetable
+   *  without an init-time rebuild. Misses on `poiPos` fall through to a live
+   *  scan; runtime hits are deliberately NOT cached (a scrub can un-found the
+   *  place — a stale cache entry would flood a ghost site). */
+  private readonly worldSeed: GameMap['worldSeed'];
 
   constructor(map: GameMap) {
+    this.worldSeed = map.worldSeed ?? null;
     this.W = map.width;
     this.H = map.height;
     const cells = this.W * this.H;
@@ -379,11 +386,19 @@ export class WaterDynamics implements WeatherStepper {
    *  a 171k-cell all-zero array never happens on a dry world (see WeatherStepper). */
   hasFlood(): boolean { return this.floodCount > 0; }
 
-  /** Flood the ground around a POI (the `summon_storm` effect). Returns cells flooded. */
+  /** Flood the ground around a POI (the `summon_storm` effect). Returns cells flooded.
+   *  Misses on the init-time map (a runtime POI founded after construction — M4)
+   *  fall through to the live directory, so a founded castle is storm-targetable. */
   floodPoi(poiId: string, radius: number, depthM: number): number {
-    const pos = this.poiPos.get(poiId);
+    const pos = this.poiPos.get(poiId) ?? this.livePoiPos(poiId);
     if (!pos) return 0;
     return this.floodArea(pos.x, pos.y, radius, depthM);
+  }
+
+  /** Live directory lookup for ids missing from the init-time centre map. */
+  private livePoiPos(poiId: string): { x: number; y: number } | undefined {
+    const p = this.worldSeed?.pois?.find((q) => q.id === poiId);
+    return p?.position ? { x: p.position.x, y: p.position.y } : undefined;
   }
 
   // ── W-G: deterministic sim seam (WeatherStepper) ─────────────────────────────────
