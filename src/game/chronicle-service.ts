@@ -34,8 +34,13 @@
  */
 import type { GameState } from '@/core/state';
 import type { LLMClient } from '@/llm/llm-client';
+import type { SkipSummary } from '@/sim/time-skip';
+import type { EraArcDigest } from '@/sim/fate/arc-era';
 import { TICKS_PER_DAY, SOLAR_START_HOUR, dayIndexForTick, formatCalendarTick } from '@/core/calendar';
-import { buildChroniclePrompt, renderOfflineAnnal, type ChronicleWindow } from '@/llm/chronicle-prompt-builder';
+import {
+  buildChroniclePrompt, renderOfflineAnnal, type ChronicleWindow,
+  buildEraChroniclePrompt, renderOfflineEraAnnal, type EraChronicleWindow,
+} from '@/llm/chronicle-prompt-builder';
 import type { ChronicleEntry } from '@/core/chronicle-store';
 
 // Re-exported for existing consumers; the definitions moved to the store when
@@ -102,6 +107,56 @@ export class ChronicleService {
     return this.generateFor(targetDay);
   }
 
+  /**
+   * F6 — era-authoring (the D2 skip loop's missing half). Called by the skip
+   * flow right after `applySkip` + `settleArcsAcrossSkip`: authors ONE era
+   * entry from the skip summary + the settled digests of the arcs that
+   * spanned it. Async, off the sim tick, honest deterministic fallback when
+   * no LLM is configured or the call fails — same discipline as the daily
+   * annal. The sim is truth: every number in the entry comes from `summary`
+   * and the digests; the LLM only words them.
+   *
+   * The cursor bumps SYNCHRONOUSLY (before any await) to the last completed
+   * pre-arrival day, so the daily path never also narrates a mid-era day the
+   * era entry already covers.
+   */
+  generateEra(summary: SkipSummary, arcs: EraArcDigest[]): Promise<void> {
+    const eraDay = dayIndexForTick(summary.toTick) - 1;
+    this.lastChronicledDay = Math.max(this.lastChronicledDay, eraDay);
+    return this.generateEraEntry(summary, arcs, eraDay);
+  }
+
+  private async generateEraEntry(summary: SkipSummary, arcs: EraArcDigest[], eraDay: number): Promise<void> {
+    const { state } = this.deps;
+    // The POST-skip date: the annalist writes after the years have passed.
+    const calendar = formatCalendarTick(summary.toTick);
+    const window: EraChronicleWindow = { summary, arcs, calendar };
+
+    let text: string;
+    let offline: boolean;
+    if (this.client) {
+      try {
+        const prompt = buildEraChroniclePrompt(window);
+        const res = await this.client.generateNpcBackfill(prompt.system, prompt.user, { maxTokens: 300, temperature: 0.85 });
+        text = res.content.trim();
+        if (text.length === 0) throw new Error('empty era entry');   // boundary validation — never push a blank annal
+        offline = false;
+      } catch (err) {
+        console.error('[chronicle] era generation failed; falling back to the offline era annal:', err);
+        text = renderOfflineEraAnnal(window);
+        offline = true;
+      }
+    } else {
+      text = renderOfflineEraAnnal(window);
+      offline = true;
+    }
+
+    state.chronicle?.push({
+      dayIndex: eraDay, year: calendar.year, season: calendar.season, dayOfYear: calendar.dayOfYear,
+      text, offline, era: true,
+    });
+  }
+
   private async generateFor(dayIndex: number): Promise<void> {
     this.inFlight = true;
     try {
@@ -134,7 +189,9 @@ export class ChronicleService {
       state.chronicle?.push({
         dayIndex, year: calendar.year, season: calendar.season, dayOfYear: calendar.dayOfYear, text, offline,
       });
-      this.lastChronicledDay = dayIndex;
+      // Monotonic (never lowered): a daily generation that was already in
+      // flight when a skip's era entry bumped the cursor must not rewind it.
+      this.lastChronicledDay = Math.max(this.lastChronicledDay, dayIndex);
     } finally {
       this.inFlight = false;
     }
