@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (101: timber bridges get their carpentry — post-and-rail parapets, a hump per rib, trestle bents)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(101);
+  it('declares the current world content version (102: road A*/drawing fix round — metre-true grade, bow pins, real repair edges, node tangent fillets)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(102);
   });
 });

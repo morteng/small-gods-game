@@ -55,7 +55,7 @@ import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/riv
  */
 const EMIT_AQUEDUCTS = false;
 import { REACH_CARVE } from '@/world/river-deformation';
-import { getComposedHeightfield, reconcileFilletRaster, edgeRoadProfile } from '@/world/road-deformation';
+import { getComposedHeightfield, reconcileCenterlineBows, reconcileFilletRaster, reconcileRoadTileVisibility, edgeRoadProfile } from '@/world/road-deformation';
 import { getRenderWaterMask } from '@/world/render-water';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
@@ -68,6 +68,7 @@ import { isTrampleEligible } from '@/sim/trample';
 import { buildCoastalLandmarks, SETTLEMENT_TYPES } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
+import { barrierFootprintTiles } from '@/world/barrier';
 import { reconcileBuildingsWithWater } from '@/world/building-water-reconcile';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { prewarmAllSettlementWear } from '@/world/settlement-wear';
@@ -449,6 +450,9 @@ export async function generateWithNoise(
     roadGraph = buildRoadGraph(approach.connections, worldSeed.pois ?? [], tiles, fields, {
       isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
         || approach.wallObstacles.has(`${x},${y}`),
+      // Metre-true grade: the walker's envelope is physical (rise/run), so it needs the
+      // world's actual relief — a styled mountain world switchbacks, a lowland one doesn't.
+      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
     });
 
     // #26 — MERGE near-parallel duplicate road corridors. Connectivity-preserving: drops the
@@ -508,8 +512,20 @@ export async function generateWithNoise(
     // (e.g. a preset's door face moved), the network silently splits into two islands even
     // though every pass "succeeded". Normally a no-op; carves a minimal legal land connector
     // between the closest cells of the split components and WARNS when it fires.
+    // Passing `roadGraph` makes a fired repair a REAL edge (centerline/carve/ribbon like any
+    // road) instead of bare invisible tiles the ribbon never paints. The repair's obstacle
+    // set covers ALL barrier blocking cells (crofts included, not just the defensive rings in
+    // `approach.wallObstacles`): the repair BFS rides existing streets, and a street tile can
+    // legitimately thread a croft fence — but a road EDGE claiming that cell is an unresolved
+    // road×barrier crossing no gatehouse spans, so the connector must detour to an opening.
+    const barrierBlocking = new Set<string>();
+    for (const b of barrierRuns) {
+      for (const [bx, by] of barrierFootprintTiles(b.run).blocking) barrierBlocking.add(`${bx},${by}`);
+    }
     repairConnectionSplits(tiles, width, height, approach.connections, worldSeed.pois ?? [],
-      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`));
+      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
+        || approach.wallObstacles.has(`${x},${y}`) || barrierBlocking.has(`${x},${y}`),
+      roadGraph);
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
     // crossing sub-connectome and realize its ancillary structures (toll/guard/shrine/mill/
@@ -732,9 +748,24 @@ export async function generateWithNoise(
   // cover it, fields avoid it, obstructing flora over it is cleared). `world` is passed so
   // the blocked check consults the real building registry, not just tile flags.
   await report('Reconciling fillet raster...');
+  // BOW reconciliation FIRST: where plain Catmull-Rom smoothing bowed > the reconcile margin
+  // off the walked path (illegal ground the router avoided, or a doubled "lens" of stamped
+  // tiles), pin walked cells as spline control points so the drawn/carved centerline follows
+  // the legal row. The fillet pass below then reconciles only genuine fillet divergence.
+  const bows = reconcileCenterlineBows(map);
+  if (bows.length > 0) {
+    const pinned = bows.reduce((a, b) => a + b.pinned, 0);
+    await report(`Pinned ${pinned} centerline points across ${bows.length} bowed road edge(s)`);
+  }
   const filletSpans = reconcileFilletRaster(map, world);
   const filletWrites = filletSpans.reduce((a, s) => a + s.cellsWritten, 0);
   if (filletWrites > 0) await report(`Reconciled ${filletWrites} road tiles under filleted approaches`);
+
+  // Road VISIBILITY reconcile: any road tile no drawn centerline / settlement street owns
+  // loses its `baseType` so it paints as an honest tile-colour road instead of vanishing
+  // under the ground colour (the INVISIBLE-road class — walkable roads rendered as grass).
+  const madeVisible = reconcileRoadTileVisibility(map);
+  if (madeVisible > 0) console.warn(`[worldgen] road visibility reconcile: ${madeVisible} ribbon-orphaned road tile(s) fell back to tile-colour paint`);
 
   // BRIDGE SPANS — built HERE, on the FINAL terrain. A deck's whole geometry is its bank→bed
   // clearance: the arches spring from the bed, the deck rides their crowns, the abutments land on
