@@ -6,12 +6,14 @@
 //
 // THE BUG THIS EXISTS TO KILL: every scatter pass gates on `tile.type`, but the tile
 // grid is NOT the drawn water (`world/render-water.ts` documents the two lies; a THIRD
-// one shows up here — hydrology LAKES are never stamped into the raster at all, so a
-// lake bed keeps its `mountain`/`grass`/`forest` tile). A brush therefore happily seeds
-// tussock, heather, marram and oak onto ground the shader paints as a lake, and the
-// player sees trees standing on open water. Measured on the WCV-97 world: 1097 (seed
-// 12345) / 1945 (seed 777) nature entities standing on render-water — EVERY ONE of them
-// on a tile whose type says dry land.
+// showed up here — hydrology LAKES were never stamped into the raster, so a lake bed
+// kept its `mountain`/`grass`/`forest` tile until WCV 103 stamped them `water` at gen).
+// A brush therefore happily seeded tussock, heather, marram and oak onto ground the
+// shader paints as a lake, and the player saw trees standing on open water. Measured on
+// the WCV-97 world: 1097 (seed 12345) / 1945 (seed 777) nature entities standing on
+// render-water — EVERY ONE of them on a tile whose type said dry land. The stamp fixes
+// the raster; this habitat sweep stays as the enforcement against the DRAWN water,
+// which still diverges from tiles wherever roads carve bridge/dirt over the channel.
 //
 // The rule is NOT a blanket water ban. Three populations, three habitats:
 //

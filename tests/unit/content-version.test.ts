@@ -7,6 +7,6 @@ describe('content-version constants', () => {
   });
 
   it('declares the current world content version (102: road A*/drawing fix round — metre-true grade, bow pins, real repair edges, node tangent fillets)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(102);
+    expect(WORLD_CONTENT_VERSION).toBe(103);
   });
 });

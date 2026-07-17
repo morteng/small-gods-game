@@ -15,15 +15,12 @@
 import type { GameMap } from '@/core/types';
 import type { World } from '@/world/world';
 import { tileBlockedByBuilding } from '@/world/building-collision';
-import { WATER_TYPES } from '@/core/constants';
+import { getRenderWaterMask } from '@/world/render-water';
 
 /** Open soil a ditch may cross / be dug into (mirrors farmland's FIELD_SOIL). */
 const DITCH_SOIL: ReadonlySet<string> = new Set(['grass', 'meadow', 'glen', 'scrubland', 'dirt', 'hills', 'sand']);
 
 const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-
-const isWater = (map: GameMap, x: number, y: number): boolean =>
-  WATER_TYPES.has(map.tiles[y]?.[x]?.type ?? '');
 
 /** A cell a ditch path may traverse: a field cell, or open soil free of buildings. */
 function traversable(map: GameMap, world: World, x: number, y: number): boolean {
@@ -71,6 +68,10 @@ export function stampIrrigation(map: GameMap, world: World, opts: { maxRoute?: n
   const maxRoute = opts.maxRoute ?? 18;
   const W = map.width;
   let stamped = 0;
+  // The ditch drinks from the water the player SEES (`getRenderWaterMask`, memoised) —
+  // not the tile raster, which forgets the channel exactly where a road carved a
+  // bridge over it. A field beside a bridged reach still gets its ditch.
+  const isWater = getRenderWaterMask(map);
 
   for (const patch of fieldPatches(map)) {
     // Multi-source BFS outward from every cell of THIS patch across traversable soil, to the
@@ -91,7 +92,7 @@ export function stampIrrigation(map: GameMap, world: World, opts: { maxRoute?: n
       for (const [dx, dy] of DIRS) {
         const nx = cx + dx, ny = cy + dy;
         if (nx < 0 || ny < 0 || nx >= map.width || ny >= map.height) continue;
-        if (isWater(map, nx, ny)) { landAtWater = k; break; }   // reached water — this land cell is the mouth
+        if (isWater(nx, ny)) { landAtWater = k; break; }   // reached water — this land cell is the mouth
         const nk = ny * W + nx;
         if (dist.has(nk) || !traversable(map, world, nx, ny)) continue;
         dist.set(nk, d + 1);

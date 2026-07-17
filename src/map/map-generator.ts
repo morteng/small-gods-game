@@ -219,12 +219,19 @@ export async function generateWithNoise(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
-      if (hydrology.riverMask[idx]) {
+      // LAKES stamp too (and win over a river run through the basin — the same
+      // ocean > lake > river precedence the render mask keeps). Lakes are filled
+      // basins ABOVE sea level, so the elevation-classified tile under one says
+      // grass/forest/mountain; every consumer gating on `tile.type` (brushes,
+      // building placer, pathfinding, road walker) then treated the lake bed as
+      // dry buildable land while the renderer painted standing water over it.
+      const isLake = hydrology.waterType[idx] === WaterType.Lake;
+      if (isLake || hydrology.riverMask[idx]) {
         const t = tiles[y]?.[x];
         if (!t) continue;
         // Do not overwrite existing water tiles — they're already wet.
         if (WATER_TYPES.has(t.type)) continue;
-        t.type = 'river';
+        t.type = isLake ? 'water' : 'river';
         t.walkable = false;
       }
     }

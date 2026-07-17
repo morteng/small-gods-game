@@ -175,10 +175,11 @@ function nearCorridor(corridors: Corridor[], x: number, y: number, r: number): b
 export function clearObstructedVegetation(world: World, map: GameMap): number {
   const toRemove: EntityId[] = [];
   const corridors = corridorsFromGraph(map.roadGraph);
-  // WATER HABITAT: the tile grid is not the drawn water (lakes are never stamped into
-  // the raster at all, and the river ribbon meanders off the D8 line), so EVERY brush —
-  // each of which gates on `tile.type` — seeds land flora into visible water. This is
-  // the one sweep that reads what is actually drawn, so it is where the rule is enforced.
+  // WATER HABITAT: the tile grid is not the drawn water (roads carve bridge/dirt over
+  // the channel, and the drawn ribbon meanders off the raster line), so a brush gating
+  // on `tile.type` can still seed land flora into visible water. Lakes stamp into the
+  // raster since WCV 103, which removes the worst case, but this is the one sweep that
+  // reads what is actually drawn, so it is where the rule is enforced.
   const isWater = getRenderWaterMask(map);
 
   for (const e of world.query({})) {
