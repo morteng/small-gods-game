@@ -16,7 +16,7 @@ import { fromState } from '@/core/rng';
 import { World } from '@/world/world';
 import { TrampleGrid } from '@/sim/trample';
 import { reconcileSettlementTiles } from '@/world/settlement-reconcile';
-import { projectRuntimePois, reconcileRuntimePoiStamps } from '@/world/runtime-poi';
+import { projectRuntimePois, reconcileRuntimePoiStamps, rebuildDominions } from '@/world/runtime-poi';
 
 export interface Snapshot {
   /** Sim tick count at capture time. */
@@ -239,6 +239,11 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
     state.runtimePois.hydrate(snap.runtimePois ?? { entries: [], nextId: 1 });
     projectRuntimePois(state.runtimePois, [state.worldSeed, state.map.worldSeed]);
     reconcileRuntimePoiStamps(state.map, state.runtimePois);
+    // M5: dominion links are DERIVED from store provenance — rebuild them on the
+    // fresh World so the knights' extraction reach (`titheRateFor`) is correct
+    // immediately after a scrub, not one game hour later. Grip transition
+    // memory (`gripsPoiId`) rides the snapshotted LordState above.
+    rebuildDominions(fresh.dominions, state.runtimePois);
   }
 
   // WP-D scrub-ghost pattern: restore internal tick-system state (cooldowns,

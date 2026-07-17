@@ -82,6 +82,8 @@ const EVENT_WEIGHT: Partial<Record<SimEvent['type'], number>> = {
   settlement_begin: 8,
   miracle: 8,
   castle_founded: 9,
+  grip_taken: 7,
+  grip_broken: 7,
   peace_proclaimed: 8,
   peace_lapsed: 6,
   oath_sworn: 5,
@@ -199,8 +201,10 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
         : `${resolveNpcName(world, ev.npcId)} rose as lord over the settlement.`;
     case 'castle_founded':
       return `${resolveNpcName(world, ev.lordNpcId)} raised a castle, ${ev.name}, to hold the land in his fist.`;
-    case 'castle_founded':
-      return `The lord ${resolveNpcName(world, ev.lordNpcId)} raised a castle, ${ev.name}, to hold the land.`;
+    case 'grip_taken':
+      return `The knights of the castle rode out, ${ev.garrison} armed man/men, and the settlement passed under their grip; what its people earn is carried up to the keep.`;
+    case 'grip_broken':
+      return 'No knight rode from the castle, and its grip on the settlement was broken; the tithe went uncollected.';
     case 'shrine_endowed':
       return `The lord ${resolveNpcName(world, ev.lordNpcId)} endowed a shrine to another god (${ev.rivalId}).`;
     case 'peace_proclaimed':

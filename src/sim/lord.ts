@@ -83,6 +83,11 @@ export interface LordState {
   /** M6 — a standing Peace of God on this seat, if one holds. Absent on
    *  pre-M6 saves (they restore to an unbound seat, no migration needed). */
   peace?: PeaceOath;
+  /** M5 — the settlement this CASTLE seat currently holds in its knights' grip
+   *  (transition memory for `grip_taken`/`grip_broken`, maintained hourly by
+   *  LordSystem). Only ever set on runtime-castle seats; absent on village
+   *  seats and on pre-M5 saves (the grip re-takes within a game hour). */
+  gripsPoiId?: string;
 }
 
 /** A fresh seat starts at a customary mild extraction — Fate coaches it up
@@ -131,12 +136,58 @@ export function selectLord(world: World, poiId: string, lineageId?: EntityId): E
   return nobles[0];
 }
 
-/** The settlement's current tithe rate — 0 when it has no seated lord. This is
- *  the ONE read the activity system's M0.c scaling makes per work completion. */
+/** M5 — the castle seat whose knights hold `poiId` in their grip, or null.
+ *  A dominion link (castle provenance, `world.dominions`) reaches only while
+ *  the castle has a SEATED lord and a LIVE garrison — no knights, no reach.
+ *  Read-time check, so a garrison wiped mid-hour stops extracting immediately
+ *  even though the `grip_broken` event waits for the next hourly fire. */
+export function grippingSeatOf(world: World, poiId: string): LordState | null {
+  const castleId = world.dominions.get(poiId);
+  if (!castleId) return null;
+  const seat = world.lords.get(castleId);
+  return seat && seat.garrison > 0 ? seat : null;
+}
+
+/** The settlement's current EFFECTIVE tithe rate — 0 when nobody extracts.
+ *  This is the ONE read the activity system's M0.c scaling makes per work
+ *  completion, and the rate LordSystem presses onto the statistical tier.
+ *  M5: knights CARRY the extraction — a castle gripping this settlement
+ *  (`grippingSeatOf`) collects its own tithe here; a local seat and a gripping
+ *  castle never stack (max — the heavier hand takes, the other goes without). */
 export function titheRateFor(world: World, poiId: string | undefined): number {
   if (!poiId) return 0;
-  const seat = world.lords.get(poiId);
-  return seat ? clamp01(seat.tithe) : 0;
+  const local = world.lords.get(poiId)?.tithe ?? 0;
+  const carried = grippingSeatOf(world, poiId)?.tithe ?? 0;
+  return clamp01(Math.max(local, carried));
+}
+
+/** M5/M6 — the seats whose armed men hold `poiId`: its own (if seated) and the
+ *  castle gripping it by dominion link (seat existence only — an assembly can
+ *  bind a garrison that is momentarily 0; the oath outlives the head-count).
+ *  Deterministic order: local seat first. Used by `proclaim_peace` (the
+ *  open-air assembly binds every one of them) and its registry precondition. */
+export function assemblySeatIdsAt(world: World, poiId: string): string[] {
+  const out: string[] = [];
+  if (world.lords.has(poiId)) out.push(poiId);
+  const castleId = world.dominions.get(poiId);
+  if (castleId && castleId !== poiId && world.lords.has(castleId)) out.push(castleId);
+  return out;
+}
+
+/** M5 — where a knight homed at castle `homePoiId` patrols TO: the anchor tile
+ *  of the settlement his seat grips, or null when he has no patrol (no dominion
+ *  link, no seated lord to command it, or the gripped place is missing from
+ *  the POI directory). Position comes from the projected directory
+ *  (`map.worldSeed.pois` — runtime POIs are projected there by M4). */
+export function patrolAnchorFor(world: World, homePoiId: string | undefined): { x: number; y: number } | null {
+  if (!homePoiId || !world.lords.has(homePoiId)) return null;
+  let gripped: string | null = null;
+  for (const [village, castleId] of world.dominions) {
+    if (castleId === homePoiId) { gripped = village; break; }
+  }
+  if (!gripped) return null;
+  const poi = world.tiles.worldSeed?.pois?.find(p => p.id === gripped);
+  return poi?.position ? { x: poi.position.x, y: poi.position.y } : null;
 }
 
 /** M0.c, recommended model (c): the tithe scales the `work` self-restore —

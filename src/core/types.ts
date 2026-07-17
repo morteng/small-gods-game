@@ -615,7 +615,10 @@ export type NpcActivity =
   | 'socialize'
   | 'worship'
   | 'idle'
-  | 'wander';
+  | 'wander'
+  // M5 (mortal power): a castle knight rides out to the settlement his seat
+  // holds in its grip and back — the visible carrier of the extraction.
+  | 'patrol';
 
 /** Settlement-level event types (Sprint 4). */
 export type SettlementEventType =

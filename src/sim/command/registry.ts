@@ -16,6 +16,7 @@ import {
   PROCLAIM_PEACE_DEVOTION_COST, BIND_OATH_DEVOTION_COST,
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
 } from '@/sim/divine-actions';
+import { assemblySeatIdsAt } from '@/sim/lord';
 import { aggregateDomain, DOMAIN_DEFS } from '@/sim/belief-domains';
 import { mindProbeCost, probeMind } from '@/sim/mind-probe';
 import type { Command, CommandCtx, ApplyCtx, CommandVerb, CommandTargetKind, RejectionReason } from './types';
@@ -223,12 +224,17 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     verb: 'proclaim_peace', tier: 'divine', cost: 0, targetKind: 'settlement', implemented: true,
     precondition(cmd, ctx) {
       if (cmd.target.kind !== 'settlement') return 'invalid_target';
-      const seat = ctx.world.lords.get(cmd.target.poiId);
-      if (!seat) return 'invalid_target';                // no seated lord — nothing to bind
-      // One peace at a time. CommandCtx carries no `now` (expiry is reaped hourly
-      // by LordSystem + re-checked with ApplyCtx.now in the apply), so any
-      // still-recorded oath blocks here — at worst an hour conservative.
-      if (seat.peace) return 'precondition_failed';
+      // M5: the assembly binds every seat whose armed men hold this ground —
+      // the settlement's own lord AND a gripping castle's (dominion link), so
+      // a village with no seat of its own can still call the knights that
+      // prey on it before the relics.
+      const seatIds = assemblySeatIdsAt(ctx.world, cmd.target.poiId);
+      if (seatIds.length === 0) return 'invalid_target'; // no armed men answer for this place
+      // One peace at a time per seat. CommandCtx carries no `now` (expiry is
+      // reaped hourly by LordSystem + re-checked with ApplyCtx.now in the
+      // apply), so any still-recorded oath blocks that seat — at worst an hour
+      // conservative.
+      if (seatIds.every((id) => ctx.world.lords.get(id)!.peace)) return 'precondition_failed';
       if (devotionPoolAt(ctx.world, cmd.source, cmd.target.poiId) < PROCLAIM_PEACE_DEVOTION_COST) {
         return 'precondition_failed';                    // the crowd's devotion can't carry it
       }

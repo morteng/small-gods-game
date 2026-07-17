@@ -20,7 +20,7 @@ import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
 import { clamp01 } from '@/sim/npc-sim';
 import { solarHourForTick } from '@/core/calendar';
-import { titheRateFor, workRestoreScale } from '@/sim/lord';
+import { titheRateFor, workRestoreScale, patrolAnchorFor, DEFAULT_TITHE } from '@/sim/lord';
 
 /** Sleep window (solar hours): from NIGHT_START_HOUR to NIGHT_END_HOUR. */
 export const NIGHT_START_HOUR = 21;
@@ -81,6 +81,11 @@ export function prayerSubject(needs: NpcNeeds): keyof NpcNeeds | null {
 /** Need restored when an NPC completes a self-serviced activity. */
 const SELF_AGENCY_RESTORE = 0.3;
 
+/** M5 — how close (tiles) to the gripped settlement's anchor a patrolling
+ *  knight rides before turning for home. Spatial, not temporal — the leg
+ *  length is however long the walk takes at NPC_WALK_SPEED. */
+export const PATROL_TURN_RADIUS = 5;
+
 export class NpcActivitySystem implements System {
   readonly name = 'npc_activity';
   readonly tickHz = 1;
@@ -111,6 +116,17 @@ export class NpcActivitySystem implements System {
         props.needs.prosperity = clamp01(props.needs.prosperity +
           SELF_AGENCY_RESTORE * workRestoreScale(titheRateFor(world, props.homePoiId)));
         break;
+      case 'patrol': {
+        // M5: a knight is PAID from the extraction his patrol carries — the
+        // castle seat's tithe against the customary DEFAULT_TITHE (capped at
+        // full pay). A Peace of God that caps the sworn lord's tithe halves
+        // the pay; a tithe-0 lord cannot keep knights fed — their prosperity
+        // sinks until they pray (M0) like any other desperate mortal.
+        const castleSeat = world.lords.get(props.homePoiId ?? '');
+        const pay = clamp01((castleSeat?.tithe ?? 0) / DEFAULT_TITHE);
+        props.needs.prosperity = clamp01(props.needs.prosperity + SELF_AGENCY_RESTORE * pay);
+        break;
+      }
       case 'socialize': props.needs.community  = clamp01(props.needs.community  + SELF_AGENCY_RESTORE); break;
       case 'sleep':     props.needs.safety     = clamp01(props.needs.safety     + SELF_AGENCY_RESTORE); break;
       default: break; // idle, wander, worship → no self-restore
@@ -122,6 +138,7 @@ export class NpcActivitySystem implements System {
     let activity: NpcActivity;
     let targetX: number | undefined;
     let targetY: number | undefined;
+    let patrolAnchor: { x: number; y: number } | null = null;
 
     // M0.a: the plea check runs FIRST — desperation outranks the social calendar
     // (pre-M0, low community pre-empted worship and only `meaning` could pray).
@@ -145,6 +162,17 @@ export class NpcActivitySystem implements System {
       // Socialize near home
       targetX = props.homeX;
       targetY = props.homeY;
+    } else if (props.role === 'soldier' && (patrolAnchor = patrolAnchorFor(world, props.homePoiId)) !== null) {
+      // M5: a castle knight rides OUT — down to the settlement his seat grips
+      // and back to the keep, leg after leg (the desire-line trample under his
+      // hooves is the castle's road). Near the far anchor → turn for home.
+      activity = 'patrol';
+      const dx = e.x - (patrolAnchor.x + 0.5);
+      const dy = e.y - (patrolAnchor.y + 0.5);
+      const nearFar = Math.sqrt(dx * dx + dy * dy) <= PATROL_TURN_RADIUS;
+      const leg = nearFar ? { x: props.homeX, y: props.homeY } : patrolAnchor;
+      targetX = leg.x + (Math.floor(this.rng.next() * 5) - 2);
+      targetY = leg.y + (Math.floor(this.rng.next() * 5) - 2);
     } else if (WORKING_ROLES.has(props.role)) {
       // Daytime: working roles go to work area
       activity = 'work';
