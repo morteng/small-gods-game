@@ -428,6 +428,13 @@ export function applyPoiInfluences(
   const { width, height, seed, elevationScale = 0.02, seaLevel = 0.35 } = config;
 
   for (const poi of pois) {
+    // M4: runtime-created POIs (RuntimePoiStore projections, `runtime: true`) are
+    // terrain-inert BY RULE — their ground expression is earthworks (the runtime-safe
+    // deformation channel), never the base field. Without this guard a projected
+    // runtime `castle` would move the ground under gen-time biome classification,
+    // hydrology, and every standing building near the site. Twin guard:
+    // `poiHeightSignature` (heightfield.ts). See src/world/runtime-poi.ts.
+    if (poi.runtime) continue;
     const spec = POI_INFLUENCES[poi.type];
     if (!spec) continue;
     const region = poi.region;

@@ -41,6 +41,11 @@ function poiHeightSignature(pois: POI[] | null | undefined): string {
   let s = '';
   for (const p of pois) {
     if (!p.position) continue;
+    // M4: runtime-created POIs are heightfield-inert BY RULE — a runtime `castle`
+    // (whose type HAS an elevation cap) must not re-key/recompute the base field;
+    // its ground expression is earthworks via the deformation channel. Guarded
+    // here AND in `applyPoiInfluences` (see src/world/runtime-poi.ts).
+    if (p.runtime) continue;
     if (!POI_INFLUENCES[p.type]?.elevation) continue;
     s += `${p.type}@${p.position.x},${p.position.y};`;
   }
