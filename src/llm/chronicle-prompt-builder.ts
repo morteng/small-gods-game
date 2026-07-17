@@ -22,6 +22,8 @@ import type { EntityId } from '@/core/types';
 import type { AppendedEvent, SimEvent } from '@/core/events';
 import type { CalendarTick } from '@/core/calendar';
 import type { World } from '@/world/world';
+import type { SkipSummary } from '@/sim/time-skip';
+import type { EraArcDigest } from '@/sim/fate/arc-era';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 
 // ─── Register (the system prompt) ──────────────────────────────────────────
@@ -298,4 +300,102 @@ export function renderOfflineAnnal(window: ChronicleWindow): string {
   if (parts.length === 0) parts.push('the day passed uneventfully');
 
   return `In this year, ${parts.join(', and ')}.`;
+}
+
+// ─── F6: the era entry (a time-skip's summary, authored by its spanning arcs) ─
+
+/**
+ * The era window: pure given facts. `summary` comes straight from `applySkip`
+ * (the sim is truth); `arcs` are the settled digests of the arcs that spanned
+ * the skip (`@/sim/fate/arc-era`); `calendar` is the POST-skip date — the
+ * annalist writes after the years have passed.
+ */
+export interface EraChronicleWindow {
+  summary: SkipSummary;
+  arcs: EraArcDigest[];
+  calendar: CalendarTick;
+}
+
+/** The daily register, plus the era framing — same annalist, longer span. */
+export const ERA_CHRONICLER_ADDENDUM = `
+ERA ENTRY: this entry covers a SPAN OF YEARS, not one day. Write 4-8 sentences.
+The designs of Fate given below are portents and judgments — annotate what came
+to pass, what was abandoned, and what remains unfinished. Never alter or invent
+the numbers of years, deaths, births, or the faithful.`;
+
+/** One terse factual line per spanning arc — disposition, goals, pressures,
+ *  omens. No prose, no invention; the register annotates. Pure + deterministic. */
+export function eraArcFactLine(d: EraArcDigest): string {
+  const disposition =
+    d.stage === 'landed' ? 'came to pass'
+    : d.stage === 'abandoned' ? `was abandoned (${d.abandonedReason ?? 'the moment passed'})`
+    : 'remains unfinished';
+  const goals = d.goals.length > 0
+    ? ` It sought: ${d.goals.map((g) => `${g.predicate.replace(/_/g, ' ')} (${g.met ? 'come true' : 'not come true'})`).join(', ')}.`
+    : '';
+  const pressures = d.pressures.length > 0
+    ? ` Pressures were applied: ${d.pressures.map((p) => `${p.verb} x${p.count}`).join(', ')}.`
+    : ' No hand was laid upon the world for it.';
+  const omens = d.portentsPlanted > 0
+    ? ` Omens: ${d.portentsPlanted} planted, ${d.portentsDiscovered} seen.`
+      + (d.omens.length > 0 ? ` ("${d.omens.slice(0, 2).join('" · "')}")` : '')
+    : '';
+  return `The design "${d.title}" ${disposition}.${goals}${pressures}${omens}`;
+}
+
+export function buildEraChroniclePrompt(window: EraChronicleWindow): BuiltChroniclePrompt {
+  const { summary, arcs, calendar } = window;
+  const system = CHRONICLER_SYSTEM_PROMPT + ERA_CHRONICLER_ADDENDUM;
+  const dateHeader = `=== YEAR ${calendar.year}, ${calendar.season.toUpperCase()}, DAY ${calendar.dayOfYear} — AFTER ${summary.years} YEAR(S) PASSED ===`;
+  const eraFacts = [
+    '=== THE ERA (given facts — never alter) ===',
+    `1. ${summary.years} year(s) passed.`,
+    `2. ${summary.deaths} died and ${summary.births} were born.`,
+    `3. The faithful numbered ${summary.believersBefore} before, and ${summary.believersAfter} after.`,
+  ].join('\n');
+  const arcsBlock = arcs.length > 0
+    ? `=== THE DESIGNS OF FATE ACROSS THOSE YEARS ===\n${arcs.map((d, i) => `${i + 1}. ${eraArcFactLine(d)}`).join('\n')}`
+    : '=== THE DESIGNS OF FATE ACROSS THOSE YEARS ===\nFate authored nothing in those years; the world merely turned.';
+
+  const user = [
+    dateHeader,
+    '',
+    eraFacts,
+    '',
+    arcsBlock,
+    '',
+    'Write the chronicle entry for this era, following the register above.',
+  ].join('\n');
+
+  const estimatedTokens = Math.ceil((system.length + user.length) / 4);
+  return { system, user, estimatedTokens };
+}
+
+/** One offline arc clause — mirrors `renderOfflineAnnal`'s dullness discipline. */
+function offlineArcClause(d: EraArcDigest): string {
+  const applied = d.pressures.reduce((n, p) => n + p.count, 0);
+  const worked = applied > 0 ? `after ${applied} pressure(s)` : 'though no hand was laid upon the world';
+  const omens = d.portentsPlanted > 0 ? `, with ${d.portentsPlanted} omen(s) planted (${d.portentsDiscovered} seen)` : '';
+  switch (d.stage) {
+    case 'landed':
+      return `Fate's design "${d.title}" came to pass, ${worked}${omens}`;
+    case 'abandoned':
+      return `Fate's design "${d.title}" was abandoned (${d.abandonedReason ?? 'the moment passed'}), ${worked}${omens}`;
+    default:
+      return `Fate's design "${d.title}" remained unfinished, ${worked}${omens}`;
+  }
+}
+
+/**
+ * Deterministic templated era annal — the honest no-LLM fallback, same facts
+ * the era prompt would have carried, no invention, no `Math.random`.
+ * Byte-identical for byte-identical input.
+ */
+export function renderOfflineEraAnnal(window: EraChronicleWindow): string {
+  const { summary, arcs, calendar } = window;
+  const head = `Year ${calendar.year}: ${summary.years} year(s) passed, and ${summary.deaths} died, and ${summary.births} were born, and the faithful went from ${summary.believersBefore} to ${summary.believersAfter}.`;
+  if (arcs.length === 0) {
+    return `${head} Fate authored nothing in those years; the world merely turned.`;
+  }
+  return `${head} ${arcs.map(offlineArcClause).join('. ')}.`;
 }
