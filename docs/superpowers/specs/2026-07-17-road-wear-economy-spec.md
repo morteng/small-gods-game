@@ -328,3 +328,34 @@ this section wins.
 7. **Fate observes in S2** (`road_promoted/demoted/adopted` SimEvents → tidings/chronicle/eras).
    A constrained `nudge_road_use` tool joins the Fate-pacing epic later, under the ±cap
    discipline. (As spec'd.)
+
+## 10 · The crossing continuum (2026-07-17, user direction — SUPERSEDES §4's five fixed tiers)
+
+User, on seeing the S0 ladder: *"bottom rung is no affordances for the crossing at all. then
+there can be 'naturally' occurring skipping stones, different degrees of fordability. then a
+simple log over a stream. then two logs. then a railing of some kind. and so on. variety is the
+spice. use tti inspiration."* Also: the S0 tier-0 log read as a **plank** (it was a box — the
+bridge part kit emits only box/column/arch prims), and the tiers read as the same construction
+principle with more decoration. Rulings:
+
+- **Rung zero is the water itself.** Fordability is a property of the reach, not a built thing:
+  depth/width/riffle (hydrology) → impassable | wadeable | natural stepping stones (riffle
+  reaches with riparian rock). Pathfinding costs it; trample therefore converges on fordable
+  reaches — so the trail crosses where the ford is, and the tier-1 log later lands where the
+  trail already crosses. Emergence places the log, not placement logic.
+- **The built ladder gets finer rungs:** log → twin logs → log + handrail → plank walkway on
+  bents → framed beam + rails → timber arch → stone arch. `CrossingTier` grows to match; use
+  thresholds interpolate between the §3 promote points; class-cap + LAG discipline unchanged.
+- **Roundwood is a first-class member.** A log must BE a horizontal round timber (cylinder
+  prim, end-grain visible, seeded sag/askew), never a narrow box. Low rungs are roundwood
+  construction; sawn/framed timber begins at the plank-walkway rung; masonry at the top.
+- **Water gauge constrains FORM.** Render-water width at the site sets the minimum viable
+  structure: a log spans ≤ ~2 tiles; wider needs bents/piers (multi-bay); grand rivers admit
+  only high tiers — below that, no crossing (route around / ford elsewhere). Ferries: deferred
+  roadmap item.
+- **Variety is the spice.** Every recipe takes a per-site seeded variation (sfc32 keyed on the
+  site, never Math.random): log diameter/taper/askew, stone count and spacing, rail style,
+  bent rhythm. No two humble crossings identical.
+- **TTI reference before geometry tuning** (durable order): a small user-confirmed batch of
+  low-rung archetype refs (stepping stones, single log, twin log, log + rail, plank walkway)
+  into `reference-library/tti/crossing-*`; the high rungs already have `tti/bridge-*` refs.
