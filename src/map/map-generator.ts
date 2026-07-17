@@ -55,7 +55,7 @@ import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/riv
  */
 const EMIT_AQUEDUCTS = false;
 import { REACH_CARVE } from '@/world/river-deformation';
-import { getComposedHeightfield, reconcileFilletRaster, edgeRoadProfile } from '@/world/road-deformation';
+import { getComposedHeightfield, reconcileFilletRaster, reconcileRoadTileVisibility, edgeRoadProfile } from '@/world/road-deformation';
 import { getRenderWaterMask } from '@/world/render-water';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
@@ -508,8 +508,11 @@ export async function generateWithNoise(
     // (e.g. a preset's door face moved), the network silently splits into two islands even
     // though every pass "succeeded". Normally a no-op; carves a minimal legal land connector
     // between the closest cells of the split components and WARNS when it fires.
+    // Passing `roadGraph` makes a fired repair a REAL edge (centerline/carve/ribbon like any
+    // road) instead of bare invisible tiles the ribbon never paints.
     repairConnectionSplits(tiles, width, height, approach.connections, worldSeed.pois ?? [],
-      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`));
+      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`),
+      roadGraph);
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a
     // crossing sub-connectome and realize its ancillary structures (toll/guard/shrine/mill/
@@ -735,6 +738,12 @@ export async function generateWithNoise(
   const filletSpans = reconcileFilletRaster(map, world);
   const filletWrites = filletSpans.reduce((a, s) => a + s.cellsWritten, 0);
   if (filletWrites > 0) await report(`Reconciled ${filletWrites} road tiles under filleted approaches`);
+
+  // Road VISIBILITY reconcile: any road tile no drawn centerline / settlement street owns
+  // loses its `baseType` so it paints as an honest tile-colour road instead of vanishing
+  // under the ground colour (the INVISIBLE-road class — walkable roads rendered as grass).
+  const madeVisible = reconcileRoadTileVisibility(map);
+  if (madeVisible > 0) console.warn(`[worldgen] road visibility reconcile: ${madeVisible} ribbon-orphaned road tile(s) fell back to tile-colour paint`);
 
   // BRIDGE SPANS — built HERE, on the FINAL terrain. A deck's whole geometry is its bank→bed
   // clearance: the arches spring from the bed, the deck rides their crowns, the abutments land on

@@ -831,6 +831,74 @@ function surfaceOfEdge(map: GameMap, edgeId: string): RoadEdge['surface'] {
   return map.roadGraph?.edges.find((e) => e.id === edgeId)?.surface ?? 'dirt';
 }
 
+// ── Road tile VISIBILITY reconcile ────────────────────────────────────────────────
+//
+// A road tile with `baseType` set is colour-painted as the ground UNDER the road
+// (`packColorField`), on the assumption the analytic ribbon supplies the road albedo on
+// top. That assumption only holds for tiles a graph edge's drawn centerline covers —
+// stitch/orphan tiles carved by the repair passes (and any residual cell no centerline
+// or settlement street owns) rendered as bare grass while staying walkable roads: the
+// INVISIBLE-road class the road audit surfaced. This final pass clears `baseType` on any
+// road tile that neither a road edge's FINAL centerline nor a settlement street run
+// covers, so it falls back to honest tile-colour paint (the same blocky style settlement
+// streets use) instead of vanishing. Runs once at gen, after `reconcileFilletRaster`
+// (the centerlines it measures against are the final ones). Returns tiles made visible.
+
+/** A road tile further than this (tiles) from every drawn centerline is ribbon-orphaned —
+ *  matches the audit's own orphan threshold (ribbon half-width tops out ≈ 1.44 for a
+ *  highway, but the orphan class sits well clear of ANY centerline, not just the wide ones). */
+const RIBBON_COVER_TILES = 0.9;
+
+export function reconcileRoadTileVisibility(map: GameMap): number {
+  if (!map.tiles?.length) return 0;
+  const graph = map.roadGraph;
+  const nodeById = new Map((graph?.nodes ?? []).map((nd) => [nd.id, nd]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+  const lines: { pts: Pt[]; cumS: number[]; minX: number; minY: number; maxX: number; maxY: number }[] = [];
+  for (const edge of graph?.edges ?? []) {
+    if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
+    const prof = edgeRoadProfile(map, edge, nodeById, poiById);
+    if (!prof || prof.centerline.length < 2) continue;
+    const pts = prof.centerline;
+    const cumS = new Array<number>(pts.length);
+    cumS[0] = 0;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+      if (i > 0) cumS[i] = cumS[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      if (pts[i].x < minX) minX = pts[i].x;
+      if (pts[i].y < minY) minY = pts[i].y;
+      if (pts[i].x > maxX) maxX = pts[i].x;
+      if (pts[i].y > maxY) maxY = pts[i].y;
+    }
+    lines.push({ pts, cumS, minX, minY, maxX, maxY });
+  }
+  // Settlement street runs paint by tile colour already (the blocky street style) —
+  // a road tile on one is owned, not orphaned.
+  const streetCells = new Set<string>();
+  for (const plan of map.settlementPlans ?? []) {
+    for (const e of plan.edges ?? []) for (const t of e.tiles) streetCells.add(`${t.x},${t.y}`);
+  }
+  const R = RIBBON_COVER_TILES;
+  let cleared = 0;
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      const t = map.tiles[y]?.[x];
+      if (!t || t.baseType === undefined) continue;
+      if (t.type !== 'dirt_road' && t.type !== 'stone_road') continue;   // bridges read as decks
+      if (streetCells.has(`${x},${y}`)) continue;
+      let covered = false;
+      for (const l of lines) {
+        if (x < l.minX - R || x > l.maxX + R || y < l.minY - R || y > l.maxY + R) continue;
+        if (projectToPolyline(l.pts, l.cumS, x, y).d <= R) { covered = true; break; }
+      }
+      if (covered) continue;
+      delete t.baseType;
+      cleared++;
+    }
+  }
+  return cleared;
+}
+
 /**
  * PURE planning half of the fillet↔raster reconciliation — every divergent span of every road
  * edge's filleted centerline, with its candidate ribbon cells and any hard-constraint violations.

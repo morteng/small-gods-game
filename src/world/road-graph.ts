@@ -510,6 +510,15 @@ export function repairRoadDiagonalGaps(
  * road cell nearest `from`; if the component never comes within reach of `to`, BFS a legal
  * land path (never water / bridge-less channels / caller-flagged obstacles) between the two
  * closest component cells and stamp it `dirt_road`. Returns total cells carved.
+ *
+ * When `graph` is passed, a fired repair ALSO records the connector as a genuine `RoadEdge`
+ * (junction nodes at both component-join cells, class/surface inherited from the repaired
+ * connection) so the connector flows through the NORMAL road pipeline — smoothed centerline,
+ * terrain carve, analytic ribbon paint. Without it the repair stamped TILES ONLY: walkable
+ * `dirt_road` cells with `baseType` set that no graph edge covered, which `packColorField`
+ * painted as plain ground (the road albedo comes from the ribbon) — an INVISIBLE road NPCs
+ * walked across bare grass (the audit's orphan-INVISIBLE class, 23/11 cells on the probe
+ * seeds).
  */
 export function repairConnectionSplits(
   tiles: Tile[][],
@@ -518,6 +527,7 @@ export function repairConnectionSplits(
   connections: Connection[] | undefined,
   pois: POI[],
   isBlocked?: (x: number, y: number) => boolean,
+  graph?: RoadGraph,
 ): number {
   if (!connections?.length) return 0;
   const isRoad = (x: number, y: number): boolean => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type ?? '');
@@ -607,18 +617,44 @@ export function repairConnectionSplits(
       console.warn(`[worldgen] connection repair FAILED for ${conn.from}→${conn.to} — components split with no legal land path`);
       continue;
     }
+    // Reconstruct the BFS path in A→B order — it is BOTH the tile stamp AND (with `graph`)
+    // the new repair edge's polyline, so carve/ribbon/raster all agree by construction.
+    const path: { x: number; y: number }[] = [];
+    for (let k = goalK; k !== -1; k = prev.get(k)!) path.push({ x: k % width, y: ((k - (k % width)) / width) });
+    path.reverse();
+    const surface = surfaceOf(conn);
+    const roadTile = tileTypeOf(surface);
     let carved = 0;
-    for (let k = goalK; k !== -1; k = prev.get(k)!) {
-      const x = k % width, y = (k - x) / width;
-      const t = tiles[y]?.[x];
+    for (const c of path) {
+      const t = tiles[c.y]?.[c.x];
       if (!t || ROAD_TILE_TYPES.has(t.type)) continue;
       preserveBaseType(t);
-      t.type = 'dirt_road';
+      t.type = roadTile;
       t.walkable = true;
       carved++;
     }
+    if (graph && path.length >= 2) {
+      // The connector becomes a REAL edge: it now gets a smoothed centerline, a corridor
+      // carve and ribbon paint like any road (previously it existed only as bare tiles).
+      const mkNode = (p: { x: number; y: number }, tag: string): RoadNode => {
+        const node: RoadNode = { id: `rn-repair-${conn.from}-${conn.to}-${tag}`, x: p.x, y: p.y, kind: 'junction' };
+        graph.nodes.push(node);
+        return node;
+      };
+      graph.edges.push({
+        id: `re-repair-${conn.from}-${conn.to}`,
+        a: mkNode(path[0], 'a').id,
+        b: mkNode(path[path.length - 1], 'b').id,
+        polyline: path,
+        feature: 'road',
+        class: classForConnection(poiById.get(conn.from), poiById.get(conn.to)),
+        surface,
+        bridgeCells: [],   // the BFS path is land-only by construction (passable() forbids water)
+      });
+    }
     totalCarved += carved;
-    console.warn(`[worldgen] connection repair FIRED for ${conn.from}→${conn.to} — carved ${carved} tile(s); road network was split into islands`);
+    console.warn(`[worldgen] connection repair FIRED for ${conn.from}→${conn.to} — carved ${carved} tile(s)`
+      + `${graph ? ' as a real road edge' : ''}; road network was split into islands`);
   }
   return totalCarved;
 }
