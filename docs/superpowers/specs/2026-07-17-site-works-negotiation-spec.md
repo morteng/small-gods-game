@@ -94,6 +94,15 @@ already has — banks, span, yaw, deck width, road class):
 4. **Channel pinch (optional, tier-gated)** — at stone tiers only, ≤ 0.5 tile of abutment fill
    narrowing the opening, echoing how real bridge sites concentrate flow. OFF by default until
    the render proves it reads; never enough to alter the water mask's connectivity (rule §2).
+5. **Vegetation clearance (user, 2026-07-17: "bridges would probably have large trees cleared
+   away in immediate vicinity")** — large flora (canopy-tier trees) removed within a small
+   radius of the abutments + approach ramps: the crossing was a worksite, its timber likely
+   *became* the bridge, and the approaches stay clear for traffic and sight-lines. Radius
+   scales gently with tier (a log crossing clears almost nothing; a stone bridge keeps a real
+   apron open). Underbrush/ground flora stays — this is tree clearance, not sterilization.
+   Deterministic: clearance is a filter applied where flora placement/regrowth already runs,
+   keyed on the crossing's footprint (same source-tag ownership — a removed crossing lets the
+   trees come back via normal regrowth, nothing persisted beyond the bundle).
 
 Wiring: the bundle is built inside the crossing pass (gen-time) from the same spec the structure
 entities use, registered to the world `DeformationStore` under the crossing's source tag —
