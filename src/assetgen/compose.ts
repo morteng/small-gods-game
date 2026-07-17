@@ -38,7 +38,7 @@ type PartVariant =
   | { prim: 'pyramid'; center: [number, number]; baseZ: number; halfW: number; halfH: number; height: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
   | { prim: 'waterwheel'; center: Vec3; radius: number; width: number; axis: 'x' | 'y'; spokes?: number; paddles?: number; material?: Mat; work?: string; finish?: string; tint?: RGB }
   | { prim: 'ellipsoid'; center: [number, number]; baseZ: number; radii: Vec3; material?: Mat; bore?: { radius: number; depth: number } }
-  | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number }
+  | { prim: 'arch'; at: Vec3; span: number; height: number; thickness: number; yaw?: number; material?: Mat; work?: string; style?: ArchStyle; ringDepth?: number; springZ?: number; open?: boolean }
   | { prim: 'column'; center: [number, number]; baseZ?: number; shape?: ColumnShape; sides?: number; radius: number; topRadius?: number; height: number; base?: ColumnBand | null; capital?: ColumnBand | null; material?: Mat; work?: string }
   // A HORIZONTAL round timber (a log): a cylinder laid along a bearing, optionally tapered
   // butt→tip, optionally adze-flattened on top (`flatDepth` — a crown cut in the log's own
@@ -153,15 +153,16 @@ export async function partFacets(p: Part): Promise<{ facets: WorldFacet[]; ancho
       const ringDepth = p.ringDepth ?? 0.35;
       const springZ = p.springZ ?? 0;
       const m = await solidArchCurved(p.at, p.span, p.height, p.thickness, {
-        style, ringDepth, springZ, yaw: p.yaw,
+        style, ringDepth, springZ, yaw: p.yaw, open: p.open,
       });
       // Curved rings get a polar voussoir frame on their faces (KV) + dressed-ashlar
       // coursing by default, so the masonry reads as radial wedges. The flat portal keeps
-      // the planar default. p.height is the rise; p.span the footprint width.
-      const proj = style !== 'flat'
+      // the planar default, and an OPEN rib (usually timber) skips both — the voussoir
+      // frame's radii assume the filled ring. p.height is the rise; p.span the footprint width.
+      const proj = style !== 'flat' && !p.open
         ? archVoussoirProjector(p.at, p.span, p.height, ringDepth, springZ, p.yaw ?? 0)
         : undefined;
-      const work = p.work ?? (style !== 'flat' ? 'ashlar' : undefined);
+      const work = p.work ?? (style !== 'flat' && !p.open ? 'ashlar' : undefined);
       return { facets: manifoldToFacets(m.getMesh(), p.material ?? 'stone', work, proj) };
     }
     case 'column': {

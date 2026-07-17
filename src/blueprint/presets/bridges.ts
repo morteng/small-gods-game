@@ -85,11 +85,19 @@ export function archBridge(opts: {
    *  floating over the mid-span cusp) and a stout pier at each joint. Masonry keeps the single
    *  continuous deck — a stone viaduct has one road profile, not a hump per arch. */
   perBayHump?: boolean;
+  /** Moon-bridge composition (single-arch timber): the deck FOLLOWS the arch — ends land at
+   *  LOW footing blocks and the hump rises to kiss the crown, instead of a flat deck riding
+   *  the crown on full-height masonry stacks (viaduct abutments dwarf a footbridge). Overrides
+   *  `camberM` (the hump IS bank→crown). */
+  deckFollowsArch?: boolean;
 }): Record<string, BridgePart> {
-  const { spanTiles, roadTiles, bays, riseM, style, parapet, camberM, perBayHump } = opts;
+  const { spanTiles, roadTiles, bays, riseM, style, parapet, perBayHump, deckFollowsArch } = opts;
   const bay = spanTiles / bays;
   const y0 = 1;                       // deck/arch band starts 1 tile in (montage breathing room)
-  const deckBaseZM = riseM + ARCH_RING_M;   // deck underside sits on the arch crown
+  const crownZM = riseM + ARCH_RING_M;      // top of the arch ring
+  const footH = 0.5;                        // moon-bridge footing block height
+  const deckBaseZM = deckFollowsArch ? footH : crownZM;   // deck END underside
+  const camberM = deckFollowsArch ? crownZM - footH : opts.camberM;
   const parts: Record<string, BridgePart> = {};
   if (perBayHump && bays >= 2) {
     for (let i = 0; i < bays; i++) {
@@ -124,7 +132,10 @@ export function archBridge(opts: {
   for (let i = 0; i < bays; i++) {
     parts[`arch${i + 1}`] = {
       type: 'arch_span', at: { x: 0.5 + (i * (openM + pierM)) / M, y: y0 }, size: { w: Math.ceil(openM / M), h: roadTiles },
-      params: { spanM: openM, riseM, thicknessM: roadM, dir: 'ew', style, ringDepthM: ARCH_RING_M },
+      params: { spanM: openM, riseM, thicknessM: roadM, dir: 'ew', style, ringDepthM: ARCH_RING_M,
+        // Moon bridge: the arch is an exposed timber RIB — a filled spandrel's haunches
+        // would tower over the descending deck at the ends.
+        ...(deckFollowsArch ? { openRib: true } : {}) },
     };
   }
   for (let j = 1; j < bays && pierM > 0; j++) {
@@ -387,6 +398,30 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
           params: { heightM: sillH, widthM: plankW + 0.3, depthM: 0.45, batter: 0.04, dir: 'ew' },
         };
       }
+      // Rail/no-rail variety (seeded, LAST so railless seeds keep identical geometry): some
+      // plank walks grow one light roundwood post-and-rail along a single side — the log-rail
+      // vocabulary a size up, not the timber-beam's framed double rails.
+      if (rng.next() < 0.45) {
+        const side = sign(rng);
+        const railY = cy + side * (plankW / (2 * M) - 0.05);
+        const postLen = 1.0;
+        const railZ = deckZ + 0.82;
+        for (let k = 0; k < 3; k++) {
+          const px = 0.5 + (k + 0.5) * (spanTiles / 3);
+          parts[`rpost${k + 1}`] = {
+            type: 'log', at: { x: px - 0.5, y: railY - 0.5 }, size: { w: 1, h: 1 },
+            params: {
+              lengthM: postLen, radiusM: 0.045,
+              baseZM: deckZ + postLen / 2 - 0.06,     // foot seated in the tread, head proud of the rail
+              pitchDeg: 90 + between(rng, -4, 4),
+            },
+          };
+        }
+        parts.rrail = {
+          type: 'log', at: { x: 0.5, y: railY - 0.5 }, size: { w: spanTiles, h: 1 },
+          params: { lengthM: spanTiles * M + 0.3, radiusM: 0.035, baseZM: railZ, yawDeg: between(rng, -0.6, 0.6) },
+        };
+      }
       return parts;
     },
   },
@@ -408,7 +443,7 @@ export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
     ttiSubject: 'a graceful single-arch wooden footbridge over a stream, one gently curved timber ' +
       'arch carrying a strongly hump-backed plank deck, slender post-and-rail wooden parapets along ' +
       'both edges, landing on low grey stone footing blocks at each bank; weathered brown timber',
-    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 1.8, style: 'round', parapet: 'rails', camberM: 1.2 }),
+    build: () => archBridge({ spanTiles: 5, roadTiles: 1, bays: 1, riseM: 1.8, style: 'round', parapet: 'rails', camberM: 0, deckFollowsArch: true }),
   },
   // Timber beam bridge: the everyday small wooden crossing, and the ladder's SAWN-timber
   // boundary — everything square and framed where the rungs below are roundwood: two visible

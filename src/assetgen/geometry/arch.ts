@@ -35,6 +35,10 @@ export interface ArchOpts {
   springZ?: number;
   /** Degrees about Z at the springing origin (at.x, at.y), like `solidArch.yaw`. */
   yaw?: number;
+  /** Open RIB instead of a filled spandrel: only the curved band between the intrados
+   *  and an outer curve one ringDepth out (a timber moon-bridge rib, an exposed arcade
+   *  rib). Default false — the filled spandrel wall every existing caller gets. */
+  open?: boolean;
 }
 
 /** Arc tessellation across the span — enough for a smooth curve, few enough to keep
@@ -166,6 +170,30 @@ export async function solidArchCurved(at: Vec3, span: number, rise: number, dept
   const ringDepth = opts.ringDepth ?? 0.35;
   const springZ = opts.springZ ?? 0;
   const crownZ = springZ + rise + ringDepth;
+
+  if (opts.open) {
+    // Open RIB: the band between the intrados and an OUTER intrados evaluated one
+    // ringDepth out (span + 2·ringDepth wide, rise + ringDepth tall, same feet) — a
+    // normal-ish offset, so the band keeps substance where the curve turns vertical
+    // instead of thinning to nothing (a plain vertical offset would). The feet land
+    // solid on the springing line.
+    const outer = (u: number): number =>
+      intradosZ(style, u + ringDepth, span + 2 * ringDepth, rise + ringDepth, springZ);
+    const band: [number, number][] = [];
+    for (let i = 0; i <= ARC_SEGMENTS; i++) {
+      const u = (i / ARC_SEGMENTS) * span;
+      band.push([u, Math.max(outer(u), springZ + ringDepth * 0.5)]);
+    }
+    for (let i = ARC_SEGMENTS; i >= 0; i--) {
+      const u = (i / ARC_SEGMENTS) * span;
+      band.push([u, i === 0 || i === ARC_SEGMENTS ? 0 : intradosZ(style, u, span, rise, springZ)]);
+    }
+    let rib = extrudeProfileY(Manifold, band, depth, at);
+    if (opts.yaw) {
+      rib = rib.translate([-at[0], -at[1], 0]).rotate([0, 0, opts.yaw]).translate([at[0], at[1], 0]);
+    }
+    return rib;
+  }
 
   // Spandrel block: the full rectangle the masonry occupies.
   const spandrel: [number, number][] = [[0, 0], [span, 0], [span, crownZ], [0, crownZ]];

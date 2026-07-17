@@ -323,6 +323,9 @@ export const archSpanPartType: PartType = {
     // read as a proud archivolt; the caller must seat the deck at riseM + THIS so the crown still
     // meets the underside. `any` so an unset caller stays byte-identical.
     ringDepthM: { kind: 'any', doc: 'masonry ring depth above the intrados crown (m); unset ⇒ arch default 0.7 m' },
+    // Open RIB (no spandrel fill) — the timber moon-bridge member. `any` so an unset
+    // caller (every masonry bridge) stays byte-identical.
+    openRib: { kind: 'any', doc: 'true ⇒ open curved rib instead of a filled spandrel wall' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
@@ -343,6 +346,7 @@ export const archSpanPartType: PartType = {
       style: (p.params.style as ArchStyle) ?? 'round',
       // Pass ringDepth only when the caller opts in — omitted ⇒ the arch prim's own default.
       ...(ringM !== undefined && ringM !== null ? { ringDepth: mToTiles(ringM) } : {}),
+      ...(p.params.openRib ? { open: true } : {}),
       material: mat,
     }];
   },
