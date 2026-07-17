@@ -140,7 +140,7 @@ export function foundCastle(
 const SITE_BEARINGS = 16;
 const SITE_BAND_STEP = 8;          // tiles between the three distance bands
 const SITE_CLEARANCE = 6;          // tiles of open ground between town edge and outer ring
-const RING_LAND_SAMPLES = 8;       // outer-ring sample points that must be dry land
+const RING_LAND_SAMPLES = 16;      // per-radius sample points that must be dry land
 
 export interface ChooseCastleSiteOpts {
   /** Complex recipe; sets the outer-ring radius (candidate margins) and the
@@ -179,13 +179,18 @@ export function chooseCastleSite(
     if (tx < margin || ty < margin || tx >= map.width - margin || ty >= map.height - margin) return false;
     return !isWaterTile(map, tx, ty);
   };
+  // The whole WORK must stand dry: the curtain (outer ring), the bailey arc
+  // where the buildings drop (~0.65·R), and the yard — a pond inside the ring
+  // is a barrier.over-water / building.on-water lint error waiting to commit.
   const ringOnLand = (cx: number, cy: number): boolean => {
-    for (let k = 0; k < RING_LAND_SAMPLES; k++) {
-      const a = (2 * Math.PI * k) / RING_LAND_SAMPLES;
-      const sx = Math.round(cx + outerR * Math.cos(a));
-      const sy = Math.round(cy + outerR * Math.sin(a));
-      if (sx < 0 || sy < 0 || sx >= map.width || sy >= map.height) return false;
-      if (isWaterTile(map, sx, sy)) return false;
+    for (const r of [outerR, outerR * 0.65, outerR * 0.3]) {
+      for (let k = 0; k < RING_LAND_SAMPLES; k++) {
+        const a = (2 * Math.PI * k) / RING_LAND_SAMPLES;
+        const sx = Math.round(cx + r * Math.cos(a));
+        const sy = Math.round(cy + r * Math.sin(a));
+        if (sx < 0 || sy < 0 || sx >= map.width || sy >= map.height) return false;
+        if (isWaterTile(map, sx, sy)) return false;
+      }
     }
     return true;
   };

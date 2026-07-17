@@ -370,10 +370,13 @@ registerContract(defenseGateObserved);
 registerContract(defenseNoCheapBypass);
 
 /** Build the contract DECLARATIONS a walled-town recipe commits for the raider's-eye checks —
- *  called alongside `settlementRingContracts` (same defensive-ring filter: centroid-bearing). */
+ *  called alongside `settlementRingContracts` (same defensive-ring filter: centroid-bearing;
+ *  same M4 exemption: `ownerPoiId`-tagged RUNTIME complex rings are skipped — see the
+ *  contract note on `settlementRingContracts`). */
 export function defenseRingContracts(barrierRuns: PlacedBarrier[]): ContractDeclaration[] {
   const decls: ContractDeclaration[] = [];
   for (const b of barrierRuns) {
+    if (b.ownerPoiId) continue;                                  // runtime complex rings exempt (M4)
     if (!b.run.centroid || b.run.path.length < 4) continue;
     const poi = b.id.endsWith('_ring') ? b.id.slice(0, -'_ring'.length) : b.id;
     const scope = { poi, entities: [b.id] };
