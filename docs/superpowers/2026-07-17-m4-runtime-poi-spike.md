@@ -415,4 +415,80 @@ as designed (§1.8). Deviations + findings vs the plan:
 **S3 note for the next agent:** the garrison homing (`homePoiId = castle id`) needs NO store
 changes; perception's anchor works off the projection already. The `water-dynamics.ts`
 POI-centre map (§1.7 minor) is still init-time-only — a runtime castle is not storm-targetable
-until that rebuilds.
+until that rebuilds. *(Closed in S3 below.)*
+
+---
+
+## 9. S3+S4+S5 reality check (2026-07-17, implementation session)
+
+**All three slices SHIPPED.** S3: `tests/unit/castle-sim-adoption.test.ts` (3) + the
+`water-dynamics.ts` live fallback. S4: `found_castle` in `src/sim/command/castle-verbs.ts`
++ `chooseCastleSite` in `found-castle.ts` + `CommandCtx.state` + the owned-stamp memo key in
+`road-deformation.ts` + `castle_founded` event/chronicler; `tests/unit/found-castle-verb.test.ts`
+(4). S5: ring-contract exemption in `wall-contracts.ts`/`defense-contracts.ts`;
+`tests/unit/castle-lint-trample.test.ts` (2). Deviations + findings vs the plan:
+
+1. **S4 TIER RESOLUTION: `found_castle` is AUTHORING-tier, not divine.** The castle is
+   mortal power made concrete — the precondition requires a SEATED LORD at the target
+   settlement (the mortal actor; VISION tenet 9, and M3's rule that a lord never enters
+   the belief table), so a god cannot buy a castle with belief-power. Like
+   `set_lord_stance`, the verb is how Fate/dev coaching triggers the lord's act. Side
+   effect of the tier: the player's divine affordance surfaces (`affordancesForTarget`
+   filters `tier === 'divine'`) never show it — NO hover/powers-panel pin changes; only
+   the registry count pin moved (28 → 29, same commit).
+2. **S3 was almost pure verification, as predicted (§1.2).** Events (forced-event path),
+   the LordSystem seat + garrison headcount, Fate's drift guard (`describeLordsForFate`
+   names the PROJECTED display name), and the M6 `proclaim_peace` (the castle's lord and
+   his men swear) all adopted the castle with zero system changes — the one production
+   change was `WaterDynamics.floodPoi` falling back to the LIVE directory on a poiPos
+   miss (runtime hits deliberately uncached: a scrub can un-found the place; a stale
+   cache would flood a ghost site). Perception's statistical anchor was proven WITH its
+   fragility control: the same cohort keyed by an unprojected id realizes nothing.
+3. **The §8.3 count-key collision became REACHABLE and was closed.** The verb makes the
+   scrub + re-roll flow real: scrub back (counts revert), re-issue `found_castle`, and
+   siteSelect can land a SAME-count stamp set at a different site — the old count-only
+   key would serve the first castle's composed heightfield for the second's map.
+   `road-deformation.ts:key()` now folds an `ownedStampSignature` (ownerPoiId + kind +
+   placement + height over owned earthworks/runs); '' when none exist, so every pre-M4
+   world keys byte-identically. Pinned by a test that asserts the collision precondition
+   (identical ids AND counts, different sites) before asserting distinct fields.
+4. **Siting needed an INTERIOR land filter, found by linting, not by eye.** The first
+   candidate filter sampled only the site centre + outer-ring circle; probing showed a
+   wet-interior site commits `barrier.over-water` / `building.on-water` /
+   `claims.unresolved` ERRORS (9 on the probe seed — the S2 harness's lowest-cell siting
+   stands in a river). `chooseCastleSite` now samples three radii (curtain, bailey arc,
+   yard; 16 bearings each). The S5 lint test runs the VERB's siting seam and pins
+   evaluateContracts to zero new errors — the honest claim is "the game path stays
+   clean", not "any hand-placed site does".
+5. **Candidate-lattice geometry has a real map-size floor:** margin = outer ring + 2 and
+   min distance = outer ring + 6 mean a 64² map cannot hold a castle sited off a central
+   town at all (the verb declines cleanly). Tests use 96²; real worlds are ≥256². The
+   lattice is 3 distance bands × 16 bearings off the founding POI, land-filtered, scored
+   by `siteSelect` + `DEFENSIVE_SITE_WEIGHTS` with `purpose: 'subdue-town'` and the
+   settlement as the strategic target — siteSelect finally argmaxes over real candidates.
+   The probe supplies `height` only (steepFlanks/water/commanding read 0 via
+   `readAffordance` defaults) — enriching the probe is future siting-quality work.
+6. **`CommandCtx` grew an optional `state`** (injected by `CommandExecutorSystem` like
+   `weather`; bus/query/controller preview ctxs pass it) because `found_castle`'s effect
+   lives beyond the World: `state.runtimePois` + BOTH worldSeed clones. Preconditions
+   degrade gracefully without it (the one-castle-per-seat gate re-checks in the apply).
+   One castle per seat rides provenance (`foundedFromPoiId`, new optional field).
+7. **Garrison = rehoming, never spawning (§7 Decision 3):** the lord + up to 4 resident
+   soldiers (sorted ids, deterministic) flip `homePoiId`/`homeX/homeY` to the castle;
+   movement walks them there. No cohort band seeded — a fresh castle is not
+   rival-claimable (`cohorts.keys()`), accepted and on-theme. No automatic trigger
+   shipped: the deterministic keepTier/wealth trigger and a Fate tool exposure are
+   Fate-depth work (the verb is drift-guard-ready — a castle seat enters
+   `validLordPoiIds` automatically once its lord is crowned).
+8. **S5 exemption is belt-and-braces by construction:** runtime rings never receive
+   contract declarations today (declaration builders run at worldgen only), so the
+   `ownerPoiId` skip in `settlementRingContracts`/`defenseRingContracts` guards the
+   future re-declaration pass, and the lint test additionally pins castle ring ids out
+   of Fate's world-quality digest. Desire lines verified: castle-approach soft ground
+   promotes to dirt under garrison footfall with `roadGraph.rev` untouched.
+9. **`keepProximity` does NOT exist in src** (spec M4's "zero structural change" claim is
+   about how it WOULD flow through `scoreSite`/`fitnessAt`) — the neighbouring-village
+   accretion weight (§7 Decision 4's growth half) is the spec's NEXT step, not S5's
+   shipped scope. Documented deferral, matching the prompt's else-branch.
+10. No SAVE_VERSION / WORLD_CONTENT_VERSION bump anywhere in the wave (§1.8 reasoning
+    unchanged: nothing about generation changed; snapshot fields stay optional).

@@ -45,6 +45,9 @@ export type SimEvent =
   | { type: 'settlement_begin';   poiId: string; eventType: SettlementEventType; severity: number; durationTicks: number }
   | { type: 'settlement_end';     poiId: string; eventType: SettlementEventType }
   | { type: 'lord_risen';         poiId: string; npcId: EntityId; lineageId: EntityId; succession: boolean }
+  // M4 — the lord raised a castle: a RUNTIME POI (`poiId` = the new castle:NNNN
+  // id) founded from his seat (`fromPoiId`). Chronicler-narrated.
+  | { type: 'castle_founded';     poiId: string; fromPoiId: string; lordNpcId: EntityId; name: string }
   | { type: 'shrine_endowed';     poiId: string; rivalId: SpiritId; lordNpcId: EntityId }
   // M6 — the Peace of God: an assembly binds the armed men (peace_proclaimed,
   // `sworn` = how many swore), a later man is brought before the relics

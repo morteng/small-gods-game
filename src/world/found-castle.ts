@@ -29,6 +29,15 @@ import type { World } from '@/world/world';
 import type { Era } from '@/core/era';
 import { placeComplexOnPatch, type PlaceComplexResult } from '@/world/place-complex';
 import { projectRuntimePois } from '@/world/runtime-poi';
+import { catalogue } from '@/catalogue/pack';
+import { loadDefaultPacks } from '@/catalogue/default-packs';
+import type { ComplexTypeFields } from '@/catalogue/types';
+import {
+  siteSelect, specFromComplexType, DEFENSIVE_SITE_WEIGHTS, type SiteCandidate,
+} from '@/blueprint/connectome';
+import type { TerrainProbe } from '@/blueprint/connectome/types';
+import { heightMetresAt } from '@/world/heightfield';
+import { isWaterTile } from '@/world/land-snap';
 
 export interface FoundCastleOpts {
   centre: { x: number; y: number };
@@ -41,6 +50,9 @@ export interface FoundCastleOpts {
   name?: string;
   /** Attribution: a spirit id, `lord:<npcId>`, 'fate', … */
   cause: string;
+  /** M4 S4: the settlement whose seated lord founded the place (the verb's
+   *  one-castle-per-seat provenance). Absent on harness foundations. */
+  foundedFromPoiId?: string;
 }
 
 export interface FoundCastleResult {
@@ -107,7 +119,10 @@ export function foundCastle(
 
   store.add({
     poi,
-    provenance: { bornTick: state.clock.now(), cause: opts.cause, complexTypeId },
+    provenance: {
+      bornTick: state.clock.now(), cause: opts.cause, complexTypeId,
+      ...(opts.foundedFromPoiId ? { foundedFromPoiId: opts.foundedFromPoiId } : {}),
+    },
     earthworks,
     barrierRuns,
   });
@@ -115,4 +130,96 @@ export function foundCastle(
   projectRuntimePois(store, [state.worldSeed, map.worldSeed]);
 
   return { poiId, poi, placement };
+}
+
+// ── S4: deterministic castle siting — siteSelect finally gets its N candidates ──
+
+/** Candidate lattice shape around the founding settlement: three distance bands
+ *  (measured OUT from the complex's own outer ring radius, so the bailey never
+ *  overlaps the town) × this many bearings. */
+const SITE_BEARINGS = 16;
+const SITE_BAND_STEP = 8;          // tiles between the three distance bands
+const SITE_CLEARANCE = 6;          // tiles of open ground between town edge and outer ring
+const RING_LAND_SAMPLES = 16;      // per-radius sample points that must be dry land
+
+export interface ChooseCastleSiteOpts {
+  /** Complex recipe; sets the outer-ring radius (candidate margins) and the
+   *  motte height the defensive score wants. Defaults like `foundCastle`. */
+  complexTypeId?: string;
+  /** Tie-break seed for `siteSelect` (deterministic — derive from `ctx.rng`). */
+  seed: number;
+}
+
+/**
+ * Choose where the lord's castle stands: a deterministic polar lattice of
+ * candidates around `target` (the settlement to control — the 'subdue-town'
+ * intent), filtered to sites whose centre AND outer-ring circle stand on
+ * in-bounds dry land, scored by `siteSelect` + `DEFENSIVE_SITE_WEIGHTS` over the
+ * real composed terrain (`heightMetresAt`). This is the spike's "feed it N
+ * hilltops and it chooses for free" — `placeComplexOnPatch` still receives the
+ * ONE chosen centre. Returns null when no candidate survives the land filter
+ * (the caller declines cleanly — no partial state).
+ */
+export function chooseCastleSite(
+  map: GameMap,
+  target: { x: number; y: number },
+  opts: ChooseCastleSiteOpts,
+): { x: number; y: number } | null {
+  loadDefaultPacks();
+  const complexTypeId = opts.complexTypeId ?? 'motte_and_bailey';
+  const ct = catalogue.get<ComplexTypeFields>('complexType', complexTypeId);
+  const spec = ct ? specFromComplexType(ct.fields) : null;
+  const outerR = Math.max(
+    4, ...(ct?.fields.rings ?? []).map(r => Number(r.radius) || 0),
+  );
+  const margin = outerR + 2;
+
+  const dryLand = (x: number, y: number): boolean => {
+    const tx = Math.round(x), ty = Math.round(y);
+    if (tx < margin || ty < margin || tx >= map.width - margin || ty >= map.height - margin) return false;
+    return !isWaterTile(map, tx, ty);
+  };
+  // The whole WORK must stand dry: the curtain (outer ring), the bailey arc
+  // where the buildings drop (~0.65·R), and the yard — a pond inside the ring
+  // is a barrier.over-water / building.on-water lint error waiting to commit.
+  const ringOnLand = (cx: number, cy: number): boolean => {
+    for (const r of [outerR, outerR * 0.65, outerR * 0.3]) {
+      for (let k = 0; k < RING_LAND_SAMPLES; k++) {
+        const a = (2 * Math.PI * k) / RING_LAND_SAMPLES;
+        const sx = Math.round(cx + r * Math.cos(a));
+        const sy = Math.round(cy + r * Math.sin(a));
+        if (sx < 0 || sy < 0 || sx >= map.width || sy >= map.height) return false;
+        if (isWaterTile(map, sx, sy)) return false;
+      }
+    }
+    return true;
+  };
+
+  // Polar lattice: three distance bands × SITE_BEARINGS bearings, in a fixed
+  // deterministic order (band-major, bearing-minor).
+  const dMin = outerR + SITE_CLEARANCE;
+  const candidates: SiteCandidate[] = [];
+  for (let band = 0; band < 3; band++) {
+    const d = dMin + band * SITE_BAND_STEP;
+    for (let k = 0; k < SITE_BEARINGS; k++) {
+      const a = (2 * Math.PI * k) / SITE_BEARINGS;
+      const x = Math.round(target.x + d * Math.cos(a));
+      const y = Math.round(target.y + d * Math.sin(a));
+      if (!dryLand(x, y) || !ringOnLand(x, y)) continue;
+      candidates.push({ x, y });
+    }
+  }
+  if (!candidates.length) return null;
+
+  const probe: TerrainProbe = {
+    affordanceAt: (x, y) => ({ height: heightMetresAt(map, Math.round(x), Math.round(y)) }),
+  };
+  const best = siteSelect(
+    candidates,
+    { purpose: 'subdue-town', target, desiredHeight: spec?.motteHeight ?? 8 },
+    DEFENSIVE_SITE_WEIGHTS,
+    probe,
+    opts.seed,
+  );
+  return best ? { x: best.site.x, y: best.site.y } : null;
 }

@@ -81,6 +81,7 @@ const EVENT_WEIGHT: Partial<Record<SimEvent['type'], number>> = {
   summon_storm: 9,
   settlement_begin: 8,
   miracle: 8,
+  castle_founded: 9,
   peace_proclaimed: 8,
   peace_lapsed: 6,
   oath_sworn: 5,
@@ -196,6 +197,10 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return ev.succession
         ? `${resolveNpcName(world, ev.npcId)} succeeded to the lordship of the settlement.`
         : `${resolveNpcName(world, ev.npcId)} rose as lord over the settlement.`;
+    case 'castle_founded':
+      return `${resolveNpcName(world, ev.lordNpcId)} raised a castle, ${ev.name}, to hold the land in his fist.`;
+    case 'castle_founded':
+      return `The lord ${resolveNpcName(world, ev.lordNpcId)} raised a castle, ${ev.name}, to hold the land.`;
     case 'shrine_endowed':
       return `The lord ${resolveNpcName(world, ev.lordNpcId)} endowed a shrine to another god (${ev.rivalId}).`;
     case 'peace_proclaimed':

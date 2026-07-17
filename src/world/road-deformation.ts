@@ -977,6 +977,40 @@ const storeCache = new Map<string, DeformationStore>();
 const fieldCache = new Map<string, Float32Array>();
 const CACHE_CAP = 4;
 
+/**
+ * M4 S4 — signature of the OWNED (runtime-POI) physical stamps. The main key
+ * folds in COUNTS (`e`/`w`/`d`), which collide when two different stamp sets
+ * have equal counts — unreachable while worldgen was the only writer, but the
+ * `found_castle` verb makes it real: scrub back (counts revert), re-issue the
+ * verb, and siteSelect can land the SAME-count stamp set at a DIFFERENT site
+ * (the timeline's scrub + re-roll flow; spike §8.3). Owned stamps therefore
+ * hash their identity + placement into the key. Returns '' when no owned
+ * stamps exist, so every pre-M4 world keys byte-identically to before.
+ */
+function ownedStampSignature(map: GameMap): string {
+  let h = 0;
+  let any = false;
+  const mix = (n: number): void => { h = (Math.imul(h, 31) + (n | 0)) | 0; };
+  const mixStr = (s: string): void => { for (let i = 0; i < s.length; i++) mix(s.charCodeAt(i)); };
+  for (const e of map.earthworks ?? []) {
+    if (!e.ownerPoiId) continue;
+    any = true;
+    mixStr(e.ownerPoiId);
+    mixStr(e.kind);
+    mix(Math.round((e.centre?.x ?? e.ring?.cx ?? 0) * 8));
+    mix(Math.round((e.centre?.y ?? e.ring?.cy ?? 0) * 8));
+    mix(Math.round(e.height * 64));
+  }
+  for (const b of map.barrierRuns ?? []) {
+    if (!b.ownerPoiId) continue;
+    any = true;
+    mixStr(b.ownerPoiId);
+    const p0 = b.run.path[0];
+    if (p0) { mix(Math.round(p0[0] * 8)); mix(Math.round(p0[1] * 8)); }
+  }
+  return any ? `:o${(h >>> 0).toString(36)}` : '';
+}
+
 function key(map: GameMap): string {
   // `rev` bumps when road-evolution mutates edge.dynamics; `b` is the built-lot count so
   // settlement foundation pads invalidate when live growth fills a lot. Both keep the
@@ -986,7 +1020,9 @@ function key(map: GameMap): string {
   // empty world's stub store could be served for the final map, dropping the pads.
   // `k` is the declared rock-pad count — the same reason `p` is here: a mid-generation
   // stub map (no pads yet) must not have its store served back for the final map.
-  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}:p${map.riparianSeed ?? 'n'}:k${map.rockPads?.length ?? 'n'}`;
+  // The trailing owned-stamp signature disambiguates SAME-COUNT runtime castle
+  // stamps at different sites (see ownedStampSignature).
+  return `${map.seed}:${map.width}x${map.height}:r${map.roadGraph?.rev ?? 0}:b${settlementBuildCount(map)}:w${barrierFoundationCount(map)}:d${ditchWallCount(map)}:e${map.earthworks?.length ?? 0}:s${shapeSignature(styledShapeSpec(map.worldSeed))}:p${map.riparianSeed ?? 'n'}:k${map.rockPads?.length ?? 'n'}${ownedStampSignature(map)}`;
 }
 
 function evict(cache: Map<string, unknown>): void {

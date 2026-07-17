@@ -69,6 +69,9 @@ export class CommandExecutorSystem implements System {
     /** W-H: the deterministic water stepper, so weather verbs (`summon_storm`) can lay
      *  a flood during their command apply. Injected by the game; null in headless. */
     private readonly getWeather?: () => import('@/sim/water/weather-stepper').WeatherStepper | null,
+    /** M4: the full game state, for verbs whose effect lives beyond the World
+     *  (`found_castle` writes state.runtimePois + both worldSeed clones). */
+    private readonly getState?: () => import('@/core/state').GameState | null,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -76,6 +79,7 @@ export class CommandExecutorSystem implements System {
       world: ctx.world, spirits: ctx.spirits, log: ctx.log,
       rng: ctx.rng, now: ctx.now,
       weather: this.getWeather?.() ?? null,
+      state: this.getState?.() ?? null,
     };
     const replaying = ctx.log instanceof SilentEventLog;
 

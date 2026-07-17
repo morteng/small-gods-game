@@ -25,6 +25,11 @@ export type CommandVerb =
   // authoring tier — DECLARED, executor pending (filled in by the Fate cycle)
   | 'bias_event' | 'inject_npc' | 'nudge_severity' | 'place_building' | 'grow_settlement'
   | 'rename_ward' | 'retype_ward' | 'set_rival_stance' | 'set_lord_stance'
+  // authoring tier — mortal power M4: the settlement's seated LORD founds a
+  // castle (a runtime POI + physical stamp). MORTAL power made concrete — the
+  // player's god cannot build castles (tenet 9: mortals act first); the verb is
+  // how Fate/dev coaching triggers the lord's act. See castle-verbs.ts.
+  | 'found_castle'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
   | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
   | 'author_place_object' | 'author_move_entity' | 'author_set_climate'
@@ -77,6 +82,13 @@ export interface CommandCtx {
    *  a flood as part of their (logged, replay-safe) command apply. Optional — preview
    *  callers and headless paths omit it; the verb no-ops its flood if absent. */
   weather?: WeatherStepper | null;
+  /** M4: the full game state, for verbs whose effect lives beyond the World —
+   *  `found_castle` writes the RuntimePoiStore (`state.runtimePois`) and projects
+   *  the directory into BOTH worldSeed clones (`state.worldSeed` + map's).
+   *  Injected by CommandExecutorSystem (like `weather`); preview callers that
+   *  omit it lose only state-dependent precondition checks (the apply re-checks
+   *  and declines cleanly). Type-only import — no runtime cycle. */
+  state?: import('@/core/state').GameState | null;
 }
 
 /**

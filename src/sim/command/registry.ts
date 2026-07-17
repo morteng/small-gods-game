@@ -33,6 +33,7 @@ import {
   setLordStancePrecondition, setLordStanceApply,
 } from './authoring-verbs';
 import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs';
+import { foundCastlePrecondition, foundCastleApply } from './castle-verbs';
 import { growSettlementPrecondition, growSettlementApply } from './settlement-verbs';
 import {
   renameWardPrecondition, renameWardApply, retypeWardPrecondition, retypeWardApply,
@@ -295,6 +296,16 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: setLordStancePrecondition,
     apply: setLordStanceApply,
     describe: (cmd) => `coach the lord of ${targetLabel(cmd)}`,
+  },
+  found_castle: {
+    // M4: MORTAL power — the settlement's seated lord raises a castle (a
+    // runtime POI + scrub-safe physical stamp). Authoring tier by design: a god
+    // cannot buy a castle with belief-power (tenet 9); Fate/dev coaching
+    // triggers the lord's act. Tier rationale + effect in castle-verbs.ts.
+    verb: 'found_castle', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: foundCastlePrecondition,
+    apply: foundCastleApply,
+    describe: (cmd) => `the lord of ${targetLabel(cmd)} founds a castle`,
   },
   place_building: {
     verb: 'place_building', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,

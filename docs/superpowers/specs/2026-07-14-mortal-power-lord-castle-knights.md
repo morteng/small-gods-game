@@ -372,3 +372,22 @@ tier in would add exactly 0 to the pool today while risking a lying power number
 Excommunication (the historical sanction) is future work — today the oath cannot be
 BROKEN, only lapse or die with its swearer; a `peace_broken` beat wants revolt/defiance
 mechanics that don't exist yet (the same future-work bucket as unrest consumers).
+
+---
+
+## Reality check (2026-07-17) — M4 SHIPPED (the runtime castle, S1–S5)
+
+Blocker 1 (runtime POI creation) was resolved by its own spike, and all five slices
+shipped: see **[../2026-07-17-m4-runtime-poi-spike.md](../2026-07-17-m4-runtime-poi-spike.md)
+§7 (binding decisions), §8 (S1/S2 notes) and §9 (S3/S4/S5 notes)** — the spike is the
+canonical record. Headlines: `RuntimePoiStore` + directory projection + heightfield-inert
+rule + ownership-tagged scrub-safe stamps (S1/S2); sim adoption proven end-to-end and
+`floodPoi` live-directory fallback (S3); the **`found_castle` AUTHORING-tier verb** —
+mortal power made concrete, requires a seated M3 lord (a god cannot buy a castle with
+belief-power; Fate/dev coaching triggers the lord's act), deterministic `siteSelect` over
+a real dry-land candidate lattice, garrison rehomed (never spawned), one castle per seat,
+owned-stamp deformation-memo key (S4); runtime complex rings exempt from
+`gate.road-connected` with desire-line trample as the access story (S5). Still open from
+this section: blocker 2 (the bare 28-gon ring vs `deriveSettlementRing` geometry),
+`keepProximity` growth weights, timber→stone `keepTier` progression, and any automatic
+foundation trigger / Fate tool exposure.

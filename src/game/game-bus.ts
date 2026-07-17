@@ -67,7 +67,9 @@ export function createGameBus(deps: GameBusDeps): GameBus {
     },
 
     preview(cmd) {
-      return previewCommand(cmd, { world: state.world!, spirits: state.spirits, log: state.eventLog });
+      // `state` rides along so state-dependent preconditions (M4 found_castle's
+      // one-castle-per-seat gate) preview exactly as they execute.
+      return previewCommand(cmd, { world: state.world!, spirits: state.spirits, log: state.eventLog, state });
     },
 
     capabilities() {
