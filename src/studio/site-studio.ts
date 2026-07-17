@@ -33,6 +33,8 @@ import { heightMetresAt } from '@/world/heightfield';
 import { WATER_TYPES } from '@/core/constants';
 import { catalogue } from '@/catalogue/pack';
 import { loadDefaultPacks } from '@/catalogue/default-packs';
+import type { RoadClass } from '@/world/road-graph';
+import { stepEdgeClass, type UseStreaks, PROMOTE_USE, DEMOTE_USE, N_UP, N_DOWN, ROAD_CLASS_LADDER } from '@/world/road-use';
 import { injectStudioTheme, COLORS, h } from './theme';
 
 export interface StudioHandle { dispose(): void; }
@@ -216,6 +218,94 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
     const regenBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-top:14px', text: '↻ Regenerate' });
     regenBtn.onclick = () => void regenerate(); panel.appendChild(regenBtn);
 
+    // ── Road-class ladder dial (road-wear economy S0, spec §6) ────────────────
+    // Select a road edge (or the synthetic demo edge on patches with no graph), drag a
+    // use.ema01 override, and step year-passes through the REAL `stepEdgeClass` — the same
+    // pure fn the S2 year-pass wires to. DISPLAY-ONLY: the class shown here never mutates
+    // the graph and the carve width does not re-render (re-rasterizing the ribbon live is a
+    // deep path owned by the sim slices).
+    panel.appendChild(label('Road-class ladder (display-only)'));
+    const edgeSel = h('select', { style: FIELD }) as HTMLSelectElement;
+    panel.appendChild(edgeSel);
+    const ladder = {
+      ema: 0.4,
+      cls: 'path' as RoadClass,
+      baseCls: 'path' as RoadClass,   // the selected edge's real class (reset target)
+      streaks: { up: 0, down: 0 } as UseStreaks,
+      lord: false,
+      applies: 0,
+    };
+    const emaRow = h('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:6px' });
+    const emaLbl = h('span', { class: 'sg-accent', style: 'min-width:64px', text: 'ema 0.40' });
+    const emaSlider = h('input', { class: 'sg-range', style: 'flex:1', attrs: { type: 'range', min: '0', max: '1', step: '0.01', value: '0.4' } }) as HTMLInputElement;
+    emaRow.append(emaSlider, emaLbl); panel.appendChild(emaRow);
+    const lordRow = h('label', { style: 'display:flex;align-items:center;gap:7px;margin-top:6px;cursor:pointer;font:500 11px var(--font-mono);color:var(--ink-0)' });
+    const lordChk = h('input', {}) as HTMLInputElement; lordChk.type = 'checkbox';
+    lordRow.append(lordChk, h('span', { text: 'Gripping lord seat (highway gate)' })); panel.appendChild(lordRow);
+    const stepRow = h('div', { style: 'display:flex;gap:6px;margin-top:8px' });
+    const applyBtn = h('button', { class: 'sg-btn', style: 'flex:1', text: '⏭ Apply year-pass' });
+    const resetBtn = h('button', { class: 'sg-btn', style: 'flex:0 0 auto', text: '↺' });
+    stepRow.append(applyBtn, resetBtn); panel.appendChild(stepRow);
+    const ladderBox = h('div', { style: 'font:400 11px var(--font-mono);line-height:1.7;white-space:pre-wrap;margin-top:6px' });
+    panel.appendChild(ladderBox);
+
+    function nextOutcome(): string {
+      // What the NEXT apply at this ema would do — the hysteresis made visible.
+      const probe = stepEdgeClass(ladder.cls, ladder.ema, ladder.streaks, ladder.lord);
+      if (probe.changed) return `next apply → ${probe.next.toUpperCase()}`;
+      if (probe.streaks.up > ladder.streaks.up) {
+        const i = ROAD_CLASS_LADDER.indexOf(ladder.cls);
+        return `qualifying UP (${probe.streaks.up}/${N_UP} toward ${ROAD_CLASS_LADDER[i + 1]})`;
+      }
+      if (probe.streaks.down > ladder.streaks.down) {
+        const i = ROAD_CLASS_LADDER.indexOf(ladder.cls);
+        return `qualifying DOWN (${probe.streaks.down}/${N_DOWN} toward ${ROAD_CLASS_LADDER[i - 1]})`;
+      }
+      const i = ROAD_CLASS_LADDER.indexOf(ladder.cls);
+      const up = ROAD_CLASS_LADDER[i + 1] as keyof typeof PROMOTE_USE | undefined;
+      const gated = up === 'highway' && !ladder.lord;
+      return gated && ladder.ema >= PROMOTE_USE.highway
+        ? 'in band — highway is LORD-GATED (streaks broken)'
+        : 'in hysteresis band (streaks broken)';
+    }
+    function syncLadder(): void {
+      const i = ladder.cls as Exclude<RoadClass, 'path'>;
+      const pro = ROAD_CLASS_LADDER[ROAD_CLASS_LADDER.indexOf(ladder.cls) + 1] as keyof typeof PROMOTE_USE | undefined;
+      ladderBox.textContent =
+        `class    ${ladder.cls.toUpperCase()}  (edge: ${ladder.baseCls})\n` +
+        `streaks  up ${ladder.streaks.up}/${N_UP} · down ${ladder.streaks.down}/${N_DOWN}\n` +
+        `applies  ${ladder.applies}\n` +
+        `${nextOutcome()}\n` +
+        `promote ≥ ${pro ? PROMOTE_USE[pro] : '—'} · demote < ${ladder.cls !== 'path' ? DEMOTE_USE[i] : '—'}`;
+    }
+    emaSlider.oninput = () => { ladder.ema = +emaSlider.value; emaLbl.textContent = `ema ${ladder.ema.toFixed(2)}`; syncLadder(); };
+    lordChk.onchange = () => { ladder.lord = lordChk.checked; syncLadder(); };
+    applyBtn.onclick = () => {
+      const r = stepEdgeClass(ladder.cls, ladder.ema, ladder.streaks, ladder.lord);
+      ladder.cls = r.next; ladder.streaks = r.streaks; ladder.applies++;
+      syncLadder();
+    };
+    resetBtn.onclick = () => {
+      ladder.cls = ladder.baseCls; ladder.streaks = { up: 0, down: 0 }; ladder.applies = 0;
+      syncLadder();
+    };
+    edgeSel.onchange = () => {
+      const edge = map?.roadGraph?.edges.find((e) => e.id === edgeSel.value);
+      ladder.baseCls = edge?.class ?? 'path';
+      resetBtn.click();
+    };
+    function syncEdgeList(): void {
+      edgeSel.replaceChildren(h('option', { text: '(synthetic demo edge — path)', attrs: { value: '' } }));
+      for (const e of map?.roadGraph?.edges ?? []) {
+        edgeSel.appendChild(h('option', { text: `${e.id} · ${e.class} · ${e.polyline.length}c`, attrs: { value: e.id } }));
+      }
+      edgeSel.value = '';
+      ladder.baseCls = 'path';
+      ladder.cls = 'path'; ladder.streaks = { up: 0, down: 0 }; ladder.applies = 0;
+      syncLadder();
+    }
+    syncLadder();
+
     panel.appendChild(label('Placed'));
     const placedBox = h('div', { class: 'sg-muted', style: 'font:400 11px var(--font-mono);line-height:1.6;white-space:pre-wrap' });
     panel.appendChild(placedBox);
@@ -303,6 +393,7 @@ export function mountSiteStudio(container: HTMLElement): StudioHandle {
         (placed.skippedBuildings.length ? `\n⚠ unresolved: ${placed.skippedBuildings.join(', ')}` : '');
 
       refreshDiagnostics();
+      syncEdgeList();
     }
 
     function refreshDiagnostics(): void {

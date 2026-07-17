@@ -58,6 +58,7 @@ import { mountWorldStudio } from './world-studio';
 import { mountGalleryStudio } from './gallery-studio';
 import { mountZooStudio } from './zoo-studio';
 import { mountSiteStudio } from './site-studio';
+import { mountCrossingStudio } from './crossing-studio';
 import { buildAbSection } from './ab-section';
 import { buildTree } from './blueprint-tree';
 import { buildToolbar } from './toolbar';
@@ -1770,6 +1771,7 @@ const WORKSPACES: Workspace[] = [
   { id: 'zoo', label: '🦌 Zoo', mount: (host) => mountZooStudio(host) },
   { id: 'world', label: '🌍 World', mount: (host, ctx) => mountWorldStudio(host, { onEdit: (k) => ctx.open('object', k) }) },
   { id: 'site', label: '🏰 Site', mount: (host) => mountSiteStudio(host) },
+  { id: 'crossings', label: '🌉 Crossings', mount: (host) => mountCrossingStudio(host) },
 ];
 
 /** Map a ?studio= param to an initial (workspace id, arg). Unknown → Object/<param>. */
@@ -1777,6 +1779,7 @@ function initialWorkspace(param: string | null): { id: string; arg?: string } {
   switch (param) {
     case 'world': return { id: 'world' };
     case 'site': return { id: 'site' };
+    case 'crossings': case 'crossing': return { id: 'crossings' };
     case 'zoo': return { id: 'zoo' };
     case 'gallery': case '1': case null: return param === 'gallery' ? { id: 'gallery' } : { id: 'object' };
     case 'arboretum': return { id: 'gallery', arg: 'plant' };
