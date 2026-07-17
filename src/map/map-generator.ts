@@ -133,6 +133,74 @@ function tileWalkable(type: string): boolean {
   return WALKABLE_TYPES[type] ?? true;
 }
 
+/**
+ * POI types whose settlement must stand on DRY ground — its buildings are founded
+ * on land. A POI's tile is picked by `planWorldLayout` from the terrain SHAPE,
+ * before hydrology knows which basins fill, so one of these can land inside a lake
+ * the fill pass later stamps. `snapDrySettlementsOffWater` (below) walks it to the
+ * nearest dry shore. Inherently-wet POIs are DELIBERATELY absent: a `lake`/`swamp`
+ * feature, and `ruins` (a sunken shrine in the marsh) want the water and stay put.
+ * A `port` IS listed — snapping it to the nearest dry cell lands its dock on the
+ * shore beside the water it fishes, which is exactly where a port belongs.
+ */
+export const DRY_SETTLEMENT_POI = new Set([
+  'village', 'city', 'farm', 'temple', 'castle', 'mine', 'port', 'tavern', 'tower',
+]);
+
+/** Nearest cell (deterministic Chebyshev spiral) that hydrology calls Dry AND whose
+ *  tile is walkable land, searched out to `cap` rings. Null if none within `cap`. */
+function nearestDryLand(
+  x: number, y: number, width: number, height: number,
+  waterType: Uint8Array, tiles: Tile[][], cap: number,
+): { x: number; y: number } | null {
+  for (let r = 1; r <= cap; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (waterType[ny * width + nx] !== WaterType.Dry) continue;
+        const t = tiles[ny]?.[nx];
+        if (t && t.walkable && !WATER_TYPES.has(t.type)) return { x: nx, y: ny };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Type-aware POI water anchoring. For each DRY-settlement POI standing in STANDING
+ * water (a lake, or a sub-sea depression classed Ocean), snap its position to the
+ * nearest dry shore. Rivers are left alone — roads bridge them, and the building
+ * placer nudges the odd building off a bridged reach. Mutates `poi.position` IN
+ * PLACE (a fresh position object on the same POI) — deliberately, to preserve the
+ * `map.worldSeed === (the passed worldSeed)` identity every gen keeps (callers push
+ * POIs onto that object after gen and read them back). The one consequence: a harness
+ * that gens SEVERAL seeds from ONE shared layout object must clone the layout per seed,
+ * or seed B inherits seed A's snapped positions (the connectome lint does this).
+ */
+export function snapDrySettlementsOffWater(
+  pois: POI[], width: number, height: number, waterType: Uint8Array, tiles: Tile[][],
+): void {
+  const CAP = 24; // rings; a lake wider than ~48 tiles across leaves the POI in place (logged)
+  for (const poi of pois) {
+    if (!poi.position || !DRY_SETTLEMENT_POI.has(poi.type)) continue;
+    const px = Math.round(poi.position.x), py = Math.round(poi.position.y);
+    if (px < 0 || py < 0 || px >= width || py >= height) continue;
+    const wt = waterType[py * width + px];
+    if (wt !== WaterType.Lake && wt !== WaterType.Ocean) continue; // dry, or a bridgeable river
+    const dry = nearestDryLand(px, py, width, height, waterType, tiles, CAP);
+    if (!dry) {
+      console.warn(`[worldgen] POI ${poi.id} (${poi.type}) stands in standing water @ (${px},${py}) `
+        + `and found no dry ground within ${CAP} tiles — left in place`);
+      continue;
+    }
+    console.warn(`[worldgen] POI ${poi.id} (${poi.type}) stood in ${wt === WaterType.Lake ? 'a lake' : 'the sea'} `
+      + `@ (${px},${py}) — snapped to dry shore (${dry.x},${dry.y})`);
+    poi.position = { ...poi.position, x: dry.x, y: dry.y };
+  }
+}
+
 // ─── Result type for noise generation ────────────────────────────────────────
 
 export interface NoiseGenResult {
@@ -236,6 +304,13 @@ export async function generateWithNoise(
       }
     }
   }
+
+  // Type-aware POI anchoring: the lake is now real to the tile raster, so any dry
+  // settlement whose layout-picked tile landed inside it (basins fill AFTER the POI
+  // is placed) is walked to the nearest dry shore. Runs BEFORE settlements/roads so
+  // they site + route from the corrected position; wet POIs stay in the water. Snaps
+  // `poi.position` in place — keeps `map.worldSeed === worldSeed` (callers depend on it).
+  if (worldSeed?.pois) snapDrySettlementsOffWater(worldSeed.pois, width, height, hydrology.waterType, tiles);
 
   // Widen the river RASTER to match the river that is actually drawn and carved.
   // The hydrology raster above is a 1-cell D8 centreline, but the VISIBLE + carved

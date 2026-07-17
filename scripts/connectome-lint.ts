@@ -51,7 +51,14 @@ async function main(): Promise<void> {
   const laidOut: WorldSeed = { ...ws, size: layout.size, pois: layout.pois, connections: layout.connections };
 
   for (const seed of useSeeds) {
-    const { map, world } = await generateWithNoise(layout.size.width, layout.size.height, seed, laidOut);
+    // Fresh layout per seed: generateWithNoise snaps dry-settlement POIs off standing
+    // water IN PLACE (preserving map.worldSeed identity), so a SHARED layout object
+    // would leak one seed's snapped positions into the next. Deep-clone the pois.
+    const perSeed: WorldSeed = {
+      ...laidOut,
+      pois: laidOut.pois.map((p) => ({ ...p, position: p.position ? { ...p.position } : p.position })),
+    };
+    const { map, world } = await generateWithNoise(layout.size.width, layout.size.height, seed, perSeed);
     const report = evaluateContracts({ world, map });
     const decls = map.contracts?.declarations.length ?? 0;
 
