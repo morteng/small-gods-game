@@ -374,7 +374,12 @@ export const abutmentPartType: PartType = {
   },
   resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
-    const mat = matOf(ctx);
+    // Honour the part-level material override: `addAbutments` has always AUTHORED its
+    // footings `material:'stone'` ("footings are ALWAYS dressed stone") but the compile
+    // ignored it and used the recipe walls — a timber bridge rendered timber footings.
+    // A part-level material now wins, so authored stone seats read as stone and a
+    // deliberately material-less abutment (the plank-walk's timber sills) stays timber.
+    const mat = WALL_MAT[p.material ?? ''] ?? matOf(ctx);
     const dep = mToTiles((p.params.depthM as number) ?? 1.5);   // along the span (local +x)
     const wid = mToTiles((p.params.widthM as number) ?? 3);     // across the road (local +y)
     const h = mToTiles((p.params.heightM as number) ?? 3);
