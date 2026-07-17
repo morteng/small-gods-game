@@ -115,21 +115,41 @@ function catmullRomPoint(p0: Pt, p1: Pt, p2: Pt, p3: Pt, s: number): Pt {
   return lerpP(B1, B2, t1, t2, t);
 }
 
+/** A unit direction-of-travel vector at a curve end (see `SmoothOptions`). */
+export type Tangent = [number, number];
+
 /**
  * Smooth a chain of control points into a centripetal Catmull-Rom polyline,
  * resampled at roughly `arcStep` tile spacing. Endpoints are clamped (phantom
  * neighbours duplicate the ends) so the curve passes exactly through the first
- * and last control point. ≤2 points pass through unchanged.
+ * and last control point — UNLESS an endpoint tangent is supplied, in which case
+ * the phantom neighbour is placed BEHIND the end along that tangent, so the curve
+ * leaves the endpoint travelling in the given direction (the cross-edge C1 seam:
+ * two edges sharing a node share a tangent through it instead of hooking).
+ * ≤2 points pass through unchanged when no tangent asks for shaping.
  */
-export function catmullRomChain(control: Pt[], arcStep = 1): Pt[] {
+export function catmullRomChain(control: Pt[], arcStep = 1, startTangent?: Tangent, endTangent?: Tangent): Pt[] {
   const cps = dedupe(control);
-  if (cps.length <= 2) return cps.slice();
+  if (cps.length < 2 || (cps.length === 2 && !startTangent && !endTangent)) return cps.slice();
+  const n = cps.length;
+  // Phantom neighbours: `startTangent` is the direction of TRAVEL at cps[0] (into the
+  // line), so the phantom sits behind it; `endTangent` is the travel direction OUT of
+  // cps[n-1], so the phantom continues past it. Scaled by the adjacent chord length —
+  // the centripetal knot spacing then weights it like a real neighbour.
+  const l0 = Math.hypot(cps[1].x - cps[0].x, cps[1].y - cps[0].y) || 1;
+  const ln = Math.hypot(cps[n - 1].x - cps[n - 2].x, cps[n - 1].y - cps[n - 2].y) || 1;
+  const phantomStart = startTangent
+    ? { x: cps[0].x - startTangent[0] * l0, y: cps[0].y - startTangent[1] * l0 }
+    : undefined;
+  const phantomEnd = endTangent
+    ? { x: cps[n - 1].x + endTangent[0] * ln, y: cps[n - 1].y + endTangent[1] * ln }
+    : undefined;
   const out: Pt[] = [cps[0]];
   for (let i = 0; i < cps.length - 1; i++) {
-    const p0 = cps[i - 1] ?? cps[i];
+    const p0 = cps[i - 1] ?? phantomStart ?? cps[i];
     const p1 = cps[i];
     const p2 = cps[i + 1];
-    const p3 = cps[i + 2] ?? cps[i + 1];
+    const p3 = cps[i + 2] ?? phantomEnd ?? cps[i + 1];
     const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
     const steps = Math.max(1, Math.ceil(segLen / arcStep));
     for (let k = 1; k <= steps; k++) {
@@ -148,6 +168,11 @@ export interface SmoothOptions {
    *  control points — the bow-reconciliation pins that force the smoothed line back
    *  through the walked cells where plain smoothing bowed off the legal row. */
   keepIndices?: ReadonlySet<number>;
+  /** Direction of travel at `cells[0]` — makes the curve LEAVE the first point along this
+   *  vector (cross-edge tangent continuity at a shared graph node). */
+  startTangent?: Tangent;
+  /** Direction of travel at the last cell — the curve ARRIVES travelling along this vector. */
+  endTangent?: Tangent;
 }
 
 /**
@@ -172,7 +197,7 @@ export function smoothCenterline(cells: Pt[], opts: SmoothOptions = {}): Pt[] {
   } else {
     clean.push(...dedupe(cells));
   }
-  if (clean.length <= 2) return clean;
-  const corners = simplifyPath(clean, epsilon, keep);
-  return catmullRomChain(corners, arcStep);
+  if (clean.length < 2 || (clean.length === 2 && !opts.startTangent && !opts.endTangent)) return clean;
+  const corners = clean.length === 2 ? clean : simplifyPath(clean, epsilon, keep);
+  return catmullRomChain(corners, arcStep, opts.startTangent, opts.endTangent);
 }

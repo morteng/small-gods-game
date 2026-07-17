@@ -46,7 +46,7 @@ import { buildBarrierDeformations, barrierFoundationCount } from '@/world/barrie
 import { buildDitchDeformations, ditchWallCount } from '@/world/ditch-deformation';
 import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
-import { smoothCenterline, simplifyPath, type Pt } from '@/terrain/road-centerline';
+import { smoothCenterline, simplifyPath, type Pt, type SmoothOptions, type Tangent } from '@/terrain/road-centerline';
 import { filletApproach } from '@/world/anchor-fillet';
 import { realGateProfiles, gateApproachPlan, type GateApproachProfile } from '@/world/connectome/gate-approach';
 import { crossingOpeningsForEdge, deckCellKeys, type CrossingOpening } from '@/world/connectome/crossing-openings';
@@ -429,6 +429,126 @@ function filletOntoProfiles(centerline: Pt[], profiles: ApproachProfile[], snapT
   return line;
 }
 
+// ── Cross-edge tangent continuity at shared nodes (S4: hairpin hooks) ─────────────
+//
+// Consecutive connection segments share endpoint nodes, but each edge's Catmull-Rom spline
+// started with an INDEPENDENT clamped tangent — at the shared node the two curves met at
+// 85–180° hooks (the audit's hairpin class). For every degree-2 node the two edges now
+// SHARE a through-tangent (the normalised difference of their away-chords), seeded into the
+// spline as a phantom neighbour, so the pair meets C1. Gate/anchor approaches keep the
+// fillet machinery authoritative (fillets re-shape those tails after smoothing); a genuine
+// switchback apex (both edges leaving the node the same way) gets NO through-tangent.
+
+/** How near (tiles) a polyline end must sit to its node to count as a genuine arrival —
+ *  obstacle filtering can trim an edge's cells back from the node it nominally joins. */
+const NODE_ARRIVAL_TILES = 3;
+
+const nodeTangentCache = new WeakMap<RoadGraph, Map<string, Tangent>>();
+
+/** Chord direction of a polyline AWAY from one of its ends, over ~3 cells. */
+function chordAway(poly: ReadonlyArray<Pt>, fromStart: boolean): Tangent | null {
+  const n = poly.length;
+  if (n < 2) return null;
+  const a = fromStart ? poly[0] : poly[n - 1];
+  const b = fromStart ? poly[Math.min(3, n - 1)] : poly[Math.max(0, n - 4)];
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  return len > 1e-6 ? [dx / len, dy / len] : null;
+}
+
+/** The shared through-tangent per degree-2 road node (memoised per graph object). */
+function sharedNodeTangents(graph: RoadGraph): Map<string, Tangent> {
+  const hit = nodeTangentCache.get(graph);
+  if (hit) return hit;
+  const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
+  const byNode = new Map<string, Tangent[]>();
+  for (const e of graph.edges) {
+    if (e.feature !== 'road' || e.polyline.length < 2) continue;
+    const first = e.polyline[0], last = e.polyline[e.polyline.length - 1];
+    for (const nid of e.a === e.b ? [e.a] : [e.a, e.b]) {
+      const node = nodeById.get(nid);
+      if (!node) continue;
+      const d0 = Math.hypot(first.x - node.x, first.y - node.y);
+      const d1 = Math.hypot(last.x - node.x, last.y - node.y);
+      if (Math.min(d0, d1) > NODE_ARRIVAL_TILES) continue;
+      const away = chordAway(e.polyline, d0 <= d1);
+      if (!away) continue;
+      let list = byNode.get(nid);
+      if (!list) { list = []; byNode.set(nid, list); }
+      list.push(away);
+    }
+  }
+  const out = new Map<string, Tangent>();
+  for (const [nid, aways] of byNode) {
+    if (aways.length !== 2) continue;                     // degree-2 only
+    const tx = aways[0][0] - aways[1][0], ty = aways[0][1] - aways[1][1];
+    const len = Math.hypot(tx, ty);
+    if (len < 0.5) continue;                              // both edges leave the same way — a true apex
+    out.set(nid, [tx / len, ty / len]);
+  }
+  nodeTangentCache.set(graph, out);
+  return out;
+}
+
+/**
+ * The PLAIN smoothing options for one edge (bow-reconciliation pins). ONE derivation shared
+ * by `edgeRoadProfile` (the drawn/carved line) and `reconcileCenterlineBows` (the legality
+ * measurement), so what is measured is what is drawn. Node-tangent continuity is applied as
+ * a FILLET on top (see `filletOntoNodeTangents`), not as a spline tangent: the legality pins
+ * sit at ~1-tile spacing near a node, so a phantom-neighbour tangent has no room to act —
+ * whereas a fillet re-shapes the tail through the same reconcile machinery gate fillets use.
+ */
+function plainSmoothOptions(edge: RoadEdge): SmoothOptions {
+  return edge.pins?.length ? { keepIndices: new Set(edge.pins) } : {};
+}
+
+/** An edge end counts as SEATED on its node (fillet-eligible) within this distance —
+ *  tighter than `NODE_ARRIVAL_TILES` because the fillet pins the endpoint AT the node:
+ *  filleting a trimmed end would drag the road onto ground it deliberately avoided. */
+const NODE_FILLET_TILES = 1.5;
+
+/**
+ * S4 (hairpin hooks): fillet each end of `line` that terminates AT a degree-2 shared node
+ * onto that node's through-tangent, so the two edges meeting there leave along ONE common
+ * direction (C1 across the node) instead of hooking 85–180°. Ends owned by a gate/anchor
+ * profile are left alone — that machinery stays authoritative. Divergence this introduces
+ * is reconciled like any fillet (stamped legal cells, or the edge's fillets rejected).
+ */
+function filletOntoNodeTangents(
+  line: Pt[], edge: RoadEdge, graph: RoadGraph,
+  gateProfiles: ReadonlyArray<ApproachProfile>, anchorProfiles: ReadonlyArray<ApproachProfile>,
+): Pt[] {
+  if (line.length < 2) return line;
+  // A micro-edge (a few cells between two junction waypoints) cannot host a fillet arc —
+  // re-shaping it just degenerates the line. Its angle is inherent route geometry.
+  let arc = 0;
+  for (let i = 1; i < line.length; i++) arc += Math.hypot(line[i].x - line[i - 1].x, line[i].y - line[i - 1].y);
+  if (arc < 4) return line;
+  const tangents = sharedNodeTangents(graph);
+  if (tangents.size === 0) return line;
+  const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
+  const ownedByOther = (p: Pt): boolean =>
+    gateProfiles.some((g) => Math.hypot(g.x - p.x, g.y - p.y) <= GATE_SNAP_TILES)
+    || anchorProfiles.some((g) => Math.hypot(g.x - p.x, g.y - p.y) <= ANCHOR_SNAP_TILES);
+  let out = line;
+  for (const nid of edge.a === edge.b ? [edge.a] : [edge.a, edge.b]) {
+    const node = nodeById.get(nid);
+    const t = node && tangents.get(nid);
+    if (!node || !t || out.length < 2) continue;
+    const first = out[0], last = out[out.length - 1];
+    const d0 = Math.hypot(first.x - node.x, first.y - node.y);
+    const d1 = Math.hypot(last.x - node.x, last.y - node.y);
+    if (d1 <= d0 && d1 <= NODE_FILLET_TILES) {
+      if (ownedByOther(last)) continue;
+      out = filletEndOntoProfile(out, { x: node.x, y: node.y, facing: t });
+    } else if (d0 < d1 && d0 <= NODE_FILLET_TILES) {
+      if (ownedByOther(first)) continue;
+      out = filletEndOntoProfile(out.slice().reverse(), { x: node.x, y: node.y, facing: t }).reverse();
+    }
+  }
+  return out;
+}
+
 /** Derive one road edge's smoothed centerline + RoadState + cross-section, or null. */
 export function edgeRoadProfile(
   map: GameMap,
@@ -438,23 +558,25 @@ export function edgeRoadProfile(
   dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
 ): EdgeRoadProfile | null {
   if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
-  // Bow-reconciliation pins (reconcileCenterlineBows) force the spline back through the
-  // walked cells wherever plain smoothing bowed off the legal row — honoured EVERYWHERE
-  // the centerline is derived (render ribbon, carve, raster reconcile), so all three agree.
-  let centerline = smoothCenterline(
-    edge.polyline,
-    edge.pins?.length ? { keepIndices: new Set(edge.pins) } : {},
-  );
+  // Bow-reconciliation pins force the spline back through the walked cells wherever plain
+  // smoothing bowed off the legal row, and degree-2 shared nodes contribute a cross-edge
+  // through-tangent (no hairpin hooks) — honoured EVERYWHERE the centerline is derived
+  // (render ribbon, carve, raster reconcile), so all three agree.
+  let centerline = smoothCenterline(edge.polyline, plainSmoothOptions(edge));
   // A rejected fillet (reconciliation found its ribbon cells illegal) stays rejected: the
   // plain smoothed polyline tracks the router-approved raw path within the reconcile margin.
   // NOTE the crossing openings are derived from this SAME plain smoothed line, so a rejected
   // edge's ribbon still threads its deck — the pin below only has to survive the gate fillets.
   if (!edge.filletRejected) {
     const gateProfiles = gateProfilesFor(map);
+    const anchorProfiles = buildingAnchorProfilesFor(map, edge.id);
+    // S4 FIRST: fillet each degree-2 shared-node end onto the node's through-tangent so
+    // consecutive edges meet C1 (no hairpin hook); gate/anchor fillets below stay
+    // authoritative on the ends they own (those are skipped here).
+    if (map.roadGraph) centerline = filletOntoNodeTangents(centerline, edge, map.roadGraph, gateProfiles, anchorProfiles);
     centerline = filletOntoProfiles(centerline, gateProfiles, GATE_SNAP_TILES);
     // A THROUGH-road (the gate mid-polyline, not at an end) is pinned onto the opening cell too.
     centerline = pinThroughOpenings(centerline, gateProfiles, GATE_SNAP_TILES);
-    const anchorProfiles = buildingAnchorProfilesFor(map, edge.id);
     if (anchorProfiles.length) centerline = filletOntoProfiles(centerline, anchorProfiles, ANCHOR_SNAP_TILES);
     // MID-SPAN: pin the ribbon through each river crossing's shared bank opening, so the drawn
     // road threads the very cells the deck seats on (the gate fillet, applied to a crossing).
@@ -1021,7 +1143,7 @@ export function reconcileCenterlineBows(map: GameMap): BowReconcileResult[] {
     let residualMax = 0;
     for (let round = 0; round < BOW_MAX_ROUNDS; round++) {
       const pins = new Set(edge.pins ?? []);
-      const line = smoothCenterline(edge.polyline, pins.size ? { keepIndices: pins } : {});
+      const line = smoothCenterline(edge.polyline, plainSmoothOptions(edge));
       const { points: sampled } = denseSample(line, RECON_SAMPLE_STEP_TILES);
       // Divergent spans, expressed as arc ranges along the RAW polyline.
       const spanRanges: Array<[number, number]> = [];
