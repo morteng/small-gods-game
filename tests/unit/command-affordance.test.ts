@@ -69,8 +69,8 @@ describe('affordancesForTarget — registry ∩ belief-unlock ∩ preview', () =
     const e = addNpc(world, 'n1', 1);
     const affs = affordancesForTarget({ kind: 'npc', npcId: e.id }, 'player', ctxWith(world), []);
     const byVerb = new Map(affs.map((a) => [a.verb, a]));
-    // divine npc verbs
-    expect(new Set(affs.map((a) => a.verb))).toEqual(new Set(['whisper', 'answer_prayer', 'dream', 'probe_mind', 'smite']));
+    // divine npc verbs (bind_oath — M6 the Peace of God — targets an armed man)
+    expect(new Set(affs.map((a) => a.verb))).toEqual(new Set(['whisper', 'answer_prayer', 'dream', 'probe_mind', 'smite', 'bind_oath']));
     // influence/speech verbs branch; visceral/utility verbs are leaves
     expect(byVerb.get('whisper')!.shape).toBe('branch');
     expect(byVerb.get('dream')!.shape).toBe('branch');
@@ -95,6 +95,7 @@ describe('affordancesForTarget — registry ∩ belief-unlock ∩ preview', () =
   it('derives settlement verbs for a settlement target', () => {
     const world = makeWorld();
     const affs = affordancesForTarget({ kind: 'settlement', poiId: 'vale' }, 'player', ctxWith(world), []);
-    expect(new Set(affs.map((a) => a.verb))).toEqual(new Set(['omen', 'miracle', 'summon_storm']));
+    // proclaim_peace (M6) is settlement-targeted: the assembly convenes at the seat
+    expect(new Set(affs.map((a) => a.verb))).toEqual(new Set(['omen', 'miracle', 'summon_storm', 'proclaim_peace']));
   });
 });
