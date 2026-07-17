@@ -387,8 +387,11 @@ export function proclaimPeace(spirit: Spirit, poiId: string, world: World, log: 
   const sworn = armedMenOf(world, poiId, seat).map((e) => e.id);
   const untilTick = now + PEACE_DURATION_TICKS;
   seat.peace = { spiritId: spirit.id, untilTick, titheCap: PEACE_TITHE_CAP, sworn };
-  // The seated lord swore (he is in `sworn` by construction) — the cap engages now.
-  seat.tithe = Math.min(seat.tithe, PEACE_TITHE_CAP);
+  // The cap engages the moment the SEATED LORD swears — he is among the armed
+  // men whenever he lives at his seat. (In the rare pre-succession window where
+  // the holder's entity is already dead, nobody holding the seat swore, so the
+  // tithe stays free until bind_oath brings the successor before the relics.)
+  if (sworn.includes(seat.npcId)) seat.tithe = Math.min(seat.tithe, PEACE_TITHE_CAP);
   seat.unrest = clamp01(seat.unrest - PEACE_UNREST_RELIEF);
 
   const appended = log.append({ type: 'peace_proclaimed', spiritId: spirit.id, poiId, sworn: sworn.length, untilTick });
