@@ -10,6 +10,7 @@ import type { WeatherSnapshot } from '@/sim/water/weather-stepper';
 import type { CausalSiteSnapshot } from '@/world/causal-site';
 import type { RuntimePoiSnapshot } from '@/world/runtime-poi';
 import type { TrampleSnapshot } from '@/sim/trample';
+import { RoadUseTally, type RoadUseSnapshot } from '@/world/road-use';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -66,6 +67,11 @@ export interface Snapshot {
   /** Desire-line trample grid (sparse accumulator + promoted-trail originals).
    *  Optional so pre-trample saves + partial test states deserialize without it. */
   trample?: TrampleSnapshot;
+  /** Road-wear economy (S1): the inter-fold raw footfall tally per edge (`sinceTick` + sparse
+   *  `[edgeId, count][]`). The FOLDED `edge.use` EMA rides `SaveFile.map` with the graph, not
+   *  here — only the transient counter needs to scrub with the timeline. Optional so pre-S1
+   *  saves + partial test states restore to an empty tally. */
+  roadUse?: RoadUseSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -141,6 +147,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     // deep-clones internally (entries are tiny), so the live/deep split is moot.
     runtimePois: state.runtimePois?.serialize(),
     trample: state.trample?.serialize(),
+    roadUse: state.roadUse?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -202,6 +209,12 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
     cleared.reconcileTiles(state.map, state.trample);
     state.trample = cleared;
   }
+
+  // Road-wear economy (S1): the raw footfall tally scrubs with the timeline (the folded
+  // `edge.use` rides the map, not the snapshot). Snapshot is authoritative — rebuild from it, or
+  // reset to an empty tally for a pre-S1 snapshot so a scrub past a fold can't inherit future
+  // counts. No tile reconcile needed: the tally is pure counters, not a map projection.
+  state.roadUse = snap.roadUse ? RoadUseTally.fromSnapshot(snap.roadUse) : new RoadUseTally();
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.

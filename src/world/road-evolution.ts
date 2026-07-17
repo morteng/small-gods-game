@@ -18,8 +18,11 @@
 
 import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type { RoadDynamics } from '@/world/road-state';
+import type { RoadUseFoldInputs } from '@/world/road-use';
 import type { GameMap, POI } from '@/core/types';
 import type { ClimateFields } from '@/world/heightfield';
+import type { SettlementCohorts } from '@/sim/cohorts';
+import { cohortMeanProsperity } from '@/sim/cohorts';
 import { terrainContextFrom, weatherAggression } from '@/world/terrain-context';
 import { clamp01 } from '@/core/math';
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
@@ -115,16 +118,24 @@ export interface ConnectomeEvolveInputs {
  * upkeep AND traffic → it decays and greens over, and a cold/wet road wears faster than a dry one.
  * Edges with no POI at either end fall back to their class default. Deterministic; pure over inputs.
  */
+/** Resolve an edge's two endpoint POIs (either may be undefined — a road end that isn't a
+ *  settlement). Shared by the evolution opts and the road-use fold inputs so both read the
+ *  same node→POI plumbing. */
+function endpointPoisFor(map: GameMap): (edge: RoadEdge) => [POI | undefined, POI | undefined] {
+  const graph = map.roadGraph;
+  const nodeById = new Map((graph?.nodes ?? []).map((n) => [n.id, n]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+  return (edge) => [
+    poiById.get(nodeById.get(edge.a)?.poiRef ?? ''),
+    poiById.get(nodeById.get(edge.b)?.poiRef ?? ''),
+  ];
+}
+
 export function connectomeEvolveOptions(map: GameMap, inputs: ConnectomeEvolveInputs = {}): EvolveOptions {
   const graph = map.roadGraph;
   if (!graph) return {};
   const { residents, climate } = inputs;
-  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
-  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
-  const endpointPois = (edge: RoadEdge): [POI | undefined, POI | undefined] => [
-    poiById.get(nodeById.get(edge.a)?.poiRef ?? ''),
-    poiById.get(nodeById.get(edge.b)?.poiRef ?? ''),
-  ];
+  const endpointPois = endpointPoisFor(map);
   const opts: EvolveOptions = {
     upkeepFor: (edge) => {
       const [a, b] = endpointPois(edge);
@@ -142,6 +153,47 @@ export function connectomeEvolveOptions(map: GameMap, inputs: ConnectomeEvolveIn
     opts.climateFor = (edge) => edgeClimateAggression(edge, climate, w, h);
   }
   return opts;
+}
+
+/** Live connectome signals the road-USE fold reads (road-wear economy S1). */
+export interface RoadUseInputs {
+  /** Living count per POI id — pass `residentsByPoi(world, cohorts)` so BOTH the named tier and
+   *  the statistical cohort tier feed the traffic FLOOR (spec §2: both tiers must feed use). */
+  residents?: Map<string, number>;
+  /** Statistical cohorts per POI id — the prosperity "purse" behind the wealth term. */
+  cohorts?: ReadonlyMap<string, SettlementCohorts>;
+}
+
+/**
+ * Build the per-edge inputs the year-pass `foldRoadUse` reads: the inferred-traffic FLOOR
+ * (endpoint vitality, so a pure-cohort route with no live footfall never reads as dead) and the
+ * WEALTH term (endpoint prosperity gated by liveness — an emptied town keeps no purse). Reuses
+ * the SAME endpoint-POI + vitality plumbing as `connectomeEvolveOptions` — no forked logic.
+ */
+export function buildRoadUseInputs(map: GameMap, inputs: RoadUseInputs = {}): RoadUseFoldInputs {
+  const { residents, cohorts } = inputs;
+  const endpointPois = endpointPoisFor(map);
+  const wealthOf = (p: POI | undefined): number | null => {
+    if (!p) return null;
+    const sc = cohorts?.get(p.id);
+    // liveness 0.2..1 (staticCapacity cancels out of poiVitality) — an emptied place has no purse
+    // even if its remembered prosperity was high.
+    const liveness = clamp01(poiVitality(p, residents) / staticCapacity(p));
+    const prosperity = sc ? clamp01(cohortMeanProsperity(sc)) : 0.5; // neutral when no cohort tier
+    return clamp01(prosperity * liveness);
+  };
+  return {
+    trafficFloorFor: (edge) => {
+      const [a, b] = endpointPois(edge);
+      if (!a && !b) return CLASS_TRAFFIC[edge.class];
+      return clamp01(0.5 * (poiVitality(a, residents) + poiVitality(b, residents)));
+    },
+    wealthFor: (edge) => {
+      const [a, b] = endpointPois(edge);
+      const present = [wealthOf(a), wealthOf(b)].filter((w): w is number => w !== null);
+      return present.length ? clamp01(present.reduce((s, w) => s + w, 0) / present.length) : 0;
+    },
+  };
 }
 
 export interface RoadStepContext {

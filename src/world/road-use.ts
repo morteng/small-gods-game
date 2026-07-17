@@ -10,7 +10,10 @@
 //
 // Nothing here touches the sim, the graph, or persistence. Deterministic, RNG-free, allocation-
 // light: safe to call from the studio per input event AND from the year-pass per edge.
-import type { RoadClass } from '@/world/road-graph';
+import type { RoadClass, RoadEdge, RoadGraph } from '@/world/road-graph';
+import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
+
+const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 
 // ── the class ladder (§3) ────────────────────────────────────────────────────
 /** The graph-side ladder, bottom→top. (The rungs below `path` — bare ground → trample trail —
@@ -185,4 +188,195 @@ export function minViableTier(spanTiles: number): CrossingTier | null {
     if (spanTiles <= CROSSING_TIER_MAX_SPAN_T[t]) return t as CrossingTier;
   }
   return null;
+}
+
+// ── the `use` statistic (S1): the measured tally + the year-pass fold ─────────
+// One number, two consumers. S1 makes the number REAL (measured footfall folded into a
+// per-edge EMA, persisted + scrub-safe) but nothing READS it yet — the class ladder
+// (`stepEdgeClass`) and crossing ladder (`tierForUse`) start consuming `edge.use.ema01`
+// in S2/S3. Deterministic + RNG-free throughout (pure integer footfall arithmetic).
+
+/** The folded per-edge use state — persisted verbatim WITH THE GRAPH (rides `SaveFile.map`
+ *  exactly like `edge.dynamics`; absent = a new edge, no save migration). */
+export interface EdgeUse {
+  /** Smoothed use statistic in [0,1] — the one number both ladders read (from S2 on). */
+  ema01: number;
+  /** Lifetime raw passes folded into this edge (diagnostic / studio readout). */
+  tallies: number;
+  /** Sim tick of the last fold. */
+  sinceTick: number;
+}
+
+/** `use01 = clamp01(W_TRAFFIC·traffic + W_WEALTH·wealth)` — traffic decides *whether* a route
+ *  climbs, wealth decides *how fast/far*. Provisional weights; the S0/crossing studio dials
+ *  settle them empirically (spec §8.5) — do NOT hand-tune in prod. */
+export const USE_W_TRAFFIC = 0.65;
+export const USE_W_WEALTH = 0.35;
+
+/** EMA smoothing per year-pass fold: the world neither learns nor forgets a route's importance
+ *  in a single season. 0.5 = a ~1-fold half-life at the ~0.5 y fold cadence. */
+export const USE_EMA_ALPHA = 0.5;
+
+/** Passes per road CELL per fiction-year that SATURATE the measured-traffic term, per class: a
+ *  highway must carry far more feet than a footpath before it reads "busy". PROVISIONAL — the
+ *  studio dials calibrate these against real NPC footfall (a fiction-year is `DAYS_PER_YEAR`
+ *  real days at rate 1, so a cell sees many short visits). */
+export const EXPECTED_PASSES_PER_CELL_YEAR: Record<RoadClass, number> = {
+  path: 20, track: 60, road: 150, highway: 400,
+};
+
+/**
+ * Pure fold of ONE year-pass into an edge's use EMA. Never mutates its input; RNG-free.
+ *  - `traffic` = max(measured, inferred floor) so a pure-cohort route with no live footfall
+ *    still reads its statistical importance (both population tiers feed use — spec §2);
+ *  - the first fold SEEDS the EMA with the fresh value (no cold-start lag toward 0).
+ */
+export function foldEdgeUse(
+  prev: EdgeUse | undefined,
+  measuredNorm: number,
+  trafficFloor: number,
+  wealth01: number,
+  now: number,
+  rawAdded: number,
+): EdgeUse {
+  const traffic = Math.max(clamp01(measuredNorm), clamp01(trafficFloor));
+  const use01 = clamp01(USE_W_TRAFFIC * traffic + USE_W_WEALTH * clamp01(wealth01));
+  const seeded = prev?.ema01 ?? use01;
+  const ema01 = clamp01(seeded + USE_EMA_ALPHA * (use01 - seeded));
+  return { ema01, tallies: (prev?.tallies ?? 0) + Math.max(0, rawAdded), sinceTick: now };
+}
+
+/** Serialized form of the inter-fold raw tally — rides the Snapshot as optional `roadUse?`
+ *  (the transient counter must scrub with the timeline; the FOLDED `edge.use` rides the map).
+ *  Sorted by edgeId for replay-stable ordering (the `statCohorts` precedent). */
+export interface RoadUseSnapshot {
+  sinceTick: number;
+  passes: [string, number][];
+}
+
+/**
+ * The per-edge footfall tally (S1). The 3 Hz trample deposit fire increments it when an NPC
+ * stands on a road/bridge tile (roads are trample-inert, so that footfall is discarded today);
+ * the year-pass fold reads + resets it into `edge.use`. Tile→edge lookup goes through a
+ * `Uint16Array` index memoized on `graph.rev`. Deterministic; no RNG.
+ */
+export class RoadUseTally {
+  /** edgeId → raw passes accrued since the last fold. Sparse. */
+  private passes = new Map<string, number>();
+  /** Tick the current measurement window opened (the fold-window anchor). -1 = uninitialized:
+   *  the first fold records `now` and defers measurement, so a window is never mis-sized on a
+   *  fresh world OR after a time-skip (the window spans the skip and dilutes pre-skip footfall
+   *  correctly, without the fold ever needing to touch time-skip.ts). A plain 0 sentinel would
+   *  collide with a legitimate tick-0 baseline (a fresh non-browser world starts at tick 0). */
+  sinceTick = -1;
+  /** tile→edge memo: value = edgeIndex+1 (0 = no road). Rebuilt on graph.rev / dimension change. */
+  private index: { rev: number; width: number; height: number; arr: Uint16Array } | null = null;
+
+  private ensureIndex(graph: RoadGraph, width: number, height: number): Uint16Array {
+    const rev = graph.rev ?? 0;
+    const idx = this.index;
+    if (idx && idx.rev === rev && idx.width === width && idx.height === height) return idx.arr;
+    const arr = new Uint16Array(width * height);
+    // Uint16 caps at 65535 edges — far above any real graph; guard so a pathological one can't
+    // alias edge 0 (the "no road" sentinel).
+    const n = Math.min(graph.edges.length, 0xffff);
+    for (let i = 0; i < n; i++) {
+      const code = i + 1;
+      for (const c of graph.edges[i].polyline) {
+        // Stamp the cell AND its 8 neighbours so a widened carriage still resolves to its edge.
+        // Lookups are gated on "is this a road tile" (see the deposit hook), so a radius stamp
+        // never over-attributes — grass beside a road is never counted. Last writer wins on
+        // overlap (two edges sharing cells → the later edge; a harmless statistical tie-break).
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const x = c.x + dx, y = c.y + dy;
+            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            arr[y * width + x] = code;
+          }
+        }
+      }
+    }
+    this.index = { rev, width, height, arr };
+    return arr;
+  }
+
+  /** Attribute one footfall at road tile (tx,ty) to its covering edge. No-op off any edge. */
+  noteFootfall(graph: RoadGraph, tx: number, ty: number, width: number, height: number): void {
+    if (tx < 0 || ty < 0 || tx >= width || ty >= height) return;
+    const code = this.ensureIndex(graph, width, height)[ty * width + tx];
+    if (!code) return;
+    const id = graph.edges[code - 1]?.id;
+    if (id === undefined) return;
+    this.passes.set(id, (this.passes.get(id) ?? 0) + 1);
+  }
+
+  /** Raw passes accrued for an edge since the last fold (0 when untouched). */
+  rawPasses(edgeId: string): number {
+    return this.passes.get(edgeId) ?? 0;
+  }
+
+  /** Number of edges with accrued passes (tests / diagnostics). */
+  activeEdges(): number {
+    return this.passes.size;
+  }
+
+  /** Reset the accrued passes (the fold reads then clears; stale ids from a rebuilt graph drop). */
+  clearPasses(): void {
+    this.passes.clear();
+  }
+
+  /** Drop the tile→edge memo (call when the graph is rebuilt WITHOUT a rev bump). */
+  invalidateIndex(): void {
+    this.index = null;
+  }
+
+  serialize(): RoadUseSnapshot {
+    const passes = [...this.passes.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return { sinceTick: this.sinceTick, passes };
+  }
+
+  static fromSnapshot(s: RoadUseSnapshot): RoadUseTally {
+    const t = new RoadUseTally();
+    t.sinceTick = s.sinceTick ?? -1;
+    for (const [id, n] of s.passes ?? []) t.passes.set(id, n);
+    return t;
+  }
+}
+
+/** Per-edge inputs the year-pass fold reads from the connectome (built by `buildRoadUseInputs`
+ *  in road-evolution.ts, which owns the endpoint-POI plumbing). */
+export interface RoadUseFoldInputs {
+  /** Endpoint wealth 0..1 (mean prosperity × liveness) — the "purse" behind the traffic. */
+  wealthFor(edge: RoadEdge): number;
+  /** Inferred-traffic FLOOR 0..1 (endpoint vitality) so a pure-cohort route with no live
+   *  footfall never reads as dead (spec §2 — both population tiers feed use). */
+  trafficFloorFor(edge: RoadEdge): number;
+}
+
+/**
+ * Fold the accrued footfall into every edge's `use` EMA and reset the tally. Called at the
+ * year-pass (gated by the caller on the same ≥0.5 y cadence as road evolution). Returns the
+ * measured window in fiction-years (0 on the baseline-establishing first call). Deterministic.
+ *
+ * The measurement window is the tally's OWN `(now − sinceTick)`, not the road-evolution
+ * `dtYears` — this is what makes the fold skip-safe with no time-skip.ts change: after a jump,
+ * the window spans the skipped years, so a burst of pre-skip footfall dilutes to ~0 measured
+ * (an abandoned road correctly reads low), exactly as live-ticking those empty years would.
+ */
+export function foldRoadUse(graph: RoadGraph, tally: RoadUseTally, now: number, inputs: RoadUseFoldInputs): number {
+  if (tally.sinceTick < 0) {
+    tally.sinceTick = now; // establish the window baseline; measure from the next fold on
+    return 0;
+  }
+  const windowYears = Math.max(1e-9, (now - tally.sinceTick) / TICKS_PER_YEAR);
+  for (const edge of graph.edges) {
+    const raw = tally.rawPasses(edge.id);
+    const lenT = Math.max(1, edge.polyline.length);
+    const expected = EXPECTED_PASSES_PER_CELL_YEAR[edge.class] ?? EXPECTED_PASSES_PER_CELL_YEAR.track;
+    const measuredNorm = clamp01(raw / (lenT * windowYears * expected));
+    edge.use = foldEdgeUse(edge.use, measuredNorm, inputs.trafficFloorFor(edge), inputs.wealthFor(edge), now, raw);
+  }
+  tally.clearPasses();
+  tally.sinceTick = now;
+  return windowYears;
 }

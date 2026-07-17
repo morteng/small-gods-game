@@ -217,6 +217,18 @@ export function cohortPopulation(sc: SettlementCohorts): number {
   return n;
 }
 
+/** Population-weighted mean prosperity 0..1 across a settlement's bands (the "purse" the road-wear
+ *  economy reads for its wealth term). An empty settlement has no purse — returns 0. */
+export function cohortMeanProsperity(sc: SettlementCohorts): number {
+  let sum = 0, pop = 0;
+  for (const band of sc.bands) {
+    if (band.count <= 0) continue;
+    sum += band.needs.prosperity * band.count;
+    pop += band.count;
+  }
+  return pop > 0 ? sum / pop : 0;
+}
+
 export interface CohortCensus {
   /** Per-bucket cohorts, keyed by homePoiId (or UNHOMED_COHORT_ID). */
   cohorts: Map<string, SettlementCohorts>;

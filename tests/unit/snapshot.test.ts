@@ -4,6 +4,15 @@ import { captureSnapshot, restoreSnapshot } from '@/core/snapshot';
 import { initNpcProps } from '@/world/npc-helpers';
 import { World } from '@/world/world';
 import type { GameMap, Tile } from '@/core/types';
+import type { RoadGraph } from '@/world/road-graph';
+
+/** A one-edge graph whose single carved cell sits at (5,5) — the road tile an NPC there stands on. */
+function roadGraphAt(x: number, y: number): RoadGraph {
+  return {
+    nodes: [], rev: 0,
+    edges: [{ id: 'e0', a: 'a', b: 'b', polyline: [{ x, y }], feature: 'road', class: 'track', surface: 'dirt', bridgeCells: [] }],
+  };
+}
 
 function attachWorld(state: ReturnType<typeof createState>): void {
   const tiles: Tile[][] = [];
@@ -82,5 +91,33 @@ describe('snapshot', () => {
     restoreSnapshot(s, snap);
     expect(s.spirits.get('rival')!.ai!.cooldowns.miracle).toBe(5);
     expect(s.spirits.get('rival')!.power).toBe(4);
+  });
+
+  it('road-use tally scrubs with the timeline (raw passes + window anchor revert)', () => {
+    const s = createState();
+    attachWorld(s);
+    s.map!.roadGraph = roadGraphAt(5, 5);
+    s.roadUse.sinceTick = 100;
+    s.roadUse.noteFootfall(s.map!.roadGraph, 5, 5, 10, 10);
+    s.roadUse.noteFootfall(s.map!.roadGraph, 5, 5, 10, 10);
+    const snap = captureSnapshot(s);
+    // Footfall accrued AFTER capture is the "future" a scrub must undo.
+    s.roadUse.noteFootfall(s.map!.roadGraph, 5, 5, 10, 10);
+    s.roadUse.sinceTick = 999;
+    expect(s.roadUse.rawPasses('e0')).toBe(3);
+    restoreSnapshot(s, snap);
+    expect(s.roadUse.rawPasses('e0')).toBe(2);           // reverted to capture time
+    expect(s.roadUse.serialize().sinceTick).toBe(100);   // window anchor reverted too
+  });
+
+  it('a pre-S1 snapshot (no roadUse field) restores to an empty tally', () => {
+    const s = createState();
+    attachWorld(s);
+    s.map!.roadGraph = roadGraphAt(5, 5);
+    s.roadUse.noteFootfall(s.map!.roadGraph, 5, 5, 10, 10);
+    const snap = captureSnapshot(s);
+    delete (snap as { roadUse?: unknown }).roadUse;      // simulate an older save
+    restoreSnapshot(s, snap);
+    expect(s.roadUse.activeEdges()).toBe(0);
   });
 });

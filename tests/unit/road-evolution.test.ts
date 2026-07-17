@@ -8,8 +8,11 @@ import {
   evolveRoadGraph,
   advanceRoadEvolution,
   connectomeEvolveOptions,
+  buildRoadUseInputs,
   freshDynamics,
 } from '@/world/road-evolution';
+import { emptySettlementCohorts } from '@/sim/cohorts';
+import type { SettlementCohorts } from '@/sim/cohorts';
 
 // Derive from the calendar (1:1 realtime) — a hardcoded 240×96 silently
 // desyncs from the source constant.
@@ -237,6 +240,62 @@ describe('connectomeEvolveOptions (endpoint-settlement drive)', () => {
 
   it('returns empty options for a graphless map', () => {
     expect(connectomeEvolveOptions({} as GameMap)).toEqual({});
+  });
+});
+
+describe('buildRoadUseInputs (road-wear economy S1)', () => {
+  const graphFor = (id: string, aPoi: string, bPoi: string): RoadGraph => ({
+    nodes: [
+      { id: `${id}-a`, x: 0, y: 0, kind: 'poi', poiRef: aPoi },
+      { id: `${id}-b`, x: 5, y: 0, kind: 'poi', poiRef: bPoi },
+    ] as RoadGraph['nodes'],
+    edges: [edge(id)],
+  });
+  const mapWith = (graph: RoadGraph, pois: { id: string; importance?: string; size?: string }[]): GameMap =>
+    ({ roadGraph: graph, worldSeed: { pois }, width: 8, height: 2 } as unknown as GameMap);
+  const cohort = (id: string, prosperity: number, count: number): SettlementCohorts => {
+    const sc = emptySettlementCohorts(id);
+    sc.bands[0].count = count;
+    sc.bands[0].needs.prosperity = prosperity;
+    return sc;
+  };
+
+  it('the traffic floor is higher for important, peopled endpoints', () => {
+    const big = graphFor('e', 'A', 'B');
+    const bigIn = buildRoadUseInputs(
+      mapWith(big, [{ id: 'A', importance: 'critical', size: 'huge' }, { id: 'B', importance: 'high', size: 'large' }]),
+      { residents: new Map([['A', 48], ['B', 30]]) },
+    );
+    const small = graphFor('f', 'C', 'D');
+    const smallIn = buildRoadUseInputs(
+      mapWith(small, [{ id: 'C', importance: 'low', size: 'small' }, { id: 'D', importance: 'low', size: 'small' }]),
+      { residents: new Map() },
+    );
+    const floorBig = bigIn.trafficFloorFor(big.edges[0]);
+    const floorSmall = smallIn.trafficFloorFor(small.edges[0]);
+    expect(floorBig).toBeGreaterThan(floorSmall);
+    expect(floorBig).toBeLessThanOrEqual(1);
+    expect(floorSmall).toBeGreaterThanOrEqual(0);
+  });
+
+  it('an edge with no settlement endpoints falls back to a bounded class traffic', () => {
+    const g: RoadGraph = { nodes: [], edges: [edge('e', { class: 'path' })] };
+    const inputs = buildRoadUseInputs({ roadGraph: g, worldSeed: { pois: [] } } as unknown as GameMap);
+    const floor = inputs.trafficFloorFor(g.edges[0]);
+    expect(floor).toBeGreaterThan(0);
+    expect(floor).toBeLessThan(0.5); // CLASS_TRAFFIC.path region — assert bounded, not exact
+    expect(inputs.wealthFor(g.edges[0])).toBe(0); // no purse without endpoints
+  });
+
+  it('wealth reads the cohort purse and is gated by endpoint liveness', () => {
+    const g = graphFor('e', 'rich', 'poor');
+    const pois = [{ id: 'rich', importance: 'high', size: 'large' }, { id: 'poor', importance: 'high', size: 'large' }];
+    const cohorts = new Map<string, SettlementCohorts>([['rich', cohort('rich', 0.9, 20)], ['poor', cohort('poor', 0.1, 20)]]);
+    const peopled = buildRoadUseInputs(mapWith(g, pois), { residents: new Map([['rich', 40], ['poor', 40]]), cohorts }).wealthFor(g.edges[0]);
+    const emptied = buildRoadUseInputs(mapWith(g, pois), { residents: new Map(), cohorts }).wealthFor(g.edges[0]);
+    expect(peopled).toBeGreaterThan(0);
+    expect(peopled).toBeLessThanOrEqual(1);
+    expect(emptied).toBeLessThan(peopled); // same purse, emptied town → liveness gate drops it
   });
 });
 

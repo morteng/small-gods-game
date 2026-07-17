@@ -74,6 +74,11 @@ export interface RoadEdge {
    *  tick. Absent = a new, kept road. Persisted verbatim with the graph and consumed by the
    *  carve + surface channel via `edge.dynamics` (see {@link edgeRoadProfile}). */
   dynamics?: import('@/world/road-state').RoadDynamics;
+  /** Road-wear economy (S1): the folded per-edge USE statistic (measured footfall + endpoint
+   *  wealth → an EMA). Written by the year-pass `foldRoadUse`; persisted verbatim with the
+   *  graph exactly like `dynamics` (absent = new edge, no save migration). Nothing READS it
+   *  until S2/S3 (the class + crossing ladders). See `@/world/road-use`. */
+  use?: import('@/world/road-use').EdgeUse;
   /** Set by `reconcileFilletRaster` when this edge's gate/anchor approach fillet could not be
    *  legalized onto the tile grid (a divergent span's candidate cells hit water-sans-bridge /
    *  curtain / building / green). Galin's re-validate verdict: the SMOOTHING is discarded, not

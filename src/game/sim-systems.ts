@@ -74,7 +74,9 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   scheduler.register(new NpcMovementSystem(() => state.map));
   // Desire-line trample: deposit footfall (~3 Hz, gated to soft ground) + a
   // low-Hz promote/decay pass that wears trails to dirt and fades them back.
-  scheduler.register(new TrampleDepositSystem(() => state.map, () => state.trample));
+  // The deposit fire ALSO tallies footfall on road tiles into the road-wear economy's per-edge
+  // `use` statistic (S1) — the same 3 Hz loop, since roads shed trample wear anyway.
+  scheduler.register(new TrampleDepositSystem(() => state.map, () => state.trample, () => state.roadUse));
   scheduler.register(new TramplePromoteDecaySystem(() => state.map, () => state.trample));
   // Order: settlement events affect needs → NpcSimSystem decays needs + recomputes mood
   // → activity system picks activities from needs → belief propagation → spirits
@@ -124,7 +126,9 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // housing prefers lots along the desire lines believers actually walk.
   // P1: growth also counts statistical souls — towns house their fiction pop.
   scheduler.register(new SettlementGrowthSystem(() => state.trample, getCohorts));
-  scheduler.register(new RoadEvolutionSystem());
+  // Road evolution ALSO folds the road-use tally into `edge.use` on its applying year-passes
+  // (road-wear economy S1) — the tally + cohorts feed the measured-traffic + wealth terms.
+  scheduler.register(new RoadEvolutionSystem(() => state.roadUse, getCohorts));
   // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
   // seed + polls the flood watch, writing place_flooded/receded into the event log.
   scheduler.register(new WeatherSystem(

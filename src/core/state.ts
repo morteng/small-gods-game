@@ -17,6 +17,7 @@ import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
 import type { TrampleGrid } from '@/sim/trample';
 import type { SettlementCohorts } from '@/sim/cohorts';
+import { RoadUseTally } from '@/world/road-use';
 
 export interface GameState {
   map: GameMap | null;
@@ -110,6 +111,12 @@ export interface GameState {
    *  The NAMED tier lives in World entities; a soul is never in both. Empty
    *  until a world is seeded (old saves restore empty — no statistical tier). */
   cohorts: Map<string, SettlementCohorts>;
+  /** Road-wear economy (S1): the per-edge footfall tally. The 3 Hz trample deposit fire
+   *  attributes road-tile footfall to the covering graph edge here (roads shed trample wear, so
+   *  the footfall is free); the road-evolution year-pass folds it into `edge.use` and resets it.
+   *  Rides the Snapshot as `roadUse?` (the transient counter scrubs with the timeline; the FOLDED
+   *  `edge.use` rides `SaveFile.map`). See `@/world/road-use`. */
+  roadUse: RoadUseTally;
 }
 
 export function createState(): GameState {
@@ -166,5 +173,6 @@ export function createState(): GameState {
     runtimePois: new RuntimePoiStore(),
     trample: null,
     cohorts: new Map(),
+    roadUse: new RoadUseTally(),
   };
 }
