@@ -99,6 +99,48 @@ export function archBridge(opts: {
 /** The buildable bridge library, keyed by SHORT name (the canonical preset is `bridge-<short>`
  *  and the reference-library slug is the same). Diagnostics-only recipes live in the dev script. */
 export const BRIDGE_RECIPES: Record<string, BridgeRecipe> = {
+  // Tier-0 log crossing (road-wear economy S0): ONE squared log dropped across the stream with a
+  // flat treadway spiked on top. No rails, no masonry beyond two low seating blocks at the banks.
+  // Humble and slightly ASKEW by construction — the log and the treadway carry small opposed
+  // yaws + lateral offsets (fixed deterministic constants, no RNG), so it reads as something a
+  // farmer levered into place, not something an engineer set out. Additive prims only.
+  'log': {
+    desc: 'log crossing (one squared log + flat treadway, no rails, seat blocks only)',
+    walls: 'timber',
+    ttiSubject: 'a humble log crossing over a small stream, ONE heavy squared timber log laid ' +
+      'slightly askew from bank to bank with a narrow flat plank treadway fixed on top, no ' +
+      'handrails, no arch, resting on a single low rough stone block at each bank; ' +
+      'weathered grey-brown wood',
+    build: () => {
+      const spanTiles = 3, y0 = 1;             // a stream, not a river: ~6 m bank to bank
+      const logZ = 0.5;                        // log underside above the datum (clears the water)
+      const logThick = 0.4;                    // the squared log: a stout 0.4 m baulk
+      const parts: Record<string, BridgePart> = {
+        // The squared log — one narrow "deck" slab, nudged off the centreline and yawed a hair.
+        log: {
+          type: 'deck', at: { x: 0.5, y: y0 - 0.04 }, size: { w: spanTiles, h: 1 },
+          params: { lengthM: spanTiles * M, widthM: 0.45, thicknessM: logThick, dir: 'ew',
+            parapet: 'none', baseZM: logZ, yawDeg: -1.5 },
+        },
+        // The flat treadway — a thin plank course on the log's back, offset the OTHER way and
+        // counter-yawed, so the two members read as separately laid timber.
+        tread: {
+          type: 'deck', at: { x: 0.65, y: y0 + 0.05 }, size: { w: spanTiles, h: 1 },
+          params: { lengthM: (spanTiles - 0.3) * M, widthM: 0.7, thicknessM: 0.12, dir: 'ew',
+            parapet: 'none', baseZM: logZ + logThick, yawDeg: 2 },
+        },
+      };
+      // Minimal seating only — NOT addAbutments (that block is deck-width + 1 m, far too grand
+      // for a log): one low rough stone block per bank, just enough to keep the log ends dry.
+      for (const [key, cxT] of [['abut0', 0.5], ['abut1', 0.5 + spanTiles]] as const) {
+        parts[key] = {
+          type: 'abutment', material: 'stone', at: { x: cxT - 0.5, y: y0 }, size: { w: 1, h: 1 },
+          params: { heightM: logZ, widthM: 0.9, depthM: 0.7, batter: 0.1, dir: 'ew' },
+        };
+      }
+      return parts;
+    },
+  },
   // Iconic medieval stone bridge: hump-backed, three segmental arches, cutwater piers, parapets.
   'stone-arch': {
     desc: 'dressed-stone 3-arch road bridge (filled spandrel, hump-backed, parapets)',
