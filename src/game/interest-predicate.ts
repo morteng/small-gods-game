@@ -73,6 +73,10 @@ export function isInterestingEvent(ev: SimEvent, _state?: GameState): boolean {
     case 'summon_storm':
     case 'smite':
     case 'miracle':
+    // M6 — the Peace of God: the player's dramatic act (like miracle/smite) and
+    // the moment the oath runs out (the lord's men unbound again — actionable).
+    case 'peace_proclaimed':
+    case 'peace_lapsed':
       return true;
     default:
       return false;
@@ -109,6 +113,8 @@ export function describeInterest(ev: SimEvent): { rank: number; label: string } 
     case 'summon_storm':      return { rank: 82, label: 'A deluge was summoned' };
     case 'smite':             return { rank: 84, label: 'Lightning struck' };
     case 'miracle':           return { rank: 62, label: 'A miracle was worked' };
+    case 'peace_proclaimed':  return { rank: 66, label: 'The Peace of God was proclaimed' };
+    case 'peace_lapsed':      return { rank: 48, label: 'The Peace of God lapsed' };
     default:                  return { rank: 0, label: 'Something happened' };
   }
 }

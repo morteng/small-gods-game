@@ -81,6 +81,9 @@ const EVENT_WEIGHT: Partial<Record<SimEvent['type'], number>> = {
   summon_storm: 9,
   settlement_begin: 8,
   miracle: 8,
+  peace_proclaimed: 8,
+  peace_lapsed: 6,
+  oath_sworn: 5,
   site_faded: 8,
   omen: 7,
   npc_birth: 7,
@@ -195,6 +198,12 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
         : `${resolveNpcName(world, ev.npcId)} rose as lord over the settlement.`;
     case 'shrine_endowed':
       return `The lord ${resolveNpcName(world, ev.lordNpcId)} endowed a shrine to another god (${ev.rivalId}).`;
+    case 'peace_proclaimed':
+      return `The relics were carried into the field and the Peace of God was proclaimed; ${ev.sworn} armed man/men swore upon them before the crowd.`;
+    case 'oath_sworn':
+      return `${resolveNpcName(world, ev.npcId)} was brought before the relics and swore the oath of the Peace.`;
+    case 'peace_lapsed':
+      return 'The term of the Peace of God ran out, and the armed men were no longer bound by their oath.';
     case 'thread_resolved':
       return `A thread of fate was ${ev.status}.`;
     case 'beat_fired':
