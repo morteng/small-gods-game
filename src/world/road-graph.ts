@@ -9,8 +9,9 @@
 // `applyRoadMask` are the PURE derivation that turns the graph back into road
 // tiles. The tile mask is always *derived*, never the truth.
 //
-// Faithfulness note: `walkRoad`'s cost model distinguishes only water vs
-// non-water terrain, and two carve mutations flip a cell's water-ness for later
+// Faithfulness note: `walkRoad`'s cost model distinguishes water classes only by
+// tile type (bridgeable river/shallow vs standing lake/deep/ocean, WCV 103), and
+// two carve mutations flip a cell's water-ness for later
 // segments — bridging (water → `bridge`, now cheap) and river-carving (land →
 // `river`, now water). So a later segment's least-cost path can depend on an
 // earlier segment's carve. `buildRoadGraph` therefore interleaves walk-and-carve

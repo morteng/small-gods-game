@@ -24,10 +24,13 @@
  *     bilinear midpoint of the elevation field — exact for orthogonal steps (the midpoint
  *     is the lattice-edge average) and catches the ridge/valley a diagonal step cuts
  *     across, which a 1-sample-per-tile read under-reported.
- *   - Water: with `autoBridge`, stepping into water costs `bridgeCost` per cell, so a
- *     WIDE river costs proportionally more and the route gravitates to the NARROW
- *     crossing (span-proportional, emergent). Without `autoBridge`, water is forbidden
- *     (unless `waterCost` is overridden to a finite value).
+ *   - Water: with `autoBridge`, stepping into BRIDGEABLE water (river / shallow fringe)
+ *     costs `bridgeCost` per cell, so a WIDE river costs proportionally more and the
+ *     route gravitates to the NARROW crossing (span-proportional, emergent). STANDING
+ *     water (lake `water`, `deep_water`, `ocean`) costs `standingWaterCost` per cell —
+ *     you bridge a river, you go AROUND a lake; only a short neck is worth a causeway.
+ *     Without `autoBridge`, all water is forbidden (unless `waterCost` is overridden
+ *     to a finite value).
  *   - Bank/valley affinity: a land cell adjacent to water is discounted (`bankAffinity`)
  *     so roads run ALONGSIDE rivers (the natural, gentle corridor).
  *   - Reuse: a cell that is already a road/bridge is discounted (`roadAffinity`) so new
@@ -56,6 +59,15 @@ const DEFAULT_BASE_COST = 1.0;
 const DEFAULT_SLOPE_FACTOR = 2.08;
 const DEFAULT_WATER_COST = 1000.0;
 const DEFAULT_BRIDGE_COST = 5.0;
+/** Per-cell cost for stepping into STANDING water (lake `water`, `deep_water`, `ocean`)
+ *  with autoBridge on. You bridge a river; you go AROUND a lake — a causeway across a
+ *  short lake neck (2–3 cells) can still beat a long detour, but a broad basin or a bay
+ *  is decisively routed around. Before WCV 103 lakes weren't stamped into the raster,
+ *  so the walker priced a lake bed as dry land and roads ran across drawn water. */
+const DEFAULT_STANDING_WATER_COST = 45.0;
+/** Water tile types the walker may BRIDGE at `bridgeCost`: flowing channels + the
+ *  shallow fringe. Everything else in WATER_TYPES is standing water. */
+const BRIDGEABLE_WATER = new Set(['river', 'shallow_water']);
 const DEFAULT_OBSTACLE_COST = 200.0;
 /** Physical grade (rise/run) beyond which the over-grade penalty bites — the 'road'-class
  *  envelope (12 %); per-class values come from `gradeEnvelope` (road-state.ts). */
@@ -87,8 +99,13 @@ export interface RoadWalkerOptions {
   reliefM?: number;
   /** Cost to step into a water cell when autoBridge is false. Default 1000 (forbidden). */
   waterCost?: number;
-  /** Cost to step into a water cell when autoBridge is true (bridge). Default 5. */
+  /** Cost to step into a BRIDGEABLE water cell (river / shallow fringe) when
+   *  autoBridge is true. Default 5. */
   bridgeCost?: number;
+  /** Cost to step into a STANDING-water cell (lake/deep/ocean) when autoBridge is
+   *  true — high enough that broad basins are detoured, short necks still crossable.
+   *  Default 45. */
+  standingWaterCost?: number;
   /** Whether the walker may cross water by placing bridges. Default true. */
   autoBridge?: boolean;
   /**
@@ -205,6 +222,7 @@ export function walkRoad(
   const overGradePenalty = options.overGradePenalty ?? DEFAULT_OVER_GRADE_PENALTY;
   const waterCost = options.waterCost ?? DEFAULT_WATER_COST;
   const bridgeCost = options.bridgeCost ?? DEFAULT_BRIDGE_COST;
+  const standingWaterCost = options.standingWaterCost ?? DEFAULT_STANDING_WATER_COST;
   const autoBridge = options.autoBridge ?? true;
   const allowDiagonal = options.allowDiagonal ?? false;
   const bankAffinity = options.bankAffinity ?? DEFAULT_BANK_AFFINITY;
@@ -300,8 +318,12 @@ export function walkRoad(
         if (!autoBridge) {
           if (options.waterCost === undefined) continue; // impassable
           stepCost = waterCost * horiz;
-        } else {
+        } else if (BRIDGEABLE_WATER.has(tiles[ny][nx].type)) {
           stepCost = bridgeCost * horiz; // span emerges from consecutive water cells
+        } else {
+          // Standing water (lake/deep/ocean): a road goes around, not across —
+          // unless the neck is short enough that a causeway beats the detour.
+          stepCost = standingWaterCost * horiz;
         }
         if (isRoad?.(nx, ny)) stepCost *= roadAffinity; // reuse an existing crossing
       } else {
