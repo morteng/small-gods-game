@@ -1,13 +1,16 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Entity } from '@/core/types';
 import type { EventLog } from '@/core/events';
-import { npcProps, forEachNpc, rememberEvent } from '@/world/npc-helpers';
+import { npcProps, forEachNpc, queryNpcs, rememberEvent } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
 import { isWaterTile } from '@/world/land-snap';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { CausalSite } from '@/world/causal-site';
+import {
+  armedMenOf, peaceActive, PEACE_DURATION_TICKS, PEACE_TITHE_CAP, PEACE_UNREST_RELIEF,
+} from '@/sim/lord';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
 
@@ -308,6 +311,122 @@ export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolea
   const appended = log.append({ type: 'answer_prayer', spiritId: spirit.id, npcId: npc.id, need });
   rememberEvent(p, appended.id);
 
+  return true;
+}
+
+// ─── The Peace of God (M6) — spends DEVOTION, not power ─────────────────────
+// The player's answer to the castle that isn't a lightning bolt (mortal-power
+// spec M6): relics are paraded into the field, a crowd gathers, and the armed
+// men swear on the relics not to prey on the peasantry. A religion converts
+// ACCUMULATED POPULAR DEVOTION into a binding constraint on armed men — so both
+// verbs draw down the congregation's devotion pool (never `spirit.power`),
+// which is exactly what a god of cheap transactional fear cannot pay (smite
+// buys faith but bleeds devotion — the fearful-faith trap acquires a
+// consequence, VISION §3). The binding itself is the seat's tithe cap
+// (`LordState.peace`), which reaches BOTH population tiers through the existing
+// M0.c choke points (workRestoreScale for named souls, applyCohortTithe for the
+// statistical bands) — no second accounting path.
+
+/** Devotion drawn down by the open-air assembly itself. */
+export const PROCLAIM_PEACE_DEVOTION_COST = 0.6;
+/** Devotion drawn down to bring one later armed man before the relics. */
+export const BIND_OATH_DEVOTION_COST = 0.15;
+
+/**
+ * Total devotion toward `spiritId` among the named believers homed at `poiId` —
+ * the "accumulated popular belief" the peace converts. Folded in sorted
+ * entity-id order so the float sum is replay-stable regardless of World
+ * insertion order (the censusCohorts convention). The STATISTICAL tier is
+ * deliberately absent: cohort devotion sums are structurally zero in P1
+ * (statistical belief drift is P2 of the two-tier epic; see the M6 reality
+ * check) — the pool would gain exactly 0 from folding them in today.
+ */
+export function devotionPoolAt(world: World, spiritId: SpiritId, poiId: string): number {
+  const believers = queryNpcs(world)
+    .filter((e) => npcProps(e).homePoiId === poiId && npcProps(e).beliefs[spiritId])
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  let pool = 0;
+  for (const e of believers) pool += npcProps(e).beliefs[spiritId]!.devotion;
+  return pool;
+}
+
+/** Draw `amount` devotion out of the pool pro-rata: every believer keeps the
+ *  same FRACTION of their devotion (order-independent per-NPC scaling — no
+ *  cross-NPC accumulation, so iteration order cannot matter). The spend is felt
+ *  exactly where devotion works: power regen (belief × understanding ×
+ *  devotion) and COMFORT_DECAY resistance. */
+function spendDevotionAt(world: World, spiritId: SpiritId, poiId: string, amount: number, pool: number): void {
+  if (pool <= 0) return;
+  const scale = Math.max(0, 1 - amount / pool);
+  forEachNpc(world, (e) => {
+    const p = npcProps(e);
+    if (p.homePoiId !== poiId) return;
+    const b = p.beliefs[spiritId];
+    if (b) b.devotion = clamp01(b.devotion * scale);
+  });
+}
+
+/**
+ * proclaim_peace — convene the open-air assembly at a settlement with a seated
+ * lord. Pays `PROCLAIM_PEACE_DEVOTION_COST` from the resident congregation's
+ * devotion (returns false when the pool can't cover it — a god who never earned
+ * devotion cannot call this crowd). Every armed man PRESENT (resident soldiers
+ * + the seated lord) swears; the seat gets a `PeaceOath` (tithe bound to
+ * `PEACE_TITHE_CAP` for `PEACE_DURATION_TICKS`), the tithe clamps immediately,
+ * unrest eases by `PEACE_UNREST_RELIEF`, and the whole settlement remembers the
+ * day the relics came out. One peace at a time per seat.
+ */
+export function proclaimPeace(spirit: Spirit, poiId: string, world: World, log: EventLog, now: number): boolean {
+  const seat = world.lords.get(poiId);
+  if (!seat) return false;                               // nothing to bind
+  if (peaceActive(seat, now)) return false;              // a peace already stands
+  const pool = devotionPoolAt(world, spirit.id, poiId);
+  if (pool < PROCLAIM_PEACE_DEVOTION_COST) return false; // devotion, not power
+  spendDevotionAt(world, spirit.id, poiId, PROCLAIM_PEACE_DEVOTION_COST, pool);
+
+  const sworn = armedMenOf(world, poiId, seat).map((e) => e.id);
+  const untilTick = now + PEACE_DURATION_TICKS;
+  seat.peace = { spiritId: spirit.id, untilTick, titheCap: PEACE_TITHE_CAP, sworn };
+  // The seated lord swore (he is in `sworn` by construction) — the cap engages now.
+  seat.tithe = Math.min(seat.tithe, PEACE_TITHE_CAP);
+  seat.unrest = clamp01(seat.unrest - PEACE_UNREST_RELIEF);
+
+  const appended = log.append({ type: 'peace_proclaimed', spiritId: spirit.id, poiId, sworn: sworn.length, untilTick });
+  // The crowd was the witness — the assembly enters every resident's memory ring.
+  forEachNpc(world, (e) => {
+    const p = npcProps(e);
+    if (p.homePoiId === poiId) rememberEvent(p, appended.id);
+  });
+  return true;
+}
+
+/**
+ * bind_oath — bring ONE later armed man (a new soldier, an unsworn successor
+ * lord) before the relics of a STANDING peace. Only the spirit whose relics
+ * were paraded can bind more men; costs `BIND_OATH_DEVOTION_COST` from the same
+ * congregation pool. Swearing the current seat-holder re-engages the tithe cap
+ * (dynasty passes the seat, not the oath — an heir rules unbound until sworn).
+ */
+export function bindOath(spirit: Spirit, npc: Entity, world: World, log: EventLog, now: number): boolean {
+  const p = npcProps(npc);
+  const poiId = p.homePoiId;
+  if (!poiId) return false;
+  const seat = world.lords.get(poiId);
+  if (!seat || !peaceActive(seat, now)) return false;
+  const peace = seat.peace!;
+  if (peace.spiritId !== spirit.id) return false;        // not your relics
+  if (p.role !== 'soldier' && npc.id !== seat.npcId) return false; // armed men only
+  if (peace.sworn.includes(npc.id)) return false;        // already bound
+  const pool = devotionPoolAt(world, spirit.id, poiId);
+  if (pool < BIND_OATH_DEVOTION_COST) return false;
+  spendDevotionAt(world, spirit.id, poiId, BIND_OATH_DEVOTION_COST, pool);
+
+  peace.sworn.push(npc.id);
+  peace.sworn.sort();                                    // keep the list canonical
+  if (npc.id === seat.npcId) seat.tithe = Math.min(seat.tithe, peace.titheCap);
+
+  const appended = log.append({ type: 'oath_sworn', spiritId: spirit.id, npcId: npc.id, poiId });
+  rememberEvent(p, appended.id);
   return true;
 }
 

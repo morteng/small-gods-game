@@ -46,6 +46,12 @@ export type SimEvent =
   | { type: 'settlement_end';     poiId: string; eventType: SettlementEventType }
   | { type: 'lord_risen';         poiId: string; npcId: EntityId; lineageId: EntityId; succession: boolean }
   | { type: 'shrine_endowed';     poiId: string; rivalId: SpiritId; lordNpcId: EntityId }
+  // M6 — the Peace of God: an assembly binds the armed men (peace_proclaimed,
+  // `sworn` = how many swore), a later man is brought before the relics
+  // (oath_sworn), and the oath lapses (peace_lapsed — LordSystem reaps it).
+  | { type: 'peace_proclaimed';   spiritId: SpiritId; poiId: string; sworn: number; untilTick: number }
+  | { type: 'oath_sworn';         spiritId: SpiritId; npcId: EntityId; poiId: string }
+  | { type: 'peace_lapsed';       poiId: string; spiritId: SpiritId }
   | { type: 'thread_opened';      threadId: ThreadId; shapeId: ShapeId; subject: ThreadSubject }
   | { type: 'thread_advanced';    threadId: ThreadId; phase: string; weight: NarrativeWeight }
   | { type: 'thread_resolved';    threadId: ThreadId; status: 'resolved' | 'abandoned' }

@@ -11,6 +11,8 @@
  *  2. ATTACHMENT — every settlement with a resident noble and no seat gets one:
  *     the eldest noble rises (`lord_risen`).
  *  3. ECONOMY — per seat: the garrison headcount is recomputed (derived truth),
+ *     a lapsed Peace of God is reaped (`peace_lapsed`) and a sworn seat-holder
+ *     is held to his oath's tithe cap (M6),
  *     `unrest` relaxes toward the tithe rate, and the tithe is pressed onto the
  *     STATISTICAL tier (`applyCohortTithe`) so both population tiers feel the
  *     extraction (the spec's cohort double-accounting warning). The NAMED tier
@@ -28,7 +30,7 @@ import { GAME_HOUR_HZ } from '@/core/calendar';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { applyCohortTithe } from '@/sim/cohorts';
 import { clamp01 } from '@/sim/npc-sim';
-import { makeLordState, selectLord, UNREST_RELAX_PER_HOUR } from '@/sim/lord';
+import { makeLordState, selectLord, boundTitheCap, UNREST_RELAX_PER_HOUR } from '@/sim/lord';
 
 /** Per-game-hour relaxation of the statistical tier's prosperity mean toward
  *  the tithed equilibrium (see `applyCohortTithe`). Same time constant as
@@ -88,6 +90,16 @@ export class LordSystem implements System {
     for (const poiId of [...world.lords.keys()].sort()) {
       const seat = world.lords.get(poiId)!;
       seat.garrison = soldiers.get(poiId) ?? 0;
+      // M6 — the Peace of God: reap a lapsed oath (logged; the inbox surfaces it
+      // as a tiding), then HOLD a sworn seat-holder to his oath's tithe cap — a
+      // lord who creeps his extraction back up is bound here every hour. An
+      // UNSWORN successor is not bound (dynasty passes the seat, not the oath).
+      if (seat.peace && ctx.now >= seat.peace.untilTick) {
+        ctx.log.append({ type: 'peace_lapsed', poiId, spiritId: seat.peace.spiritId });
+        delete seat.peace;
+      }
+      const cap = boundTitheCap(seat, ctx.now);
+      if (cap !== null && seat.tithe > cap) seat.tithe = cap;
       seat.unrest = clamp01(seat.unrest + (clamp01(seat.tithe) - seat.unrest) * UNREST_RELAX_PER_HOUR);
       const sc = cohorts?.get(poiId);
       if (sc) applyCohortTithe(sc, seat.tithe, COHORT_TITHE_RELAX_PER_HOUR);
