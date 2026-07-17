@@ -1,7 +1,7 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { Entity } from '@/core/types';
 import type { EventLog } from '@/core/events';
-import { npcProps, forEachNpc, queryNpcs, rememberEvent } from '@/world/npc-helpers';
+import { npcProps, forEachNpc, queryNpcs, rememberEvent, getNpc } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
@@ -9,7 +9,8 @@ import { isWaterTile } from '@/world/land-snap';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { CausalSite } from '@/world/causal-site';
 import {
-  armedMenOf, peaceActive, PEACE_DURATION_TICKS, PEACE_TITHE_CAP, PEACE_UNREST_RELIEF,
+  armedMenOf, peaceActive, assemblySeatIdsAt,
+  PEACE_DURATION_TICKS, PEACE_TITHE_CAP, PEACE_UNREST_RELIEF,
 } from '@/sim/lord';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
@@ -367,38 +368,54 @@ function spendDevotionAt(world: World, spiritId: SpiritId, poiId: string, amount
 }
 
 /**
- * proclaim_peace — convene the open-air assembly at a settlement with a seated
- * lord. Pays `PROCLAIM_PEACE_DEVOTION_COST` from the resident congregation's
- * devotion (returns false when the pool can't cover it — a god who never earned
- * devotion cannot call this crowd). Every armed man PRESENT (resident soldiers
- * + the seated lord) swears; the seat gets a `PeaceOath` (tithe bound to
- * `PEACE_TITHE_CAP` for `PEACE_DURATION_TICKS`), the tithe clamps immediately,
- * unrest eases by `PEACE_UNREST_RELIEF`, and the whole settlement remembers the
- * day the relics came out. One peace at a time per seat.
+ * proclaim_peace — convene the open-air assembly at a settlement. Pays
+ * `PROCLAIM_PEACE_DEVOTION_COST` from the resident congregation's devotion
+ * (returns false when the pool can't cover it — a god who never earned devotion
+ * cannot call this crowd). The assembly binds EVERY seat whose armed men hold
+ * this ground (`assemblySeatIdsAt`): the settlement's own lord, and — M5 — the
+ * castle whose knights carry a tithe here by dominion link. Per bound seat:
+ * every armed man PRESENT at that seat (resident soldiers + its seated lord)
+ * swears, the seat gets a `PeaceOath` (tithe bound to `PEACE_TITHE_CAP` for
+ * `PEACE_DURATION_TICKS`), the tithe clamps immediately, and unrest eases by
+ * `PEACE_UNREST_RELIEF`. The whole target settlement remembers the day the
+ * relics came out. One peace at a time per seat — a seat already under an
+ * active peace is skipped (false only when NO seat could be bound).
  */
 export function proclaimPeace(spirit: Spirit, poiId: string, world: World, log: EventLog, now: number): boolean {
-  const seat = world.lords.get(poiId);
-  if (!seat) return false;                               // nothing to bind
-  if (peaceActive(seat, now)) return false;              // a peace already stands
+  const bindable = assemblySeatIdsAt(world, poiId)
+    .filter((id) => !peaceActive(world.lords.get(id)!, now));
+  if (bindable.length === 0) return false;               // nothing to bind
   const pool = devotionPoolAt(world, spirit.id, poiId);
   if (pool < PROCLAIM_PEACE_DEVOTION_COST) return false; // devotion, not power
   spendDevotionAt(world, spirit.id, poiId, PROCLAIM_PEACE_DEVOTION_COST, pool);
 
-  const sworn = armedMenOf(world, poiId, seat).map((e) => e.id);
   const untilTick = now + PEACE_DURATION_TICKS;
-  seat.peace = { spiritId: spirit.id, untilTick, titheCap: PEACE_TITHE_CAP, sworn };
-  // The cap engages the moment the SEATED LORD swears — he is among the armed
-  // men whenever he lives at his seat. (In the rare pre-succession window where
-  // the holder's entity is already dead, nobody holding the seat swore, so the
-  // tithe stays free until bind_oath brings the successor before the relics.)
-  if (sworn.includes(seat.npcId)) seat.tithe = Math.min(seat.tithe, PEACE_TITHE_CAP);
-  seat.unrest = clamp01(seat.unrest - PEACE_UNREST_RELIEF);
+  let crowdEventId = 0;
+  for (const seatPoiId of bindable) {
+    const seat = world.lords.get(seatPoiId)!;
+    const sworn = armedMenOf(world, seatPoiId, seat).map((e) => e.id);
+    seat.peace = { spiritId: spirit.id, untilTick, titheCap: PEACE_TITHE_CAP, sworn };
+    // The cap engages the moment the SEATED LORD swears — he is among the armed
+    // men whenever he lives at his seat. (In the rare pre-succession window where
+    // the holder's entity is already dead, nobody holding the seat swore, so the
+    // tithe stays free until bind_oath brings the successor before the relics.)
+    if (sworn.includes(seat.npcId)) seat.tithe = Math.min(seat.tithe, PEACE_TITHE_CAP);
+    seat.unrest = clamp01(seat.unrest - PEACE_UNREST_RELIEF);
 
-  const appended = log.append({ type: 'peace_proclaimed', spiritId: spirit.id, poiId, sworn: sworn.length, untilTick });
+    const appended = log.append({ type: 'peace_proclaimed', spiritId: spirit.id, poiId: seatPoiId, sworn: sworn.length, untilTick });
+    if (crowdEventId === 0) crowdEventId = appended.id;
+    // Sworn men who do NOT live at the assembly ground (the castle's knights,
+    // M5) still remember swearing — the crowd stamp below won't reach them.
+    for (const id of sworn) {
+      const en = getNpc(world, id);
+      const p = en ? npcProps(en) : null;
+      if (p && p.homePoiId !== poiId) rememberEvent(p, appended.id);
+    }
+  }
   // The crowd was the witness — the assembly enters every resident's memory ring.
   forEachNpc(world, (e) => {
     const p = npcProps(e);
-    if (p.homePoiId === poiId) rememberEvent(p, appended.id);
+    if (p.homePoiId === poiId) rememberEvent(p, crowdEventId);
   });
   return true;
 }

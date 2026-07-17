@@ -28,7 +28,7 @@ import type { GameMap, POI } from '@/core/types';
 import type { World } from '@/world/world';
 import type { Era } from '@/core/era';
 import { placeComplexOnPatch, type PlaceComplexResult } from '@/world/place-complex';
-import { projectRuntimePois } from '@/world/runtime-poi';
+import { projectRuntimePois, rebuildDominions } from '@/world/runtime-poi';
 import { catalogue } from '@/catalogue/pack';
 import { loadDefaultPacks } from '@/catalogue/default-packs';
 import type { ComplexTypeFields } from '@/catalogue/types';
@@ -128,6 +128,10 @@ export function foundCastle(
   });
   // Directory projection: both worldSeed clones (state + map) list the castle now.
   projectRuntimePois(store, [state.worldSeed, map.worldSeed]);
+  // M5: dominion link (gripped settlement → castle) is live the moment the
+  // provenance exists — activeness still waits on the seat + garrison
+  // (grippingSeatOf), which LordSystem attaches within a game hour.
+  rebuildDominions(world.dominions, store);
 
   return { poiId, poi, placement };
 }

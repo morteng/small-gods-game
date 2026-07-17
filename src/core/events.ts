@@ -49,6 +49,12 @@ export type SimEvent =
   // id) founded from his seat (`fromPoiId`). Chronicler-narrated.
   | { type: 'castle_founded';     poiId: string; fromPoiId: string; lordNpcId: EntityId; name: string }
   | { type: 'shrine_endowed';     poiId: string; rivalId: SpiritId; lordNpcId: EntityId }
+  // M5 — knights: a castle's garrison took (or lost) its grip on the settlement
+  // that raised it (`poiId` = the gripped settlement, `castlePoiId` = the
+  // castle seat whose knights carry the extraction). Logged by LordSystem on
+  // the hourly transition; chronicler-narrated, landing-card interesting.
+  | { type: 'grip_taken';         castlePoiId: string; poiId: string; garrison: number }
+  | { type: 'grip_broken';        castlePoiId: string; poiId: string }
   // M6 — the Peace of God: an assembly binds the armed men (peace_proclaimed,
   // `sworn` = how many swore), a later man is brought before the relics
   // (oath_sworn), and the oath lapses (peace_lapsed — LordSystem reaps it).

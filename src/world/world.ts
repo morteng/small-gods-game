@@ -29,6 +29,15 @@ export class World {
    *  LordSystem; coached by the set_lord_stance authoring verb. */
   readonly lords = new Map<string, import('@/sim/lord').LordState>();
 
+  /** M5 (mortal power): dominion links, gripped settlement → the runtime-castle
+   *  poiId whose knights carry the extraction there. DERIVED truth (rebuilt from
+   *  `state.runtimePois` provenance by LordSystem hourly, by `foundCastle` on
+   *  commit, and by `restoreSnapshot`) — never snapshotted itself. Whether a
+   *  link is ACTIVE (castle seat exists AND garrison > 0) is checked at read
+   *  time (`grippingSeatOf`), so a garrison wiped mid-hour stops extracting on
+   *  the next read. */
+  readonly dominions = new Map<string, string>();
+
   constructor(public readonly tiles: GameMap) {}
 
   addEntity(e: Entity): void {

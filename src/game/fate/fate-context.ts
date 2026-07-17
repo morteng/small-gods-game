@@ -213,10 +213,15 @@ export function describeLordsForFate(state: GameState): { text: string; lordPoiI
         ? ` Bound by a sworn Peace of God (tithe capped at ${seat.peace.titheCap.toFixed(2)}) — he cannot be coached above it.`
         : ' A Peace of God stands there, but this lord never swore it (he rules unbound).')
       : '';
+    // M5: a castle seat's grip is part of its situation — the knights carry
+    // this seat's tithe to the gripped settlement (its people bleed for it).
+    const grip = seat.gripsPoiId
+      ? ` His knights hold "${poiName.get(seat.gripsPoiId) ?? seat.gripsPoiId}" (${seat.gripsPoiId}) in their grip — they carry his tithe there.`
+      : '';
     lines.push(
       `- ${lordName}, lord of "${poiName.get(poiId) ?? poiId}" (${poiId}): tithe ${seat.tithe.toFixed(2)}, ` +
       `unrest ${seat.unrest.toFixed(2)}, garrison ${sit.garrison}; ${pop} soul(s), ` +
-      `mean prosperity ${prosperity.toFixed(2)}, ${sit.prayerPressure} standing plea(s) at risk.${peace}`,
+      `mean prosperity ${prosperity.toFixed(2)}, ${sit.prayerPressure} standing plea(s) at risk.${peace}${grip}`,
     );
   }
   return { text: `Lords (mortal power — coach via set_lord_stance):\n${lines.join('\n')}`, lordPoiIds };

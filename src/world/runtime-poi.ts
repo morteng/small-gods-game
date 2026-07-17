@@ -162,6 +162,26 @@ export function projectRuntimePois(
  * NOTE: this store is the ONLY writer of `ownerPoiId` — any future second owner
  * system must join this reconcile rather than invent a parallel one.
  */
+/**
+ * M5 (knights): rebuild the dominion links (gripped settlement → castle poiId)
+ * from the store's provenance — a castle founded FROM a settlement
+ * (`foundedFromPoiId`, the `found_castle` verb's one-castle-per-seat key) holds
+ * that settlement in its knights' reach. Pure re-derivation, idempotent; the
+ * caller passes `world.dominions`. Link EXISTENCE is provenance; link
+ * ACTIVENESS (seated lord + garrison > 0) is checked at read time in
+ * `grippingSeatOf` (src/sim/lord.ts) so the map never goes stale mid-hour.
+ */
+export function rebuildDominions(
+  dominions: Map<string, string>,
+  store: RuntimePoiStore | null | undefined,
+): void {
+  dominions.clear();
+  for (const entry of store?.all() ?? []) {
+    const from = entry.provenance.foundedFromPoiId;
+    if (from) dominions.set(from, entry.poi.id);
+  }
+}
+
 export function reconcileRuntimePoiStamps(map: GameMap, store: RuntimePoiStore): void {
   const earthworks = (map.earthworks ?? []).filter(e => !e.ownerPoiId);
   const runs = (map.barrierRuns ?? []).filter(b => !b.ownerPoiId);

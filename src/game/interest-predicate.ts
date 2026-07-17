@@ -77,6 +77,10 @@ export function isInterestingEvent(ev: SimEvent, _state?: GameState): boolean {
     // the moment the oath runs out (the lord's men unbound again — actionable).
     case 'peace_proclaimed':
     case 'peace_lapsed':
+    // M5 — knights: a settlement passing under (or out of) a castle's grip is
+    // an extraction-pressure edge the player can act on (need is opportunity).
+    case 'grip_taken':
+    case 'grip_broken':
       return true;
     default:
       return false;
@@ -115,6 +119,8 @@ export function describeInterest(ev: SimEvent): { rank: number; label: string } 
     case 'miracle':           return { rank: 62, label: 'A miracle was worked' };
     case 'peace_proclaimed':  return { rank: 66, label: 'The Peace of God was proclaimed' };
     case 'peace_lapsed':      return { rank: 48, label: 'The Peace of God lapsed' };
+    case 'grip_taken':        return { rank: 64, label: 'Knights took a settlement in their grip' };
+    case 'grip_broken':       return { rank: 56, label: "A castle's grip on a settlement was broken" };
     default:                  return { rank: 0, label: 'Something happened' };
   }
 }

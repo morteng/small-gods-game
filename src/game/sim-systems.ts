@@ -110,8 +110,9 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // the other day-keyed lifecycle systems. Reads the statistical tier so the
   // tithe hits BOTH population tiers (the named tier feels it in
   // NpcActivitySystem's work restore). LordState rides the snapshot on
-  // World.lords — no system-state registration needed.
-  scheduler.register(new LordSystem(getCohorts));
+  // World.lords — no system-state registration needed. M5: also reads the
+  // runtime-POI store to derive dominion links (the knights' extraction reach).
+  scheduler.register(new LordSystem(getCohorts, () => state.runtimePois));
   // Two-tier population P0+P1: shadow cohort ledger — observes the named tier
   // hourly + audits conservation of souls, and (P1) audits that the statistical
   // tier's counts never change outside ledgered flows. Stateful (baseline
