@@ -365,3 +365,54 @@ wall system.
 
 Slicing: S1+S2 land together (store+projection+guards are only honest with the scrub reconcile);
 S3–S5 follow.
+
+---
+
+## 8. S1+S2 reality check (2026-07-17, implementation session)
+
+**Both slices SHIPPED as one wave** — `src/world/runtime-poi.ts` (store + `projectRuntimePois`
++ `reconcileRuntimePoiStamps`), `src/world/found-castle.ts` (`foundCastle`), guards in
+`heightfield.ts`/`poi-influence.ts`, `Snapshot.runtimePois?` + restore reconcile in
+`snapshot.ts`, `POI.runtime` / `Earthwork.ownerPoiId` / `PlacedBarrier.ownerPoiId`,
+`PlaceComplexOpts.idPrefix`. Tests: `tests/unit/runtime-poi.test.ts` (12) +
+`tests/unit/found-castle-scrub.test.ts` (3). No SAVE_VERSION / WORLD_CONTENT_VERSION bump,
+as designed (§1.8). Deviations + findings vs the plan:
+
+1. **The store carries the physical stamp, not just tags.** The plan said "ownership tags +
+   reconcile drops orphans" — but the snapshot never captures `map.earthworks`/`barrierRuns`,
+   so the *re-add* direction (scrub FORWARD to a snapshot where the castle exists, taken
+   after a scrub-back removed the stamps) had no data source. Fix: `RuntimePoiEntry` records
+   the owned earthworks + runs, and the reconcile is a full re-derivation — drop every
+   `ownerPoiId`-tagged map entry, re-append from the live store entries. Idempotent, and the
+   forward direction is byte-consistent by construction (pinned by test).
+2. **The removal-direction deformation rebuild works** — but the memoized path alone can't
+   prove it: after a scrub-back the memo key RETURNS to the pre-castle key (`e`/`w`/`d`
+   counts revert), so `getComposedHeightfield` serves the cached pre-castle field — a pass
+   that would also pass with broken producers. The test therefore composes UNMEMOIZED
+   (fresh `DeformationStore` from the map arrays, `heightAt` per tile) on both sides;
+   removal byte-matches pre-castle, forward byte-matches post-castle. Both paths asserted.
+3. **The count-keyed memo is a latent collision hazard, not a current bug:** the key folds
+   in *counts* (`earthworks.length`, foundation/ditch counts), so two different same-count
+   stamp sets share a key. Today unreachable (deterministic replay recreates identical
+   stamps; one writer). If S4 ever allows divergent re-rolls at equal counts, fold an
+   owned-stamp signature into `road-deformation.ts:key()`.
+4. **Both worldSeed clones must be projected.** On the load path `state.worldSeed` and
+   `state.map.worldSeed` are DISTINCT `structuredClone`s (`save-file.ts:142-143`) —
+   projecting only one leaves half the directory consumers blind. `projectRuntimePois`
+   takes the seed list; restore + foundCastle pass both. Pinned by the save→load→scrub test.
+5. **`placeComplexOnPatch` has no rejection path of its own** — it commits rings/buildings
+   even when `placed === null`. `foundCastle` rolls those back (entities + runs) so a failed
+   siting leaves no partial state; the id counter deliberately does NOT rewind (uniqueness
+   over prettiness; allocation is by call order so replay determinism holds). Untested in
+   anger — no deterministic way to make `siteComplex` reject on the harness map; S4's
+   candidate-siting work should add that fixture.
+6. **`idPrefix` keeps the studio byte-identical** (absent → legacy bare ids) while castle
+   entities mint under `castle:0001:` so two same-type complexes never collide.
+7. Confirmed no `bumpTilesRev` needed anywhere in the wave — nothing writes `tile.type`;
+   the ground moves purely through the deformation channel, and scrub repaint rides the
+   memo re-key.
+
+**S3 note for the next agent:** the garrison homing (`homePoiId = castle id`) needs NO store
+changes; perception's anchor works off the projection already. The `water-dynamics.ts`
+POI-centre map (§1.7 minor) is still init-time-only — a runtime castle is not storm-targetable
+until that rebuilds.
