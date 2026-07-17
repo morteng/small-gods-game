@@ -34,6 +34,11 @@ export class StagingBuffer {
     return [...this.beats.values()].filter(b => b.status === 'armed' && b.trigger.kind === kind);
   }
 
+  /** Armed beats carrying a given arc linkage (F5: a folded arc's beats expire). */
+  armedForArc(arcId: number): StagedBeat[] {
+    return [...this.beats.values()].filter(b => b.status === 'armed' && b.arcId === arcId);
+  }
+
   markFired(id: BeatId): void {
     const b = this.beats.get(id);
     if (b) b.status = 'fired';

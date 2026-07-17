@@ -36,15 +36,21 @@ export interface ArcGoal {
 
 /**
  * Not a new effect type — a *reference* to an existing tool/verb call plus the arcs
- * it served (the weaving audit trail). The verb allowlist + `servedArcs` validation
- * are F5; F1 only needs the shape to persist.
+ * it served (the weaving audit trail, F5). The verb is ALWAYS a capability-registry
+ * verb: pressures are produced only by `advance_arc` (whose inner call re-runs the
+ * existing tool parsers, which emit registry commands) and by arc-linked hard beats
+ * (whose commands were built by the same parsers). Historical fact — trusted from
+ * disk, like the portent ledger.
  */
 export interface ArcPressure {
   tick: number;
-  verb: string;                     // MUST be in CAPABILITY_REGISTRY (or a FATE_TOOLS name) — enforced in F5
+  verb: string;                     // a CAPABILITY_REGISTRY verb (see arc-advance.ts guards)
   args: Record<string, unknown>;
   servedArcs: number[];
 }
+
+/** Bounded per-arc audit ring (spec §8.1: arcs must stay snapshot-cheap). */
+export const MAX_APPLIED_PRESSURES = 12;
 
 /**
  * One planted omen (F4). `kind` comes from the arc shape's library-owned

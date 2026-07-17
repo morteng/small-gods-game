@@ -14,12 +14,13 @@ import type { Command } from '@/sim/command/types';
 import type { StagedBeat } from '@/sim/threads/staging-types';
 import type { FateArcStore } from '@/sim/fate/arc-store';
 import { getArcShape, isShapeSeedable, openArcFromShape } from '@/sim/fate/arc-library';
+import { expireArcBeats } from '@/sim/fate/arc-sweep';
 import { queryNpcs } from '@/world/npc-helpers';
 import { buildFateContext, type FateFocus } from './fate-context';
 import {
   FATE_TOOLS, parseFateToolCalls, authoringRetryPrompt, AUTHOR_BUILDING_TOOL,
   portentGateRetryPrompt, PORTENT_RETRY_TOOLS,
-  type FateToolCtx, type ArcToolMeta, type ArcPortentRequest,
+  type FateToolCtx, type ArcToolMeta, type ArcPortentRequest, type ArcAdvanceRequest,
 } from './fate-tools';
 
 export interface FateBrainDeps {
@@ -68,14 +69,18 @@ export class FateBrainService {
           validNpcIds: state.world ? new Set(queryNpcs(state.world).map((e) => e.id)) : undefined,
           // F4: what the portent tools validate against — rebuilt per turn so the
           // gate sees ledger growth from portents applied earlier this deliberation.
+          // F5 adds the weaving inputs: an advance_arc claim needs an UNMET goal
+          // its verb moves, and pressure budget left.
           arcMeta: new Map<number, ArcToolMeta>(arcStore.live().map((a) => [a.id, {
             shape: a.shape, castPoiIds: [...a.cast.poiIds], portentCount: a.portents.length,
+            unmetGoals: a.goals.filter((g) => !g.met).map((g) => g.predicate),
+            budget: a.pressureBudget,
           }])),
         } : undefined,
       });
       const toolCtx = buildToolCtx();
       const res = await client.generateWithTools(messages, FATE_TOOLS);
-      const { beats, commands, authoringRejections, arcSeeds, arcAbandons, arcPortents, portentRejections } =
+      const { beats, commands, authoringRejections, arcSeeds, arcAbandons, arcPortents, portentRejections, arcAdvances } =
         parseFateToolCalls(res.toolCalls, toolCtx);
       this.armBeats(state, beats);
       for (const c of commands) this.deps.emitCommand(c);
@@ -91,12 +96,21 @@ export class FateBrainService {
         }
         for (const ab of arcAbandons) {
           if (arcStore.abandon(ab.arcId, ab.reason)) {
+            // F5: a folded arc's still-armed beats expire — it never fires its blow.
+            expireArcBeats(state, ab.arcId);
             console.info(`[fate] abandoned arc ${ab.arcId} — ${ab.reason}`);
           }
         }
         // F4: materialize validated portents — a soft staged beat + a ledger entry
         // (linked by beatId) + the portent_planted tiding event.
         this.applyPortents(state, arcStore, arcPortents);
+        // F5 weaving: emit each advance's inner command and record the pressure on
+        // every arc it served — the snapshot-backed audit trail. Applied AFTER the
+        // abandons so a pressure never lands on an arc the same response folded;
+        // recordPressure re-filters to LIVE arcs, and a pressure left serving
+        // nothing is dropped whole (its command too — same race discipline as
+        // plantPortent).
+        this.applyAdvances(state, arcStore, arcAdvances);
         if (arcSeeds.length || arcAbandons.length) arcStore.recomputeGoals(state);
       }
 
@@ -148,7 +162,41 @@ export class FateBrainService {
         const t = state.plotThreads.get(b.threadId);
         if (t) t.vars.staged = 1;            // cooperate with the stub's once-per-thread guard
       }
+      // F5 audit: an arc-linked HARD beat is a pressure spent on that arc at arm
+      // time (the intention committed when Fate staged the blow, not when the
+      // player later discovers it). Soft/portent beats spend nothing.
+      if (b.arcId !== undefined && b.hard.length > 0) {
+        state.fateArcs?.recordPressure({
+          tick: armed.stagedTick, verb: b.hard[0].verb,
+          args: (b.hard[0].payload ?? {}) as Record<string, unknown>,
+          servedArcs: [b.arcId],
+        });
+      }
       this.deps.onArmed?.(armed);
+    }
+  }
+
+  /**
+   * F5: apply validated advance_arc calls — emit the inner command and record the
+   * pressure on every served arc (bounded ring, budget spend, seeded→'building').
+   * `recordPressure` re-filters to arcs still live at apply time: if every claim
+   * folded between parse and apply, the pressure — command included — is dropped
+   * (logged), because an advance that serves nothing was never authorized as a
+   * plain tool call.
+   */
+  private applyAdvances(state: GameState, arcStore: FateArcStore, advances: ArcAdvanceRequest[]): void {
+    for (const adv of advances) {
+      const recorded = arcStore.recordPressure({
+        tick: state.clock.now(), verb: adv.command.verb,
+        args: (adv.command.payload ?? {}) as Record<string, unknown>,
+        servedArcs: adv.servedArcs,
+      });
+      if (recorded.length === 0) {
+        console.warn('[fate] advance_arc raced an arc fold — pressure dropped', adv.servedArcs);
+        continue;
+      }
+      this.deps.emitCommand(adv.command);
+      console.info(`[fate] pressure ${adv.command.verb} advances arc(s) ${recorded.join(', ')}`);
     }
   }
 

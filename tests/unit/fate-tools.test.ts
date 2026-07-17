@@ -8,10 +8,10 @@ function armCall(args: Record<string, unknown>): LLMToolCall {
 const ctx = () => ({ validPoiIds: new Set(['poi1', 'poi2']), validRivalIds: new Set(['rival-1']), now: 100 });
 
 describe('FATE_TOOLS', () => {
-  it('exposes the staged + immediate + rival-coaching + authoring + arc + portent tools', () => {
+  it('exposes the staged + immediate + rival-coaching + authoring + arc + portent + weaving tools', () => {
     const names = FATE_TOOLS.map((t) => t.name).sort();
     expect(names).toEqual([
-      'abandon_arc', 'arm_staged_beat', 'author_building', 'force_next_event',
+      'abandon_arc', 'advance_arc', 'arm_staged_beat', 'author_building', 'force_next_event',
       'nudge_event_severity', 'plant_portent', 'seed_arc', 'set_lord_stance', 'set_rival_stance',
     ]);
   });
@@ -36,7 +36,7 @@ describe('parseFateToolCalls — staged beats', () => {
   it('tolerates undefined calls', () => {
     expect(parseFateToolCalls(undefined, ctx())).toEqual({
       beats: [], commands: [], authoringRejections: [], arcSeeds: [], arcAbandons: [],
-      arcPortents: [], portentRejections: [],
+      arcPortents: [], portentRejections: [], arcAdvances: [],
     });
   });
 

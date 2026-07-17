@@ -190,7 +190,43 @@ describe('describeArcsForFate — F4 ledger visibility', () => {
   });
 });
 
+describe('describeArcsForFate — F5 weaving visibility', () => {
+  it('lists the levers that advance the UNMET goals, plus the pressure/budget tally', () => {
+    const s = state();
+    s.fateArcs = new FateArcStore();
+    openArcFromShape(s.fateArcs, getArcShape('strongman_dies_abroad')!, { poiIds: ['poi1'], npcIds: [] }, 0);
+    const text = describeArcsForFate(s);
+    // settlement_in_crisis (unmet) → the three levers that plausibly move it, as TOOL names.
+    expect(text).toContain('advance via nudge_event_severity, force_next_event, set_lord_stance');
+    expect(text).toContain('pressure: 0 applied, budget 4 left');
+  });
+
+  it('an inject-shaped goal points at arm_staged_beat (a stranger rides a beat, not a lever)', () => {
+    const s = state();
+    s.fateArcs = new FateArcStore();
+    openArcFromShape(s.fateArcs, getArcShape('martyr_by_accident')!, { poiIds: ['poi1'], npcIds: [] }, 0);
+    expect(describeArcsForFate(s)).toContain('advance via arm_staged_beat');
+  });
+
+  it('a spent arc reads SPENT — no levers offered', () => {
+    const s = state();
+    s.fateArcs = new FateArcStore();
+    const arc = openArcFromShape(s.fateArcs, getArcShape('strongman_dies_abroad')!, { poiIds: ['poi1'], npcIds: [] }, 0);
+    arc.pressureBudget = 0;
+    const text = describeArcsForFate(s);
+    expect(text).toContain('(SPENT — no more pressure; land or fold)');
+    expect(text).not.toContain('advance via');
+  });
+});
+
 describe('buildFateContext', () => {
+  it('the charter states the weaving discipline (F5)', () => {
+    const { system } = buildFateContext(state(), { kind: 'pulse' });
+    expect(system).toContain('WEAVING');
+    expect(system).toContain('advance_arc');
+    expect(system).toContain('servedArcs');
+  });
+
   it('the charter states the portents-first discipline (F4)', () => {
     const focus: FateFocus = { kind: 'pulse' };
     const { system } = buildFateContext(state(), focus);

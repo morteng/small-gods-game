@@ -333,3 +333,59 @@ Fate declining to author lands no heavy blows. (6) `ArcPortent.discovered`
 is a HISTORICAL fact and round-trips trusted from disk (unlike
 `ArcGoal.met`), matching beat-status persistence; the ledger scrubs with
 its arc (test-proven).
+
+## Reality check (2026-07-17) — F5 SHIPPED
+
+Weaving, as specified. `advance_arc` follows the constrained pattern exactly:
+it CARRIES NO EFFECT OF ITS OWN — `tool` is enum-constrained to the four
+immediate levers (`nudge_event_severity`, `force_next_event`,
+`set_rival_stance`, `set_lord_stance`), `args` is re-run through that tool's
+OWN existing parser (identical drift guards + caps as a direct call — §5's
+"re-validated by its own existing parser", literally), and every `servedArcs`
+claim must name a LIVE arc with pressure budget left holding an UNMET goal the
+resolved verb plausibly moves. The §8.4 `advances()` guard is a static
+allowlisted map (`src/sim/fate/arc-advance.ts`, `GOAL_ADVANCING_VERBS`:
+goal predicate → registry verbs), guard-tested on both sides (keys ∈
+`ARC_PREDICATES`, verbs ∈ `CAPABILITY_REGISTRY` — pressures are legal sim
+mutations only). Invalid claims drop (logged); a call with no surviving claim
+drops WHOLE, command included — a serve-nothing advance is not a free command.
+The audit trail: `FateArcStore.recordPressure` appends to every served arc's
+`applied` (bounded ring, `MAX_APPLIED_PRESSURES = 12` — §8.1), spends one
+budget point (floor 0), promotes 'seeded'→'building', and RE-FILTERS
+servedArcs to the arcs live at apply time so the recorded trail never names
+an arc the pressure did not truly serve (an advance whose every claim folded
+in the same response drops entirely — the plantPortent race discipline).
+Rides the snapshot untouched (historical fact, trusted from disk like the
+portent ledger; scrubs away with the timeline — test-proven). §4.5's scoring
+is shipped as prompt-side preference (charter: "prefer the single pressure
+that advances the MOST arcs") + per-claim goal validation; context lists each
+live arc's unmet-goal levers and `pressure: N applied, budget M left`.
+Dispositions (§3): a deterministic sim-side sweep (`arc-sweep.ts`) runs every
+pulse — offline too: an arc whose shape `seedWhen` no longer holds is
+ABANDONED with the failed predicates as `abandonedReason`, and its still-armed
+beats EXPIRE (§7's "never fires its beat" — the LLM `abandon_arc` path expires
+beats identically); an arc past 'seeded' whose goals ALL hold LANDS.
+
+**Resolved ambiguities.** (1) `advance_arc` wraps only the IMMEDIATE levers,
+not `arm_staged_beat` — a beat already carries single-arc attribution via
+`arcId`, and F5 makes an arc-linked HARD beat record its `inject_npc`
+pressure at ARM time (the intention commits when Fate stages the blow), so
+the audit stays complete without double-routing the portent gate. (2) §4.5's
+`arc.urgency` does not exist on the shipped `FateArc`; weighting is the
+charter preference, not a numeric score. (3) §7's "goals become unreachable"
+is realized as the shape's `seedWhen` preconditions failing — §3's literal
+"preconditions have become unreachable". Noted tension: a transient
+precondition (`victory_that_loses` ← `settlement_thriving`) folds its arc
+when the festival ends — read as intended ("the moment passed"; Fate may
+re-seed at the next feast), flagged as a pacing tuning point. (4) Landing
+requires the arc be PAST 'seeded': goals already true at seed time earn
+nothing — an intention Fate never acted on is a coincidence, not a story.
+(5) Budget exhaustion does NOT auto-fold: a spent arc merely refuses further
+claims (context reads "SPENT — land or fold"); it still lands or abandons by
+the other rules. (6) `set_rival_stance` is enum-legal in `advance_arc` but no
+goal mapping currently names it, so it earns no claim — reserved for library
+growth; the model can still call it directly. (7) `ArcToolMeta` gained
+OPTIONAL `unmetGoals`/`budget`; absent ⇒ every advance claim drops (the
+validRivalIds safe-default discipline). No new SimEvent types were added —
+abandonment/landing surface via `abandonedReason`/stage on the
+snapshot-backed store (a chronicler line is future work, not F5).
