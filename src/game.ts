@@ -54,6 +54,7 @@ import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import { registerSimSystems } from '@/game/sim-systems';
 import { applySkip } from '@/sim/time-skip';
+import { settleArcsAcrossSkip } from '@/sim/fate/arc-era';
 import { runBootSequence } from '@/game/boot-sequence';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
@@ -1273,8 +1274,15 @@ export class Game {
         if (!this.state.world) return;
         // Skips are committed one-way boundaries; never run while scrubbing the past.
         if (this.timeline.isScrubbed) this.timeline.returnToLive();
-        applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample);
+        const summary = applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample);
+        // F6: arcs that spanned the skip settle their dispositions against the
+        // post-skip world BEFORE the boundary snapshot, so the committed
+        // baseline carries the settled arcs (scrub-safe — deterministic sweep).
+        const eraArcs = summary ? settleArcsAcrossSkip(this.state) : [];
         this.timeline.commitSkip();
+        // F6: author the era summary from the skip + its spanning arcs — async,
+        // off the sim tick, honest offline fallback (rides state.chronicle).
+        if (summary) void this.chronicleService.generateEra(summary, eraArcs);
         // Immediate chrome refresh (the era_skipped chip self-appends via the event log).
         this.timeChip?.refresh();
         this.timeBar?.refresh();

@@ -31,6 +31,10 @@ export interface ChronicleEntry {
    *  client was configured, or the LLM call failed and this is the honest
    *  fallback (never a silent swallow). */
   offline: boolean;
+  /** F6: true for an ERA entry — one entry summarizing a whole time-skip span
+   *  (authored from the skip summary + the arcs that spanned it), rather than
+   *  a single day. Optional so pre-F6 snapshots hydrate unchanged. */
+  era?: boolean;
 }
 
 export class ChronicleStore {
