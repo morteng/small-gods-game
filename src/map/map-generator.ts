@@ -55,7 +55,7 @@ import { buildWaterNetwork, referenceFlow, reachHalfWidths } from '@/terrain/riv
  */
 const EMIT_AQUEDUCTS = false;
 import { REACH_CARVE } from '@/world/river-deformation';
-import { getComposedHeightfield, reconcileFilletRaster, reconcileRoadTileVisibility, edgeRoadProfile } from '@/world/road-deformation';
+import { getComposedHeightfield, reconcileCenterlineBows, reconcileFilletRaster, reconcileRoadTileVisibility, edgeRoadProfile } from '@/world/road-deformation';
 import { getRenderWaterMask } from '@/world/render-water';
 import { styledRiverFlowThreshold } from '@/terrain/hydrology';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
@@ -735,6 +735,15 @@ export async function generateWithNoise(
   // cover it, fields avoid it, obstructing flora over it is cleared). `world` is passed so
   // the blocked check consults the real building registry, not just tile flags.
   await report('Reconciling fillet raster...');
+  // BOW reconciliation FIRST: where plain Catmull-Rom smoothing bowed > the reconcile margin
+  // off the walked path (illegal ground the router avoided, or a doubled "lens" of stamped
+  // tiles), pin walked cells as spline control points so the drawn/carved centerline follows
+  // the legal row. The fillet pass below then reconciles only genuine fillet divergence.
+  const bows = reconcileCenterlineBows(map);
+  if (bows.length > 0) {
+    const pinned = bows.reduce((a, b) => a + b.pinned, 0);
+    await report(`Pinned ${pinned} centerline points across ${bows.length} bowed road edge(s)`);
+  }
   const filletSpans = reconcileFilletRaster(map, world);
   const filletWrites = filletSpans.reduce((a, s) => a + s.cellsWritten, 0);
   if (filletWrites > 0) await report(`Reconciled ${filletWrites} road tiles under filleted approaches`);

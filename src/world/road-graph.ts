@@ -80,6 +80,13 @@ export interface RoadEdge {
    *  carve and tile mask all follow the plain smoothed polyline the router approved
    *  (`roads.ribbon-legal` holds by construction). Persisted with the graph. */
   filletRejected?: boolean;
+  /** Bow-reconciliation PINS (`reconcileCenterlineBows`): indices into `polyline` forced to
+   *  stay spline control points. Where plain Catmull-Rom smoothing bowed further than the
+   *  reconcile margin off the walked path (the "ribbon sags off the walkable row" class), the
+   *  offending arc is re-fitted THROUGH the walked cells instead of stamping a doubled "lens"
+   *  of extra tiles or leaving an illegal bow. Persisted with the graph; `edgeRoadProfile`
+   *  honours them everywhere the centerline is derived. */
+  pins?: number[];
 }
 
 export interface RoadGraph {
@@ -349,15 +356,25 @@ function orthogonalize(
   isObstacle?: (x: number, y: number) => boolean,
 ): Array<{ x: number; y: number }> {
   if (cells.length < 2) return cells;
-  const bad = (x: number, y: number): boolean =>
-    WATER_TYPES.has(tiles[y]?.[x]?.type) || (isObstacle?.(x, y) ?? false);
+  const water = (x: number, y: number): boolean => WATER_TYPES.has(tiles[y]?.[x]?.type);
+  const obstacle = (x: number, y: number): boolean => isObstacle?.(x, y) ?? false;
+  const clean = (x: number, y: number): boolean => !water(x, y) && !obstacle(x, y);
   const out: Array<{ x: number; y: number }> = [cells[0]];
   for (let i = 1; i < cells.length; i++) {
     const p = cells[i - 1], c = cells[i];
     if (p.x !== c.x && p.y !== c.y) {
       const optA = { x: c.x, y: p.y };
       const optB = { x: p.x, y: c.y };
-      out.push(!bad(optA.x, optA.y) ? optA : !bad(optB.x, optB.y) ? optB : optA);
+      // Preference order: clean land > water-not-obstacle > obstacle. A WATER filler on a
+      // bridging road becomes one more deck cell (buildRoadGraph folds every on-path water
+      // cell into `bridgeCells`), i.e. the pair stays legal via the bridge path — whereas an
+      // OBSTACLE filler gets dropped by the obstacle filter, leaving the mask only corner-
+      // connected (an uncosted cell the router never approved, then a diagonal gap).
+      if (clean(optA.x, optA.y)) out.push(optA);
+      else if (clean(optB.x, optB.y)) out.push(optB);
+      else if (water(optA.x, optA.y) && !obstacle(optA.x, optA.y)) out.push(optA);
+      else if (water(optB.x, optB.y) && !obstacle(optB.x, optB.y)) out.push(optB);
+      else out.push(optA); // both obstacles — keep the pair; the obstacle filter + gap repair own it
     }
     out.push(c);
   }

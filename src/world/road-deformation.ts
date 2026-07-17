@@ -46,7 +46,7 @@ import { buildBarrierDeformations, barrierFoundationCount } from '@/world/barrie
 import { buildDitchDeformations, ditchWallCount } from '@/world/ditch-deformation';
 import { buildEarthworkDeformations } from '@/world/earthwork-deformation';
 import { getHydrologyResult } from '@/world/hydrology-store';
-import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
+import { smoothCenterline, simplifyPath, type Pt } from '@/terrain/road-centerline';
 import { filletApproach } from '@/world/anchor-fillet';
 import { realGateProfiles, gateApproachPlan, type GateApproachProfile } from '@/world/connectome/gate-approach';
 import { crossingOpeningsForEdge, deckCellKeys, type CrossingOpening } from '@/world/connectome/crossing-openings';
@@ -438,7 +438,13 @@ export function edgeRoadProfile(
   dynamicFor?: (edge: RoadEdge) => RoadDynamics | undefined,
 ): EdgeRoadProfile | null {
   if (edge.feature !== 'road' || edge.polyline.length < 2) return null;
-  let centerline = smoothCenterline(edge.polyline);
+  // Bow-reconciliation pins (reconcileCenterlineBows) force the spline back through the
+  // walked cells wherever plain smoothing bowed off the legal row — honoured EVERYWHERE
+  // the centerline is derived (render ribbon, carve, raster reconcile), so all three agree.
+  let centerline = smoothCenterline(
+    edge.polyline,
+    edge.pins?.length ? { keepIndices: new Set(edge.pins) } : {},
+  );
   // A rejected fillet (reconciliation found its ribbon cells illegal) stays rejected: the
   // plain smoothed polyline tracks the router-approved raw path within the reconcile margin.
   // NOTE the crossing openings are derived from this SAME plain smoothed line, so a rejected
@@ -805,7 +811,7 @@ export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconc
     // Deformation/surface caches key on the graph rev — the carve must re-derive fillet-free.
     map.roadGraph.rev = (map.roadGraph.rev ?? 0) + 1;
   }
-  return plans.map((span) => {
+  const results = plans.map((span) => {
     if (badEdges.has(span.edgeId)) {
       return { edgeId: span.edgeId, arcRange: span.arcRange, written: false, cellsWritten: 0 };
     }
@@ -824,6 +830,14 @@ export function reconcileFilletRaster(map: GameMap, world?: World): FilletReconc
     applyRoadMask(map.tiles, mask);
     return { edgeId: span.edgeId, arcRange: span.arcRange, written: true, cellsWritten: span.cells.length };
   });
+  // FINAL legality self-heal: any residual centerline graze onto an illegal cell (a rejected
+  // edge's sub-margin corner-cut, a fillet residue) is pinned back onto the walked row, so
+  // the `roads.ribbon-legal` whole-line invariant holds by construction after gen.
+  const legalityPins = reconcileCenterlineLegality(map, world);
+  if (legalityPins > 0) {
+    console.warn(`[worldgen] centerline legality reconcile pinned ${legalityPins} point(s) — drawn line grazed illegal ground`);
+  }
+  return results;
 }
 
 /** The surface of a graph edge by id (planned spans carry only the id). */
@@ -950,6 +964,208 @@ export function planFilletReconcile(map: GameMap, world?: World): FilletReconcil
     }
   }
   return results;
+}
+
+// ── Bow reconciliation: plain smoothing must not leave the walked row ─────────────
+//
+// The fillet reconciliation above assumed plain (fillet-free) Catmull-Rom smoothing
+// deviates ~0 from the walked polyline — empirically FALSE: at sharp RDP corners the
+// spline bows up to ~1.6 tiles off the walked path. Stamping those bows doubled the
+// road into a "lens" (raw tiles + bow tiles); rejecting them left the drawn ribbon
+// sagging up to 2 tiles off ANY road tile for a whole arc. The honest fix is neither:
+// where the PLAIN smoothed line diverges beyond the reconcile margin, the spline is
+// PULLED BACK by pinning walked cells as mandatory control points (`edge.pins`,
+// persisted), re-fitting the centerline through the row the router approved. Runs at
+// gen before `reconcileFilletRaster`, so the fillet pass then only sees genuine
+// fillet divergence (gate/anchor/deck reshaping — deliberate, stampable).
+
+/** RDP tolerance (tiles) when choosing pin corners inside a bowed span — small enough that
+ *  corner tolerance (0.45) + residual Catmull-Rom sag (≲0.2 through cells 1 apart) stays
+ *  within `RECON_MATCH_MARGIN_TILES`. */
+const PIN_EPSILON_TILES = 0.45;
+/** Pin → re-measure rounds per edge. Round 1 pins RDP corners of each bowed span; later
+ *  rounds pin EVERY walked cell of a still-bowed span; 3 rounds always converge (a spline
+ *  through every cell of the span cannot bow further than the sag bound). */
+const BOW_MAX_ROUNDS = 3;
+
+export interface BowReconcileResult {
+  edgeId: string;
+  /** Polyline indices newly pinned for this edge. */
+  pinned: number;
+  /** Max plain-smoothing deviation (tiles) from the walked path AFTER pinning. */
+  residualMax: number;
+}
+
+/**
+ * Pull every road edge's PLAIN smoothed centerline back within the reconcile margin of its
+ * walked polyline by pinning control points (`edge.pins`). Mutates the graph edges (pins are
+ * persisted with the graph — load re-derives the identical centerline) and bumps `graph.rev`
+ * when any pin lands so deformation/surface caches re-derive. Deterministic; idempotent
+ * (a second call finds no divergent span and adds nothing).
+ */
+export function reconcileCenterlineBows(map: GameMap): BowReconcileResult[] {
+  const graph = map.roadGraph;
+  if (!graph) return [];
+  const out: BowReconcileResult[] = [];
+  let anyPinned = false;
+  for (const edge of graph.edges) {
+    if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
+    const raw = edge.polyline as Pt[];
+    const rawCumS = new Array<number>(raw.length);
+    rawCumS[0] = 0;
+    for (let i = 1; i < raw.length; i++) rawCumS[i] = rawCumS[i - 1] + Math.hypot(raw[i].x - raw[i - 1].x, raw[i].y - raw[i - 1].y);
+
+    let pinnedCount = 0;
+    let residualMax = 0;
+    for (let round = 0; round < BOW_MAX_ROUNDS; round++) {
+      const pins = new Set(edge.pins ?? []);
+      const line = smoothCenterline(edge.polyline, pins.size ? { keepIndices: pins } : {});
+      const { points: sampled } = denseSample(line, RECON_SAMPLE_STEP_TILES);
+      // Divergent spans, expressed as arc ranges along the RAW polyline.
+      const spanRanges: Array<[number, number]> = [];
+      let cur: [number, number] | null = null;
+      residualMax = 0;
+      for (const p of sampled) {
+        const { d, s } = projectToPolyline(raw, rawCumS, p.x, p.y);
+        if (d > residualMax) residualMax = d;
+        if (d > RECON_MATCH_MARGIN_TILES) {
+          if (cur) { cur[0] = Math.min(cur[0], s); cur[1] = Math.max(cur[1], s); }
+          else cur = [s, s];
+        } else if (cur) {
+          spanRanges.push(cur);
+          cur = null;
+        }
+      }
+      if (cur) spanRanges.push(cur);
+      if (spanRanges.length === 0) break;
+
+      let added = 0;
+      for (const [s0, s1] of spanRanges) {
+        // Raw index range covering the span's arc, padded one cell each side.
+        let i0 = 0;
+        while (i0 + 1 < raw.length && rawCumS[i0 + 1] < s0) i0++;
+        let i1 = raw.length - 1;
+        while (i1 > 0 && rawCumS[i1 - 1] > s1) i1--;
+        i0 = Math.max(0, i0 - 1);
+        i1 = Math.min(raw.length - 1, i1 + 1);
+        if (i1 - i0 < 1) continue;
+        const sub = raw.slice(i0, i1 + 1);
+        // Round 1: pin the span's RDP corners (smooth but tight). Later rounds: pin all.
+        const corners = round === 0 ? simplifyPath(sub, PIN_EPSILON_TILES) : sub;
+        // simplifyPath returns references into `sub` — recover raw indices by identity.
+        let k = 0;
+        for (let j = 0; j < sub.length && k < corners.length; j++) {
+          if (sub[j] !== corners[k]) continue;
+          k++;
+          const rawIdx = i0 + j;
+          if (!pins.has(rawIdx)) { pins.add(rawIdx); added++; }
+        }
+      }
+      if (added === 0) break; // fully pinned already — residual is the spline's own sag
+      edge.pins = [...pins].sort((a, b) => a - b);
+      pinnedCount += added;
+      anyPinned = true;
+    }
+    if (pinnedCount > 0 || residualMax > RECON_MATCH_MARGIN_TILES) {
+      out.push({ edgeId: edge.id, pinned: pinnedCount, residualMax });
+    }
+  }
+  if (anyPinned) graph.rev = (graph.rev ?? 0) + 1;
+  return out;
+}
+
+// ── Whole-centerline legality (roads.ribbon-legal, strengthened) ──────────────────
+
+export interface RibbonLegalityViolation {
+  edgeId: string;
+  /** Rounded final-centerline cells failing a hard constraint (unwalkable rock, water
+   *  without a deck, curtain, building, protected green). */
+  badCells: { x: number; y: number }[];
+}
+
+/**
+ * Gen-side self-heal for the whole-centerline legality invariant: wherever an edge's FINAL
+ * drawn centerline rounds onto an illegal cell while the walked path alongside is legal
+ * (a sub-margin corner-cut grazing rock/water the router avoided), pin the nearby walked
+ * cells so the spline is pulled back onto the approved row. Ground-truth violations (the
+ * RAW path itself crosses an illegal cell — e.g. a curtain later stamped over a live road
+ * tile) are deliberately left for the lint contract to report: no pin can fix those.
+ * Iterates ≤3 rounds; bumps `graph.rev` when pins land. Returns pins added.
+ */
+export function reconcileCenterlineLegality(map: GameMap, world?: World): number {
+  const graph = map.roadGraph;
+  if (!graph || !map.tiles?.length) return 0;
+  const wallObstacles = gateApproachPlan(map.barrierRuns ?? [], [], map.worldSeed?.pois ?? []).wallObstacles;
+  const greenTiles = collectGreenTiles(map);
+  const deckCells = deckCellKeys(map);
+  let pinnedTotal = 0;
+  for (let round = 0; round < 3; round++) {
+    const violations = planRibbonLegality(map, world);
+    if (violations.length === 0) break;
+    let added = 0;
+    for (const v of violations) {
+      const edge = graph.edges.find((e) => e.id === v.edgeId);
+      if (!edge || edge.polyline.length < 2) continue;
+      const raw = edge.polyline as Pt[];
+      const rawCumS = new Array<number>(raw.length);
+      rawCumS[0] = 0;
+      for (let i = 1; i < raw.length; i++) rawCumS[i] = rawCumS[i - 1] + Math.hypot(raw[i].x - raw[i - 1].x, raw[i].y - raw[i - 1].y);
+      const pins = new Set(edge.pins ?? []);
+      const before = pins.size;
+      for (const c of v.badCells) {
+        const { s } = projectToPolyline(raw, rawCumS, c.x, c.y);
+        let i = 0;
+        while (i + 1 < raw.length && rawCumS[i + 1] <= s) i++;
+        for (let j = Math.max(0, i - 1); j <= Math.min(raw.length - 1, i + 2); j++) {
+          const rc = raw[j];
+          // Never pin an index whose own cell is illegal — that's a ground-truth violation
+          // the contract must surface, not a bow a pin can heal.
+          if (blockedForReconcile(map, Math.round(rc.x), Math.round(rc.y), wallObstacles, greenTiles, deckCells, world)) continue;
+          if (!pins.has(j)) { pins.add(j); added++; }
+        }
+      }
+      if (pins.size > before) edge.pins = [...pins].sort((a, b) => a - b);
+    }
+    if (added === 0) break;
+    pinnedTotal += added;
+    graph.rev = (graph.rev ?? 0) + 1;
+  }
+  return pinnedTotal;
+}
+
+/**
+ * PURE check: the FINAL drawn centerline of every road edge (pins + fillets + deck pins
+ * applied — exactly what the ribbon paints along) must never cross an illegal cell. This is
+ * the whole-line strengthening of the span-based `planFilletReconcile` read: the span check
+ * only sees where the line DIVERGES from the walked path; a bow within the margin can still
+ * round onto a cell the router never approved. Evaluated by the `roads.ribbon-legal` lint
+ * contract; a clean report means the ribbon the player sees rides ground NPCs can walk.
+ */
+export function planRibbonLegality(map: GameMap, world?: World): RibbonLegalityViolation[] {
+  const graph = map.roadGraph;
+  if (!graph || !map.tiles?.length) return [];
+  const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+  const wallObstacles = gateApproachPlan(map.barrierRuns ?? [], [], map.worldSeed?.pois ?? []).wallObstacles;
+  const greenTiles = collectGreenTiles(map);
+  const deckCells = deckCellKeys(map);
+  const out: RibbonLegalityViolation[] = [];
+  for (const edge of graph.edges) {
+    if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
+    const profile = edgeRoadProfile(map, edge, nodeById, poiById);
+    if (!profile || profile.centerline.length < 2) continue;
+    const { points: sampled } = denseSample(profile.centerline, RECON_SAMPLE_STEP_TILES);
+    const bad: { x: number; y: number }[] = [];
+    const seen = new Set<string>();
+    for (const c of roundCells(sampled)) {
+      const key = `${c.x},${c.y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (blockedForReconcile(map, c.x, c.y, wallObstacles, greenTiles, deckCells, world)) bad.push(c);
+    }
+    if (bad.length > 0) out.push({ edgeId: edge.id, badCells: bad });
+  }
+  return out;
 }
 
 // ── Riverside levee (#24): roads alongside open water ride up on an embankment ──

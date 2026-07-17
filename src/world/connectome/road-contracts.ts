@@ -31,7 +31,7 @@
 import type { Diagnostic } from '@/world/connectome-diagnostics';
 import type { Contract } from '@/world/connectome-contracts';
 import { registerContract } from '@/world/connectome-contracts';
-import { planFilletReconcile } from '@/world/road-deformation';
+import { planFilletReconcile, planRibbonLegality } from '@/world/road-deformation';
 import { ROAD_TILE_TYPES } from '@/world/road-graph';
 import { buildingStructureCells } from '@/world/connectome-diagnostics';
 import { getRoadFeatureGeometry, roadPavednessAt } from '@/render/gpu/feature-geometry';
@@ -64,6 +64,21 @@ export const roadsRibbonLegal: Contract = {
             : ' — the span fell back (fillet rejected); the ribbon grazes illegal ground the carve avoids'),
         locus: { entities: [span.edgeId], tiles: span.badCells.slice(0, 24) },
         metrics: { cells: span.cells.length, bad: span.badCells.length, writtenBad: written.length },
+      });
+    }
+    // WHOLE-CENTERLINE legality (road A*/drawing fix round): the span check above only sees
+    // where the line diverges from the walked path — the bow-reconciliation (`edge.pins`)
+    // now pulls every such bow back onto the legal row, so the final drawn centerline must
+    // never round onto an illegal cell AT ALL. Any hit is an error: the ribbon the player
+    // sees crosses ground (rock/water/curtain/building/green) the router never approved.
+    for (const v of planRibbonLegality(ctx.map, ctx.world)) {
+      out.push({
+        rule: 'roads.ribbon-legal',
+        severity: 'error',
+        message: `road ${v.edgeId}'s FINAL drawn centerline crosses ${v.badCells.length} illegal cell(s) `
+          + '(unwalkable / water-sans-deck / curtain / building / green)',
+        locus: { entities: [v.edgeId], tiles: v.badCells.slice(0, 24) },
+        metrics: { bad: v.badCells.length },
       });
     }
     return out;
