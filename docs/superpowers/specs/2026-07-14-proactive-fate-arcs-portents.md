@@ -389,3 +389,57 @@ OPTIONAL `unmetGoals`/`budget`; absent ⇒ every advance claim drops (the
 validRivalIds safe-default discipline). No new SimEvent types were added —
 abandonment/landing surface via `abandonedReason`/stage on the
 snapshot-backed store (a chronicler line is future work, not F5).
+
+## Reality check (2026-07-17) — F6 SHIPPED
+
+Era-authoring, plugged into the shipped D2 machinery rather than a parallel
+path. The D2 era-summary seam was thinner than §6 assumes — `applySkip`
+(`src/sim/time-skip.ts`) emits one `era_skipped` SimEvent and returns a
+`SkipSummary`; there was no era *narrative* surface at all — so F6's surface
+is the CHRONICLE (the M1 annalist ring, `state.chronicle`), which already
+rides the snapshot, scrubs with the timeline, and reads out on the loading
+screen + inbox. The flow, in the skip handler (`game.ts` onSkip):
+`applySkip` → `settleArcsAcrossSkip(state)` (new, `src/sim/fate/arc-era.ts`)
+→ `timeline.commitSkip()` → `chronicleService.generateEra(summary, digests)`
+(async, off the sim tick).
+
+`settleArcsAcrossSkip` is deterministic and sim-side: the arcs live
+immediately post-`applySkip` are exactly the arcs that SPANNED the skip
+(nothing touches arcs during a closed-form jump), and they settle through
+the SAME F5 dispositions sweep the pulse runs — goal truth recomputed
+against the POST-skip world, worked arcs whose goals all hold LAND, arcs
+whose premise collapsed over the era ABANDON with their still-armed beats
+expired (§7 holds across a skip too). It runs BEFORE `commitSkip` so the
+one-way baseline snapshot carries the settled arcs (scrub-safe). Each
+spanning arc digests to an `EraArcDigest` — shape title/logline, goals
+met/unmet, applied pressures aggregated by verb (the F5 audit ring),
+portents planted/discovered + omen wordings, final disposition.
+
+The summary itself follows the chronicler's exact discipline
+(`chronicle-prompt-builder.ts`): `buildEraChroniclePrompt` = the annalist
+register + an era addendum + given-facts blocks (skip numbers + one fact
+line per spanning arc — "never alter or invent the numbers"), and
+`renderOfflineEraAnnal` is the deterministic no-LLM fallback (byte-identical
+for identical input; "Fate authored nothing in those years" when no arc
+spanned — the null author stays legible). `ChronicleService.generateEra`
+pushes ONE `era: true` entry (new OPTIONAL `ChronicleEntry.era` flag —
+pre-F6 snapshots hydrate unchanged, no SAVE_VERSION bump), falls back to
+the offline annal on LLM failure OR a blank reply (boundary validation),
+and bumps the daily cursor synchronously so the daily path never
+double-narrates a mid-era day.
+
+**Resolved ambiguities.** (1) "Where era summaries already surface": nowhere
+narrative existed — the chronicle is the minimal honest surface (the
+`era_skipped` event + history-strip chip stay untouched). (2) The era
+entry's `dayIndex` is the last completed pre-arrival day
+(`dayIndexForTick(toTick) - 1`), so the post-load cursor anchor
+(`max(today-1, latest.dayIndex)`) behaves identically to a daily entry; the
+displayed date fields are the POST-skip arrival date. (3) Era authoring
+consumes the LLM on the FAST/chat tier (it is a chronicle entry, same tier
+as the daily annal), not Fate's capable tier — the era summary is
+narration, not deliberation. (4) `generateFor`'s cursor write became
+monotonic (`Math.max`) so a daily generation already in flight when a skip
+lands can never rewind the era's cursor bump. (5) No new SimEvent types
+(the F5 discipline held); the digests are derived display data, never
+persisted — the snapshot carries the settled ARCS and the chronicle ENTRY,
+both already snapshot-backed. Tests: `tests/unit/fate-era-authoring.test.ts`.
