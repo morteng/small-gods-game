@@ -167,7 +167,13 @@ export function buildRoadGraph(
   pois: POI[],
   tiles: Tile[][],
   fields: TerrainField,
-  opts: { isObstacle?: (x: number, y: number) => boolean } = {},
+  opts: {
+    isObstacle?: (x: number, y: number) => boolean;
+    /** Metre span of the `[0,1]` elevation field (`worldStyleOf(seed).mountainRelief`) —
+     *  makes the walker's grade model PHYSICAL, so a styled high-relief world switchbacks
+     *  where a default world climbs straight. Defaults to `TERRAIN_RELIEF_M` in the walker. */
+    reliefM?: number;
+  } = {},
 ): RoadGraph {
   const graph: RoadGraph = { nodes: [], edges: [] };
   if (!connections?.length) return graph;
@@ -279,6 +285,7 @@ export function buildRoadGraph(
         autoBridge, isObstacle, isRoad, allowDiagonal,
         maxGrade: env?.maxGrade,
         overGradePenalty: env?.overGradePenalty,
+        reliefM: opts.reliefM,
       });
       if (result.cells.length === 0) continue;
 

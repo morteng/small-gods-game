@@ -449,6 +449,9 @@ export async function generateWithNoise(
     roadGraph = buildRoadGraph(approach.connections, worldSeed.pois ?? [], tiles, fields, {
       isObstacle: (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
         || approach.wallObstacles.has(`${x},${y}`),
+      // Metre-true grade: the walker's envelope is physical (rise/run), so it needs the
+      // world's actual relief — a styled mountain world switchbacks, a lowland one doesn't.
+      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
     });
 
     // #26 — MERGE near-parallel duplicate road corridors. Connectivity-preserving: drops the

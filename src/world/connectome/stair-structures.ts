@@ -36,12 +36,13 @@ import { METRES_PER_TILE } from '@/render/scale-contract';
 import { type SpanSegment, type SpanPoint, sampleSpanSegments, densifyToUnitSteps, cardinalOf } from './road-span';
 
 /** Stair construction + material + running width AND the ACTUAL surface grade (rise/run) above
- *  which that class wants steps instead of a rolled surface. NOTE this is the real walkability
- *  grade, NOT the road-router's `GradeEnvelope.maxGrade` — that envelope is a soft routing-cost
- *  knob set near cliff-level (≈150% grade), which a successfully-routed road never approaches,
- *  so triggering off it produced ZERO stairs in-world. A cart highway wants steps past a gentle
- *  ~12%; a footpath scrambles to ~33% before it's worth cutting steps. A footpath also gets a
- *  rough timber scramble; a highway a broad dressed-stone flight. */
+ *  which that class wants steps instead of a rolled surface. Deliberately distinct from the
+ *  road-router's `GradeEnvelope.maxGrade` (now metre-true too — 8/12/18/25 % by class): the
+ *  envelope is the SOFT routing-cost knee the walker economises around, while these are the
+ *  hard walkability grades past which a rolled surface stops working — set one class-step
+ *  steeper, so a flight only appears where the router genuinely could not buy its way down
+ *  to grade. A cart highway wants steps past ~12 %; a footpath scrambles to ~33 %. A footpath
+ *  gets a rough timber scramble; a highway a broad dressed-stone flight. */
 const CLASS_STAIR: Record<RoadClass, { construction: number; material: string; widthM: number; grade: number }> = {
   highway: { construction: 0.85, material: 'stone', widthM: 3.5, grade: 0.12 },
   road: { construction: 0.65, material: 'stone', widthM: 2.5, grade: 0.18 },

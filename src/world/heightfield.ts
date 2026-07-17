@@ -248,3 +248,26 @@ export function heightMetresAt(map: GameMap, tx: number, ty: number): number {
   const relief = worldStyleOf(map.worldSeed).mountainRelief;
   return (elevationAt(map, tx, ty) - ELEVATION_SEA_LEVEL) * relief;
 }
+
+/**
+ * {@link heightMetresAt} at CONTINUOUS tile coords — bilinear over the same memoised base
+ * field (edge-clamped). This is exactly the surface the GPU terrain mesh draws between
+ * cell centres, so consumers sampling a fractional centerline (the road carve's grade
+ * line) see the renderer's ground rather than the nearest cell's — `Math.round` sampling
+ * quantised the carve's grade to whole tiles while the ribbon rode the interpolated mesh.
+ */
+export function heightMetresBilinearAt(map: GameMap, x: number, y: number): number {
+  const { seed, width, height } = map;
+  const hf = getHeightfield(seed, width, height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
+  const x0 = Math.max(0, Math.min(width - 1, Math.floor(x)));
+  const y0 = Math.max(0, Math.min(height - 1, Math.floor(y)));
+  const x1 = Math.min(width - 1, x0 + 1);
+  const y1 = Math.min(height - 1, y0 + 1);
+  const fx = Math.max(0, Math.min(1, x - x0));
+  const fy = Math.max(0, Math.min(1, y - y0));
+  const a = hf[y0 * width + x0], b = hf[y0 * width + x1];
+  const c = hf[y1 * width + x0], d = hf[y1 * width + x1];
+  const e = a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy;
+  const relief = worldStyleOf(map.worldSeed).mountainRelief;
+  return (e - ELEVATION_SEA_LEVEL) * relief;
+}

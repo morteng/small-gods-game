@@ -84,27 +84,31 @@ export function eraTech(era: Era): number {
 }
 
 // ── Per-class GRADE ENVELOPE (G1: grade reconciliation) ───────────────────────────
-// How steep a class of road tolerates being. Units are the road-walker's per-step
-// grade `g = |Δelev| / horiz` in NORMALISED elevation (the [0,1] heightfield), the same
-// unit as the walker's old global `DEFAULT_MAX_GRADE = 0.05`. Above `maxGrade` the
-// router's over-grade penalty bites, so the walk prefers a longer gentle detour /
-// switchback — and where the terrain leaves no gentle line, the route comes out OVER the
-// envelope, which is the signal that a reconciliation structure (embankment, stairs, a
-// bridge) is wanted there. `road` is held at the prior global default so the commonest
-// class is unchanged; a highway wants a near-flat grade and switchbacks hard, a footpath
-// takes a steep line a cart never could.
+// How steep a class of road tolerates being — in PHYSICAL grade (rise/run: 0.12 = 12 %),
+// the road-walker's metre-true unit (road A*/drawing fix round). The old envelope was in
+// NORMALISED elevation per tile, which at the default 48 m relief meant 84–264 % physical
+// grade — the over-grade penalty was dead code and the tolerated steepness silently varied
+// with each world's relief. Above `maxGrade` the router's over-grade penalty bites, so the
+// walk prefers a longer gentle detour / switchback — and where the terrain leaves no gentle
+// line, the route comes out OVER the envelope, which is the signal that a reconciliation
+// structure (embankment, stairs, a bridge) is wanted there. Values follow real-world road
+// practice, loosened for a hand-scaled game map: an engineered highway holds ≤8 %, a cart
+// road ≤12 %, a packhorse track ≤18 %, a footpath takes a 25 % line a cart never could.
 export interface GradeEnvelope {
-  /** Per-step grade (normalised elev/tile) above which the over-grade penalty applies. */
+  /** Physical grade (rise/run) above which the over-grade penalty applies. */
   maxGrade: number;
-  /** Penalty multiplier on grade ABOVE `maxGrade` — higher = avoids steepness harder. */
+  /** QUADRATIC coefficient on the grade excess (`P·(g−maxGrade)²`, road-walker.ts) —
+   *  higher = avoids steepness harder. Quadratic so a few points over the envelope is
+   *  noise (default-relief hills keep their routes) while a steep face is prohibitive
+   *  (high-relief worlds switchback). */
   overGradePenalty: number;
 }
 
 const GRADE_ENVELOPE: Record<RoadClass, GradeEnvelope> = {
-  highway: { maxGrade: 0.035, overGradePenalty: 700 },
-  road: { maxGrade: 0.05, overGradePenalty: 450 },
-  track: { maxGrade: 0.07, overGradePenalty: 300 },
-  path: { maxGrade: 0.11, overGradePenalty: 180 },
+  highway: { maxGrade: 0.08, overGradePenalty: 150 },
+  road: { maxGrade: 0.12, overGradePenalty: 100 },
+  track: { maxGrade: 0.18, overGradePenalty: 60 },
+  path: { maxGrade: 0.25, overGradePenalty: 30 },
 };
 
 /** The steepness a road class tolerates — drives the router's switchback/structure choice. */

@@ -34,7 +34,7 @@ import {
   heightAt,
   type Deformation,
 } from '@/world/terrain-deformation';
-import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresAt } from '@/world/heightfield';
+import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresAt, heightMetresBilinearAt } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec, shapeSignature } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
@@ -490,7 +490,9 @@ export function buildEdgeDeformation(
   const overSpan = new Array<boolean>(n);
   cumS[0] = 0;
   for (let i = 0; i < n; i++) {
-    grade[i] = heightMetresAt(map, Math.round(centerline[i].x), Math.round(centerline[i].y));
+    // Bilinear at the ACTUAL fractional centerline vertex — the surface the renderer draws
+    // between cell centres — not the nearest whole tile (which quantised the grade line).
+    grade[i] = heightMetresBilinearAt(map, centerline[i].x, centerline[i].y);
     const tt = map.tiles?.[Math.round(centerline[i].y)]?.[Math.round(centerline[i].x)]?.type ?? '';
     overSpan[i] = tt === 'bridge' || WATER_TYPES.has(tt);
     if (i > 0) cumS[i] = cumS[i - 1] + Math.hypot(centerline[i].x - centerline[i - 1].x, centerline[i].y - centerline[i - 1].y);
@@ -532,7 +534,7 @@ export function buildEdgeDeformation(
   let maxFill = 0;
   for (let s = 0; s <= total + 1e-6; s += FILL_SAMPLE_STEP_TILES) {
     const p = pointAtArc(centerline, cumS, s);
-    const ground = heightMetresAt(map, Math.round(p.x), Math.round(p.y));
+    const ground = heightMetresBilinearAt(map, p.x, p.y);
     const f = Math.max(0, interpAtArc(cumS, smoothGrade, s) - ground);
     fillArcs.push(s);
     fillVals.push(f);

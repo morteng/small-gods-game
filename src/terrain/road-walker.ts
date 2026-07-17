@@ -8,9 +8,22 @@
  *
  * Cost model (all pure):
  *   - Base step: `baseCost` (× √2 for a diagonal move).
- *   - Grade: non-linear in the per-step slope `g = |Δelev| / horiz`. Below `maxGrade`
- *     it is `slopeFactor·g`; above it an `overGradePenalty·(g−maxGrade)` term makes the
- *     walker prefer a longer gentle detour / switchback over a straight steep climb.
+ *   - Grade: non-linear in the per-step PHYSICAL slope `g = Δmetres / Δmetres-horizontal`
+ *     (rise over run — 0.12 = a 12 % grade). The normalised `[0,1]` elevation field is
+ *     converted through `reliefM` (the world's metre span for 0→1, style-dependent) and
+ *     `METRES_PER_TILE`, so the tolerated steepness no longer silently varies with each
+ *     world's relief (the old normalised-unit model made the per-class `maxGrade` mean
+ *     84–264 % physical grade at default relief — the over-grade penalty was dead code).
+ *     Below `maxGrade` the cost is `slopeFactor·g`; above it a QUADRATIC
+ *     `overGradePenalty·(g−maxGrade)²` term makes the walker prefer a longer gentle
+ *     detour / switchback over a straight steep climb. Quadratic, not linear, so a
+ *     default-relief world's modest hills (a few points over the envelope) barely move
+ *     routes while a mountain face (30–100 % over) is prohibitive — grade discomfort
+ *     grows superlinearly, exactly the economics real road-builders follow.
+ *   - Sub-tile grade: each step's grade is the max of its two HALF-step grades through the
+ *     bilinear midpoint of the elevation field — exact for orthogonal steps (the midpoint
+ *     is the lattice-edge average) and catches the ridge/valley a diagonal step cuts
+ *     across, which a 1-sample-per-tile read under-reported.
  *   - Water: with `autoBridge`, stepping into water costs `bridgeCost` per cell, so a
  *     WIDE river costs proportionally more and the route gravitates to the NARROW
  *     crossing (span-proportional, emergent). Without `autoBridge`, water is forbidden
@@ -28,14 +41,30 @@
 
 import type { Tile, TerrainField } from '@/core/types';
 import { WATER_TYPES } from '@/core/constants';
+import { METRES_PER_TILE } from '@/render/scale-contract';
+import { TERRAIN_RELIEF_M } from '@/world/heightfield';
 
 const DEFAULT_BASE_COST = 1.0;
-const DEFAULT_SLOPE_FACTOR = 50.0; // 1 unit of elevation diff = 50 base steps
+/**
+ * Cost per unit of PHYSICAL grade (rise/run). CALIBRATION: the pre-metric model charged
+ * `50 · g_norm` with `g_norm = Δelev[0,1]/tiles`; at the default relief (48 m over the
+ * 0→1 field, 2 m per tile) `g_phys = g_norm · 48/2 = 24 · g_norm`, so the equivalent
+ * physical factor is `50/24 ≈ 2.08`. Kept at that value so default-relief worlds route
+ * (near-)identically through the linear term — only the now-honest over-grade penalty
+ * changes decisions, and only on genuinely steep ground.
+ */
+const DEFAULT_SLOPE_FACTOR = 2.08;
 const DEFAULT_WATER_COST = 1000.0;
 const DEFAULT_BRIDGE_COST = 5.0;
 const DEFAULT_OBSTACLE_COST = 200.0;
-const DEFAULT_MAX_GRADE = 0.05; // normalised elev/tile beyond which the over-grade penalty bites
-const DEFAULT_OVER_GRADE_PENALTY = 400.0;
+/** Physical grade (rise/run) beyond which the over-grade penalty bites — the 'road'-class
+ *  envelope (12 %); per-class values come from `gradeEnvelope` (road-state.ts). */
+const DEFAULT_MAX_GRADE = 0.12;
+/** QUADRATIC coefficient on the grade excess: `pen += P·(g−maxGrade)²`. At the 'road'
+ *  default (100): 6 points over → 0.36 (noise vs the 1.0 base step — default-relief hills
+ *  keep their routes); 20 points over → 4.0 (a real detour); 50 points over → 25
+ *  (prohibitive — switchback). */
+const DEFAULT_OVER_GRADE_PENALTY = 100.0;
 const DEFAULT_BANK_AFFINITY = 0.85; // discount for travelling next to water (follow valleys)
 const DEFAULT_ROAD_AFFINITY = 0.6; // discount for reusing existing road/bridge cells
 
@@ -44,12 +73,18 @@ const SQRT2 = Math.SQRT2;
 export interface RoadWalkerOptions {
   /** Base cost per orthogonal step in flat terrain. Default 1.0. */
   baseCost?: number;
-  /** Multiplier on the per-step slope below `maxGrade`. Default 50.0. */
+  /** Multiplier on the per-step PHYSICAL slope (rise/run) below `maxGrade`. Default 2.08
+   *  (see the calibration note on `DEFAULT_SLOPE_FACTOR`). */
   slopeFactor?: number;
-  /** Per-step slope above which the over-grade penalty applies. Default 0.05. */
+  /** Physical grade (rise/run) above which the over-grade penalty applies. Default 0.12. */
   maxGrade?: number;
-  /** Penalty multiplier on slope ABOVE `maxGrade` — drives switchbacks. Default 400. */
+  /** QUADRATIC coefficient on the grade excess (`P·(g−maxGrade)²`) — drives switchbacks
+   *  on genuinely steep ground while leaving modest hills routable. Default 100. */
   overGradePenalty?: number;
+  /** Metre span of the normalised `[0,1]` elevation field — `TERRAIN_RELIEF_M` by default;
+   *  styled worlds pass `worldStyleOf(worldSeed).mountainRelief` so a high-relief world's
+   *  roads switchback where a default world's would climb straight. */
+  reliefM?: number;
   /** Cost to step into a water cell when autoBridge is false. Default 1000 (forbidden). */
   waterCost?: number;
   /** Cost to step into a water cell when autoBridge is true (bridge). Default 5. */
@@ -165,6 +200,7 @@ export function walkRoad(
 ): RoadWalkerPath {
   const baseCost = options.baseCost ?? DEFAULT_BASE_COST;
   const slopeFactor = options.slopeFactor ?? DEFAULT_SLOPE_FACTOR;
+  const reliefM = options.reliefM ?? TERRAIN_RELIEF_M;
   const maxGrade = options.maxGrade ?? DEFAULT_MAX_GRADE;
   const overGradePenalty = options.overGradePenalty ?? DEFAULT_OVER_GRADE_PENALTY;
   const waterCost = options.waterCost ?? DEFAULT_WATER_COST;
@@ -185,6 +221,24 @@ export function walkRoad(
   const startI = idx(start.x, start.y);
   const goalI = idx(goal.x, goal.y);
   const isWaterAt = (x: number, y: number) => WATER_TYPES.has(tiles[y][x].type);
+
+  // Normalised-Δelev → physical grade: Δnorm·reliefM metres of rise over horiz·METRES_PER_TILE
+  // metres of run. Precomputed so the inner loop pays one multiply.
+  const gradePerNorm = reliefM / METRES_PER_TILE;
+
+  // Bilinear elevation at continuous tile coords (edge-clamped) — the sub-tile midpoint read.
+  const elevBilin = (x: number, y: number): number => {
+    const x0 = Math.max(0, Math.min(width - 1, Math.floor(x)));
+    const y0 = Math.max(0, Math.min(height - 1, Math.floor(y)));
+    const x1 = Math.min(width - 1, x0 + 1);
+    const y1 = Math.min(height - 1, y0 + 1);
+    const fx = Math.max(0, Math.min(1, x - x0));
+    const fy = Math.max(0, Math.min(1, y - y0));
+    const e = fields.elevation;
+    const a = e[y0 * width + x0], b = e[y0 * width + x1];
+    const c = e[y1 * width + x0], d = e[y1 * width + x1];
+    return a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy;
+  };
 
   // Bank mask: land cell with a water 4-neighbour. Precomputed once → O(1) per step.
   const bank = new Uint8Array(width * height);
@@ -251,9 +305,16 @@ export function walkRoad(
         }
         if (isRoad?.(nx, ny)) stepCost *= roadAffinity; // reuse an existing crossing
       } else {
-        const g = Math.abs(fields.elevation[ni] - cElev) / horiz;
+        // PHYSICAL step grade at half-tile resolution: the worse of the two half-steps
+        // through the bilinear midpoint. For an orthogonal step the midpoint is the exact
+        // lattice-edge average, so this equals the full-step grade; a diagonal step stops
+        // under-reporting the ridge/valley it cuts across.
+        const eMid = elevBilin((cx + nx) / 2, (cy + ny) / 2);
+        const eN = fields.elevation[ni];
+        const dNorm = Math.max(Math.abs(eMid - cElev), Math.abs(eN - eMid)) / (horiz / 2);
+        const g = dNorm * gradePerNorm;
         let pen = slopeFactor * g;
-        if (g > maxGrade) pen += overGradePenalty * (g - maxGrade);
+        if (g > maxGrade) { const ex = g - maxGrade; pen += overGradePenalty * ex * ex; }
         stepCost = horiz * baseCost + pen;
         if (bank[ni]) stepCost *= bankAffinity; // follow the river valley
         if (isRoad?.(nx, ny)) stepCost *= roadAffinity; // bundle onto the trunk
