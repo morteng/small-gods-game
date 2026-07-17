@@ -518,7 +518,7 @@ function filletOntoNodeTangents(
   line: Pt[], edge: RoadEdge, graph: RoadGraph,
   gateProfiles: ReadonlyArray<ApproachProfile>, anchorProfiles: ReadonlyArray<ApproachProfile>,
 ): Pt[] {
-  if (line.length < 2) return line;
+  if (line.length < 2 || edge.nodeTangentRejected) return line;
   // A micro-edge (a few cells between two junction waypoints) cannot host a fillet arc —
   // re-shaping it just degenerates the line. Its angle is inherent route geometry.
   let arc = 0;
@@ -1207,14 +1207,47 @@ export interface RibbonLegalityViolation {
   badCells: { x: number; y: number }[];
 }
 
+/** Ribbon shoulder lip (tiles) beyond the carriage half-width — keep equal to
+ *  `SHOULDER_LIP_TILES` in render/gpu/feature-geometry.ts (importing it here would close an
+ *  import cycle: feature-geometry already imports this module for `edgeRoadProfile`). */
+const RIBBON_LIP_TILES = 0.18;
+
+/** The FINAL drawn ribbon's building overlaps for one edge: building structure cells whose
+ *  centre lies inside the painted width (carriageHalf + lip) of the dense-sampled line —
+ *  the same test `buildings.off-roads-ribbon` lints. */
+function ribbonBuildingOverlaps(map: GameMap, world: World, profile: EdgeRoadProfile): { x: number; y: number }[] {
+  const half = profile.x.carriageHalf + RIBBON_LIP_TILES;
+  const r = Math.ceil(half + 0.5);
+  const { points: sampled } = denseSample(profile.centerline, RECON_SAMPLE_STEP_TILES);
+  const out: { x: number; y: number }[] = [];
+  const seen = new Set<string>();
+  for (const p of sampled) {
+    const cx = Math.round(p.x), cy = Math.round(p.y);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const x = cx + dx, y = cy + dy;
+        const key = `${x},${y}`;
+        if (seen.has(key)) continue;
+        if (Math.hypot(x - p.x, y - p.y) >= half) continue;
+        seen.add(key);
+        if (tileBlockedByBuilding(world, x, y)) out.push({ x, y });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Gen-side self-heal for the whole-centerline legality invariant: wherever an edge's FINAL
- * drawn centerline rounds onto an illegal cell while the walked path alongside is legal
- * (a sub-margin corner-cut grazing rock/water the router avoided), pin the nearby walked
- * cells so the spline is pulled back onto the approved row. Ground-truth violations (the
- * RAW path itself crosses an illegal cell — e.g. a curtain later stamped over a live road
- * tile) are deliberately left for the lint contract to report: no pin can fix those.
- * Iterates ≤3 rounds; bumps `graph.rev` when pins land. Returns pins added.
+ * drawn line rounds onto an illegal cell — or its painted ribbon width overlaps a building —
+ * while the walked path alongside is legal, escalate through three rungs until clean:
+ *   1. PIN the nearby walked cells (pull a sub-margin corner-cut back onto the approved row);
+ *   2. reject the edge's NODE-TANGENT fillet (`nodeTangentRejected` — an S4 hairpin fillet
+ *      that swung the tail onto illegal ground; pins cannot constrain a fillet);
+ *   3. reject ALL the edge's fillets (`filletRejected` — the Galin whole-edge verdict).
+ * Ground-truth violations (the RAW path itself crosses an illegal cell — e.g. a curtain
+ * later stamped over a live road tile) are left for the lint contract: no rung fixes those.
+ * Bumps `graph.rev` whenever anything changes. Returns pins added.
  */
 export function reconcileCenterlineLegality(map: GameMap, world?: World): number {
   const graph = map.roadGraph;
@@ -1222,13 +1255,28 @@ export function reconcileCenterlineLegality(map: GameMap, world?: World): number
   const wallObstacles = gateApproachPlan(map.barrierRuns ?? [], [], map.worldSeed?.pois ?? []).wallObstacles;
   const greenTiles = collectGreenTiles(map);
   const deckCells = deckCellKeys(map);
+  const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
+  const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
   let pinnedTotal = 0;
-  for (let round = 0; round < 3; round++) {
-    const violations = planRibbonLegality(map, world);
-    if (violations.length === 0) break;
-    let added = 0;
-    for (const v of violations) {
-      const edge = graph.edges.find((e) => e.id === v.edgeId);
+  for (let round = 0; round < 6; round++) {
+    // Violations: illegal centerline cells (the ribbon-legal invariant) ∪ ribbon-width
+    // building overlaps (the buildings.off-roads-ribbon invariant — a bow pin or node
+    // fillet can move the drawn ribbon onto a building placed against the pre-reconcile line).
+    const byEdge = new Map<string, { x: number; y: number }[]>();
+    for (const v of planRibbonLegality(map, world)) byEdge.set(v.edgeId, v.badCells.slice());
+    if (world) {
+      for (const edge of graph.edges) {
+        if (edge.feature !== 'road' || edge.polyline.length < 2) continue;
+        const profile = edgeRoadProfile(map, edge, nodeById, poiById);
+        if (!profile) continue;
+        const hits = ribbonBuildingOverlaps(map, world, profile);
+        if (hits.length) byEdge.set(edge.id, [...(byEdge.get(edge.id) ?? []), ...hits]);
+      }
+    }
+    if (byEdge.size === 0) break;
+    let changed = false;
+    for (const [edgeId, badCells] of byEdge) {
+      const edge = graph.edges.find((e) => e.id === edgeId);
       if (!edge || edge.polyline.length < 2) continue;
       const raw = edge.polyline as Pt[];
       const rawCumS = new Array<number>(raw.length);
@@ -1236,7 +1284,7 @@ export function reconcileCenterlineLegality(map: GameMap, world?: World): number
       for (let i = 1; i < raw.length; i++) rawCumS[i] = rawCumS[i - 1] + Math.hypot(raw[i].x - raw[i - 1].x, raw[i].y - raw[i - 1].y);
       const pins = new Set(edge.pins ?? []);
       const before = pins.size;
-      for (const c of v.badCells) {
+      for (const c of badCells) {
         const { s } = projectToPolyline(raw, rawCumS, c.x, c.y);
         let i = 0;
         while (i + 1 < raw.length && rawCumS[i + 1] <= s) i++;
@@ -1245,13 +1293,25 @@ export function reconcileCenterlineLegality(map: GameMap, world?: World): number
           // Never pin an index whose own cell is illegal — that's a ground-truth violation
           // the contract must surface, not a bow a pin can heal.
           if (blockedForReconcile(map, Math.round(rc.x), Math.round(rc.y), wallObstacles, greenTiles, deckCells, world)) continue;
-          if (!pins.has(j)) { pins.add(j); added++; }
+          pins.add(j);
         }
       }
-      if (pins.size > before) edge.pins = [...pins].sort((a, b) => a - b);
+      if (pins.size > before) {
+        edge.pins = [...pins].sort((a, b) => a - b);
+        pinnedTotal += pins.size - before;
+        changed = true;
+      } else if (!edge.nodeTangentRejected) {
+        edge.nodeTangentRejected = true;
+        changed = true;
+        console.warn(`[worldgen] node-tangent fillet REJECTED for road ${edge.id} — its arc crossed illegal ground pins could not heal`);
+      } else if (!edge.filletRejected) {
+        edge.filletRejected = true;
+        changed = true;
+        console.warn(`[worldgen] fillet REJECTED for road ${edge.id} — drawn line still crossed illegal ground after pinning; edge keeps its plain centerline`);
+      }
+      // Both rungs spent and still violating → ground truth; the lint contract reports it.
     }
-    if (added === 0) break;
-    pinnedTotal += added;
+    if (!changed) break;
     graph.rev = (graph.rev ?? 0) + 1;
   }
   return pinnedTotal;

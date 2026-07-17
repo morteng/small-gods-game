@@ -68,6 +68,7 @@ import { isTrampleEligible } from '@/sim/trample';
 import { buildCoastalLandmarks, SETTLEMENT_TYPES } from '@/world/coastal-landmarks';
 import { tileBlockedByBuilding } from '@/world/building-collision';
 import { reconcileBarriersWithBuildings } from '@/world/place-barrier';
+import { barrierFootprintTiles } from '@/world/barrier';
 import { reconcileBuildingsWithWater } from '@/world/building-water-reconcile';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { prewarmAllSettlementWear } from '@/world/settlement-wear';
@@ -512,9 +513,18 @@ export async function generateWithNoise(
     // though every pass "succeeded". Normally a no-op; carves a minimal legal land connector
     // between the closest cells of the split components and WARNS when it fires.
     // Passing `roadGraph` makes a fired repair a REAL edge (centerline/carve/ribbon like any
-    // road) instead of bare invisible tiles the ribbon never paints.
+    // road) instead of bare invisible tiles the ribbon never paints. The repair's obstacle
+    // set covers ALL barrier blocking cells (crofts included, not just the defensive rings in
+    // `approach.wallObstacles`): the repair BFS rides existing streets, and a street tile can
+    // legitimately thread a croft fence — but a road EDGE claiming that cell is an unresolved
+    // road×barrier crossing no gatehouse spans, so the connector must detour to an opening.
+    const barrierBlocking = new Set<string>();
+    for (const b of barrierRuns) {
+      for (const [bx, by] of barrierFootprintTiles(b.run).blocking) barrierBlocking.add(`${bx},${by}`);
+    }
     repairConnectionSplits(tiles, width, height, approach.connections, worldSeed.pois ?? [],
-      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`) || approach.wallObstacles.has(`${x},${y}`),
+      (x, y) => tileBlockedByBuilding(world, x, y) || greenTiles.has(`${x},${y}`)
+        || approach.wallObstacles.has(`${x},${y}`) || barrierBlocking.has(`${x},${y}`),
       roadGraph);
 
     // River-crossing SITES (unified connectome, v0): where a road bridges water, compose a

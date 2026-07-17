@@ -80,6 +80,11 @@ export interface RoadEdge {
    *  carve and tile mask all follow the plain smoothed polyline the router approved
    *  (`roads.ribbon-legal` holds by construction). Persisted with the graph. */
   filletRejected?: boolean;
+  /** Set by `reconcileCenterlineLegality` when this edge's degree-2 node-tangent fillet
+   *  (S4 hairpin fix) swung the drawn line onto illegal ground and pinning could not heal
+   *  it — the node fillet alone is discarded (gate/anchor fillets survive), one rung below
+   *  the whole-edge `filletRejected` verdict. Persisted with the graph. */
+  nodeTangentRejected?: boolean;
   /** Bow-reconciliation PINS (`reconcileCenterlineBows`): indices into `polyline` forced to
    *  stay spline control points. Where plain Catmull-Rom smoothing bowed further than the
    *  reconcile margin off the walked path (the "ribbon sags off the walkable row" class), the
@@ -555,10 +560,16 @@ export function repairConnectionSplits(
 ): number {
   if (!connections?.length) return 0;
   const isRoad = (x: number, y: number): boolean => ROAD_TILE_TYPES.has(tiles[y]?.[x]?.type ?? '');
-  // A repair path may ride existing roads freely and cross any legal land cell.
-  const passable = (x: number, y: number): boolean => {
+  // A repair path may ride existing roads and cross any legal land cell. STRICT mode also
+  // refuses caller-blocked cells EVEN when they carry a road tile: a settlement street can
+  // legitimately thread a croft fence, but a repair EDGE riding that cell would claim a
+  // road×barrier crossing no gatehouse resolves. Strict is tried first; if the components
+  // genuinely cannot be joined otherwise, the permissive fallback restores connectivity
+  // (the claim lint will name the residue rather than the network staying split).
+  const passableIn = (strict: boolean) => (x: number, y: number): boolean => {
     const t = tiles[y]?.[x];
     if (!t) return false;
+    if (strict && (isBlocked?.(x, y) ?? false)) return false;
     if (ROAD_TILE_TYPES.has(t.type)) return true;
     if (WATER_TYPES.has(t.type)) return false;
     return !(isBlocked?.(x, y) ?? false);
@@ -619,32 +630,40 @@ export function repairConnectionSplits(
       }
     }
     if (!best) continue;
-    // BFS shortest legal path A-cell → B-cell (4-connected over passable).
-    const prev = new Map<number, number>();
+    // BFS shortest legal path A-cell → B-cell (4-connected over passable): strict first
+    // (never through a barrier cell, even one carrying a street tile), permissive fallback.
     const startK = best.ay * width + best.ax, goalK = best.by * width + best.bx;
-    const q = [startK]; prev.set(startK, -1);
-    let found = false;
-    for (let qi = 0; qi < q.length && !found; qi++) {
-      const k = q[qi];
-      const x = k % width, y = (k - x) / width;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-        const nk = ny * width + nx;
-        if (prev.has(nk) || !passable(nx, ny)) continue;
-        prev.set(nk, k);
-        if (nk === goalK) { found = true; break; }
-        q.push(nk);
+    const bfs = (passable: (x: number, y: number) => boolean): Map<number, number> | null => {
+      const prev = new Map<number, number>();
+      const q = [startK]; prev.set(startK, -1);
+      for (let qi = 0; qi < q.length; qi++) {
+        const k = q[qi];
+        const x = k % width, y = (k - x) / width;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const nk = ny * width + nx;
+          if (prev.has(nk) || !passable(nx, ny)) continue;
+          prev.set(nk, k);
+          if (nk === goalK) return prev;
+          q.push(nk);
+        }
       }
+      return null;
+    };
+    let prev = bfs(passableIn(true));
+    if (!prev) {
+      prev = bfs(passableIn(false));
+      if (prev) console.warn(`[worldgen] connection repair for ${conn.from}→${conn.to} fell back to the PERMISSIVE path — connector crosses caller-blocked cell(s)`);
     }
-    if (!found) {
+    if (!prev) {
       console.warn(`[worldgen] connection repair FAILED for ${conn.from}→${conn.to} — components split with no legal land path`);
       continue;
     }
     // Reconstruct the BFS path in A→B order — it is BOTH the tile stamp AND (with `graph`)
     // the new repair edge's polyline, so carve/ribbon/raster all agree by construction.
     const path: { x: number; y: number }[] = [];
-    for (let k = goalK; k !== -1; k = prev.get(k)!) path.push({ x: k % width, y: ((k - (k % width)) / width) });
+    for (let k = goalK; k !== undefined && k !== -1; k = prev.get(k)!) path.push({ x: k % width, y: ((k - (k % width)) / width) });
     path.reverse();
     const surface = surfaceOf(conn);
     const roadTile = tileTypeOf(surface);
