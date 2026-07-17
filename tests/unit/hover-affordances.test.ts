@@ -91,8 +91,10 @@ describe('hoverChips — top ranked affordances for the cursor', () => {
   it('marks a belief-locked verb unaffordable/locked and ranks it below castable ones', () => {
     const world = makeWorld();
     const e = addNpc(world, 'n1', { worship: false });
-    // smite locked (congregation doesn't believe it); whisper open
-    const chips = hoverChips({ kind: 'npc', npcId: e.id }, 'player', ctxWith(world), [{ verb: 'smite', unlocked: false }], 5);
+    // smite locked (congregation doesn't believe it); whisper open. max wide enough
+    // for EVERY npc verb — this test pins ranking, not the cap (the cap has its own
+    // assertion above), and a locked verb ranks last so a tight cap would drop it.
+    const chips = hoverChips({ kind: 'npc', npcId: e.id }, 'player', ctxWith(world), [{ verb: 'smite', unlocked: false }], 10);
     const smite = chips.find((c) => c.verb === 'smite');
     const whisper = chips.find((c) => c.verb === 'whisper');
     expect(smite!.unlocked).toBe(false);
