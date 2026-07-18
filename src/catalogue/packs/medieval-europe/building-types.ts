@@ -119,6 +119,22 @@ export const MEDIEVAL_BUILDING_TYPES: B[] = [
     [1, 2], { walls: 'timber', roof: 'wood', ground: 'wood' },
     { l0: 'a timber wharf shed', l1: ['low platform', 'water-side door', 'plank decking'] }),
 
+  // Pond fishery (rivers R3 P3): a one-room fisherman's dwelling, the cottage pattern with a
+  // water-facing entrance — nets and the day's catch come in the door straight off the jetty.
+  // sizeBays [1,1] is deliberately fixed (not a range): a single bay count keeps the derived
+  // footprint a stable 2×2 (`deriveFootprint`), matching the `CIVIC_RULES.fishery` reservation
+  // exactly (see `world/settlement-plan.ts`) so the placed hut and its reserved civic ground
+  // never disagree. UNPINNED (no `BUILDING_BLUEPRINTS` entry) — pure catalogue skin of the
+  // cottage grammar, expressed by `blueprintFromBuildingType`; zero new geometry code.
+  b('fisherman_hut', 'tripartite-linear',
+    [room('hall', 1, 1)],
+    { face: 'n', sizeClass: 'human', portal: 'doorway' },
+    { room: 'hall', fixture: 'open-hearth' },
+    [1, 1], { walls: 'wattle', roof: 'thatch', ground: 'packed_dirt' },
+    { l0: "a fisherman's one-room hut", l1: ['wattle walls', 'thatched roof', 'water-facing door'],
+      l2: 'A single-bay dwelling pitched right at the water — hearth in the middle of the floor, nets and creels drying by the door.' },
+    { applicability: { eras: ['medieval'] } }),
+
   b('shrine', 'church-axial',
     [room('chancel', 1, 1)],
     { face: 's', sizeClass: 'human' },

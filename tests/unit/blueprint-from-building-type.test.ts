@@ -16,7 +16,7 @@ beforeAll(() => loadDefaultPacks());
 // Catalogue buildingTypes that carry a full programme but NO hand-authored preset.
 // (smithy/bakehouse/brewhouse/inn used to live here; they are now pinned trade presets with
 // bespoke craft geometry — the fold still expresses them for any OTHER unpinned type.)
-const UNPINNED = ['granary', 'dovecote', 'tithe-barn'];
+const UNPINNED = ['granary', 'dovecote', 'tithe-barn', 'fisherman_hut'];
 // Trades that gained a pinned preset (furnace-bearing craft massing) — must NOT fall to the fold.
 const PINNED_TRADES = ['smithy', 'bakehouse', 'brewhouse', 'inn'];
 
