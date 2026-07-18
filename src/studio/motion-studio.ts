@@ -34,7 +34,10 @@ import {
 import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
 import { LPC_ANIMATIONS } from '@/core/npc-animation';
 import { FRAME_MS } from '@/render/npc-animator';
-import { collectSourcePalette, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
+import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
+import { buildCharacterSpec, type CharacterSpec } from '@/render/lpc/character-builder';
+import { walkSpriteCandidates } from '@/render/lpc/lpc-walk-path';
+import type { NpcRole } from '@/core/types';
 import { decodePngToRaster } from '@/render/sprite-codec';
 import { rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
@@ -146,7 +149,10 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     quantize: false,
     bones: false,
     skin: false, // contour-aware joint skinning (blend band 3px)
-    snap: false, // snap output to the SOURCE sheets' palette
+    // Snap to the SOURCE sheets' palette + re-ink the silhouette outline.
+    // Default ON: rotated frames otherwise read blurrier than frame 0 (the
+    // supersample blend softens edges and erodes the 1px LPC contour).
+    snap: true,
   };
   let workClip = cloneClip(CLIPS[0]);
   // Mutable template copy: joint pin mode edits pivots live (rest-space coords).
@@ -187,8 +193,10 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       ? frames.map((f) => quantizePaletteOklab(f, 32, { dither: 'bayer4' }))
       : frames;
     if (state.snap) {
-      const palette = collectSourcePalette(visible.map((l) => l.raster));
-      display = display.map((f) => snapToSourcePalette(f, palette));
+      const rasters = visible.map((l) => l.raster);
+      const palette = collectSourcePalette(rasters);
+      const outline = collectOutlinePalette(rasters);
+      display = display.map((f) => reinkOutline(snapToSourcePalette(f, palette), outline));
     }
     shownFrames = display.map((f) => rgbaToCanvas(f.data, f.w, f.h)).filter((c): c is SpriteCanvas => c !== null);
     gameFrames = display
@@ -552,7 +560,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   };
   panel.appendChild(skinBtn);
 
-  const snapBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: 'Snap source palette' });
+  const snapBtn = h('button', { class: 'sg-btn is-on', style: 'width:100%;margin-bottom:4px', text: 'Snap palette + ink outline' });
   snapBtn.onclick = () => {
     state.snap = !state.snap;
     snapBtn.classList.toggle('is-on', state.snap);
@@ -700,22 +708,93 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   };
   panel.append(pinBtn, pinMirrorBtn, pinChipRow, jointReadout, pinCopy, pinReset);
 
+  // ── character: preview any role's seeded wardrobe on the rig ────────────────
+  // Layer stacks come from the game's own role recipes (buildCharacterSpec) via
+  // the pure path resolver (walkSpriteCandidates) — same sheets the runtime
+  // compositor loads, so what bakes here is what the game would wear.
+  interface CharLayer {
+    path: string;
+    fallback?: string;
+    assign?: string;
+    label: string;
+  }
+  const DEFAULT_LABELS = ['body', 'shirt', 'head', 'face', 'hair'];
+  const defaultCharacter = (): CharLayer[] =>
+    DEFAULT_HUMANOID_LAYERS.map((s, i) => ({ path: s.path, assign: s.assign, label: DEFAULT_LABELS[i] ?? `layer ${i}` }));
+  // Paint order (bottom→top) across every selection key the role recipes use.
+  const KEY_ORDER = ['body', 'legs', 'shoes', 'clothes', 'armour', 'arms', 'head', 'expression', 'hair'] as const;
+  const HEAD_KEYS = new Set(['head', 'expression', 'hair']); // ride the head chip wholesale
+  function characterLayers(spec: CharacterSpec): CharLayer[] {
+    const out: CharLayer[] = [];
+    for (const key of KEY_ORDER) {
+      const sel = spec.items[key];
+      if (!sel) continue;
+      const [primary, fallback] = walkSpriteCandidates(sel.itemId, sel.variant, spec.bodyType);
+      if (!primary) continue;
+      out.push({
+        path: `sprites/lpc/spritesheets/${primary}`,
+        fallback: fallback ? `sprites/lpc/spritesheets/${fallback}` : undefined,
+        assign: HEAD_KEYS.has(key) ? 'head' : undefined,
+        label: key,
+      });
+    }
+    return out;
+  }
+
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Character' }));
+  const charState = { role: null as NpcRole | null, seed: 1 };
+  const ROLES: (NpcRole | null)[] = [null, 'farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
+  const roleRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px' });
+  const roleBtns = ROLES.map((role) => {
+    const b = h('button', { class: 'sg-btn', style: 'flex:1 1 30%;font-size:10px', text: role ?? 'default' });
+    b.classList.toggle('is-on', role === charState.role);
+    b.onclick = () => {
+      charState.role = role;
+      roleBtns.forEach((bb, i) => bb.classList.toggle('is-on', ROLES[i] === charState.role));
+      void applyCharacter();
+    };
+    roleRow.appendChild(b);
+    return b;
+  });
+  const rerollBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: '⟳ Reroll (seed 1)' });
+  rerollBtn.onclick = () => {
+    charState.seed++;
+    rerollBtn.textContent = `⟳ Reroll (seed ${charState.seed})`;
+    void applyCharacter();
+  };
+  function applyCharacter(): Promise<void> {
+    return loadCharacter(
+      charState.role === null ? defaultCharacter() : characterLayers(buildCharacterSpec(charState.role, charState.seed)),
+    );
+  }
+  panel.append(
+    roleRow,
+    rerollBtn,
+    h('div', {
+      class: 'sg-muted',
+      style: 'font-size:10px;line-height:1.5;margin-bottom:5px',
+      text: 'seed picks sex/hair/outfit like in-game · chips are tuned on the male body — female/child are approximate',
+    }),
+  );
+
   // ── visibility: LPC source layers + chips ───────────────────────────────────
   panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Visibility' }));
-  const LAYER_LABELS = ['body', 'shirt', 'head', 'face', 'hair'];
   const layerRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
-  DEFAULT_HUMANOID_LAYERS.forEach((_, i) => {
-    const b = h('button', { class: 'sg-btn is-on', style: 'flex:1 1 30%;font-size:10px', text: LAYER_LABELS[i] ?? `layer ${i}` });
-    b.onclick = () => {
-      if (hiddenLayers.has(i)) hiddenLayers.delete(i);
-      else hiddenLayers.add(i);
-      b.classList.toggle('is-on', !hiddenLayers.has(i));
-      rebake();
-      rebuildWalkLane();
-      drawGait();
-    };
-    layerRow.appendChild(b);
-  });
+  function rebuildLayerRow(labels: string[]): void {
+    layerRow.replaceChildren();
+    labels.forEach((label, i) => {
+      const b = h('button', { class: 'sg-btn is-on', style: 'flex:1 1 30%;font-size:10px', text: label });
+      b.onclick = () => {
+        if (hiddenLayers.has(i)) hiddenLayers.delete(i);
+        else hiddenLayers.add(i);
+        b.classList.toggle('is-on', !hiddenLayers.has(i));
+        rebake();
+        rebuildWalkLane();
+        drawGait();
+      };
+      layerRow.appendChild(b);
+    });
+  }
   const chipVisRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
   workTemplate.chips.forEach((ch, i) => {
     const b = h('button', {
@@ -763,29 +842,40 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }),
   );
 
-  panel.appendChild(
-    h('div', {
-      class: 'sg-muted',
-      style: 'margin-top:10px;font-size:10px;line-height:1.5',
-      text: `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing · layers ×${DEFAULT_HUMANOID_LAYERS.length}`,
-    }),
-  );
+  const metaLbl = h('div', {
+    class: 'sg-muted',
+    style: 'margin-top:10px;font-size:10px;line-height:1.5',
+    text: `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing`,
+  });
+  panel.appendChild(metaLbl);
 
-  // ── load layers, then first bake ────────────────────────────────────────────
+  // ── load a character's layers, then bake ────────────────────────────────────
   const loading = h('div', { class: 'sg-muted', style: 'font-size:11px', text: 'loading LPC layers…' });
-  main.prepend(loading);
-  void (async () => {
+  let loadGen = 0; // a newer pick supersedes an in-flight one
+  async function loadCharacter(charLayers: CharLayer[]): Promise<void> {
+    const gen = ++loadGen;
+    loading.textContent = 'loading LPC layers…';
+    main.prepend(loading);
+    // NOTE: the dev server's SPA fallback answers missing files with 200 +
+    // index.html, so "does this variant exist" must survive decode, not just
+    // resp.ok — hence fallback on any failure, not only HTTP errors.
+    async function fetchRaster(path: string): Promise<Raster | null> {
+      const resp = await fetch(assetUrl(path));
+      if (!resp.ok) return null;
+      const type = resp.headers.get('content-type') ?? '';
+      if (!type.includes('image/png')) return null;
+      return decodePngToRaster(await resp.blob());
+    }
     try {
       const sheets = await Promise.all(
-        DEFAULT_HUMANOID_LAYERS.map(async (spec) => {
-          const resp = await fetch(assetUrl(spec.path));
-          if (!resp.ok) throw new Error(`${spec.path}: HTTP ${resp.status}`);
-          const raster = await decodePngToRaster(await resp.blob());
-          if (!raster) throw new Error(`${spec.path}: decode failed`);
+        charLayers.map(async (spec) => {
+          const raster =
+            (await fetchRaster(spec.path)) ?? (spec.fallback ? await fetchRaster(spec.fallback) : null);
+          if (!raster) throw new Error(`${spec.path}: not found`);
           return raster;
         }),
       );
-      if (disposed) return;
+      if (disposed || gen !== loadGen) return;
       layers = sheets.map((sheet, li) => {
         const data = new Uint8ClampedArray(CELL * CELL * 4);
         const sx = HUMANOID_SOURCE.col * CELL;
@@ -794,18 +884,23 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
           const src = (sy + y) * sheet.w + sx;
           data.set(sheet.data.subarray(src * 4, (src + CELL) * 4), y * CELL * 4);
         }
-        return { raster: { data, w: CELL, h: CELL }, assign: DEFAULT_HUMANOID_LAYERS[li].assign };
+        return { raster: { data, w: CELL, h: CELL }, assign: charLayers[li].assign };
       });
       // Composite the walk cycle for the gait lane (existing frames, untouched).
       loadedSheets = sheets;
+      hiddenLayers.clear();
+      rebuildLayerRow(charLayers.map((c) => c.label));
       rebuildWalkLane();
+      metaLbl.textContent = `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing · layers ×${charLayers.length}`;
       loading.remove();
       rebake();
       drawGait();
     } catch (err) {
+      if (gen !== loadGen) return;
       loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-  })();
+  }
+  void loadCharacter(defaultCharacter());
 
   buildPoseSliders();
   raf = requestAnimationFrame(tick);

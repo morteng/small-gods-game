@@ -12,7 +12,7 @@ import { mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { PNG } from 'pngjs';
 import { bakeClip } from '@/render/paperdoll/rig';
-import { collectSourcePalette, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
+import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import {
   CLIP_PRAY_BOW,
   CLIP_PRAY_RAISE,
@@ -90,23 +90,26 @@ async function main() {
       assign: spec.assign,
     })),
   );
-  const palette = collectSourcePalette(layers.map((l) => l.raster));
-  console.log(`source palette: ${palette.rgb.length} colors`);
+  const rasters = layers.map((l) => l.raster);
+  const palette = collectSourcePalette(rasters);
+  const outline = collectOutlinePalette(rasters);
+  console.log(`source palette: ${palette.rgb.length} colors (${outline.rgb.length} outline inks)`);
 
   for (const clip of [CLIP_PRAY_BOW, CLIP_PRAY_RAISE]) {
     const rigid = bakeClip(LPC_HUMANOID_SOUTH, layers, clip);
     const skinned = bakeClip(LPC_HUMANOID_SOUTH, layers, clip, { skin: { band: BAND } });
     const snapped = skinned.map((f) => snapToSourcePalette(f, palette));
-    // row order: rigid / skinned / skinned+snap
+    const inked = snapped.map((f) => reinkOutline(f, outline));
+    // row order: rigid / skinned / skinned+snap / skinned+snap+ink
     await writeFile(
       `${OUT}/skin-compare-${clip.name}-6x.png`,
-      PNG.sync.write(grid([rigid, skinned, snapped], 6)),
+      PNG.sync.write(grid([rigid, skinned, snapped, inked], 6)),
     );
     await writeFile(
       `${OUT}/skin-compare-${clip.name}-onscreen.png`,
-      PNG.sync.write(grid([rigid, skinned, snapped].map((r) => r.map((f) => downscale(f, 32))), 4)),
+      PNG.sync.write(grid([rigid, skinned, snapped, inked].map((r) => r.map((f) => downscale(f, 32))), 4)),
     );
-    console.log(`${clip.name}: rows rigid/skinned(band ${BAND})/snap → ${OUT}/skin-compare-${clip.name}-{6x,onscreen}.png`);
+    console.log(`${clip.name}: rows rigid/skinned(band ${BAND})/snap/snap+ink → ${OUT}/skin-compare-${clip.name}-{6x,onscreen}.png`);
   }
 }
 

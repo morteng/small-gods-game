@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderPose, type AnimTemplate, type ChipPose } from '@/render/paperdoll/rig';
 import { buildSkinField, rigidSkinField } from '@/render/paperdoll/skin';
-import { collectSourcePalette, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
+import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import type { Raster } from '@/render/sprite-postprocess';
 
 // Fixture: 8px cell, root + one arm (right column), joint interface at x=4|5.
@@ -173,6 +173,74 @@ describe('source-palette snap', () => {
     const before = [...frame.data];
     const a = snapToSourcePalette(frame, pal);
     const b = snapToSourcePalette(frame, pal);
+    expect(Buffer.from(a.data)).toEqual(Buffer.from(b.data));
+    expect([...frame.data]).toEqual(before);
+  });
+});
+
+describe('outline re-ink', () => {
+  const INK: [number, number, number, number] = [30, 15, 8, 255];
+  const FILL: [number, number, number, number] = [210, 160, 110, 255];
+
+  /** 6×6 raster: opaque 4×4 block at (1,1)-(4,4), ring = ink, core = fill. */
+  function outlinedBlock(): Raster {
+    const n = 6;
+    const data = new Uint8ClampedArray(n * n * 4);
+    for (let y = 1; y <= 4; y++) {
+      for (let x = 1; x <= 4; x++) {
+        const edge = x === 1 || x === 4 || y === 1 || y === 4;
+        data.set(edge ? INK : FILL, (y * n + x) * 4);
+      }
+    }
+    return { data, w: n, h: n };
+  }
+
+  it('collectOutlinePalette keeps boundary colors only', () => {
+    const p = collectOutlinePalette([outlinedBlock()]);
+    expect(p.rgb).toEqual([[30, 15, 8]]); // fill never touches transparency
+  });
+
+  it('a frame whose boundary already uses outline inks passes through unchanged', () => {
+    const src = outlinedBlock();
+    const out = reinkOutline(src, collectOutlinePalette([src]));
+    expect(Buffer.from(out.data)).toEqual(Buffer.from(src.data));
+  });
+
+  it('re-strokes a boundary pixel that lost its ink; interior stays untouched', () => {
+    const src = outlinedBlock();
+    const frame = outlinedBlock();
+    frame.data.set(FILL, (1 * 6 + 2) * 4); // top edge pixel blended away to fill
+    const out = reinkOutline(frame, collectOutlinePalette([src]));
+    expect([...out.data.subarray((1 * 6 + 2) * 4, (1 * 6 + 2) * 4 + 4)]).toEqual([...INK]);
+    expect([...out.data.subarray((2 * 6 + 2) * 4, (2 * 6 + 2) * 4 + 4)]).toEqual([...FILL]);
+  });
+
+  it('re-inks pixels bordering an interior hole (hidden chip)', () => {
+    const src = outlinedBlock();
+    const frame = outlinedBlock();
+    frame.data[(2 * 6 + 3) * 4 + 3] = 0; // punch a hole at (3,2)
+    const out = reinkOutline(frame, collectOutlinePalette([src]));
+    // (2,2) is fill but now borders the hole → re-stroked with ink.
+    expect([...out.data.subarray((2 * 6 + 2) * 4, (2 * 6 + 2) * 4 + 4)]).toEqual([...INK]);
+  });
+
+  it('picks the nearest ink when several exist', () => {
+    const dark: [number, number, number, number] = [10, 10, 40, 255];
+    const src = outlinedBlock();
+    src.data.set(dark, (1 * 6 + 1) * 4); // second ink on the source boundary
+    const frame = outlinedBlock();
+    frame.data.set([60, 60, 120, 255], (1 * 6 + 2) * 4); // bluish boundary blend
+    const out = reinkOutline(frame, collectOutlinePalette([src]));
+    expect([...out.data.subarray((1 * 6 + 2) * 4, (1 * 6 + 2) * 4 + 4)]).toEqual([...dark]);
+  });
+
+  it('is deterministic and does not mutate its input', () => {
+    const pal = collectOutlinePalette([outlinedBlock()]);
+    const frame = outlinedBlock();
+    frame.data.set(FILL, (4 * 6 + 2) * 4);
+    const before = [...frame.data];
+    const a = reinkOutline(frame, pal);
+    const b = reinkOutline(frame, pal);
     expect(Buffer.from(a.data)).toEqual(Buffer.from(b.data));
     expect([...frame.data]).toEqual(before);
   });

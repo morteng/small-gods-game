@@ -21,6 +21,7 @@ import {
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
+import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 
 const OUT = 'tmp/paperdoll';
 mkdirSync(OUT, { recursive: true });
@@ -90,16 +91,24 @@ async function main() {
       assign: spec.assign,
     })),
   );
+  // Production finish: snap to the source palette + re-ink the silhouette —
+  // rotated frames otherwise read blurrier than frame 0 (blend AA + eroded
+  // 1px contour). The plain and Oklab-quantized strips stay for comparison.
+  const rasters = layers.map((l) => l.raster);
+  const palette = collectSourcePalette(rasters);
+  const outline = collectOutlinePalette(rasters);
   for (const clip of HUMANOID_CLIPS) {
     const frames = bakeClip(LPC_HUMANOID_SOUTH, layers, clip);
     await writeFile(`${OUT}/${clip.name}-6x.png`, PNG.sync.write(strip(frames, 6)));
+    const inked = frames.map((f) => reinkOutline(snapToSourcePalette(f, palette), outline));
+    await writeFile(`${OUT}/${clip.name}-ink6x.png`, PNG.sync.write(strip(inked, 6)));
     await writeFile(
       `${OUT}/${clip.name}-onscreen.png`,
-      PNG.sync.write(strip(frames.map((f) => downscale(f, 32)), 4)),
+      PNG.sync.write(strip(inked.map((f) => downscale(f, 32)), 4)),
     );
     const quant = frames.map((f) => quantizePaletteOklab(f, 32, { dither: 'bayer4' }));
     await writeFile(`${OUT}/${clip.name}-quant6x.png`, PNG.sync.write(strip(quant, 6)));
-    console.log(`${clip.name}: ${frames.length} frames → ${OUT}/${clip.name}-{6x,onscreen,quant6x}.png`);
+    console.log(`${clip.name}: ${frames.length} frames → ${OUT}/${clip.name}-{6x,ink6x,onscreen,quant6x}.png`);
   }
 }
 
