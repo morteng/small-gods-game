@@ -34,6 +34,7 @@ import {
 import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
 import { LPC_ANIMATIONS } from '@/core/npc-animation';
 import { FRAME_MS } from '@/render/npc-animator';
+import { collectSourcePalette, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import { decodePngToRaster } from '@/render/sprite-codec';
 import { rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
@@ -144,6 +145,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     zoom: 6 as number,
     quantize: false,
     bones: false,
+    skin: false, // contour-aware joint skinning (blend band 3px)
+    snap: false, // snap output to the SOURCE sheets' palette
   };
   let workClip = cloneClip(CLIPS[0]);
   // Mutable template copy: joint pin mode edits pivots live (rest-space coords).
@@ -176,10 +179,17 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   function rebake(): void {
     if (!layers) return;
     const visible = layers.filter((_, i) => !hiddenLayers.has(i));
-    frames = bakeClip(workTemplate, visible, workClip, { hide: hiddenChips });
-    const display = state.quantize
+    frames = bakeClip(workTemplate, visible, workClip, {
+      hide: hiddenChips,
+      skin: state.skin ? { band: 3 } : undefined,
+    });
+    let display = state.quantize
       ? frames.map((f) => quantizePaletteOklab(f, 32, { dither: 'bayer4' }))
       : frames;
+    if (state.snap) {
+      const palette = collectSourcePalette(visible.map((l) => l.raster));
+      display = display.map((f) => snapToSourcePalette(f, palette));
+    }
     shownFrames = display.map((f) => rgbaToCanvas(f.data, f.w, f.h)).filter((c): c is SpriteCanvas => c !== null);
     gameFrames = display
       .map((f) => downscale(f, GAME_PX))
@@ -533,6 +543,22 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     rebake();
   };
   panel.appendChild(quantBtn);
+
+  const skinBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: 'Skin joints (blend 3px)' });
+  skinBtn.onclick = () => {
+    state.skin = !state.skin;
+    skinBtn.classList.toggle('is-on', state.skin);
+    rebake();
+  };
+  panel.appendChild(skinBtn);
+
+  const snapBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: 'Snap source palette' });
+  snapBtn.onclick = () => {
+    state.snap = !state.snap;
+    snapBtn.classList.toggle('is-on', state.snap);
+    rebake();
+  };
+  panel.appendChild(snapBtn);
 
   const bonesBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:10px', text: 'Bones overlay' });
   bonesBtn.onclick = () => {

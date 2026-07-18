@@ -18,6 +18,7 @@
  * Deterministic: same inputs → same bytes.
  */
 import type { Raster } from '../sprite-postprocess';
+import { buildSkinField, rigidSkinField, type SkinField } from './skin';
 
 export interface ChipRect {
   x: number;
@@ -196,6 +197,13 @@ export interface RenderPoseOptions {
    * kneel hides the shins) need.
    */
   hide?: ReadonlySet<string>;
+  /**
+   * Contour-aware joint skinning (spike): pixels within `band` px of a joint
+   * interface (geodesic, through opaque pixels only) follow a weighted blend
+   * of the parent and child transforms instead of a rigid chip. Switches to a
+   * forward mesh-warp rasterizer; omit for the legacy rigid path.
+   */
+  skin?: { band: number };
 }
 
 /**
@@ -227,6 +235,7 @@ export function renderPose(
   poses: readonly ChipPose[],
   opts: RenderPoseOptions = {},
 ): Raster {
+  if (opts.skin) return renderPoseSkinned(template, layers.map(toPoseLayer), poses, opts);
   const n = template.cell;
   const ss = Math.max(1, Math.round(opts.supersample ?? 4));
   const N = n * ss;
@@ -299,6 +308,185 @@ export function renderPose(
   }
 
   // Box-downscale ss→1: color = mean of covered samples, alpha = coverage.
+  const out = new Uint8ClampedArray(n * n * 4);
+  const total = ss * ss;
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let hit = 0;
+      for (let yy = 0; yy < ss; yy++) {
+        for (let xx = 0; xx < ss; xx++) {
+          const si = ((y * ss + yy) * N + (x * ss + xx)) * 4;
+          if (big[si + 3] > 0) {
+            r += big[si];
+            g += big[si + 1];
+            b += big[si + 2];
+            hit++;
+          }
+        }
+      }
+      if (hit > 0) {
+        const di = (y * n + x) * 4;
+        out[di] = Math.round(r / hit);
+        out[di + 1] = Math.round(g / hit);
+        out[di + 2] = Math.round(b / hit);
+        out[di + 3] = Math.round((hit / total) * 255);
+      }
+    }
+  }
+  return { data: out, w: n, h: n };
+}
+
+/**
+ * Skinned render path (spike): forward mesh-warp. Every opaque source pixel
+ * becomes a quad whose corners move by per-VERTEX transforms — the average of
+ * the (blend-weighted) matrices of the adjacent opaque pixels — so the mesh
+ * stays watertight where weights vary and joints stretch instead of tearing.
+ * Painted pixel-color-flat in chip-z order (a pixel keeps its slice
+ * assignment for ordering), then box-downscaled like the rigid path.
+ */
+function renderPoseSkinned(
+  template: AnimTemplate,
+  L: readonly PoseLayer[],
+  poses: readonly ChipPose[],
+  opts: RenderPoseOptions,
+): Raster {
+  const n = template.cell;
+  const ss = Math.max(1, Math.round(opts.supersample ?? 4));
+  const N = n * ss;
+  const big = new Uint8ClampedArray(N * N * 4);
+  const world = chipWorldTransforms(template, poses);
+  const band = opts.skin!.band;
+
+  interface LayerSkin {
+    field: SkinField;
+    pix: Float32Array; // n² × 6 per-pixel blended matrices
+  }
+  const skins: (LayerSkin | null)[] = L.map((layer) => {
+    let field: SkinField;
+    if (layer.assign !== undefined) {
+      const ci = template.chips.findIndex((c) => c.name === layer.assign);
+      if (ci < 0) return null;
+      field = rigidSkinField(template, ci);
+    } else {
+      field = buildSkinField(template, layer.raster, band);
+    }
+    // Per-pixel blended matrices (opaque pixels only).
+    const pix = new Float32Array(n * n * 6);
+    const alpha = layer.raster.data;
+    for (let i = 0; i < n * n; i++) {
+      if (alpha[i * 4 + 3] === 0) continue;
+      const A = world[field.boneA[i]];
+      const B = world[field.boneB[i]];
+      const t = field.w[i];
+      for (let k = 0; k < 6; k++) pix[i * 6 + k] = A[k] + (B[k] - A[k]) * t;
+    }
+    return { field, pix };
+  });
+
+  // Two pixels WELD at a shared vertex only when their bone records are
+  // compatible — same rigid bone, same blend pair, or a blend-band pixel next
+  // to a pixel rigid to one of its two bones. Incompatible neighbors (a fist
+  // sweeping past a thigh, an arm's distal seam alongside the torso) TEAR:
+  // each keeps its own transform, so unrelated limbs never drag each other.
+  const compatible = (f: SkinField, i: number, j: number): boolean => {
+    const ra = f.boneA[i] === f.boneB[i];
+    const rb = f.boneA[j] === f.boneB[j];
+    if (ra && rb) return f.boneA[i] === f.boneA[j];
+    if (ra) return f.boneA[i] === f.boneA[j] || f.boneA[i] === f.boneB[j];
+    if (rb) return f.boneA[j] === f.boneA[i] || f.boneA[j] === f.boneB[i];
+    return f.boneA[i] === f.boneA[j] && f.boneB[i] === f.boneB[j];
+  };
+
+  const order = template.chips
+    .map((_, i) => i)
+    .sort((a, b) => template.chips[a].z - template.chips[b].z);
+
+  const fillTri = (
+    ax: number, ay: number, bx: number, by: number, cx: number, cy: number,
+    r: number, g: number, b: number,
+  ): void => {
+    // consistent winding so the inside test is sign-stable
+    if ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax) < 0) {
+      const tx = bx; const ty = by;
+      bx = cx; by = cy; cx = tx; cy = ty;
+    }
+    const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx) - 0.5));
+    const x1 = Math.min(N - 1, Math.ceil(Math.max(ax, bx, cx) + 0.5));
+    const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy) - 0.5));
+    const y1 = Math.min(N - 1, Math.ceil(Math.max(ay, by, cy) + 0.5));
+    const EPS = 1e-7;
+    for (let oy = y0; oy <= y1; oy++) {
+      const sy = oy + 0.5;
+      for (let ox = x0; ox <= x1; ox++) {
+        const sx = ox + 0.5;
+        if (
+          (bx - ax) * (sy - ay) - (by - ay) * (sx - ax) < -EPS ||
+          (cx - bx) * (sy - by) - (cy - by) * (sx - bx) < -EPS ||
+          (ax - cx) * (sy - cy) - (ay - cy) * (sx - cx) < -EPS
+        )
+          continue;
+        const di = (oy * N + ox) * 4;
+        big[di] = r;
+        big[di + 1] = g;
+        big[di + 2] = b;
+        big[di + 3] = 255;
+      }
+    }
+  };
+
+  for (const ci of order) {
+    if (opts.hide?.has(template.chips[ci].name)) continue;
+    for (let li = 0; li < L.length; li++) {
+      const skin = skins[li];
+      if (!skin) continue;
+      const src = L[li].raster.data;
+      const m = new Float32Array(6);
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          const i = y * n + x;
+          if (skin.field.assign[i] !== ci || src[i * 4 + 3] === 0) continue;
+          // Corner positions: at each of the pixel's 4 corners, average the
+          // matrices of the adjacent opaque pixels COMPATIBLE with this one
+          // (always including itself) — welded seams share corner positions,
+          // incompatible neighbors tear.
+          const pos: number[] = [];
+          for (const [vx, vy] of [
+            [x, y],
+            [x + 1, y],
+            [x, y + 1],
+            [x + 1, y + 1],
+          ] as const) {
+            m.fill(0);
+            let cnt = 0;
+            for (const [qx, qy] of [
+              [vx - 1, vy - 1],
+              [vx, vy - 1],
+              [vx - 1, vy],
+              [vx, vy],
+            ] as const) {
+              if (qx < 0 || qy < 0 || qx >= n || qy >= n) continue;
+              const j = qy * n + qx;
+              if (src[j * 4 + 3] === 0 || !compatible(skin.field, i, j)) continue;
+              cnt++;
+              for (let k = 0; k < 6; k++) m[k] += skin.pix[j * 6 + k];
+            }
+            for (let k = 0; k < 6; k++) m[k] /= cnt;
+            pos.push((m[0] * vx + m[1] * vy + m[2]) * ss, (m[3] * vx + m[4] * vy + m[5]) * ss);
+          }
+          const r = src[i * 4];
+          const g = src[i * 4 + 1];
+          const b = src[i * 4 + 2];
+          fillTri(pos[0], pos[1], pos[2], pos[3], pos[6], pos[7], r, g, b);
+          fillTri(pos[0], pos[1], pos[6], pos[7], pos[4], pos[5], r, g, b);
+        }
+      }
+    }
+  }
+
+  // Box-downscale ss→1 — identical to the rigid path.
   const out = new Uint8ClampedArray(n * n * 4);
   const total = ss * ss;
   for (let y = 0; y < n; y++) {
