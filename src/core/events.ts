@@ -36,6 +36,12 @@ export type SimEvent =
   // chronicler (an "era of road-building") + the seek/landing surface (interest-predicate).
   | { type: 'road_promoted';      edgeId: string; from: RoadClass; to: RoadClass; fromPoiId?: string; toPoiId?: string }
   | { type: 'road_demoted';       edgeId: string; from: RoadClass; to: RoadClass; fromPoiId?: string; toPoiId?: string }
+  // Road-wear economy S3 — a crossing's BUILT structure moved up the tier ladder at the year-pass
+  // (log → … → stone arch; crossings never physically un-build). `from` is absent when this is the
+  // crossing's FIRST store-built structure (the corridor log under a promoted trail, §9 decision 4).
+  // `fromLabel`/`toLabel` are the human tier names (CROSSING_TIER_LABELS) so consumers stay
+  // ladder-shape-agnostic. (x,y) = the crossing site, for the seek/landing surface.
+  | { type: 'crossing_upgraded';  crossingId: string; x: number; y: number; to: number; toLabel: string; from?: number; fromLabel?: string; edgeId?: string }
   | { type: 'authored_spawn';     entityIds: EntityId[]; role: string; count: number }
   | { type: 'authored_remove';    entityIds: EntityId[]; count: number }
   | { type: 'authored_modify';    entityId: EntityId; fields: string[] }

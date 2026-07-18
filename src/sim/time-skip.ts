@@ -10,7 +10,9 @@ import { countPlayerBelievers } from '@/sim/believers';
 import { growSettlementsOnSkip, residentsByPoi } from '@/sim/systems/settlement-growth-system';
 import { advanceRoadEvolution, connectomeEvolveOptions, buildRoadUseInputs, applyRoadClassSurface } from '@/world/road-evolution';
 import { projectRoadClassesOverSkip } from '@/world/road-use';
-import { buildRoadClassInputs, emitRoadClassEvent } from '@/sim/systems/road-evolution-system';
+import { buildRoadClassInputs, emitRoadClassEvent, emitCrossingUpgraded } from '@/sim/systems/road-evolution-system';
+import { stepCrossingTiers, corridorSitesFor, type CrossingTierStore, type CrossingUpgrade } from '@/world/crossing-tier-store';
+import { detectCorridorCrossings } from '@/world/corridor-crossings';
 import { getClimateFields } from '@/world/heightfield';
 import type { TrampleGrid } from '@/sim/trample';
 
@@ -39,6 +41,7 @@ export interface SkipSummary {
 export function applySkip(
   world: World, clock: SimClock, rng: Rng, log: EventLog, years: number,
   trample?: TrampleGrid | null,
+  crossingTiers?: CrossingTierStore | null,
 ): SkipSummary | null {
   if (years <= 0) return null;
 
@@ -83,13 +86,31 @@ export function applySkip(
     // transitions narrate as an era of road-building; a stone-paving flip re-rasters its tiles.
     // (No cohort tier here → wealth reads the neutral prosperity — the skip is an approximation.)
     const useInputs = buildRoadUseInputs(world.tiles, { residents });
+    // S3: crossings ladder up across the era too, riding the SAME sub-step schedule via the
+    // onSubStep hook — the tier streaks see the interleaved fold→apply cadence live ticking
+    // produces (exact parity), and entity swaps land as the sub-steps cross their thresholds.
+    // Corridor sites are detected ONCE (the trample grid is static across a closed-form jump);
+    // upgrades are COLLAPSED to one net event per crossing (first `from`, last `to`).
+    const netUpgrades = new Map<string, CrossingUpgrade>();
+    const sites = crossingTiers && trample
+      ? corridorSitesFor(world.tiles, trample, detectCorridorCrossings) : undefined;
     const transitions = projectRoadClassesOverSkip(
       graph, fromTick, toTick, useInputs, buildRoadClassInputs(world.tiles, world, useInputs.wealthFor),
+      crossingTiers ? (now) => {
+        for (const u of stepCrossingTiers({
+          world, map: world.tiles, store: crossingTiers, nowTick: now,
+          wealthFor: useInputs.wealthFor, corridorSites: sites,
+        })) {
+          const prev = netUpgrades.get(u.crossingId);
+          netUpgrades.set(u.crossingId, prev ? { ...u, from: prev.from } : u);
+        }
+      } : undefined,
     );
     if (transitions.length) {
       applyRoadClassSurface(world.tiles, transitions);
       for (const tr of transitions) emitRoadClassEvent(log, tr);
     }
+    for (const u of netUpgrades.values()) emitCrossingUpgraded(log, u);
   }
 
   const believersAfter = countPlayerBelievers(world);

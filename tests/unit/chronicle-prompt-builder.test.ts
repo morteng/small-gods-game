@@ -31,6 +31,16 @@ describe('eventFactLine', () => {
     expect(line.toLowerCase()).toContain('portent');
   });
 
+  it('templates crossing_upgraded — first build (no from) reads as a fresh log laid', () => {
+    const line = eventFactLine(appended({ type: 'crossing_upgraded', crossingId: 'c1', x: 1, y: 2, to: 0, toLabel: 'log' }));
+    expect(line).toBe('A log was laid where the way crosses the water.');
+  });
+
+  it('templates crossing_upgraded — an upgrade names both tiers', () => {
+    const line = eventFactLine(appended({ type: 'crossing_upgraded', crossingId: 'c1', x: 1, y: 2, to: 6, toLabel: 'stone arch', from: 5, fromLabel: 'timber arch' }));
+    expect(line).toBe('The crossing was raised from a timber arch to a stone arch.');
+  });
+
   it('falls back to a generic line for an unhandled event type rather than throwing', () => {
     const line = eventFactLine(appended({ type: 'region_realized', region: { x: 0, y: 0, w: 1, h: 1 }, cause: 'miracle' }));
     expect(typeof line).toBe('string');

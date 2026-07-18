@@ -401,6 +401,70 @@ export function foldRoadUseInferred(graph: RoadGraph, now: number, inputs: RoadU
   }
 }
 
+// ── the crossing-tier ladder as a consumer of `use` (S3) ─────────────────────
+// The crossing store steps every managed crossing through the SAME pure discipline the class
+// ladder uses: promote-fast (N_UP sustained qualifying applies), one rung per apply, and — the
+// rule that makes a stranded stone bridge on a fallen track the medieval landscape we want — it
+// NEVER physically un-builds (the built tier is monotonic non-decreasing; a fall in `earned`
+// just stops the crossing being maintained, which the existing condition/overgrowth economy
+// already expresses). These are the pure decision functions; the store + entity realization
+// live in `crossing-tier-store.ts`, and the year-pass wiring in the road-evolution system.
+
+/** The ladder tier a GEN-TIME span roughly represents, from the bridge class worldgen's
+ *  `bridgeClassFor` envelope picked (`buildBridgeObject` realizes log-plank as the flat pile
+ *  trestle ≈ the plank walk, timber as the hump-backed arch, dressed stone as the grand arch).
+ *  The store's baseline: a crossing only DEVIATES onto a store-owned tier preset once its
+ *  earned tier exceeds this — gen-time behaviour itself is untouched (spec §4, no WCV). */
+export const GEN_BRIDGE_CLASS_TIER: Record<string, CrossingTier> = {
+  'log-plank': 3, timber: 5, 'dressed-stone': 6,
+};
+
+/** Result of one year-pass application of the crossing-tier ladder to one crossing. */
+export interface CrossingTierStep {
+  /** The built tier after this apply (== `built` when nothing changed; never < `built`). */
+  tier: CrossingTier;
+  /** The consecutive-qualifying-apply streak after this apply (fresh; input untouched). */
+  upStreak: number;
+  /** True iff this apply moved the crossing up a rung (crossings never move down physically). */
+  changed: boolean;
+}
+
+/**
+ * The next tier a crossing can BUILD toward — above `built`, no higher than `earned`, and able
+ * to physically span this channel. Skips non-spanning intermediate rungs (the ladder's max span
+ * is NOT monotonic: a single sawn beam out-spans neither the plank walk below it nor the arch
+ * above, so a wide channel steps plank→arch rather than pausing on an un-buildable beam).
+ * Returns `built` unchanged when nothing buildable sits in `(built, earned]`. Pure.
+ */
+export function nextBuildableTier(built: CrossingTier, earned: CrossingTier, spanTiles: number): CrossingTier {
+  for (let t = built + 1; t <= earned; t++) {
+    if (tierSpans(t as CrossingTier, spanTiles)) return t as CrossingTier;
+  }
+  return built;
+}
+
+/**
+ * Apply ONE year-pass of the crossing-tier ladder (§4) to one crossing. Pure; never mutates
+ * its inputs; moves at most one BUILDABLE rung per qualifying apply.
+ *
+ *  - a crossing whose `earned` tier (`tierForUse`) offers a buildable rung above its `built`
+ *    tier promotes after N_UP consecutive such applies — the SAME anti-flap discipline as the
+ *    class ladder (a transient wealth/traffic spike doesn't raise a stone arch);
+ *  - anything else is a non-qualifying apply: the up-streak breaks and — crucially — the built
+ *    tier stays where it stands. Crossings do not un-build; there is no down-streak at all.
+ */
+export function stepCrossing(
+  built: CrossingTier, earned: CrossingTier, spanTiles: number, upStreak: number,
+): CrossingTierStep {
+  const target = nextBuildableTier(built, earned, spanTiles);
+  if (target > built) {
+    const up = upStreak + 1;
+    if (up >= N_UP) return { tier: target, upStreak: 0, changed: true };
+    return { tier: built, upStreak: up, changed: false };
+  }
+  return { tier: built, upStreak: 0, changed: false };
+}
+
 // ── the class ladder as a consumer of `use` (S2) ──────────────────────────────
 // One year-pass apply of the §3 ladder to every road edge, reading `edge.use.ema01` through the
 // SAME pure `stepEdgeClass` the studio dials drive (no forked logic). Live: one apply per
@@ -478,9 +542,14 @@ export function evolveRoadClasses(graph: RoadGraph, inputs: EdgeClassInputs): Ro
  * that live-ticking those years would have (streaks/hysteresis need ≥N_UP applies to move a rung).
  * Transitions are COLLAPSED to the net per-edge change (one road_promoted/demoted per edge per era,
  * not one per sub-step). Deterministic; RNG-free; returns the net transitions.
+ *
+ * `onSubStep` (optional) fires after EACH sub-step's class apply with that sub-step's tick — the
+ * seam the S3 crossing-tier projection rides so its own N_UP streaks see the same interleaved
+ * fold→apply cadence live ticking produces (exact skip/live parity, not an end-state shortcut).
  */
 export function projectRoadClassesOverSkip(
   graph: RoadGraph, fromTick: number, toTick: number, useInputs: RoadUseFoldInputs, classInputs: EdgeClassInputs,
+  onSubStep?: (now: number) => void,
 ): RoadClassTransition[] {
   const span = toTick - fromTick;
   if (span <= 0) return [];
@@ -497,11 +566,16 @@ export function projectRoadClassesOverSkip(
     for (const tr of evolveRoadClasses(graph, classInputs)) {
       if (!startPoi.has(tr.edgeId)) startPoi.set(tr.edgeId, [tr.fromPoiId, tr.toPoiId]);
     }
+    onSubStep?.(t);
   }
   const net: RoadClassTransition[] = [];
   for (const e of graph.edges) {
     if (e.feature !== 'road') continue;
     const from = startClass.get(e.id);
+    // Net no-op edges are dropped whole: with CONSTANT inputs over the skip the EMA converges
+    // monotonically, so promote-then-demote-back (which would leave a stone surface with no
+    // transition to re-raster it) cannot occur within a single skip — a dropped edge is truly
+    // unchanged. The live path applies surface per-transition and has no such collapse.
     if (from === undefined || from === e.class) continue;
     const [a, b] = startPoi.get(e.id) ?? [undefined, undefined];
     net.push({

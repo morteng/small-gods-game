@@ -131,19 +131,18 @@ describe('evolveRoadClasses — the surface wealth gate (§3)', () => {
 });
 
 describe('evolveRoadClasses — the king\'s-highway lord gate (§3)', () => {
-  function climbToward(highwayReady: boolean, hasLord: boolean): RoadClass {
+  function climbToward(hasLord: boolean): RoadClass {
     // ema high enough to earn highway; from `road` a single rung remains.
     const g = graph([edge('e', 'road', PROMOTE_USE.highway + 0.01)]);
     const inp = inputs({ hasLordSeatFor: () => hasLord });
-    void highwayReady;
     for (let i = 0; i < N_UP + 2; i++) evolveRoadClasses(g, inp);
     return g.edges[0].class;
   }
   it('without a lord seat the edge SATURATES at road (no highway)', () => {
-    expect(climbToward(true, false)).toBe('road');
+    expect(climbToward(false)).toBe('road');
   });
   it('a gripping/garrisoned lord seat unlocks the highway rung', () => {
-    expect(climbToward(true, true)).toBe('highway');
+    expect(climbToward(true)).toBe('highway');
   });
 });
 

@@ -185,6 +185,10 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return `A well-trodden way was built up from a ${ev.from} to a ${ev.to}.`;
     case 'road_demoted':
       return `A neglected ${ev.from} dwindled back to a ${ev.to}.`;
+    case 'crossing_upgraded':
+      return ev.from === undefined
+        ? `A ${ev.toLabel} was laid where the way crosses the water.`
+        : `The crossing was raised from a ${ev.fromLabel} to a ${ev.toLabel}.`;
     case 'belief_cross':
       return `Belief crossed ${ev.kind} (${Math.round(ev.faith * 100)}%).`;
     case 'mood_cross':

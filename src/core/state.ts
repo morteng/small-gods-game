@@ -18,6 +18,7 @@ import type { CausalSiteStore } from '@/world/causal-site';
 import type { TrampleGrid } from '@/sim/trample';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import { RoadUseTally } from '@/world/road-use';
+import { CrossingTierStore } from '@/world/crossing-tier-store';
 
 export interface GameState {
   map: GameMap | null;
@@ -117,6 +118,12 @@ export interface GameState {
    *  Rides the Snapshot as `roadUse?` (the transient counter scrubs with the timeline; the FOLDED
    *  `edge.use` rides `SaveFile.map`). See `@/world/road-use`. */
   roadUse: RoadUseTally;
+  /** Road-wear economy (S3): runtime crossing upgrades — the snapshot-authoritative store of
+   *  every crossing whose BUILT span deviates from the gen-time pick (upgraded past it, or the
+   *  tier-0 log a promoted trample corridor earned). Stepped on the road-evolution year-pass;
+   *  reconciled against world entities on every snapshot restore (the RuntimePoiStore pattern's
+   *  second consumer). Rides the Snapshot as `crossingTiers?`. See `@/world/crossing-tier-store`. */
+  crossingTiers: CrossingTierStore;
 }
 
 export function createState(): GameState {
@@ -174,5 +181,6 @@ export function createState(): GameState {
     trample: null,
     cohorts: new Map(),
     roadUse: new RoadUseTally(),
+    crossingTiers: new CrossingTierStore(),
   };
 }
