@@ -31,6 +31,10 @@ async function main(): Promise<void> {
   const allAreas: number[] = [];
   const allDepthsM: number[] = [];
   let sampleLines: string[] = [];
+  // Rivers R3 P2 — beaver-dam tally.
+  const perSeedDams: number[] = [];
+  let totalDams = 0, damsWithPond = 0;
+  const damLines: string[] = [];
 
   for (const seed of SEEDS) {
     clearHydrologyCache();
@@ -42,10 +46,27 @@ async function main(): Promise<void> {
     perSeedCounts.push(ponds.length);
     for (const p of ponds) { allAreas.push(p.area); allDepthsM.push(p.maxDepth * TERRAIN_RELIEF_M); }
 
+    const dams = map.beaverDams ?? [];
+    perSeedDams.push(dams.length);
+    totalDams += dams.length;
+    for (const d of dams) {
+      const withPond = d.pondId >= 0;
+      if (withPond) damsWithPond++;
+      if (damLines.length < 8) {
+        const dx = d.channelCell % map.width, dy = (d.channelCell / map.width) | 0;
+        const pond = withPond ? hy.ponds?.find((p) => p.id === d.pondId) : undefined;
+        damLines.push(
+          `  seed ${seed} dam#${d.id}: channel=(${dx},${dy}) run=${d.cells.length} crest=${d.crestElev.toFixed(4)}` +
+          ` pond=${withPond ? `#${d.pondId} area=${pond?.area} depth=${((pond?.maxDepth ?? 0) * TERRAIN_RELIEF_M).toFixed(2)}m` : 'none'}`,
+        );
+      }
+    }
+
     const areas = ponds.map((p) => p.area).sort((a, b) => a - b);
     console.log(
       `seed ${String(seed).padStart(7)}: ponds=${String(ponds.length).padStart(2)}` +
       `  area[min/med/max]=${areas.length ? `${areas[0]}/${pct(areas, 0.5)}/${areas[areas.length - 1]}` : '-'}` +
+      `  dams=${dams.length}` +
       `  size=${map.width}x${map.height}`,
     );
     if (sampleLines.length < 6 && ponds.length > 0) {
@@ -74,6 +95,13 @@ async function main(): Promise<void> {
   console.log(`total ponds: ${allAreas.length}`);
   console.log(`area (cells): min=${areas[0]} p50=${pct(areas, 0.5)} p90=${pct(areas, 0.9)} max=${areas[areas.length - 1]}`);
   console.log(`depth (m):   min=${depths[0]?.toFixed(2)} p50=${pct(depths, 0.5)?.toFixed(2)} p90=${pct(depths, 0.9)?.toFixed(2)} max=${depths[depths.length - 1]?.toFixed(2)}`);
+
+  console.log('\n── beaver dams (rivers R3 P2) ──');
+  console.log(damLines.join('\n') || '  (none sited)');
+  const damCounts = perSeedDams.slice().sort((a, b) => a - b);
+  console.log(`dams/seed:   min=${damCounts[0]} p50=${pct(damCounts, 0.5)} max=${damCounts[damCounts.length - 1]}`);
+  console.log(`             seeds with ≥1 dam: ${perSeedDams.filter((c) => c > 0).length}/${SEEDS.length}`);
+  console.log(`total dams:  ${totalDams}  (with a kept pond: ${damsWithPond})`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
