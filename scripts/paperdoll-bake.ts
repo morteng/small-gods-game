@@ -15,9 +15,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { PNG } from 'pngjs';
 import { bakeClip } from '@/render/paperdoll/rig';
 import {
-  CLIP_PRAY_BOW,
-  CLIP_PRAY_RAISE,
   DEFAULT_HUMANOID_LAYERS,
+  HUMANOID_CLIPS,
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
@@ -91,7 +90,7 @@ async function main() {
       assign: spec.assign,
     })),
   );
-  for (const clip of [CLIP_PRAY_RAISE, CLIP_PRAY_BOW]) {
+  for (const clip of HUMANOID_CLIPS) {
     const frames = bakeClip(LPC_HUMANOID_SOUTH, layers, clip);
     await writeFile(`${OUT}/${clip.name}-6x.png`, PNG.sync.write(strip(frames, 6)));
     await writeFile(

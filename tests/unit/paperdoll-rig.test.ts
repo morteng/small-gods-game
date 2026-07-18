@@ -14,9 +14,9 @@ import {
   type ChipPose,
 } from '@/render/paperdoll/rig';
 import {
-  CLIP_PRAY_BOW,
   CLIP_PRAY_RAISE,
   DEFAULT_HUMANOID_LAYERS,
+  HUMANOID_CLIPS,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
 import type { Raster } from '@/render/sprite-postprocess';
@@ -205,11 +205,17 @@ describe('humanoid template + clips', () => {
     });
   });
 
-  it('clip tracks reference real chips', () => {
+  it('clip tracks reference real chips, keys sorted, unique clip names', () => {
     const names = new Set(LPC_HUMANOID_SOUTH.chips.map((c) => c.name));
-    for (const clip of [CLIP_PRAY_RAISE, CLIP_PRAY_BOW]) {
-      for (const key of Object.keys(clip.tracks)) expect(names.has(key)).toBe(true);
+    const clipNames = new Set<string>();
+    for (const clip of HUMANOID_CLIPS) {
+      expect(clipNames.has(clip.name)).toBe(false);
+      clipNames.add(clip.name);
       expect(clip.frames).toBeGreaterThanOrEqual(2);
+      for (const [key, track] of Object.entries(clip.tracks)) {
+        expect(names.has(key)).toBe(true);
+        for (let i = 1; i < track.length; i++) expect(track[i].t).toBeGreaterThan(track[i - 1].t);
+      }
     }
   });
 
@@ -221,7 +227,7 @@ describe('humanoid template + clips', () => {
   });
 
   it('head tracks translate, never rotate (front-facing pitch is faked with dy)', () => {
-    for (const clip of [CLIP_PRAY_RAISE, CLIP_PRAY_BOW]) {
+    for (const clip of HUMANOID_CLIPS) {
       for (const k of clip.tracks.head) expect(k.deg).toBe(0);
       const end = clip.tracks.head[clip.tracks.head.length - 1];
       expect(end.dy).not.toBe(0);

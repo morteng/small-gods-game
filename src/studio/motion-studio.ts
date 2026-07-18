@@ -22,9 +22,8 @@ import {
   type PoseLayer,
 } from '@/render/paperdoll/rig';
 import {
-  CLIP_PRAY_BOW,
-  CLIP_PRAY_RAISE,
   DEFAULT_HUMANOID_LAYERS,
+  HUMANOID_CLIPS,
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
@@ -39,7 +38,7 @@ export interface StudioHandle {
 
 const TEMPLATE = LPC_HUMANOID_SOUTH;
 const CELL = TEMPLATE.cell;
-const CLIPS: readonly Clip[] = [CLIP_PRAY_RAISE, CLIP_PRAY_BOW];
+const CLIPS: readonly Clip[] = HUMANOID_CLIPS;
 const ZOOMS = [2, 4, 6, 10] as const;
 const STEP_MS = 120; // matches ACTION_FRAME_MS cadence
 const GAME_PX = 32; // on-screen sprite size at zoom 1

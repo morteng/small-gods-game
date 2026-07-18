@@ -112,6 +112,111 @@ export const CLIP_PRAY_BOW: Clip = {
   },
 };
 
+/** Deep contrite bow: heavy chin tuck, hands clasped high and tight. */
+export const CLIP_PRAY_PENITENT: Clip = {
+  name: 'pray-penitent',
+  frames: 8,
+  tracks: {
+    head: [
+      { t: 0, deg: 0, dy: 0 },
+      { t: 1, deg: 0, dy: 5 },
+    ],
+    armL_up: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: -30 },
+    ],
+    armL_fore: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: -74 },
+    ],
+    armR_up: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: 30 },
+    ],
+    armR_fore: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: 74 },
+    ],
+  },
+};
+
+/**
+ * Ecstatic supplication: arms thrown full up, then a held sway. The only clip
+ * with mid-keys so far — arms overshoot, settle, and re-reach while the lifted
+ * head drifts side to side (dx — the head chip carries the whole-head layers).
+ */
+export const CLIP_PRAY_ECSTATIC: Clip = {
+  name: 'pray-ecstatic',
+  frames: 12,
+  tracks: {
+    head: [
+      { t: 0, deg: 0, dy: 0 },
+      { t: 0.4, deg: 0, dy: -3 },
+      { t: 0.7, deg: 0, dx: -1, dy: -3 },
+      { t: 1, deg: 0, dx: 1, dy: -3 },
+    ],
+    armL_up: [
+      { t: 0, deg: 0 },
+      { t: 0.4, deg: 116 },
+      { t: 0.7, deg: 104 },
+      { t: 1, deg: 114 },
+    ],
+    armL_fore: [
+      { t: 0, deg: 0 },
+      { t: 0.4, deg: 24 },
+      { t: 1, deg: 16 },
+    ],
+    armR_up: [
+      { t: 0, deg: 0 },
+      { t: 0.4, deg: -116 },
+      { t: 0.7, deg: -104 },
+      { t: 1, deg: -114 },
+    ],
+    armR_fore: [
+      { t: 0, deg: 0 },
+      { t: 0.4, deg: -24 },
+      { t: 1, deg: -16 },
+    ],
+  },
+};
+
+/** Despair slump: head drops heavy, arms fall slightly out, palms helpless. */
+export const CLIP_DESPAIR: Clip = {
+  name: 'despair',
+  frames: 8,
+  tracks: {
+    head: [
+      { t: 0, deg: 0, dy: 0 },
+      { t: 1, deg: 0, dy: 4 },
+    ],
+    armL_up: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: 18 },
+    ],
+    armL_fore: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: 12 },
+    ],
+    armR_up: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: -18 },
+    ],
+    armR_fore: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: -12 },
+    ],
+  },
+};
+
+/** Every authored clip, in menu order. */
+export const HUMANOID_CLIPS: readonly Clip[] = [
+  CLIP_PRAY_RAISE,
+  CLIP_PRAY_BOW,
+  CLIP_PRAY_PENITENT,
+  CLIP_PRAY_ECSTATIC,
+  CLIP_DESPAIR,
+];
+
 /**
  * Default character stack for previews/bakes, painted bottom→top. The LPC body
  * sheet is HEADLESS — skull/face/hair are separate whole-head layers, so they
