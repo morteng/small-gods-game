@@ -58,6 +58,25 @@ open the repo's **Actions → Release (Linux desktop) → Run workflow**, enter 
 and it builds+publishes on `ubuntu-latest` exactly as `release-desktop.sh` would. It is
 **not** tag-triggered, so it never double-publishes alongside the local path.
 
+## Dev builds (multi-platform)
+
+Beyond the Linux AppImage, dev builds are cut for macOS and Windows so invited
+collaborators can test on their own machines. These ship as GitHub (pre)releases.
+
+- **macOS** — built **locally** on the Mac (`npm run dist:mac` → `release/small-gods-<version>-x64.dmg`
+  + `.zip`). The build Mac is **macOS 12 Monterey**, which caps Electron at **42.x** (Electron
+  44+ requires macOS 13) — do **not** bump `electron` past `42.x`. Builds are **unsigned**
+  (ad-hoc signature, `identity: null`, no notarization — no Apple Developer cert), so Gatekeeper
+  blocks a double-click on first launch. Testers must **right-click → Open** once, or clear the
+  quarantine attribute: `xattr -dr com.apple.quarantine "/Applications/Small Gods.app"`.
+- **Windows** — **cross-built on the `ci-eph` box** using the electron-builder wine image
+  (`./scripts/ci-on-server.sh --run="npm run dist:win" --out=release --image=electronuserland/builder:22-wine`),
+  producing `release/small-gods-<version>-setup.exe` (NSIS installer). The installer is
+  **unsigned**, so Windows SmartScreen shows an **"unknown publisher"** warning — testers click
+  **More info → Run anyway**.
+- **Linux** — unchanged: AppImage built on `ci-eph` (`npm run dist:linux`), the only
+  self-updating target (see below).
+
 ## Self-update (desktop)
 
 The desktop app updates itself, no store required:

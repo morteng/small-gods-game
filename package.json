@@ -26,6 +26,8 @@
     "electron:dev": "SG_DEV_URL=http://localhost:3000 electron .",
     "electron:preview": "npm run build:electron && electron .",
     "dist:linux": "npm run build:electron && electron-builder --linux AppImage --publish never",
+    "dist:mac": "npm run build:electron && electron-builder --mac --publish never",
+    "dist:win": "npm run build:electron && electron-builder --win --publish never",
     "release": "commit-and-tag-version",
     "release:dev": "commit-and-tag-version --prerelease dev"
   },
@@ -57,6 +59,22 @@
       "category": "Game",
       "icon": "src-tauri/icons/icon.png",
       "artifactName": "small-gods-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ],
+      "identity": null,
+      "notarize": false,
+      "category": "public.app-category.games",
+      "artifactName": "small-gods-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "artifactName": "small-gods-${version}-setup.${ext}"
     }
   },
   "devDependencies": {
