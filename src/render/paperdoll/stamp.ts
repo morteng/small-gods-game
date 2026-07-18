@@ -40,7 +40,22 @@ export interface StampRef {
   col?: number;
   /** Donor cell row (LPC: row 2 = south). Required unless `self`. */
   row?: number;
-  /** Crop rect within the donor cell (cell coordinates). */
+  /**
+   * Anchored mode: apply AFTER the FK render instead of to the rest cell.
+   * `dest` is authored in rest coordinates, but the patch is pasted where the
+   * named chip's world transform carries that point — axis-aligned, never
+   * rotated. This is the crisp hand-swap for big limb sweeps: a rotated 8px
+   * palm smears its 1px fingers into noise, an anchored one arrives pixel-
+   * perfect (pair it with a rest-cell eraser ref so the old fist doesn't smear
+   * underneath). `clear` rects are ignored on anchored refs — erase pre-FK.
+   */
+  anchor?: string;
+  /**
+   * Crop rect within the donor cell (cell coordinates). A ZERO-SIZED crop
+   * (w or h = 0) pastes nothing, turning the ref into a pure eraser for its
+   * `clear` rects — how a rest fist is removed before an anchored palm
+   * replaces it post-FK.
+   */
   crop: ChipRect;
   /** Paste position (top-left) in the rest cell. */
   dest: [number, number];

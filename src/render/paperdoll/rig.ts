@@ -19,7 +19,7 @@
  */
 import type { Raster } from '../sprite-postprocess';
 import { buildSkinField, rigidSkinField, type SkinField } from './skin';
-import { activeStampIndex, applyStamps, type DonorSheets, type StampKey } from './stamp';
+import { activeStampIndex, applyStamps, type DonorSheets, type StampKey, type StampRef } from './stamp';
 
 export interface ChipRect {
   x: number;
@@ -111,9 +111,20 @@ export interface Clip {
   /**
    * Keyframed pixel stamps (donor hand/face poses) — applied to each layer's
    * rest cell BEFORE the FK/skin path so chip rotation carries the swapped
-   * pixels. Step-switched, never interpolated. See `stamp.ts`.
+   * pixels. Step-switched, never interpolated. See `stamp.ts`. Refs with an
+   * `anchor` instead apply AFTER the FK render at the chip-transformed dest.
    */
   stamps?: readonly StampKey[];
+  /**
+   * Ground plants: rest-space points nailed in place for the whole clip. After
+   * tracks + couplings sample, each planted chip gains the exact local dx/dy
+   * that returns its point to the rest position — cancelling the arc-drift a
+   * coupled counter-rotation can't (the shin counters the thigh's ROTATION so
+   * the foot stays flat, but not the knee point's translation, so the sole
+   * slides by a pixel or two). Per-clip opt-in: a clip that deliberately moves
+   * a foot simply doesn't plant it.
+   */
+  plant?: readonly { chip: string; point: [number, number] }[];
 }
 
 /** Row-major 2×3 affine: [a, b, c, d, e, f] maps (x,y) → (ax+by+c, dx+ey+f). */
@@ -188,6 +199,25 @@ export function sampleClip(template: AnimTemplate, clip: Clip, t: number): ChipP
       if (di < 0) continue;
       const src = sampleTrack(clip.tracks[c.from], Math.max(0, t - (c.lag ?? 0)));
       poses[di][c.toProp ?? 'deg'] += c.gain * src[c.prop];
+    }
+  }
+  if (clip.plant) {
+    // Exact compensation: with world = P·T(dx,dy)·R, planting point p needs
+    // T(t) such that P·T·R(p) = p, i.e. t = P⁻¹(p) − R(p) — solved per plant
+    // against the parent chain's CURRENT world (parents sample first in
+    // template order, and plants target leaf chips, so parent poses are final).
+    const world = chipWorldTransforms(template, poses);
+    for (const pl of clip.plant) {
+      const ci = template.chips.findIndex((ch) => ch.name === pl.chip);
+      if (ci < 0) continue;
+      const ch = template.chips[ci];
+      const pose = poses[ci];
+      const P = ch.parent < 0 ? IDENTITY : world[ch.parent];
+      const [px, py] = pl.point;
+      const [wx, wy] = applyAffine(invertAffine(P), px, py);
+      const [rx, ry] = applyAffine(rotAbout(ch.pivot[0], ch.pivot[1], pose.deg), px, py);
+      pose.dx = wx - rx;
+      pose.dy = wy - ry;
     }
   }
   return poses;
@@ -568,6 +598,63 @@ function renderPoseSkinned(
   return { data: out, w: n, h: n };
 }
 
+/**
+ * Paste anchored stamp refs onto a rendered frame (mutates `frame`). Each
+ * ref's dest-rect CENTER is carried by its anchor chip's world transform; the
+ * patch pastes axis-aligned there — donor pixels never pass through the
+ * rotation resampler, so a swept-up open palm keeps its 1px fingers. Layers
+ * paste in order (wardrobe composes; later layers overwrite), sharing one
+ * footprint clear.
+ */
+export function applyAnchoredStamps(
+  frame: Raster,
+  template: AnimTemplate,
+  layers: readonly PoseLayer[],
+  refs: readonly StampRef[],
+  poses: readonly ChipPose[],
+): void {
+  const world = chipWorldTransforms(template, poses);
+  const n = frame.w;
+  for (const ref of refs) {
+    const ci = template.chips.findIndex((ch) => ch.name === ref.anchor);
+    if (ci < 0 || ref.crop.w <= 0 || ref.crop.h <= 0) continue;
+    const [tx, ty] = applyAffine(world[ci], ref.dest[0] + ref.crop.w / 2, ref.dest[1] + ref.crop.h / 2);
+    const dx0 = Math.round(tx - ref.crop.w / 2);
+    const dy0 = Math.round(ty - ref.crop.h / 2);
+    let cleared = false;
+    for (const layer of layers) {
+      const sheet = ref.self ? layer.raster : ref.anim !== undefined ? layer.donors?.[ref.anim] : undefined;
+      if (!sheet) continue;
+      if (!cleared) {
+        cleared = true;
+        for (let y = 0; y < ref.crop.h; y++) {
+          const dy = dy0 + y;
+          if (dy < 0 || dy >= frame.h) continue;
+          for (let x = 0; x < ref.crop.w; x++) {
+            const dx = dx0 + x;
+            if (dx >= 0 && dx < n) frame.data[(dy * n + dx) * 4 + 3] = 0;
+          }
+        }
+      }
+      const sx0 = (ref.self ? 0 : (ref.col ?? 0) * template.cell) + ref.crop.x;
+      const sy0 = (ref.self ? 0 : (ref.row ?? 0) * template.cell) + ref.crop.y;
+      for (let y = 0; y < ref.crop.h; y++) {
+        const sy = sy0 + y;
+        const dy = dy0 + y;
+        if (sy < 0 || sy >= sheet.h || dy < 0 || dy >= frame.h) continue;
+        for (let x = 0; x < ref.crop.w; x++) {
+          const sx = sx0 + x;
+          const dx = dx0 + x;
+          if (sx < 0 || sx >= sheet.w || dx < 0 || dx >= n) continue;
+          const si = (sy * sheet.w + sx) * 4;
+          if (sheet.data[si + 3] === 0) continue;
+          frame.data.set(sheet.data.subarray(si, si + 4), (dy * n + dx) * 4);
+        }
+      }
+    }
+  }
+}
+
 /** Bake every frame of a clip. Frame i samples t = i/(frames-1) (frames ≥ 2). */
 export function bakeClip(
   template: AnimTemplate,
@@ -579,22 +666,29 @@ export function bakeClip(
   const denom = Math.max(1, clip.frames - 1);
   const L = layers.map(toPoseLayer);
   // Stamps are step-switched, so all frames sharing a stamp key share the same
-  // stamped layer set — build each variant once.
+  // stamped layer set — build each variant once. Anchored refs skip this path
+  // (their dest is pose-dependent) and apply after the render, per frame.
   const stamped = new Map<number, PoseLayer[]>();
   for (let f = 0; f < clip.frames; f++) {
     const t = f / denom;
     let use: readonly PoseLayer[] = L;
+    let anchored: StampRef[] = [];
     const si = activeStampIndex(clip.stamps, t);
     if (si >= 0) {
+      const refs = clip.stamps![si].refs;
+      anchored = refs.filter((r) => r.anchor !== undefined);
       let v = stamped.get(si);
       if (!v) {
-        const refs = clip.stamps![si].refs;
-        v = L.map((l) => ({ ...l, raster: applyStamps(l.raster, refs, l.donors, template.cell) }));
+        const pre = refs.filter((r) => r.anchor === undefined);
+        v = L.map((l) => ({ ...l, raster: applyStamps(l.raster, pre, l.donors, template.cell) }));
         stamped.set(si, v);
       }
       use = v;
     }
-    frames.push(renderPose(template, use, sampleClip(template, clip, t), opts));
+    const poses = sampleClip(template, clip, t);
+    const frame = renderPose(template, use, poses, opts);
+    if (anchored.length > 0) applyAnchoredStamps(frame, template, L, anchored, poses);
+    frames.push(frame);
   }
   return frames;
 }

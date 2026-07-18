@@ -107,6 +107,30 @@ export const STAMP_PALMS_OPEN: readonly StampRef[] = [
 ];
 
 /**
+ * Fingers-up open palms for SWEPT-UP arms (pray-raise, ecstatic). A pre-FK
+ * palm rotated ~130° smears its 1px fingers into noise, so this pairs two
+ * mechanisms: zero-crop ERASER refs strip the rest fists before FK (nothing
+ * left to smear at the arm tip), then ANCHORED refs paste spellcast col 5's
+ * raised open hands — already fingers-up in the donor — at the FK-carried
+ * fist position, axis-aligned and pixel-perfect. Eraser clear rects = the
+ * exact fist rects from STAMP_PALMS_OPEN.
+ */
+export const STAMP_PALMS_SKY: readonly StampRef[] = [
+  { self: true, crop: { x: 0, y: 0, w: 0, h: 0 }, dest: [0, 0], clear: [
+    { x: 17, y: 45, w: 7, h: 5 },
+    { x: 19, y: 50, w: 4, h: 1 },
+  ] },
+  { self: true, crop: { x: 0, y: 0, w: 0, h: 0 }, dest: [0, 0], clear: [
+    { x: 40, y: 45, w: 7, h: 5 },
+    { x: 41, y: 50, w: 4, h: 1 },
+  ] },
+  // Anchored palms: dest centers on the rest fist; the forearm chip's world
+  // transform carries that center to the raised arm tip each frame.
+  { anim: 'spellcast', col: 5, row: 2, crop: { x: 8, y: 22, w: 8, h: 7 }, dest: [17, 44], anchor: 'armL_fore' },
+  { anim: 'spellcast', col: 5, row: 2, crop: { x: 48, y: 22, w: 8, h: 7 }, dest: [40, 44], anchor: 'armR_fore' },
+];
+
+/**
  * Facial stamps — SELF-CLONE refs (no expression sheets are vendored, so each
  * layer donates to itself; see StampRef.self). Feature map, pixel-recon'd from
  * the rest cell: eyes are 4×3 blocks at rows 29–31, x26–29 (screen-L) and
@@ -138,8 +162,9 @@ export const STAMP_MOUTH_OPEN: readonly StampRef[] = [
 export const CLIP_PRAY_RAISE: Clip = {
   name: 'pray-raise',
   frames: 7,
-  // Palms spread open to the sky as the arms sweep past horizontal.
-  stamps: [{ t: 0.7, refs: STAMP_PALMS_OPEN }],
+  // Palms spread open to the sky as the arms sweep past horizontal (anchored —
+  // pasted post-FK at the arm tip, so the fingers stay crisp).
+  stamps: [{ t: 0.7, refs: STAMP_PALMS_SKY }],
   tracks: {
     // Front view: pitch is faked with translation — the head LIFTS (dy<0),
     // never rotates (in-plane rotation reads as a sideways ear-to-shoulder tilt).
@@ -176,12 +201,18 @@ export const CLIP_PRAY_BOW: Clip = {
   name: 'pray-bow',
   frames: 7,
   // The legs take the bow: knees splay a touch as the head drops (head dy is
-  // the only pitch signal on a front view), shins counter to keep feet planted.
+  // the only pitch signal on a front view), shins counter to keep feet flat —
+  // and the soles are PLANTED (the counter cancels rotation, not the knee
+  // point's arc, so without the plant the boots slide a pixel).
   couple: [
     { from: 'head', prop: 'dy', to: 'legL_up', gain: 1, lag: 0.08 },
     { from: 'head', prop: 'dy', to: 'legL_fore', gain: -1, lag: 0.08 },
     { from: 'head', prop: 'dy', to: 'legR_up', gain: -1, lag: 0.08 },
     { from: 'head', prop: 'dy', to: 'legR_fore', gain: 1, lag: 0.08 },
+  ],
+  plant: [
+    { chip: 'legL_fore', point: [24.5, 62] },
+    { chip: 'legR_fore', point: [39.5, 62] },
   ],
   tracks: {
     // Chin tuck = translate down; no rotation (see pray-raise note).
@@ -220,6 +251,10 @@ export const CLIP_PRAY_PENITENT: Clip = {
     { from: 'head', prop: 'dy', to: 'legR_up', gain: -0.8, lag: 0.08 },
     { from: 'head', prop: 'dy', to: 'legR_fore', gain: 0.8, lag: 0.08 },
   ],
+  plant: [
+    { chip: 'legL_fore', point: [24.5, 62] },
+    { chip: 'legR_fore', point: [39.5, 62] },
+  ],
   stamps: [{ t: 0.6, refs: STAMP_BLINK }],
   tracks: {
     // The head drops heavy — sinks past the mark, then settles up a pixel.
@@ -256,12 +291,14 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
   name: 'pray-ecstatic',
   frames: 12,
   // Hands burst open as the arms sweep past horizontal (step-switch: the
-  // one-frame fist→palm pop reads as the hands opening).
-  stamps: [{ t: 0.15, refs: STAMP_PALMS_OPEN }],
+  // one-frame fist→palm pop reads as the hands opening; anchored refs keep
+  // the fingers crisp at full raise).
+  stamps: [{ t: 0.15, refs: STAMP_PALMS_SKY }],
   // Reverse-IK touch: the trunk sway drives a LAGGED knee flex — thighs lean
-  // the knees into the sway, shins counter most of it (boots stay planted but
-  // drift a smidge, a beat late), so the legs read as absorbing the sway
-  // instead of rigidly counter-sliding under it.
+  // the knees into the sway, shins counter most of it a beat late, so the legs
+  // read as absorbing the sway instead of rigidly counter-sliding under it.
+  // Soles are planted; the partial shin counter still rolls the boot about
+  // its planted sole point (heel-toe weight roll).
   couple: [
     { from: 'trunk', prop: 'dx', to: 'legL_up', gain: -6, lag: 0.06 },
     { from: 'trunk', prop: 'dx', to: 'legL_fore', gain: 4, lag: 0.12 },
@@ -271,6 +308,10 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
     // trunk as a child, so this is EXTRA drift on top — overshoots outward at
     // each reversal, the classic loose-head feel).
     { from: 'trunk', prop: 'dx', to: 'head', toProp: 'dx', gain: 0.8, lag: 0.1 },
+  ],
+  plant: [
+    { chip: 'legL_fore', point: [24.5, 62] },
+    { chip: 'legR_fore', point: [39.5, 62] },
   ],
   tracks: {
     // The sway lives on the TRUNK (head, arms and torso ride it) while the
@@ -332,10 +373,14 @@ export const CLIP_DESPAIR: Clip = {
     { t: 0.78, refs: [...STAMP_PALMS_OPEN, ...STAMP_BLINK] },
   ],
   // Shin counter-rotation derived from the thigh (was hand-keyed −1× tracks):
-  // full cancellation keeps the feet planted through the buckle.
+  // full cancellation keeps the feet FLAT; the plant nails the soles too.
   couple: [
     { from: 'legL_up', prop: 'deg', to: 'legL_fore', gain: -1 },
     { from: 'legR_up', prop: 'deg', to: 'legR_fore', gain: -1 },
+  ],
+  plant: [
+    { chip: 'legL_fore', point: [24.5, 62] },
+    { chip: 'legR_fore', point: [39.5, 62] },
   ],
   tracks: {
     // Head drops past the slump point, then settles — dead weight, not a lower.

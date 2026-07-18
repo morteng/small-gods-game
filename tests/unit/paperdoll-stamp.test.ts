@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bakeClip, type AnimTemplate, type Clip } from '@/render/paperdoll/rig';
+import { applyAnchoredStamps, bakeClip, type AnimTemplate, type Clip } from '@/render/paperdoll/rig';
 import { activeStampIndex, applyStamps, stampAnims, type StampKey, type StampRef } from '@/render/paperdoll/stamp';
 import { donorSheetCandidates, STAMP_BLINK } from '@/render/paperdoll/lpc-humanoid';
 import type { Raster } from '@/render/sprite-postprocess';
@@ -193,6 +193,23 @@ describe('STAMP_BLINK geometry (authored face refs)', () => {
   });
 });
 
+describe('zero-sized crop = pure eraser', () => {
+  it('clears its clear rects and pastes nothing (the pre-FK fist strip)', () => {
+    const cell = solid(N, N, [0, 0, 255, 255]);
+    const ref: StampRef = {
+      self: true,
+      crop: { x: 0, y: 0, w: 0, h: 0 },
+      dest: [0, 0],
+      clear: [{ x: 5, y: 5, w: 2, h: 2 }],
+    };
+    const out = applyStamps(cell, [ref], undefined, N);
+    expect(px(out, 5, 5)[3]).toBe(0);
+    expect(px(out, 6, 6)[3]).toBe(0);
+    expect(px(out, 4, 5)).toEqual([0, 0, 255, 255]); // outside untouched
+    expect(px(out, 0, 0)).toEqual([0, 0, 255, 255]); // dest not pasted over
+  });
+});
+
 describe('bakeClip stamp integration', () => {
   const T: AnimTemplate = {
     name: 'stamp-test',
@@ -222,6 +239,71 @@ describe('bakeClip stamp integration', () => {
     const layer = { raster: solid(N, N, [0, 255, 0, 255]) };
     const frames = bakeClip(T, [layer], clip);
     expect(px(frames[3], 5, 5)).toEqual([0, 255, 0, 255]);
+  });
+});
+
+describe('anchored stamps (post-FK hand swap)', () => {
+  // Root is empty; the arm chip is a 2-wide column that clips can rotate.
+  const T: AnimTemplate = {
+    name: 'anchor-test',
+    cell: 16,
+    chips: [
+      { name: 'root', rect: { x: 0, y: 0, w: 16, h: 16 }, pivot: [8, 8], parent: -1, z: 0 },
+      { name: 'arm', rect: { x: 7, y: 8, w: 2, h: 6 }, pivot: [8, 8], parent: 0, z: 1 },
+    ],
+  };
+  // Donor sheet (one cell wide): a green 2×2 patch at (4,4) with a distinct
+  // corner pixel to prove the paste is axis-aligned (never rotated).
+  function greenDonor(): Raster {
+    const sheet = solid(16, 16, [0, 0, 0, 0]);
+    sheet.data.set([0, 255, 0, 255], (4 * 16 + 4) * 4);
+    sheet.data.set([0, 255, 0, 255], (4 * 16 + 5) * 4);
+    sheet.data.set([0, 255, 0, 255], (5 * 16 + 5) * 4);
+    sheet.data.set([255, 255, 0, 255], (5 * 16 + 4) * 4); // yellow corner
+    return sheet;
+  }
+  const ANCHORED: StampRef = {
+    anim: 'spellcast',
+    col: 0,
+    row: 0,
+    crop: { x: 4, y: 4, w: 2, h: 2 },
+    dest: [7, 12], // rest-space: at the arm's far end
+    anchor: 'arm',
+  };
+
+  it('pastes at the chip-transformed dest, axis-aligned, only after the key', () => {
+    const clip: Clip = {
+      name: 'swing',
+      frames: 3, // t = 0, 0.5, 1
+      tracks: { arm: [{ t: 0, deg: 0 }, { t: 1, deg: 180 }] },
+      stamps: [{ t: 0.9, refs: [ANCHORED] }],
+    };
+    const layer = { raster: solid(16, 16, [0, 0, 255, 255]), donors: { spellcast: greenDonor() } };
+    const frames = bakeClip(T, [layer], clip);
+    // Before the key: no green anywhere.
+    const hasGreen = (f: Raster) => {
+      for (let i = 0; i < f.data.length; i += 4) if (f.data[i] === 0 && f.data[i + 1] === 255 && f.data[i + 3] > 0) return true;
+      return false;
+    };
+    expect(hasGreen(frames[0])).toBe(false);
+    expect(hasGreen(frames[1])).toBe(false);
+    // At t=1 the arm is rotated 180° about (8,8): rest dest center (8,13) maps
+    // to (8,3), so the 2×2 patch lands at (7,2)..(8,3) — and the yellow corner
+    // stays bottom-left (axis-aligned paste; a rotated paste would flip it).
+    expect(px(frames[2], 7, 2)).toEqual([0, 255, 0, 255]);
+    expect(px(frames[2], 8, 2)).toEqual([0, 255, 0, 255]);
+    expect(px(frames[2], 8, 3)).toEqual([0, 255, 0, 255]);
+    expect(px(frames[2], 7, 3)).toEqual([255, 255, 0, 255]);
+  });
+
+  it('applyAnchoredStamps: unknown anchors and zero crops are ignored', () => {
+    const frame = solid(16, 16, [0, 0, 255, 255]);
+    const before = [...frame.data];
+    applyAnchoredStamps(frame, T, [{ raster: solid(16, 16, [0, 0, 255, 255]), donors: { spellcast: greenDonor() } }], [
+      { ...ANCHORED, anchor: 'ghost' },
+      { ...ANCHORED, crop: { x: 4, y: 4, w: 0, h: 0 } },
+    ], T.chips.map(() => ({ deg: 0, dx: 0, dy: 0 })));
+    expect([...frame.data]).toEqual(before);
   });
 });
 
