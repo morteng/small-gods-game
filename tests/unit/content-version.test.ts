@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (104: ponds — depression hierarchy keeps small hollows as flat ponds with real outlets)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(104);
+  it('declares the current world content version (105: pond fishery civic — hut + jetty + drying racks on pond shores)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(105);
   });
 });
