@@ -32,6 +32,7 @@ describe('interest-predicate — seek filter', () => {
       { type: 'smite', spiritId: PLAYER_SPIRIT_ID, witnesses: 3 },
       { type: 'miracle', spiritId: PLAYER_SPIRIT_ID, poiId: 'p', needType: 'safety', amount: 1 },
       { type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 0, toLabel: 'log' },
+      { type: 'road_adopted', edgeId: 'e1', x: 0, y: 0, lengthT: 10 },
     ];
     for (const ev of yes) expect(isInterestingEvent(ev), ev.type).toBe(true);
   });
@@ -70,5 +71,12 @@ describe('interest-predicate — seek filter', () => {
     expect(stoneArch).toEqual({ rank: 47, label: 'A stone bridge rose over the water' });
     expect(midLadder).toEqual({ rank: 44, label: 'A river crossing was built up' });
     expect(firstLog).toEqual({ rank: 44, label: 'A log was laid over the water' });
+  });
+
+  it('describeInterest ranks a road_adopted beat between a generic crossing build and a stone arch', () => {
+    const adopted = describeInterest({ type: 'road_adopted', edgeId: 'e1', x: 0, y: 0, lengthT: 10 });
+    expect(adopted).toEqual({ rank: 45, label: 'A well-worn trail became a road' });
+    expect(adopted.rank).toBeGreaterThan(describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 0, toLabel: 'log' }).rank);
+    expect(adopted.rank).toBeLessThan(describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 6, toLabel: 'stone arch', from: 5, fromLabel: 'timber arch' }).rank);
   });
 });

@@ -42,6 +42,12 @@ export type SimEvent =
   // `fromLabel`/`toLabel` are the human tier names (CROSSING_TIER_LABELS) so consumers stay
   // ladder-shape-agnostic. (x,y) = the crossing site, for the seek/landing surface.
   | { type: 'crossing_upgraded';  crossingId: string; x: number; y: number; to: number; toLabel: string; from?: number; fromLabel?: string; edgeId?: string }
+  // Road-wear economy S4 — a desire-line trample corridor was ADOPTED into the road graph as an
+  // emergent `path` edge ("the mill path became a road"): sustained qualifying wear between two
+  // anchors, committed by `adoptDesireLine`. `fromPoiId`/`toPoiId` name POI anchors when the
+  // corridor ends at one (either may be absent — a trail can end at a bare junction). (x,y) =
+  // the corridor midpoint, `lengthT` its cell length, for the seek/landing surface.
+  | { type: 'road_adopted';       edgeId: string; x: number; y: number; lengthT: number; fromPoiId?: string; toPoiId?: string }
   | { type: 'authored_spawn';     entityIds: EntityId[]; role: string; count: number }
   | { type: 'authored_remove';    entityIds: EntityId[]; count: number }
   | { type: 'authored_modify';    entityId: EntityId; fields: string[] }

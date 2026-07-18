@@ -12,6 +12,7 @@ import type { RuntimePoiSnapshot } from '@/world/runtime-poi';
 import type { TrampleSnapshot } from '@/sim/trample';
 import { RoadUseTally, type RoadUseSnapshot } from '@/world/road-use';
 import { reconcileCrossingTiers, type CrossingTierSnapshot } from '@/world/crossing-tier-store';
+import { AdoptionLedger, reconcileAdoptions, type AdoptionLedgerSnapshot } from '@/world/desire-line-adoption';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -79,6 +80,13 @@ export interface Snapshot {
    *  before an upgrade shows the log again and forward rebuilds byte-identically. Optional
    *  so pre-S3 saves + partial test states restore to an empty store. */
   crossingTiers?: CrossingTierSnapshot;
+  /** Road-wear economy (S4): the desire-line adoption ledger — wear streaks + one permanent
+   *  record per corridor adopted into the road graph. The GRAPH rides the map (mutated in
+   *  place), so restore replays graph membership from this ledger (`reconcileAdoptions`): a
+   *  scrub to before an adoption un-adopts (edge out, host splits merged, tiles reverted —
+   *  the restored trample grid owns the dirt again); forward re-adopts byte-identically.
+   *  Optional so pre-S4 saves + partial test states restore to an empty ledger. */
+  adoptions?: AdoptionLedgerSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -156,6 +164,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     trample: state.trample?.serialize(),
     roadUse: state.roadUse?.serialize(),
     crossingTiers: state.crossingTiers?.serialize(),
+    adoptions: state.adoptions?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -265,6 +274,19 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
     // immediately after a scrub, not one game hour later. Grip transition
     // memory (`gripsPoiId`) rides the snapshotted LordState above.
     rebuildDominions(fresh.dominions, state.runtimePois);
+  }
+
+  // Road-wear S4: replay road-graph membership from the restored adoption ledger. Runs
+  // AFTER the trample restore (an un-adopted corridor's dirt cells are then owned by the
+  // restored grid, whose reconcile deliberately skipped them while they were road tiles)
+  // and BEFORE the crossing-tier reconcile (which heals store↔entity divergence over
+  // whatever graph stands when it runs). The pre-restore ledger is handed over so
+  // adoptions committed after the restore point can be reversed from their records.
+  if (state.adoptions) {
+    const prevLedger = new AdoptionLedger();
+    prevLedger.hydrate(state.adoptions.serialize());
+    state.adoptions.hydrate(snap.adoptions ?? { entries: [] });
+    reconcileAdoptions(state.map, state.adoptions, prevLedger);
   }
 
   // Road-wear S3: restore the crossing-tier store (or clear it for a pre-S3 snapshot),

@@ -6,6 +6,7 @@ import { advanceRoadEvolution, connectomeEvolveOptions, buildRoadUseInputs, endp
 import { foldRoadUse, evolveRoadClasses, ROAD_CLASS_LADDER, CROSSING_TIER_LABELS } from '@/world/road-use';
 import { stepCrossingTiers, corridorSitesFor, type CrossingTierStore, type CrossingUpgrade } from '@/world/crossing-tier-store';
 import { detectCorridorCrossings } from '@/world/corridor-crossings';
+import { stepAdoptions, type AdoptionLedger, type AdoptedEvent } from '@/world/desire-line-adoption';
 import { residentsByPoi } from '@/sim/systems/settlement-growth-system';
 import { lordSeatFunds } from '@/sim/lord';
 import { getClimateFields } from '@/world/heightfield';
@@ -35,6 +36,16 @@ export function emitRoadClassEvent(log: EventLog, tr: RoadClassTransition): void
   } else {
     log.append({ type: 'road_demoted', edgeId, from, to, fromPoiId, toPoiId });
   }
+}
+
+/** Emit the SimEvent for one desire-line adoption. Shared by the live tick + skip. */
+export function emitRoadAdopted(log: EventLog, ev: AdoptedEvent): void {
+  log.append({
+    type: 'road_adopted',
+    edgeId: ev.edgeId, x: ev.x, y: ev.y, lengthT: ev.lengthT,
+    ...(ev.fromPoiId ? { fromPoiId: ev.fromPoiId } : {}),
+    ...(ev.toPoiId ? { toPoiId: ev.toPoiId } : {}),
+  });
 }
 
 /** Emit the SimEvent for one crossing-tier upgrade. Shared by the live tick + skip. */
@@ -77,6 +88,8 @@ export class RoadEvolutionSystem implements System {
     private readonly getCrossingTiers: () => CrossingTierStore | null = () => null,
     /** S3: the trample grid — corridor-log detection scans its promoted cells. */
     private readonly getTrample: () => TrampleGrid | null = () => null,
+    /** S4: the adoption ledger — a qualifying corridor becomes an emergent path edge. */
+    private readonly getAdoptions: () => AdoptionLedger | null = () => null,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -112,14 +125,24 @@ export class RoadEvolutionSystem implements System {
       // graph crossings step toward their earned tier; promoted trample corridors earn their
       // tier-0 log. Each physical change swaps the span entity and narrates.
       const store = this.getCrossingTiers();
+      const trample = this.getTrample();
       if (store) {
-        const trample = this.getTrample();
         const upgrades = stepCrossingTiers({
           world: ctx.world, map, store, nowTick: ctx.now,
           wealthFor: useInputs.wealthFor,
           corridorSites: trample ? corridorSitesFor(map, trample, detectCorridorCrossings) : undefined,
         });
         for (const u of upgrades) emitCrossingUpgraded(ctx.log, u);
+      }
+      // S4: LAST on the year-pass — a corridor that has sustained qualifying wear becomes a
+      // real path edge (the log the trail earned in S3 rides along via the ledger re-key).
+      // After the crossing step so the log precedes the road, live and in fiction.
+      const ledger = this.getAdoptions();
+      if (ledger && trample) {
+        const adopted = stepAdoptions({
+          world: ctx.world, map, ledger, trample, nowTick: ctx.now, crossingTiers: store,
+        });
+        for (const ev of adopted) emitRoadAdopted(ctx.log, ev);
       }
     }
   }
