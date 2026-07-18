@@ -67,14 +67,23 @@ function createWindow() {
   }
 }
 
-// Self-update for direct AppImage downloads (itch-app installs are updated by itch
-// itself, so this is a no-op there — both can coexist). electron-updater reads the
-// feed baked in from build.publish (GitHub Releases). Only meaningful in a packaged
-// AppImage: a plain `electron .` preview has no app-update.yml, and on Linux only the
-// AppImage target is self-updatable — so we bail early everywhere else.
+// Self-update for direct downloads (itch-app installs are updated by itch itself, so
+// this is a no-op there — both can coexist). electron-updater reads the feed baked in
+// from build.publish (GitHub Releases). Only meaningful in a packaged, self-updatable
+// build:
+//   - Linux: only the AppImage target is self-updatable (needs process.env.APPIMAGE).
+//   - Windows: the NSIS installer is self-updatable.
+//   - macOS: Squirrel.Mac requires a *signed* app, and dev builds are unsigned (no cert)
+//     — so darwin is deliberately skipped and gets manual updates (download the new dmg).
 function initAutoUpdate(win) {
-  if (!app.isPackaged || !process.env.APPIMAGE) return;
+  const selfUpdatable =
+    app.isPackaged &&
+    (process.platform === 'linux' ? !!process.env.APPIMAGE : process.platform === 'win32');
+  if (!selfUpdatable) return; // includes darwin (unsigned → no Squirrel.Mac) and unpackaged previews
   const { autoUpdater } = require('electron-updater');
+  // Dev-tagged builds (version has a prerelease suffix, e.g. 0.2.0-dev.3) follow dev
+  // prereleases; stable builds ignore them.
+  autoUpdater.allowPrerelease = app.getVersion().includes('-');
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
