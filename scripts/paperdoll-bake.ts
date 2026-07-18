@@ -16,10 +16,12 @@ import { PNG } from 'pngjs';
 import { bakeClip } from '@/render/paperdoll/rig';
 import {
   DEFAULT_HUMANOID_LAYERS,
+  donorSheetCandidates,
   HUMANOID_CLIPS,
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
+import { stampAnims } from '@/render/paperdoll/stamp';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
 import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 
@@ -84,12 +86,32 @@ function downscale(f: Raster, to: number): Raster {
   return { data: out, w: to, h: to };
 }
 
+/** Full donor sheet as a Raster, or null when the layer ships no such anim. */
+async function loadSheet(publicPath: string): Promise<Raster | null> {
+  try {
+    const png = PNG.sync.read(await readFile(`public/${publicPath}`));
+    return { data: new Uint8ClampedArray(png.data), w: png.width, h: png.height };
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
+  const anims = stampAnims(HUMANOID_CLIPS.map((c) => c.stamps));
   const layers = await Promise.all(
-    DEFAULT_HUMANOID_LAYERS.map(async (spec) => ({
-      raster: await loadLayerCell(spec.path),
-      assign: spec.assign,
-    })),
+    DEFAULT_HUMANOID_LAYERS.map(async (spec) => {
+      const donors: Record<string, Raster> = {};
+      for (const anim of anims) {
+        for (const cand of donorSheetCandidates(spec.path, anim)) {
+          const sheet = await loadSheet(cand);
+          if (sheet) {
+            donors[anim] = sheet;
+            break;
+          }
+        }
+      }
+      return { raster: await loadLayerCell(spec.path), assign: spec.assign, donors };
+    }),
   );
   // Production finish: snap to the source palette + re-ink the silhouette —
   // rotated frames otherwise read blurrier than frame 0 (blend AA + eroded

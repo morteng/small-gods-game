@@ -27,10 +27,12 @@ import {
 } from '@/render/paperdoll/rig';
 import {
   DEFAULT_HUMANOID_LAYERS,
+  donorSheetCandidates,
   HUMANOID_CLIPS,
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
+import { stampAnims } from '@/render/paperdoll/stamp';
 import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
 import { LPC_ANIMATIONS } from '@/core/npc-animation';
 import { FRAME_MS } from '@/render/npc-animator';
@@ -867,16 +869,34 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       return decodePngToRaster(await resp.blob());
     }
     try {
-      const sheets = await Promise.all(
+      const anims = stampAnims(CLIPS.map((c) => c.stamps));
+      const loaded = await Promise.all(
         charLayers.map(async (spec) => {
-          const raster =
-            (await fetchRaster(spec.path)) ?? (spec.fallback ? await fetchRaster(spec.fallback) : null);
-          if (!raster) throw new Error(`${spec.path}: not found`);
-          return raster;
+          let path = spec.path;
+          let sheet = await fetchRaster(path);
+          if (!sheet && spec.fallback) {
+            path = spec.fallback;
+            sheet = await fetchRaster(path);
+          }
+          if (!sheet) throw new Error(`${spec.path}: not found`);
+          // Donor anim sheets for clip stamps (open palms…), derived from the
+          // path that actually loaded. A layer without the donor anim simply
+          // keeps its rest pixels (e.g. the child wardrobe has no spellcast).
+          const donors: Record<string, Raster> = {};
+          for (const anim of anims) {
+            for (const cand of donorSheetCandidates(path, anim)) {
+              const d = await fetchRaster(cand);
+              if (d) {
+                donors[anim] = d;
+                break;
+              }
+            }
+          }
+          return { sheet, donors };
         }),
       );
       if (disposed || gen !== loadGen) return;
-      layers = sheets.map((sheet, li) => {
+      layers = loaded.map(({ sheet, donors }, li) => {
         const data = new Uint8ClampedArray(CELL * CELL * 4);
         const sx = HUMANOID_SOURCE.col * CELL;
         const sy = HUMANOID_SOURCE.row * CELL;
@@ -884,10 +904,10 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
           const src = (sy + y) * sheet.w + sx;
           data.set(sheet.data.subarray(src * 4, (src + CELL) * 4), y * CELL * 4);
         }
-        return { raster: { data, w: CELL, h: CELL }, assign: charLayers[li].assign };
+        return { raster: { data, w: CELL, h: CELL }, assign: charLayers[li].assign, donors };
       });
       // Composite the walk cycle for the gait lane (existing frames, untouched).
-      loadedSheets = sheets;
+      loadedSheets = loaded.map((l) => l.sheet);
       hiddenLayers.clear();
       rebuildLayerRow(charLayers.map((c) => c.label));
       rebuildWalkLane();

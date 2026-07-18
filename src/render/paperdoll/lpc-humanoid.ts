@@ -12,6 +12,7 @@
  * facings need their own chip sets (side views overlap arms over torso).
  */
 import type { AnimTemplate, Clip } from './rig';
+import type { StampRef } from './stamp';
 
 /** One vendored LPC layer + optional whole-layer chip assignment. */
 export interface HumanoidLayerSpec {
@@ -69,6 +70,41 @@ export const LPC_HUMANOID_SOUTH: AnimTemplate = {
     { name: 'legR_fore', rect: { x: 34, y: 56, w: 11, h: 6 }, pivot: KNEE_R, parent: 8, z: 9 },
   ],
 };
+
+/**
+ * Open-palm hand stamps (screen L then R) — spread-open hands harvested from
+ * the spellcast sheet's south row, col 6 (palms hanging open down-out). That
+ * donor matches the rest fist's fingers-DOWN orientation, so applying it
+ * pre-FK lets the chip rotation carry the palm to fingers-up on a raise —
+ * col 5's up-pointing palm would arrive inverted. Crops are hand-only (the
+ * longsleeve cuff ends a row above, so in the default stack only the body
+ * layer contributes pixels); clear rects excise the rest fists exactly —
+ * (23,50)/(40,50) are leg-top pixels and must survive.
+ */
+export const STAMP_PALMS_OPEN: readonly StampRef[] = [
+  {
+    anim: 'spellcast',
+    col: 6,
+    row: 2,
+    crop: { x: 15, y: 44, w: 8, h: 5 },
+    dest: [16, 45],
+    clear: [
+      { x: 17, y: 45, w: 7, h: 5 },
+      { x: 19, y: 50, w: 4, h: 1 },
+    ],
+  },
+  {
+    anim: 'spellcast',
+    col: 6,
+    row: 2,
+    crop: { x: 41, y: 44, w: 8, h: 5 },
+    dest: [40, 45],
+    clear: [
+      { x: 40, y: 45, w: 7, h: 5 },
+      { x: 41, y: 50, w: 4, h: 1 },
+    ],
+  },
+];
 
 /** Raise-arms supplication: stand → arms swept up toward the sky, face lifted. */
 export const CLIP_PRAY_RAISE: Clip = {
@@ -165,12 +201,22 @@ export const CLIP_PRAY_PENITENT: Clip = {
 export const CLIP_PRAY_ECSTATIC: Clip = {
   name: 'pray-ecstatic',
   frames: 12,
+  // Hands burst open as the arms sweep past horizontal (step-switch: the
+  // one-frame fist→palm pop reads as the hands opening).
+  stamps: [{ t: 0.15, refs: STAMP_PALMS_OPEN }],
   tracks: {
+    // The sway lives on the TRUNK (head, arms and torso ride it) while the
+    // legs counter-translate to stay planted — same planted-feet trick as
+    // idle-shift, so the whole upper body rocks, not just the head.
+    trunk: [
+      { t: 0.4, deg: 0, dx: 0 },
+      { t: 0.7, deg: 0, dx: -1 },
+      { t: 1, deg: 0, dx: 1 },
+    ],
     head: [
       { t: 0, deg: 0, dy: 0 },
       { t: 0.4, deg: 0, dy: -3 },
-      { t: 0.7, deg: 0, dx: -1, dy: -3 },
-      { t: 1, deg: 0, dx: 1, dy: -3 },
+      { t: 1, deg: 0, dy: -3 },
     ],
     armL_up: [
       { t: 0, deg: 0 },
@@ -194,6 +240,16 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
       { t: 0.4, deg: -24 },
       { t: 1, deg: -16 },
     ],
+    legL_up: [
+      { t: 0.4, deg: 0, dx: 0 },
+      { t: 0.7, deg: 0, dx: 1 },
+      { t: 1, deg: 0, dx: -1 },
+    ],
+    legR_up: [
+      { t: 0.4, deg: 0, dx: 0 },
+      { t: 0.7, deg: 0, dx: 1 },
+      { t: 1, deg: 0, dx: -1 },
+    ],
   },
 };
 
@@ -201,6 +257,8 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
 export const CLIP_DESPAIR: Clip = {
   name: 'despair',
   frames: 8,
+  // Mid-slump the fists fall open — the helpless empty-palm beat.
+  stamps: [{ t: 0.5, refs: STAMP_PALMS_OPEN }],
   tracks: {
     head: [
       { t: 0, deg: 0, dy: 0 },
@@ -288,6 +346,22 @@ export const HUMANOID_CLIPS: readonly Clip[] = [
  * are assigned to the `head` chip wholesale (rect-slicing them cut chins and
  * hair in half at the head-box boundary). Body + clothes stay rect-sliced.
  */
+/**
+ * Candidate paths for a layer's donor anim sheet, derived from its walk path.
+ * Safe because the vendored set mirrors flat-vs-variant layout and variant
+ * filenames identically across anim subfolders (verified across the full
+ * ROLE_SPECS wardrobe). Variant paths also fall back to the flat sheet, same
+ * as the walk loader. Missing donors are fine — the layer keeps rest pixels.
+ */
+export function donorSheetCandidates(walkPath: string, anim: string): string[] {
+  if (walkPath.endsWith('/walk.png')) {
+    return [walkPath.slice(0, -'/walk.png'.length) + `/${anim}.png`];
+  }
+  const m = walkPath.match(/^(.*)\/walk\/([^/]+)$/);
+  if (m) return [`${m[1]}/${anim}/${m[2]}`, `${m[1]}/${anim}.png`];
+  return [];
+}
+
 export const DEFAULT_HUMANOID_LAYERS: readonly HumanoidLayerSpec[] = [
   { path: 'sprites/lpc/spritesheets/body/bodies/male/walk.png' },
   { path: 'sprites/lpc/spritesheets/torso/clothes/longsleeve/longsleeve2_buttoned/male/walk.png' },

@@ -19,6 +19,7 @@
  */
 import type { Raster } from '../sprite-postprocess';
 import { buildSkinField, rigidSkinField, type SkinField } from './skin';
+import { activeStampIndex, applyStamps, type DonorSheets, type StampKey } from './stamp';
 
 export interface ChipRect {
   x: number;
@@ -80,6 +81,12 @@ export interface Clip {
   frames: number;
   /** Per-chip-name angle tracks; chips without a track stay at 0°. */
   tracks: Record<string, Keyframe[]>;
+  /**
+   * Keyframed pixel stamps (donor hand/face poses) — applied to each layer's
+   * rest cell BEFORE the FK/skin path so chip rotation carries the swapped
+   * pixels. Step-switched, never interpolated. See `stamp.ts`.
+   */
+  stamps?: readonly StampKey[];
 }
 
 /** Row-major 2×3 affine: [a, b, c, d, e, f] maps (x,y) → (ax+by+c, dx+ey+f). */
@@ -216,6 +223,13 @@ export interface RenderPoseOptions {
 export interface PoseLayer {
   raster: Raster;
   assign?: string;
+  /**
+   * This layer's donor sheets by anim name (full sheet rasters) — the material
+   * clip stamps harvest from. Each layer resolves stamps against its OWN
+   * sheets (a glove layer supplies its own palm); a layer without the stamped
+   * anim keeps its rest pixels.
+   */
+  donors?: DonorSheets;
 }
 
 export type PoseLayerInput = Raster | PoseLayer;
@@ -527,8 +541,24 @@ export function bakeClip(
 ): Raster[] {
   const frames: Raster[] = [];
   const denom = Math.max(1, clip.frames - 1);
+  const L = layers.map(toPoseLayer);
+  // Stamps are step-switched, so all frames sharing a stamp key share the same
+  // stamped layer set — build each variant once.
+  const stamped = new Map<number, PoseLayer[]>();
   for (let f = 0; f < clip.frames; f++) {
-    frames.push(renderPose(template, layers, sampleClip(template, clip, f / denom), opts));
+    const t = f / denom;
+    let use: readonly PoseLayer[] = L;
+    const si = activeStampIndex(clip.stamps, t);
+    if (si >= 0) {
+      let v = stamped.get(si);
+      if (!v) {
+        const refs = clip.stamps![si].refs;
+        v = L.map((l) => ({ ...l, raster: applyStamps(l.raster, refs, l.donors, template.cell) }));
+        stamped.set(si, v);
+      }
+      use = v;
+    }
+    frames.push(renderPose(template, use, sampleClip(template, clip, t), opts));
   }
   return frames;
 }
