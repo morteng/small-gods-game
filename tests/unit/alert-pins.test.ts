@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { projectAlertPins, projectPinCentre, MAX_ALERT_PINS } from '@/game/affordance/alert-pins';
-import { createCamera, worldToScreen } from '@/render/camera';
-import { TILE_SIZE } from '@/core/constants';
+import { createCamera } from '@/render/camera';
+import { worldToScreen } from '@/render/iso/iso-projection';
+import { isoStageTransform } from '@/render/iso/entity-draw-list';
 import type { InboxItem } from '@/game/game-query';
 
 function item(id: string, salience: number, anchor?: { x: number; y: number }, surfaced = false): InboxItem {
@@ -13,15 +14,16 @@ function item(id: string, salience: number, anchor?: { x: number; y: number }, s
 }
 
 describe('projectAlertPins — P5 top-N pin projection', () => {
-  it('projects anchored items to pixel-snapped device-px centres (tile centre = +0.5)', () => {
+  it('projects anchored items through the ISO projection (camera pans in iso-screen space)', () => {
     const cam = createCamera();
     cam.x = 100; cam.y = 50; cam.zoom = 1 / 3; // a fractional rung — rounding must bite
     const dpr = 2;
     const pins = projectAlertPins([item('a', 1, { x: 7, y: 3 })], cam, dpr);
     expect(pins).toHaveLength(1);
-    const { sx, sy } = worldToScreen(cam, 7.5, 3.5, TILE_SIZE);
-    expect(pins[0].x).toBe(Math.round(sx * dpr));
-    expect(pins[0].y).toBe(Math.round(sy * dpr));
+    const iso = worldToScreen(7.5, 3.5, 40, 0, 0); // 40 = PIN_HEAD_LIFT
+    const t = isoStageTransform(cam);
+    expect(pins[0].x).toBe(Math.round((iso.sx * t.scale + t.x) * dpr));
+    expect(pins[0].y).toBe(Math.round((iso.sy * t.scale + t.y) * dpr));
     expect(Number.isInteger(pins[0].x)).toBe(true); // pixel-snapped
     expect(Number.isInteger(pins[0].y)).toBe(true);
   });
