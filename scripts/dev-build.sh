@@ -88,17 +88,17 @@ TAG="v${VERSION}"
 SHA="$(git rev-parse --short HEAD)"
 log "Dev build: $TAG  (sha $SHA)"
 
-# ── Token env-file for the box (injected + deleted by ci-on-server) ──────────
-TOK_ENV=""
-if [ -n "$READ_PAT" ]; then
-  TOK_ENV="$(mktemp -t sg-releases-pat.XXXXXX)"
-  # shellcheck disable=SC2064
-  trap "rm -f '$TOK_ENV'" EXIT
-  printf 'SG_RELEASES_READ_PAT=%s\n' "$READ_PAT" > "$TOK_ENV"
-  chmod 600 "$TOK_ENV"
-fi
-BOX_ENV_ARG=()
-[ -n "$TOK_ENV" ] && BOX_ENV_ARG=(--env="$TOK_ENV")
+# ── Env-file for the box (injected + deleted by ci-on-server) ────────────────
+# Always carries VITE_GIT_SHA: the box builds from a `git archive` tar with no .git,
+# so without this the in-app build stamp reads "unknown". The read PAT rides along
+# when present (0600, deleted after the run).
+BOX_ENV="$(mktemp -t sg-dev-build-env.XXXXXX)"
+# shellcheck disable=SC2064
+trap "rm -f '$BOX_ENV'" EXIT
+printf 'VITE_GIT_SHA=%s\n' "$SHA" > "$BOX_ENV"
+[ -n "$READ_PAT" ] && printf 'SG_RELEASES_READ_PAT=%s\n' "$READ_PAT" >> "$BOX_ENV"
+chmod 600 "$BOX_ENV"
+BOX_ENV_ARG=(--env="$BOX_ENV")
 
 # ── Build: Linux AppImage (box) ──────────────────────────────────────────────
 if [ "$SKIP_LINUX" = 0 ]; then
