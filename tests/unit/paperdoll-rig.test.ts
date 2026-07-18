@@ -270,8 +270,9 @@ describe('humanoid template + clips', () => {
   it('head tracks translate, never rotate (front-facing pitch is faked with dy)', () => {
     for (const clip of HUMANOID_CLIPS) {
       for (const k of clip.tracks.head) expect(k.deg).toBe(0);
-      const end = clip.tracks.head[clip.tracks.head.length - 1];
-      expect(end.dy).not.toBe(0);
+      // Pitch lives on the dy channel somewhere in the track — looped clips
+      // (converse) legitimately end back at rest, so the END need not be posed.
+      expect(clip.tracks.head.some((k) => k.dy !== undefined && k.dy !== 0)).toBe(true);
     }
   });
 

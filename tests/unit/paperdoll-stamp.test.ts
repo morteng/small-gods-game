@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bakeClip, type AnimTemplate, type Clip } from '@/render/paperdoll/rig';
 import { activeStampIndex, applyStamps, stampAnims, type StampKey, type StampRef } from '@/render/paperdoll/stamp';
-import { donorSheetCandidates } from '@/render/paperdoll/lpc-humanoid';
+import { donorSheetCandidates, STAMP_BLINK } from '@/render/paperdoll/lpc-humanoid';
 import type { Raster } from '@/render/sprite-postprocess';
 
 const N = 8;
@@ -118,6 +118,78 @@ describe('applyStamps', () => {
     const b = applyStamps(cell, [REF], { spellcast: donorSheet() }, N);
     expect(Buffer.from(a.data)).toEqual(Buffer.from(b.data));
     expect([...cell.data]).toEqual(before);
+  });
+});
+
+describe('self stamps (donor-less clones from the layer\'s own cell)', () => {
+  it('clones from the cell itself, with no donor sheets at all', () => {
+    const cell = solid(N, N, [0, 0, 255, 255]);
+    cell.data.set([255, 0, 0, 255], (1 * N + 1) * 4); // red at (1,1)
+    const ref: StampRef = { self: true, crop: { x: 1, y: 1, w: 1, h: 1 }, dest: [6, 6] };
+    const out = applyStamps(cell, [ref], undefined, N);
+    expect(px(out, 6, 6)).toEqual([255, 0, 0, 255]);
+    expect(px(out, 1, 1)).toEqual([255, 0, 0, 255]); // source untouched
+  });
+
+  it('reads PRE-STAMP pixels: a later ref sees the original, not earlier writes', () => {
+    const cell = solid(N, N, [0, 0, 255, 255]);
+    cell.data.set([255, 0, 0, 255], (2 * N + 2) * 4); // red at (2,2)
+    const refs: StampRef[] = [
+      // First ref buries (2,2) under blue cloned from (0,0)…
+      { self: true, crop: { x: 0, y: 0, w: 1, h: 1 }, dest: [2, 2] },
+      // …second ref still reads the ORIGINAL red at (2,2).
+      { self: true, crop: { x: 2, y: 2, w: 1, h: 1 }, dest: [5, 5] },
+    ];
+    const out = applyStamps(cell, refs, undefined, N);
+    expect(px(out, 2, 2)).toEqual([0, 0, 255, 255]);
+    expect(px(out, 5, 5)).toEqual([255, 0, 0, 255]);
+  });
+
+  it('a transparent self source erases the dest (clear happens, paste no-ops)', () => {
+    const cell = solid(N, N, [0, 0, 255, 255]);
+    cell.data[(0 * N + 0) * 4 + 3] = 0; // (0,0) transparent
+    const ref: StampRef = { self: true, crop: { x: 0, y: 0, w: 1, h: 1 }, dest: [3, 3] };
+    const out = applyStamps(cell, [ref], undefined, N);
+    expect(px(out, 3, 3)[3]).toBe(0);
+  });
+
+  it('stampAnims skips self refs (no donor shopping for them)', () => {
+    const track: StampKey[] = [{ t: 0, refs: [{ self: true, crop: { x: 0, y: 0, w: 1, h: 1 }, dest: [0, 0] }, REF] }];
+    expect(stampAnims([track])).toEqual(['spellcast']);
+  });
+});
+
+describe('STAMP_BLINK geometry (authored face refs)', () => {
+  // Synthetic 64px head cell: skin fills the face, blue "eyes" in the recon'd
+  // eye rects (rows 29–31, x26–29 / x34–37), dark ink at the lash sources.
+  function faceCell(): Raster {
+    const cell = solid(64, 64, [249, 213, 186, 255]);
+    const set = (x: number, y: number, c: [number, number, number, number]) => cell.data.set(c, (y * 64 + x) * 4);
+    for (let y = 29; y <= 31; y++) {
+      for (let x = 26; x <= 29; x++) set(x, y, [86, 134, 174, 255]);
+      for (let x = 34; x <= 37; x++) set(x, y, [86, 134, 174, 255]);
+    }
+    for (const x of [27, 28, 35, 36]) set(x, 29, [39, 25, 32, 255]);
+    return cell;
+  }
+
+  it('closes both eyes to skin with a 2px ink lash line', () => {
+    const out = applyStamps(faceCell(), [...STAMP_BLINK], undefined, 64);
+    // Eye corners are skin now.
+    expect(px(out, 26, 29)).toEqual([249, 213, 186, 255]);
+    expect(px(out, 29, 31)).toEqual([249, 213, 186, 255]);
+    expect(px(out, 37, 29)).toEqual([249, 213, 186, 255]);
+    // Lash line survives BECAUSE self reads are pre-stamp (the skin rows
+    // already buried (27,29) by the time the lash ref runs).
+    expect(px(out, 27, 30)).toEqual([39, 25, 32, 255]);
+    expect(px(out, 28, 30)).toEqual([39, 25, 32, 255]);
+    expect(px(out, 35, 30)).toEqual([39, 25, 32, 255]);
+  });
+
+  it('no-ops on a layer with nothing in the face region (hair/clothes/body)', () => {
+    const empty = solid(64, 64, [0, 0, 0, 0]);
+    const out = applyStamps(empty, [...STAMP_BLINK], undefined, 64);
+    for (let i = 3; i < out.data.length; i += 4) expect(out.data[i]).toBe(0);
   });
 });
 

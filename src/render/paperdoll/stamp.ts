@@ -24,12 +24,22 @@ import type { ChipRect } from './rig';
 
 /** One donor patch: crop from a sibling anim sheet, pasted into the rest cell. */
 export interface StampRef {
-  /** Donor animation sheet name — sibling of walk in the layer's folder. */
-  anim: string;
-  /** Donor cell column in that sheet. */
-  col: number;
-  /** Donor cell row (LPC: row 2 = south). */
-  row: number;
+  /**
+   * Self-clone mode: crop from the layer's OWN rest cell instead of a donor
+   * sheet (`anim`/`col`/`row` are ignored). Reads always come from the
+   * PRE-STAMP original, so refs stay order-independent on the read side while
+   * writes accumulate. This is how facial stamps stay wardrobe-independent
+   * with no expression sheets vendored: a closed eyelid is the skin cloned
+   * from just below the eye, a mouth is the eye-outline ink cloned under the
+   * nose — each layer donates to itself, layers with nothing there no-op.
+   */
+  self?: boolean;
+  /** Donor animation sheet name — sibling of walk in the layer's folder. Required unless `self`. */
+  anim?: string;
+  /** Donor cell column in that sheet. Required unless `self`. */
+  col?: number;
+  /** Donor cell row (LPC: row 2 = south). Required unless `self`. */
+  row?: number;
   /** Crop rect within the donor cell (cell coordinates). */
   crop: ChipRect;
   /** Paste position (top-left) in the rest cell. */
@@ -68,7 +78,9 @@ export function stampAnims(tracks: readonly (readonly StampKey[] | undefined)[])
   const out = new Set<string>();
   for (const track of tracks) {
     for (const key of track ?? []) {
-      for (const ref of key.refs) out.add(ref.anim);
+      for (const ref of key.refs) {
+        if (!ref.self && ref.anim) out.add(ref.anim);
+      }
     }
   }
   return [...out];
@@ -85,11 +97,12 @@ export function applyStamps(
   donors: DonorSheets | undefined,
   cellSize: number,
 ): Raster {
-  if (!donors || refs.length === 0) return cell;
+  if (refs.length === 0) return cell;
   let out: Uint8ClampedArray | null = null;
   const n = cell.w;
   for (const ref of refs) {
-    const sheet = donors[ref.anim];
+    // Self refs read the layer's own pre-stamp cell; donor refs need a sheet.
+    const sheet = ref.self ? cell : ref.anim !== undefined ? donors?.[ref.anim] : undefined;
     if (!sheet) continue; // no donor for this layer → keep the rest pixels
     if (!out) out = new Uint8ClampedArray(cell.data);
     const clears = ref.clear ?? [{ x: ref.dest[0], y: ref.dest[1], w: ref.crop.w, h: ref.crop.h }];
@@ -102,8 +115,8 @@ export function applyStamps(
         }
       }
     }
-    const sx0 = ref.col * cellSize + ref.crop.x;
-    const sy0 = ref.row * cellSize + ref.crop.y;
+    const sx0 = (ref.self ? 0 : (ref.col ?? 0) * cellSize) + ref.crop.x;
+    const sy0 = (ref.self ? 0 : (ref.row ?? 0) * cellSize) + ref.crop.y;
     for (let y = 0; y < ref.crop.h; y++) {
       const sy = sy0 + y;
       const dy = ref.dest[1] + y;

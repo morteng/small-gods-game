@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sampleClip, sampleTrack, type AnimTemplate, type Clip } from '@/render/paperdoll/rig';
-import { CLIP_DESPAIR, CLIP_PRAY_ECSTATIC, LPC_HUMANOID_SOUTH } from '@/render/paperdoll/lpc-humanoid';
+import { CLIP_DESPAIR, CLIP_PRAY_BOW, CLIP_PRAY_ECSTATIC, LPC_HUMANOID_SOUTH } from '@/render/paperdoll/lpc-humanoid';
 
 const T: AnimTemplate = {
   name: 'couple-test',
@@ -105,6 +105,19 @@ describe('authored clips use couplings', () => {
       expect(poses[shinL].deg).toBeCloseTo(-poses[thighL].deg);
       expect(poses[shinR].deg).toBeCloseTo(-poses[thighR].deg);
     }
+  });
+
+  it('pray-bow: the head drop splays the knees, shins counter to keep feet planted', () => {
+    const chips = LPC_HUMANOID_SOUTH.chips.map((c) => c.name);
+    const thighL = chips.indexOf('legL_up');
+    const shinL = chips.indexOf('legL_fore');
+    const thighR = chips.indexOf('legR_up');
+    // Rest: straight legs.
+    expect(sampleClip(LPC_HUMANOID_SOUTH, CLIP_PRAY_BOW, 0)[thighL].deg).toBe(0);
+    const poses = sampleClip(LPC_HUMANOID_SOUTH, CLIP_PRAY_BOW, 1);
+    expect(poses[thighL].deg).toBeGreaterThan(0); // splays with the bow
+    expect(poses[thighR].deg).toBeLessThan(0); // mirrored
+    expect(poses[shinL].deg).toBeCloseTo(-poses[thighL].deg); // planted feet
   });
 
   it('pray-ecstatic: trunk sway drives a partial, lagged knee flex', () => {

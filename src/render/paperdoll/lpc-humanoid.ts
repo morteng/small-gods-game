@@ -106,10 +106,40 @@ export const STAMP_PALMS_OPEN: readonly StampRef[] = [
   },
 ];
 
+/**
+ * Facial stamps — SELF-CLONE refs (no expression sheets are vendored, so each
+ * layer donates to itself; see StampRef.self). Feature map, pixel-recon'd from
+ * the rest cell: eyes are 4×3 blocks at rows 29–31, x26–29 (screen-L) and
+ * x34–37; row 32 below them is clean skin; (27,29)/(35,29) are the dark eye
+ * outline inks. Layers with nothing in these rects (hair, clothes, headless
+ * body) no-op, so the stamps compose across wardrobe like the hand stamps do.
+ */
+
+/** Eyes closed: skin cloned over each eye + a 2px lash line from the eye ink. */
+export const STAMP_BLINK: readonly StampRef[] = [
+  // Left eye: skin row 32 cloned up over rows 29–31, then the lash.
+  { self: true, crop: { x: 26, y: 32, w: 4, h: 1 }, dest: [26, 29] },
+  { self: true, crop: { x: 26, y: 32, w: 4, h: 1 }, dest: [26, 30] },
+  { self: true, crop: { x: 26, y: 32, w: 4, h: 1 }, dest: [26, 31] },
+  { self: true, crop: { x: 27, y: 29, w: 2, h: 1 }, dest: [27, 30] },
+  // Right eye.
+  { self: true, crop: { x: 34, y: 32, w: 4, h: 1 }, dest: [34, 29] },
+  { self: true, crop: { x: 34, y: 32, w: 4, h: 1 }, dest: [34, 30] },
+  { self: true, crop: { x: 34, y: 32, w: 4, h: 1 }, dest: [34, 31] },
+  { self: true, crop: { x: 35, y: 29, w: 2, h: 1 }, dest: [35, 30] },
+];
+
+/** Mouth open: 2px of eye-outline ink under the nose (the rest face has none). */
+export const STAMP_MOUTH_OPEN: readonly StampRef[] = [
+  { self: true, crop: { x: 27, y: 29, w: 2, h: 1 }, dest: [31, 33] },
+];
+
 /** Raise-arms supplication: stand → arms swept up toward the sky, face lifted. */
 export const CLIP_PRAY_RAISE: Clip = {
   name: 'pray-raise',
   frames: 7,
+  // Palms spread open to the sky as the arms sweep past horizontal.
+  stamps: [{ t: 0.7, refs: STAMP_PALMS_OPEN }],
   tracks: {
     // Front view: pitch is faked with translation — the head LIFTS (dy<0),
     // never rotates (in-plane rotation reads as a sideways ear-to-shoulder tilt).
@@ -117,20 +147,25 @@ export const CLIP_PRAY_RAISE: Clip = {
       { t: 0, deg: 0, dy: 0 },
       { t: 1, deg: 0, dy: -2 },
     ],
+    // Overshoot-and-settle: the sweep carries past the mark, then eases back.
     armL_up: [
       { t: 0, deg: 0 },
+      { t: 0.75, deg: 114 },
       { t: 1, deg: 108 },
     ],
     armL_fore: [
       { t: 0, deg: 0 },
+      { t: 0.75, deg: 24 },
       { t: 1, deg: 20 },
     ],
     armR_up: [
       { t: 0, deg: 0 },
+      { t: 0.75, deg: -114 },
       { t: 1, deg: -108 },
     ],
     armR_fore: [
       { t: 0, deg: 0 },
+      { t: 0.75, deg: -24 },
       { t: 1, deg: -20 },
     ],
   },
@@ -140,6 +175,14 @@ export const CLIP_PRAY_RAISE: Clip = {
 export const CLIP_PRAY_BOW: Clip = {
   name: 'pray-bow',
   frames: 7,
+  // The legs take the bow: knees splay a touch as the head drops (head dy is
+  // the only pitch signal on a front view), shins counter to keep feet planted.
+  couple: [
+    { from: 'head', prop: 'dy', to: 'legL_up', gain: 1, lag: 0.08 },
+    { from: 'head', prop: 'dy', to: 'legL_fore', gain: -1, lag: 0.08 },
+    { from: 'head', prop: 'dy', to: 'legR_up', gain: -1, lag: 0.08 },
+    { from: 'head', prop: 'dy', to: 'legR_fore', gain: 1, lag: 0.08 },
+  ],
   tracks: {
     // Chin tuck = translate down; no rotation (see pray-raise note).
     head: [
@@ -169,9 +212,20 @@ export const CLIP_PRAY_BOW: Clip = {
 export const CLIP_PRAY_PENITENT: Clip = {
   name: 'pray-penitent',
   frames: 8,
+  // Deeper bow, deeper buckle — same planted-feet knee splay as pray-bow, and
+  // the eyes close as the head sinks (contrition is read with the face, too).
+  couple: [
+    { from: 'head', prop: 'dy', to: 'legL_up', gain: 0.8, lag: 0.08 },
+    { from: 'head', prop: 'dy', to: 'legL_fore', gain: -0.8, lag: 0.08 },
+    { from: 'head', prop: 'dy', to: 'legR_up', gain: -0.8, lag: 0.08 },
+    { from: 'head', prop: 'dy', to: 'legR_fore', gain: 0.8, lag: 0.08 },
+  ],
+  stamps: [{ t: 0.6, refs: STAMP_BLINK }],
   tracks: {
+    // The head drops heavy — sinks past the mark, then settles up a pixel.
     head: [
       { t: 0, deg: 0, dy: 0 },
+      { t: 0.7, deg: 0, dy: 6 },
       { t: 1, deg: 0, dy: 5 },
     ],
     armL_up: [
@@ -213,6 +267,10 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
     { from: 'trunk', prop: 'dx', to: 'legL_fore', gain: 4, lag: 0.12 },
     { from: 'trunk', prop: 'dx', to: 'legR_up', gain: -6, lag: 0.06 },
     { from: 'trunk', prop: 'dx', to: 'legR_fore', gain: 4, lag: 0.12 },
+    // Follow-through: the lifted head trails the sway a beat (it rides the
+    // trunk as a child, so this is EXTRA drift on top — overshoots outward at
+    // each reversal, the classic loose-head feel).
+    { from: 'trunk', prop: 'dx', to: 'head', toProp: 'dx', gain: 0.8, lag: 0.1 },
   ],
   tracks: {
     // The sway lives on the TRUNK (head, arms and torso ride it) while the
@@ -267,8 +325,12 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
 export const CLIP_DESPAIR: Clip = {
   name: 'despair',
   frames: 8,
-  // Mid-slump the fists fall open — the helpless empty-palm beat.
-  stamps: [{ t: 0.5, refs: STAMP_PALMS_OPEN }],
+  // Mid-slump the fists fall open — the helpless empty-palm beat — then the
+  // eyes close as the slump bottoms out (grief lands on the face last).
+  stamps: [
+    { t: 0.5, refs: STAMP_PALMS_OPEN },
+    { t: 0.78, refs: [...STAMP_PALMS_OPEN, ...STAMP_BLINK] },
+  ],
   // Shin counter-rotation derived from the thigh (was hand-keyed −1× tracks):
   // full cancellation keeps the feet planted through the buckle.
   couple: [
@@ -276,12 +338,15 @@ export const CLIP_DESPAIR: Clip = {
     { from: 'legR_up', prop: 'deg', to: 'legR_fore', gain: -1 },
   ],
   tracks: {
+    // Head drops past the slump point, then settles — dead weight, not a lower.
     head: [
       { t: 0, deg: 0, dy: 0 },
+      { t: 0.7, deg: 0, dy: 5 },
       { t: 1, deg: 0, dy: 4 },
     ],
     armL_up: [
       { t: 0, deg: 0 },
+      { t: 0.7, deg: 20 },
       { t: 1, deg: 18 },
     ],
     armL_fore: [
@@ -290,6 +355,7 @@ export const CLIP_DESPAIR: Clip = {
     ],
     armR_up: [
       { t: 0, deg: 0 },
+      { t: 0.7, deg: -20 },
       { t: 1, deg: -18 },
     ],
     armR_fore: [
@@ -317,6 +383,12 @@ export const CLIP_DESPAIR: Clip = {
 export const CLIP_IDLE_SHIFT: Clip = {
   name: 'idle-shift',
   frames: 8,
+  // A blink mid-shift. Stamps are pixel swaps, not transforms, so the clip's
+  // pixel-exact property survives — still zero rotation, zero AA.
+  stamps: [
+    { t: 0.45, refs: STAMP_BLINK },
+    { t: 0.75, refs: [] },
+  ],
   tracks: {
     trunk: [
       { t: 0, deg: 0, dx: 0 },
@@ -338,6 +410,35 @@ export const CLIP_IDLE_SHIFT: Clip = {
   },
 };
 
+/**
+ * Talking bust: the conversation-card loop. Nearly all face — mouth flaps on a
+ * step rhythm with one blink at the midpoint — over a gentle head nod and a
+ * breath-like trunk settle. Meant to be cropped to the head for the card, but
+ * reads at full frame too.
+ */
+export const CLIP_CONVERSE: Clip = {
+  name: 'converse',
+  frames: 12,
+  stamps: [
+    { t: 0, refs: STAMP_MOUTH_OPEN },
+    { t: 0.18, refs: [] },
+    { t: 0.32, refs: STAMP_MOUTH_OPEN },
+    { t: 0.5, refs: STAMP_BLINK },
+    { t: 0.64, refs: STAMP_MOUTH_OPEN },
+    { t: 0.82, refs: [] },
+  ],
+  tracks: {
+    // Small affirmative nod (translation — see the pray-raise pitch note).
+    head: [
+      { t: 0, deg: 0, dy: 0 },
+      { t: 0.25, deg: 0, dy: 1 },
+      { t: 0.5, deg: 0, dy: 0 },
+      { t: 0.75, deg: 0, dy: 1 },
+      { t: 1, deg: 0, dy: 0 },
+    ],
+  },
+};
+
 /** Every authored clip, in menu order. */
 export const HUMANOID_CLIPS: readonly Clip[] = [
   CLIP_PRAY_RAISE,
@@ -346,6 +447,7 @@ export const HUMANOID_CLIPS: readonly Clip[] = [
   CLIP_PRAY_ECSTATIC,
   CLIP_DESPAIR,
   CLIP_IDLE_SHIFT,
+  CLIP_CONVERSE,
 ];
 
 /**

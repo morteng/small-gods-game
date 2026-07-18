@@ -585,11 +585,21 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function buildPoseSliders(): void {
     poseHost.replaceChildren();
-    for (const name of Object.keys(workClip.tracks)) {
-      const track = workClip.tracks[name];
+    // Every chip gets a slider — un-keyed chips (dimmed) grow a flat track on
+    // first touch, so any body part is adjustable in any clip.
+    for (const ch of workTemplate.chips) {
+      const name = ch.name;
+      const keyed = name in workClip.tracks;
+      const track = workClip.tracks[name] ?? [
+        { t: 0, deg: 0 },
+        { t: 1, deg: 0 },
+      ];
       const endKey = track[track.length - 1];
       const row = h('div', { style: 'display:flex;align-items:center;gap:7px;margin-bottom:5px' });
-      const lbl = h('span', { style: 'min-width:76px;color:var(--ink-0)', text: name });
+      const lbl = h('span', {
+        style: `min-width:76px;color:${keyed ? 'var(--ink-0)' : 'var(--ink-2)'}`,
+        text: name,
+      });
       const val = h('span', { class: 'sg-accent', style: 'min-width:38px;text-align:right', text: `${endKey.deg}°` });
       const slider = h('input', {
         class: 'sg-range',
@@ -597,7 +607,9 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
         attrs: { type: 'range', min: '-180', max: '180', step: '1', value: String(endKey.deg) },
       }) as HTMLInputElement;
       slider.oninput = () => {
+        if (!(name in workClip.tracks)) workClip.tracks[name] = track;
         endKey.deg = +slider.value;
+        lbl.style.color = 'var(--ink-0)';
         val.textContent = `${endKey.deg}°`;
         rebake();
       };
