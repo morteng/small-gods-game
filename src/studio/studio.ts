@@ -57,6 +57,7 @@ import { buildObjectBrowser } from './object-browser';
 import { mountWorldStudio } from './world-studio';
 import { mountGalleryStudio } from './gallery-studio';
 import { mountZooStudio } from './zoo-studio';
+import { mountMotionStudio } from './motion-studio';
 import { mountSiteStudio } from './site-studio';
 import { mountCrossingStudio } from './crossing-studio';
 import { mountCrossingSiteStudio } from './crossing-site-studio';
@@ -1770,6 +1771,7 @@ const WORKSPACES: Workspace[] = [
   { id: 'object', label: '🏛 Object', mount: (host, _ctx, arg) => mountObjectStudio(host, { initialKind: arg }) },
   { id: 'gallery', label: '🖼 Gallery', mount: (host, ctx, arg) => mountGalleryStudio(host, { filter: arg, onEdit: (k) => ctx.open('object', k) }) },
   { id: 'zoo', label: '🦌 Zoo', mount: (host) => mountZooStudio(host) },
+  { id: 'motion', label: '🎞 Motion', mount: (host) => mountMotionStudio(host) },
   { id: 'world', label: '🌍 World', mount: (host, ctx) => mountWorldStudio(host, { onEdit: (k) => ctx.open('object', k) }) },
   { id: 'site', label: '🏰 Site', mount: (host) => mountSiteStudio(host) },
   { id: 'crossings', label: '🌉 Crossings', mount: (host) => mountCrossingStudio(host) },
@@ -1784,6 +1786,7 @@ function initialWorkspace(param: string | null): { id: string; arg?: string } {
     case 'crossings': case 'crossing': return { id: 'crossings' };
     case 'crossingsite': case 'crossing-site': return { id: 'crossing-site' };
     case 'zoo': return { id: 'zoo' };
+    case 'motion': return { id: 'motion' };
     case 'gallery': case '1': case null: return param === 'gallery' ? { id: 'gallery' } : { id: 'object' };
     case 'arboretum': return { id: 'gallery', arg: 'plant' };
     case 'buildings': return { id: 'gallery', arg: 'building' };
