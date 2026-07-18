@@ -242,6 +242,7 @@ Chips ARE limbs, so severing is architecturally almost free — but see the tone
 | 8 | **Combat resolution loop** (sim) consuming 3+5+7 | fighting | high (sim design) |
 | 9 | **Dismemberment + blood decals** (behind the gore dial) | spectacle | low tech / tone Q |
 | — | **Side facing** | multiplies all of the above | parallel track, start early |
+| — | **Flora wind (baked)** — paperdoll grass/flower templates, seamless sine-loop clips, per-instance phase; replaces vertex sway with on-grid frames (AUTHORIZED 2026-07-18) | pixel-perfect wind + low-power floor | low; shader frame-select dial is a later renderer slice |
 
 ## 12. Open questions for the user
 
