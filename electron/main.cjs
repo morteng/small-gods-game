@@ -12,6 +12,8 @@
 const { app, BrowserWindow, protocol, net, shell, dialog } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { planAutoUpdate } = require('./update-gate.cjs');
+const { resolveUpdateToken } = require('./update-token.cjs');
 
 // In a packaged build __dirname is .../resources/app.asar/electron, so dist/ sits
 // one level up; the same relative layout holds when run unpacked (`electron .`).
@@ -68,48 +70,69 @@ function createWindow() {
 }
 
 // Self-update for direct downloads (itch-app installs are updated by itch itself, so
-// this is a no-op there — both can coexist). electron-updater reads the feed baked in
-// from build.publish (GitHub Releases). Only meaningful in a packaged, self-updatable
-// build:
+// this is a no-op there — both can coexist). The feed lives in the PRIVATE artifacts
+// repo `morteng/small-gods-releases` (build.publish), read with a token baked in at
+// package time (electron/after-pack.cjs → update-token.cjs). Only meaningful in a
+// packaged, self-updatable build:
 //   - Linux: only the AppImage target is self-updatable (needs process.env.APPIMAGE).
 //   - Windows: the NSIS installer is self-updatable.
 //   - macOS: Squirrel.Mac requires a *signed* app, and dev builds are unsigned (no cert)
 //     — so darwin is deliberately skipped and gets manual updates (download the new dmg).
+//
+// The gate DECISION is a pure function (electron/update-gate.cjs); this wires the side
+// effects. Everything is wrapped so a missing/dead/unauthorized feed logs ONE line and
+// never dialogs, nags, or breaks launch. No token baked (dev builds before the PAT
+// exists) ⇒ plan.enabled is false ⇒ silent no-op.
 function initAutoUpdate(win) {
-  const selfUpdatable =
-    app.isPackaged &&
-    (process.platform === 'linux' ? !!process.env.APPIMAGE : process.platform === 'win32');
-  if (!selfUpdatable) return; // includes darwin (unsigned → no Squirrel.Mac) and unpackaged previews
-  const { autoUpdater } = require('electron-updater');
-  // Dev-tagged builds (version has a prerelease suffix, e.g. 0.2.0-dev.3) follow dev
-  // prereleases; stable builds ignore them.
-  autoUpdater.allowPrerelease = app.getVersion().includes('-');
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on('update-downloaded', async (info) => {
-    // Never swap the bundle out from under the player silently — ask, then restart.
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      buttons: ['Restart now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Update ready',
-      message: `Small Gods ${info.version} is ready.`,
-      detail: 'Restart to apply it — your world is autosaved.',
+  let plan;
+  try {
+    plan = planAutoUpdate({
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      isAppImage: !!process.env.APPIMAGE,
+      version: app.getVersion(),
+      token: resolveUpdateToken(),
     });
-    if (response === 0) autoUpdater.quitAndInstall();
-  });
+  } catch (err) {
+    console.error('[auto-update] plan failed', (err && (err.stack || err)) || 'unknown error');
+    return;
+  }
+  if (!plan.enabled) return; // darwin, unpackaged, or no baked token → silent
 
-  // A dead feed (offline, repo gone private, first release not cut yet) must never
-  // break launch — log and move on.
-  autoUpdater.on('error', (err) => {
-    console.error('[auto-update]', err == null ? 'unknown error' : (err.stack || err).toString());
-  });
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.setFeedURL(plan.feed);
+    autoUpdater.allowPrerelease = plan.allowPrerelease;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-    console.error('[auto-update] check failed', err);
-  });
+    autoUpdater.on('update-downloaded', async (info) => {
+      // Never swap the bundle out from under the player silently — ask, then restart.
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'info',
+        buttons: ['Restart now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Update ready',
+        message: `Small Gods ${info.version} is ready.`,
+        detail: 'Restart to apply it — your world is autosaved.',
+      });
+      if (response === 0) autoUpdater.quitAndInstall();
+    });
+
+    // A dead feed (offline, repo/token gone, first release not cut yet) must never
+    // break launch — log and move on.
+    autoUpdater.on('error', (err) => {
+      console.error('[auto-update]', err == null ? 'unknown error' : (err.stack || err).toString());
+    });
+
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      console.error('[auto-update] check failed', err);
+    });
+  } catch (err) {
+    // Setup itself blew up (module load, setFeedURL, …) — stay silent to the user.
+    console.error('[auto-update] setup failed', (err && (err.stack || err)) || 'unknown error');
+  }
 }
 
 app.whenReady().then(() => {

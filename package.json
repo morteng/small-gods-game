@@ -45,11 +45,15 @@
       "electron/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "electron/update-token.cjs"
+    ],
+    "afterPack": "electron/after-pack.cjs",
     "publish": [
       {
         "provider": "github",
         "owner": "morteng",
-        "repo": "small-gods-game"
+        "repo": "small-gods-releases"
       }
     ],
     "linux": {
