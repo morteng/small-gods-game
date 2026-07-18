@@ -36,6 +36,7 @@ import { toGeometry } from '@/blueprint/compile/to-geometry';
 import { ensureBuildingTypesRegistered } from '@/blueprint/register-buildings';
 import { runElements } from '@/render/parametric-barrier-source';
 import { synthesizeBlueprint, plantPresetNames } from '@/blueprint/presets';
+import { FLORA_VARIANTS, floraVariantSeed } from '@/render/flora-variant';
 import { composeStructure, type StructureSpec } from '@/assetgen/compose';
 import { canonicalJson } from '@/render/generated-art-cache';
 import {
@@ -55,10 +56,11 @@ const SHARD_TARGET_BYTES = 4 * 1024 * 1024;
  *  are PER-INSTANCE seeded (building-placer L2b `instSeed()`), so bld/bar keys
  *  are largely world-specific: default.json@777 added +200 bld / +234 bar keys
  *  (~55 MB) over @12345 with ~zero value for the Date.now()-seeded worlds real
- *  first visits generate. 12345 (the canonical lint/dev/e2e pin) + the 48
- *  world-independent plant species ≈ 34 MB and fully covers pinned-seed boots;
- *  random-seed boots get plants + the recurring barrier subset and compose the
- *  rest, as before. Pass --seeds=… to widen deliberately (budget ~60 MB). */
+ *  first visits generate. 12345 (the canonical lint/dev/e2e pin) + the 199
+ *  world-independent plant VARIANT specs (60 presets × v0..v2 + bare) ≈ 31 MB and
+ *  fully covers pinned-seed boots AND every boot's plants (seed-independent);
+ *  random-seed boots get all plants + the recurring barrier subset and compose the
+ *  world's bld/bar rest, as before. Pass --seeds=… to widen deliberately (budget ~60 MB). */
 const DEFAULT_SEEDS = [12345];
 const DEFAULT_WORLDS = ['public/data/worlds/default.json'];
 
@@ -116,17 +118,49 @@ async function collectWorldJobs(seedPath: string, genSeed: number, jobs: Map<str
   return { bld, bar };
 }
 
-/** Plant species jobs — world-independent (preset-derived), composed with NO options. */
+/**
+ * Every (kind, variant) slot the runtime ParametricPlantSource actually composes:
+ * FLORA_VARIANTS seeded silhouettes (v0..V-1) PLUS the bare-crown slot (variant-0
+ * skeleton with its `branch_plant` parts flagged `bare`, deciduous-in-snow). This
+ * MUST mirror ParametricPlantSource.warmVariant exactly — earlier the seeder baked
+ * only `synthesizeBlueprint(kind)` (seed = hashKind), which matches NEITHER runtime
+ * variant-0 (seed 0) for most species NOR any higher variant, so ~189 plant packs
+ * missed at runtime and cold-composed. Kept as a pure descriptor list so the Node
+ * and Chromium key passes enumerate identically. */
+interface PlantSlot { kind: string; seed: number; bare: boolean; label: string }
+function plantSlots(): PlantSlot[] {
+  const slots: PlantSlot[] = [];
+  for (const kind of plantPresetNames()) {
+    for (let v = 0; v < FLORA_VARIANTS; v++) {
+      slots.push({ kind, seed: floraVariantSeed(kind, v), bare: false, label: `${kind}#v${v}` });
+    }
+    // The bare slot re-composes the VARIANT-0 skeleton (seed 0) with leaves dropped.
+    slots.push({ kind, seed: floraVariantSeed(kind, 0), bare: true, label: `${kind}#bare` });
+  }
+  return slots;
+}
+
+/** Resolve one plant slot to its compose spec (bare mutation mirrors the runtime). */
+function plantSpecForSlot(slot: PlantSlot): StructureSpec | null {
+  const rb = synthesizeBlueprint(slot.kind, [], slot.seed);
+  if (!rb) return null;
+  if (slot.bare) {
+    for (const part of rb.parts) {
+      if (part.type === 'branch_plant') part.params = { ...part.params, bare: 1 };
+    }
+  }
+  try { return toGeometry(rb); } catch { return null; }
+}
+
+/** Plant species jobs — world-independent (preset-derived), composed with NO options.
+ *  Node-keyed variant (see --node-plants); collectPlantJobsViaChromium is the default. */
 function collectPlantJobs(jobs: Map<string, Job>): number {
   let n = 0;
-  for (const kind of plantPresetNames()) {
-    const rb = synthesizeBlueprint(kind);
-    if (!rb) continue;
-    let spec: StructureSpec | null;
-    try { spec = toGeometry(rb); } catch { continue; }
+  for (const slot of plantSlots()) {
+    const spec = plantSpecForSlot(slot);
     if (!spec) continue;
     const key = parametricSpriteKey('plt', canonicalJson(spec));
-    if (!jobs.has(key)) { jobs.set(key, { key, ns: 'plt', spec, from: `plant:${kind}` }); n++; }
+    if (!jobs.has(key)) { jobs.set(key, { key, ns: 'plt', spec, from: `plant:${slot.label}` }); n++; }
   }
   return n;
 }
@@ -135,8 +169,9 @@ function collectPlantJobs(jobs: Map<string, Job>): number {
  * Plant jobs keyed by CHROMIUM-derived spec JSON (the default; --node-plants
  * opts out). WHY: plant crown geometry runs transcendental math (sin/cos/pow),
  * and V8's transcendentals differ between Node and Chromium builds — measured
- * v24: 28/48 plant specs canonicalize differently in Chromium than in Node 22,
- * so Node-keyed plt packs MISS at runtime for the (Chromium-dominated, WebGPU-
+ * v34 (variant enumeration): 144/199 plant variant specs canonicalize differently
+ * in Chromium than in Node 22, so Node-keyed plt packs MISS at runtime for the
+ * (Chromium-dominated, WebGPU-
  * gated) real clients. Building/barrier params are plain arithmetic (IEEE-
  * deterministic) and match across engines. So we derive the plt key material
  * inside a headless Chromium against the dev server: vite serves /src modules
@@ -149,7 +184,11 @@ function collectPlantJobs(jobs: Map<string, Job>): number {
  */
 async function collectPlantJobsViaChromium(jobs: Map<string, Job>, baseUrl: string): Promise<number> {
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
+  // --no-sandbox: the seeder runs headless as root inside the CI container (the
+  // Playwright image on ci-eph), where Chromium's sandbox refuses to start; the
+  // page loads ONLY our own dev server (trusted code deriving plant keys), so
+  // dropping the sandbox is safe here and a no-op on the Mac.
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
   try {
     const page = await browser.newPage();
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -157,22 +196,38 @@ async function collectPlantJobsViaChromium(jobs: Map<string, Job>, baseUrl: stri
       const presets = await import('/src/blueprint/presets/index.ts');
       const geo = await import('/src/blueprint/compile/to-geometry.ts');
       const art = await import('/src/render/generated-art-cache.ts');
-      const out: Array<{ kind: string; specJson: string }> = [];
+      const fv = await import('/src/render/flora-variant.ts');
+      const out: Array<{ label: string; specJson: string }> = [];
+      // Enumerate EXACTLY the runtime plant variant set (v0..V-1 + bare), keyed in
+      // Chromium (plant crown transcendentals differ Node↔Chromium). Mirror of
+      // ParametricPlantSource.warmVariant / plantSlots() in this file. NOTE: no
+      // NAMED inner function here — tsx/esbuild would wrap it with its `__name`
+      // keepNames helper, which is undefined in the page context (ReferenceError).
       for (const kind of presets.plantPresetNames()) {
-        const rb = presets.synthesizeBlueprint(kind);
-        if (!rb) continue;
-        try {
-          const spec = geo.toGeometry(rb);
-          if (spec) out.push({ kind, specJson: art.canonicalJson(spec) });
-        } catch { /* skip — composes at runtime as before */ }
+        const slots: Array<{ seed: number; bare: boolean; label: string }> = [];
+        for (let v = 0; v < fv.FLORA_VARIANTS; v++) slots.push({ seed: fv.floraVariantSeed(kind, v), bare: false, label: `${kind}#v${v}` });
+        slots.push({ seed: fv.floraVariantSeed(kind, 0), bare: true, label: `${kind}#bare` });
+        for (const slot of slots) {
+          const rb = presets.synthesizeBlueprint(kind, [], slot.seed);
+          if (!rb) continue;
+          if (slot.bare) {
+            for (const part of rb.parts) {
+              if (part.type === 'branch_plant') part.params = { ...part.params, bare: 1 };
+            }
+          }
+          try {
+            const spec = geo.toGeometry(rb);
+            if (spec) out.push({ label: slot.label, specJson: art.canonicalJson(spec) });
+          } catch { /* skip — composes at runtime as before */ }
+        }
       }
       return out;
     });
     let n = 0;
-    for (const { kind, specJson } of specs) {
+    for (const { label, specJson } of specs) {
       const key = parametricSpriteKey('plt', specJson);
       if (!jobs.has(key)) {
-        jobs.set(key, { key, ns: 'plt', spec: JSON.parse(specJson) as StructureSpec, from: `plant:${kind} (chromium)` });
+        jobs.set(key, { key, ns: 'plt', spec: JSON.parse(specJson) as StructureSpec, from: `plant:${label} (chromium)` });
         n++;
       }
     }
