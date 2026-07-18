@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (102: road A*/drawing fix round — metre-true grade, bow pins, real repair edges, node tangent fillets)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(103);
+  it('declares the current world content version (104: ponds — depression hierarchy keeps small hollows as flat ponds with real outlets)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(104);
   });
 });

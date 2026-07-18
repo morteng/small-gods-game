@@ -468,6 +468,24 @@ export enum WaterType {
   River = 3, // drainage accumulation ≥ threshold (stream = River with strahler 1)
 }
 
+/**
+ * A small genuine hollow kept as a flat pond by the rivers-R3 depression hierarchy
+ * (see `src/terrain/hydrology.ts`). A pond's cells classify `WaterType.Lake` even
+ * though their per-cell fill is below `LAKE_MIN_FILL` — so everything wired for lakes
+ * (tile raster stamp, standing-water routing, snap-off-water, lake-conform) applies
+ * for free. Pond IDENTITY (this record + `pondId`) is NEW metadata consumed later by
+ * the connectome pond node / fishery (P3). Deep basins that already read as lakes
+ * (max fill ≥ LAKE_MIN_FILL) are NOT ponds and get NO record this round — ponds only.
+ */
+export interface PondRecord {
+  id: number;          // index into HydrologyResult.ponds (== the value in pondId)
+  area: number;        // member cell count
+  maxDepth: number;    // deepest member fill (W − elevation), normalized elev units
+  spillCell: number;   // lowest boundary saddle (the flat pond's outlet lip)
+  outletCell: number;  // cell just downstream of the spill where flow resumes; −1 → sea/edge
+  surfaceW: number;    // flat pond water level (spill elevation), normalized elev units
+}
+
 export interface HydrologyResult {
   riverMask: Uint8Array;   // [width * height], 0 or 1
   flowField: Float32Array; // [width * height], ≥ 0 (accumulation)
@@ -480,6 +498,9 @@ export interface HydrologyResult {
   flowDirY: Float32Array;  // unit flow vector y at river cells; 0 in still/dry water
   strahler: Uint8Array;    // Strahler order along the drainage tree; 0 off-channel
   width: Float32Array;     // channel width in cells (from strahler); 0 off-channel
+  // ── Rivers R3 (ponds). Optional so pre-R3 consumers are unaffected. ──
+  ponds?: PondRecord[];    // kept small hollows, sorted deterministically by spillCell
+  pondId?: Int32Array;     // [width*height] pond index per cell, −1 = none (kept ponds only)
 }
 
 // ─── Entity system (Phase II) — legacy type aliases ──────────────────────────

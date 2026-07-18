@@ -14,7 +14,7 @@
  * Operates on the existing TerrainField; does not modify it.
  */
 
-import type { TerrainField, TerrainConfig, HydrologyResult, POI } from '@/core/types';
+import type { TerrainField, TerrainConfig, HydrologyResult, PondRecord, POI } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { worldStyleOf, type WorldStyleConfig } from '@/core/world-style';
 import { MOUNTAIN_HEIGHT_M } from './biomes';
@@ -65,6 +65,26 @@ const LAKE_MIN_FILL = 0.01;
 // elevation is well above Float32 rounding noise across the longest possible
 // flat run (~map diagonal), and is far too small to be visible in terrain.
 const PIT_FILL_EPSILON = 1e-5;
+
+// ── Pond keep-rule (rivers R3). ──────────────────────────────────────────────
+// Small genuine hollows that `LAKE_MIN_FILL` erases are kept as flat, Lake-typed
+// ponds with a real outlet. The false-positive to exclude is the ε-flat-run: a long
+// flat plateau accumulates a W−elevation gap of k·ε per cell of travel, which is NOT
+// a basin. We exclude it STRUCTURALLY (not by another magic depth threshold): during
+// the priority-flood, a cell counts as a genuine depression member ONLY if, at the
+// instant the flood front reaches it, its RAW elevation is STRICTLY below the front
+// (`front − elevation > 0`). A flat-run cell has elevation == front and is raised by
+// ε alone (submergence ≤ 0) → NOT a member → an ε run forms no depression. A real
+// bowl's interior sits a real margin below its spill saddle → members with genuine
+// depth. A depression is kept as a pond iff its deepest member fill lies in
+// [POND_MIN_DEPTH, LAKE_MIN_FILL) — shallower than a lake, so the keep-rule only ADDS
+// water a lake would not already have kept (existing lakes stay byte-identical) — and
+// its area is in [POND_MIN_CELLS, POND_MAX_CELLS] (a puddle is too small; a broad
+// wetland is not a pond). Deep basins (maxFill ≥ LAKE_MIN_FILL) are already lakes and
+// get NO pond record.
+const POND_MIN_DEPTH = 0.006; // ≈0.29 m at TERRAIN_RELIEF_M (48); below LAKE_MIN_FILL (0.01 ≈ 0.48 m)
+const POND_MIN_CELLS = 6;     // a real pond, not a 2×2 puddle
+const POND_MAX_CELLS = 80;    // broader standing water is a lake/marsh, not a pond
 
 export interface HydrologyOptions {
   /**
@@ -196,6 +216,71 @@ export function generateHydrology(
     return val;
   };
 
+  // ── Depression hierarchy (rivers R3). Labelled DURING the flood: priority-flood
+  //    pops cells in ascending final-W order, so the first RIM cell to flood a basin is
+  //    popped at the basin's LOWEST saddle = its spill. `depId[i]` tags a cell with its
+  //    depression (−1 = none), accumulating per-depression spill / area / depth / scorch.
+  //
+  //    STRUCTURAL ε-run exclusion — the load-bearing bit. A cell n reached from front c
+  //    is a genuine member iff its RAW elevation is strictly below the depression's SPILL
+  //    SADDLE's RAW elevation (`spillElevRaw − elevation[n] > 0`). We use RAW elevations,
+  //    NOT the filled front `cW`: pit-fill creeps the front up by ε per flat cell, so a
+  //    long flat plateau has `cW − elevation` = k·ε > 0 for its interior — measuring
+  //    against the moving front would label the whole ε-run a basin. Against the FIXED
+  //    raw saddle, a flat run's cells sit AT (not below) the saddle → zero members, no
+  //    depression; only ground genuinely lower than its lowest saddle joins. `maxFill` is
+  //    thus a real raw depth (saddle − pit), 0 for an ε run. Land only — sub-sea pits stay
+  //    with the existing `belowSea` lake branch. O(N α), cheap enough to run twice/gen. ──
+  const scorchMask = options.scorchMask;
+  const depId = new Int32Array(total).fill(-1);
+  // Provisional depressions, unified by find/union: a WIDE flat saddle nucleates one
+  // provisional depression per saddle cell, but they are one pond — so adjacent member
+  // depressions are merged, and the merged pond's spill is the LOWEST of its saddles.
+  const depSpillCell: number[] = [];
+  const depSpillElevRaw: number[] = []; // RAW elevation of the saddle this dep spilled from
+  const depParent: number[] = [];       // union-find parent (self = root)
+
+  const findDep = (d: number): number => {
+    let r = d;
+    while (depParent[r] !== r) r = depParent[r];
+    while (depParent[d] !== r) { const nx = depParent[d]; depParent[d] = r; d = nx; }
+    return r;
+  };
+  const unionDep = (a: number, b: number): void => {
+    const ra = findDep(a), rb = findDep(b);
+    if (ra === rb) return;
+    if (ra < rb) depParent[rb] = ra; else depParent[ra] = rb; // attach to lower index (deterministic)
+  };
+
+  const raiseNeighbor = (n: number, c: number, cW: number): void => {
+    if (closed[n]) return;
+    const en = elevation[n];
+    const wn = en > cW + PIT_FILL_EPSILON ? en : cW + PIT_FILL_EPSILON;
+    W[n] = wn;
+    closed[n] = 1;
+    heapPush(wn, n);
+    // Land only — sub-sea pits are the existing `belowSea` lake branch (byte-identical).
+    if (en < seaLevel) return;
+    const dc = depId[c];
+    // The saddle the flood is spilling from: an existing depression's fixed spill, else
+    // the front cell c's OWN raw elevation (c is the candidate rim). RAW, not cW.
+    const spillElevRaw = dc >= 0 ? depSpillElevRaw[dc] : elevation[c];
+    if (en < spillElevRaw) {  // strictly below the raw saddle → genuine basin member
+      let d = dc;
+      if (d < 0) {
+        d = depSpillCell.length;
+        depSpillCell.push(c); depSpillElevRaw.push(elevation[c]); depParent.push(d);
+      }
+      depId[n] = d;
+      // Merge with any already-labelled member neighbour — stitches the flat-saddle rows.
+      const nx = n % width, ny = (n / width) | 0;
+      if (ny > 0)          { const m = n - width; if (depId[m] >= 0) unionDep(d, depId[m]); }
+      if (ny < height - 1) { const m = n + width; if (depId[m] >= 0) unionDep(d, depId[m]); }
+      if (nx > 0)          { const m = n - 1;     if (depId[m] >= 0) unionDep(d, depId[m]); }
+      if (nx < width - 1)  { const m = n + 1;     if (depId[m] >= 0) unionDep(d, depId[m]); }
+    }
+  };
+
   // Seed: water cells and the entire map border.
   for (let i = 0; i < total; i++) {
     if (elevation[i] < seaLevel) {
@@ -221,39 +306,12 @@ export function generateHydrology(
     const cy = (c / width) | 0;
     const cW = W[c];
     // Visit 4 neighbours. Raise W to max(its elevation, cW + ε), mark closed,
-    // push. The +ε guarantees strict descent across formerly-flat regions.
-    if (cy > 0) {
-      const n = c - width;
-      if (!closed[n]) {
-        W[n] = elevation[n] > cW + PIT_FILL_EPSILON ? elevation[n] : cW + PIT_FILL_EPSILON;
-        closed[n] = 1;
-        heapPush(W[n], n);
-      }
-    }
-    if (cy < height - 1) {
-      const n = c + width;
-      if (!closed[n]) {
-        W[n] = elevation[n] > cW + PIT_FILL_EPSILON ? elevation[n] : cW + PIT_FILL_EPSILON;
-        closed[n] = 1;
-        heapPush(W[n], n);
-      }
-    }
-    if (cx > 0) {
-      const n = c - 1;
-      if (!closed[n]) {
-        W[n] = elevation[n] > cW + PIT_FILL_EPSILON ? elevation[n] : cW + PIT_FILL_EPSILON;
-        closed[n] = 1;
-        heapPush(W[n], n);
-      }
-    }
-    if (cx < width - 1) {
-      const n = c + 1;
-      if (!closed[n]) {
-        W[n] = elevation[n] > cW + PIT_FILL_EPSILON ? elevation[n] : cW + PIT_FILL_EPSILON;
-        closed[n] = 1;
-        heapPush(W[n], n);
-      }
-    }
+    // push (the +ε guarantees strict descent across formerly-flat regions), and
+    // label depressions (see raiseNeighbor).
+    if (cy > 0)          raiseNeighbor(c - width, c, cW);
+    if (cy < height - 1) raiseNeighbor(c + width, c, cW);
+    if (cx > 0)          raiseNeighbor(c - 1, c, cW);
+    if (cx < width - 1)  raiseNeighbor(c + 1, c, cW);
   }
 
   // 2. drainTo: lowest 4-neighbour by filled elevation. Every land cell has
@@ -272,6 +330,74 @@ export function generateHydrology(
       if (x > 0)          { const ni = i - 1;     const ne = W[ni]; if (ne < bestE) { bestE = ne; bestI = ni; } }
       if (x < width - 1)  { const ni = i + 1;     const ne = W[ni]; if (ne < bestE) { bestE = ne; bestI = ni; } }
       drainTo[i] = bestI;
+    }
+  }
+
+  // 2b. Pond keep-rule (rivers R3): select the depressions worth keeping and project
+  //     them onto a per-cell `pondId`. A depression is kept iff its deepest fill is in
+  //     [POND_MIN_DEPTH, LAKE_MIN_FILL) (shallower than a lake — the keep-rule only ADDS)
+  //     and its area is in [POND_MIN_CELLS, POND_MAX_CELLS]. A depression whose members
+  //     are ALL scorched (volcanic dry-out) is dropped, exactly as scorch dries a lake.
+  //     Kept ponds are sorted by spillCell for a deterministic, seed-stable `ponds` order;
+  //     the outlet is the cell just downstream of the spill saddle (drainTo[spillCell]).
+  const pondId = new Int32Array(total).fill(-1);
+  const nDep = depParent.length;
+  // Resolve each union to its lowest saddle (the merged pond's true spill + water level).
+  const rootSpillElev = new Float64Array(nDep).fill(Infinity);
+  const rootSpillCell = new Int32Array(nDep).fill(-1);
+  for (let d = 0; d < nDep; d++) {
+    const r = findDep(d);
+    if (depSpillElevRaw[d] < rootSpillElev[r]) { rootSpillElev[r] = depSpillElevRaw[d]; rootSpillCell[r] = depSpillCell[d]; }
+  }
+  // Aggregate area / depth / scorch per union root, flattening depId to its root en route.
+  const rootArea = new Int32Array(nDep);
+  const rootMaxFill = new Float64Array(nDep);
+  const rootScorch = new Int32Array(nDep);
+  for (let i = 0; i < total; i++) {
+    const d = depId[i];
+    if (d < 0) continue;
+    const r = findDep(d);
+    depId[i] = r;
+    rootArea[r]++;
+    const depth = rootSpillElev[r] - elevation[i];
+    if (depth > rootMaxFill[r]) rootMaxFill[r] = depth;
+    if (scorchMask != null && scorchMask[i] === 1) rootScorch[r]++;
+  }
+  // Keep-rule: shallow-but-real (depth ∈ [POND_MIN_DEPTH, LAKE_MIN_FILL)) hollows of a
+  // tasteful size, not fully dried by volcanic scorch.
+  const keptDeps: number[] = [];
+  for (let r = 0; r < nDep; r++) {
+    const area = rootArea[r];
+    if (area === 0) continue;                                       // not a live root
+    const depth = rootMaxFill[r];
+    if (depth < POND_MIN_DEPTH || depth >= LAKE_MIN_FILL) continue; // too shallow, or already a lake
+    if (area < POND_MIN_CELLS || area > POND_MAX_CELLS) continue;   // puddle, or too broad for a pond
+    if (rootScorch[r] >= area) continue;                            // fully dried by volcanic heat
+    keptDeps.push(r);
+  }
+  // Deterministic pond order: ascending spill cell index (a stable geometric key).
+  keptDeps.sort((a, b) => rootSpillCell[a] - rootSpillCell[b]);
+  const ponds: PondRecord[] = [];
+  const depToPond = new Map<number, number>();
+  for (const r of keptDeps) {
+    const pid = ponds.length;
+    depToPond.set(r, pid);
+    const spillCell = rootSpillCell[r];
+    ponds.push({
+      id: pid,
+      area: rootArea[r],
+      maxDepth: rootMaxFill[r],
+      spillCell,
+      outletCell: drainTo[spillCell],
+      surfaceW: rootSpillElev[r],
+    });
+  }
+  if (ponds.length > 0) {
+    for (let i = 0; i < total; i++) {
+      const d = depId[i];
+      if (d < 0) continue;
+      const pid = depToPond.get(d);
+      if (pid !== undefined) pondId[i] = pid;
     }
   }
 
@@ -386,10 +512,13 @@ export function generateHydrology(
   const flowDirX = new Float32Array(total);
   const flowDirY = new Float32Array(total);
   const widthArr = new Float32Array(total);
-  const scorchMask = options.scorchMask;
   for (let i = 0; i < total; i++) {
     const belowSea = elevation[i] < seaLevel;
-    const standingFill = W[i] - elevation[i] > LAKE_MIN_FILL;
+    // A cell is standing (lake) water if its fill clears LAKE_MIN_FILL as before, OR it
+    // belongs to a kept pond (rivers R3 — a genuine hollow shallower than a lake). The
+    // pond disjunct only ADDS: pond cells always have fill < LAKE_MIN_FILL, so no cell
+    // that read Lake before can lose it, and existing lakes stay byte-identical.
+    const standingFill = W[i] - elevation[i] > LAKE_MIN_FILL || pondId[i] >= 0;
     // VOLCANIC DRY-OUT: a summit crater is a guaranteed closed basin, so pit-fill
     // would pond a caldera lake in EVERY volcano. Cells under the scorch mask
     // (see buildVolcanoScorchMask) evaporate standing water — the crater stays a
@@ -420,5 +549,6 @@ export function generateHydrology(
     riverMask, flowField,
     drainTo, surfaceW, waterMask, waterType,
     flowDirX, flowDirY, strahler, width: widthArr,
+    ponds, pondId,
   };
 }
