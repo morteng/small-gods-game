@@ -189,6 +189,13 @@ export function rootChipRaster(template: AnimTemplate, cell: Raster): Uint8Clamp
 export interface RenderPoseOptions {
   /** Supersample factor for rotation quality before box-downscale (default 4). */
   supersample?: number;
+  /**
+   * Chip names to skip painting. A hidden chip's rect is STILL cleared from the
+   * root, so hiding a limb leaves a hole rather than a baked-in copy — the
+   * behavior both studio isolation and out-of-plane pose fakes (a front-facing
+   * kneel hides the shins) need.
+   */
+  hide?: ReadonlySet<string>;
 }
 
 /**
@@ -235,6 +242,7 @@ export function renderPose(
 
   for (const i of order) {
     const ch = template.chips[i];
+    if (opts.hide?.has(ch.name)) continue;
     const inv = invertAffine(world[i]);
 
     for (let li = 0; li < L.length; li++) {

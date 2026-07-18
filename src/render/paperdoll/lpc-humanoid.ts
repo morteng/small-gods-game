@@ -24,15 +24,19 @@ export interface HumanoidLayerSpec {
 /** Source cell the chips are authored against: walk sheet, col 0 (idle), south row. */
 export const HUMANOID_SOURCE = { anim: 'walk', col: 0, row: 2 } as const;
 
-// Joints (cell coords, y-down): shoulders, elbows, neck. Elbows sit on the
-// ARM COLUMN's centerline (x≈19/44), not the rect's inner edge — a pivot at
-// the torso seam makes the forearm orbit instead of hinge. Tune live with the
-// studio's joint pin mode; verify with scripts/paperdoll-inspect.ts.
+// Joints (cell coords, y-down): shoulders, elbows, neck, hips, knees. Elbows
+// and knees sit on the LIMB COLUMN's centerline, not the rect's inner edge — a
+// pivot at the torso seam makes the segment orbit instead of hinge. Tune live
+// with the studio's joint pin mode; verify with scripts/paperdoll-inspect.ts.
 const SHOULDER_L: [number, number] = [26, 37];
 const ELBOW_L: [number, number] = [19, 44];
 const SHOULDER_R: [number, number] = [39, 37];
 const ELBOW_R: [number, number] = [44, 44];
 const NECK: [number, number] = [32, 34];
+const HIP_L: [number, number] = [25, 51];
+const KNEE_L: [number, number] = [24, 56];
+const HIP_R: [number, number] = [38, 51];
+const KNEE_R: [number, number] = [39, 56];
 
 /**
  * South-facing humanoid template. Root (index 0) is the whole cell; every
@@ -47,7 +51,7 @@ export const LPC_HUMANOID_SOUTH: AnimTemplate = {
     // Head stops above the collar (y32) so tilting doesn't drag shoulder pixels.
     // Top z: the LPC compositor paints head/face/hair LAST, so the head chip
     // must render in front of the arms (a bowed chin sits over the chest).
-    { name: 'head', rect: { x: 21, y: 11, w: 22, h: 21 }, pivot: NECK, parent: 0, z: 6 },
+    { name: 'head', rect: { x: 21, y: 11, w: 22, h: 21 }, pivot: NECK, parent: 0, z: 10 },
     // Arm rects hug the sleeve columns and stop OUTSIDE the dark underarm seam
     // (seam + sleeve cap stay with the trunk — cut-out rigging convention).
     // Wider boxes here scoop chest pixels that smear across rotation.
@@ -55,6 +59,14 @@ export const LPC_HUMANOID_SOUTH: AnimTemplate = {
     { name: 'armL_fore', rect: { x: 15, y: 42, w: 9, h: 9 }, pivot: ELBOW_L, parent: 2, z: 3 },
     { name: 'armR_up', rect: { x: 40, y: 33, w: 9, h: 12 }, pivot: SHOULDER_R, parent: 0, z: 4 },
     { name: 'armR_fore', rect: { x: 40, y: 42, w: 9, h: 9 }, pivot: ELBOW_R, parent: 4, z: 5 },
+    // Legs start BELOW the tunic hem (y51) so thigh swings don't tear the skirt;
+    // the fore chips take the whole boot flare (widest rows are the feet).
+    // Front-view caveat: big leg poses (kneel/sit) are OUT-OF-PLANE here — legs
+    // only carry in-plane accents (weight shift, buckle) on the south facing.
+    { name: 'legL_up', rect: { x: 22, y: 51, w: 8, h: 5 }, pivot: HIP_L, parent: 0, z: 6 },
+    { name: 'legL_fore', rect: { x: 19, y: 56, w: 11, h: 6 }, pivot: KNEE_L, parent: 6, z: 7 },
+    { name: 'legR_up', rect: { x: 34, y: 51, w: 8, h: 5 }, pivot: HIP_R, parent: 0, z: 8 },
+    { name: 'legR_fore', rect: { x: 34, y: 56, w: 11, h: 6 }, pivot: KNEE_R, parent: 8, z: 9 },
   ],
 };
 
@@ -210,6 +222,53 @@ export const CLIP_DESPAIR: Clip = {
       { t: 0, deg: 0 },
       { t: 1, deg: -12 },
     ],
+    // Knee buckle: thighs splay outward while the shins counter-rotate to keep
+    // the feet planted — legs giving way under the slump, a few degrees only.
+    legL_up: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: 5 },
+    ],
+    legL_fore: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: -5 },
+    ],
+    legR_up: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: -5 },
+    ],
+    legR_fore: [
+      { t: 0, deg: 0 },
+      { t: 1, deg: 5 },
+    ],
+  },
+};
+
+/**
+ * Weight-shift idle: torso (with head and arms) sways onto the screen-left leg
+ * while both legs counter-translate to stay planted. Pure translation — no
+ * rotation, so every baked frame stays pixel-exact (no supersample blending).
+ */
+export const CLIP_IDLE_SHIFT: Clip = {
+  name: 'idle-shift',
+  frames: 8,
+  tracks: {
+    trunk: [
+      { t: 0, deg: 0, dx: 0 },
+      { t: 1, deg: 0, dx: -2 },
+    ],
+    // The chin settles a hair as the weight lands.
+    head: [
+      { t: 0, deg: 0, dy: 0 },
+      { t: 1, deg: 0, dy: 1 },
+    ],
+    legL_up: [
+      { t: 0, deg: 0, dx: 0 },
+      { t: 1, deg: 0, dx: 2 },
+    ],
+    legR_up: [
+      { t: 0, deg: 0, dx: 0 },
+      { t: 1, deg: 0, dx: 2 },
+    ],
   },
 };
 
@@ -220,6 +279,7 @@ export const HUMANOID_CLIPS: readonly Clip[] = [
   CLIP_PRAY_PENITENT,
   CLIP_PRAY_ECSTATIC,
   CLIP_DESPAIR,
+  CLIP_IDLE_SHIFT,
 ];
 
 /**

@@ -174,6 +174,19 @@ describe('renderPose', () => {
     expect(moved.data[(7 * n + 0) * 4 + 3]).toBe(0); // origin vacated
   });
 
+  it('a hidden chip leaves a hole (rect cleared from root, chip not painted)', () => {
+    const cell = solidCell(8, [200, 100, 50, 255]);
+    const out = renderPose(T, [cell], REST, { hide: new Set(['arm']) });
+    const armRect = T.chips[1].rect;
+    for (let y = armRect.y; y < armRect.y + armRect.h; y++)
+      for (let x = armRect.x; x < armRect.x + armRect.w; x++) {
+        // fore rect overlaps nothing here; arm area outside fore must be empty
+        const inFore = x >= 5 && y >= 5;
+        if (!inFore) expect(out.data[(y * 8 + x) * 4 + 3]).toBe(0);
+      }
+    expect(out.data[(0 * 8 + 0) * 4 + 3]).toBe(255); // root still painted
+  });
+
   it('an assigned layer contributes nothing to other chips (no trunk ghost)', () => {
     // Same layer, arm rotated far away: pixel at (0,7) is outside every arm
     // destination — if the root sliced this layer, a ghost would remain at (0,7).
@@ -203,6 +216,26 @@ describe('humanoid template + clips', () => {
       expect(ch.rect.x + ch.rect.w).toBeLessThanOrEqual(LPC_HUMANOID_SOUTH.cell);
       expect(ch.rect.y + ch.rect.h).toBeLessThanOrEqual(LPC_HUMANOID_SOUTH.cell);
     });
+  });
+
+  it('mid-limb hinges (elbows/knees) pivot inside their own column, not the torso seam', () => {
+    for (const ch of LPC_HUMANOID_SOUTH.chips) {
+      if (!ch.name.endsWith('_fore')) continue; // shoulders/hips attach at the seam
+      expect(ch.pivot[0]).toBeGreaterThanOrEqual(ch.rect.x);
+      expect(ch.pivot[0]).toBeLessThanOrEqual(ch.rect.x + ch.rect.w);
+    }
+  });
+
+  it('legs: fore chips parent to their up chips, knees sit below hips', () => {
+    const chips = LPC_HUMANOID_SOUTH.chips;
+    for (const side of ['L', 'R'] as const) {
+      const up = chips.findIndex((c) => c.name === `leg${side}_up`);
+      const fore = chips.find((c) => c.name === `leg${side}_fore`)!;
+      expect(up).toBeGreaterThanOrEqual(0);
+      expect(fore.parent).toBe(up);
+      expect(fore.pivot[1]).toBeGreaterThan(chips[up].pivot[1]); // knee below hip
+      expect(chips[up].rect.y).toBeGreaterThanOrEqual(51); // below the tunic hem
+    }
   });
 
   it('head renders in front of every arm chip (LPC paints head layers last)', () => {

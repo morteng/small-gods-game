@@ -25,6 +25,10 @@ const CHIP_COLORS: [number, number, number][] = [
   [60, 120, 255], // armL_fore
   [255, 130, 80], // armR_up
   [255, 70, 40], // armR_fore
+  [80, 220, 120], // legL_up
+  [40, 160, 80], // legL_fore
+  [200, 120, 255], // legR_up
+  [150, 64, 220], // legR_fore
 ];
 
 async function main() {
