@@ -77,10 +77,15 @@ export function calendarLabel(tick: number): string {
 export const SOLAR_DAY_CALENDAR_DAYS = 1;
 export const TICKS_PER_SOLAR_DAY = TICKS_PER_DAY * SOLAR_DAY_CALENDAR_DAYS;
 /** Solar hour at tick 0 — the fixed-hour FALLBACK (tests/studio/worlds without
- *  a wall-clock anchor boot mid-morning, not in the dark). Freshly generated
- *  worlds instead stamp the clock's starting tick from the player's local time
- *  (see `solarAnchorTickForDate` + bootstrap-world). */
+ *  an anchored start boot mid-morning, not in the dark). Freshly generated
+ *  worlds instead anchor to `WORLD_START_HOUR` (see bootstrap-world). */
 export const SOLAR_START_HOUR = 9;
+
+/** Solar hour every freshly generated world starts at (bootstrap-world stamps
+ *  `tickAtSolarHour(WORLD_START_HOUR)` once at gen) — a fixed 08:00 morning
+ *  regardless of the player's wall clock, so a new game never opens in the
+ *  dark. `?solarhour=H` still overrides for dev/e2e. */
+export const WORLD_START_HOUR = 8;
 
 /** Hour-of-day (0..24, 0 = solar midnight) of the VISUAL solar day at `tick`. */
 export function solarHourForTick(tick: number): number {
@@ -94,18 +99,6 @@ export function solarHourForTick(tick: number): number {
 export function tickAtSolarHour(hour: number): number {
   const h = ((hour % 24) + 24) % 24;
   return Math.round((((h - SOLAR_START_HOUR + 24) % 24) / 24) * TICKS_PER_SOLAR_DAY);
-}
-
-/**
- * Wall-clock anchor (stamped ONCE at world generation): the starting tick whose
- * solar time matches the given local Date, so a world generated at 21:30 boots
- * into evening. The anchor is persisted implicitly — the clock's tick is
- * save/snapshot state — and everything downstream stays a pure deterministic
- * function of the tick. Time flows only while the game runs (no offline
- * catch-up). This is the ONLY sanctioned local-time read besides the gen seed.
- */
-export function solarAnchorTickForDate(d: Date): number {
-  return tickAtSolarHour(d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600);
 }
 
 /**

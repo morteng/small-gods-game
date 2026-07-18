@@ -1,0 +1,140 @@
+// scripts/paperdoll-bake.ts
+//
+// Offline paper-doll bake — drives src/render/paperdoll/ (the same core the
+// motion studio uses) over the vendored LPC layers, PER LAYER: each layer is
+// sliced and rotated independently by the shared FK transforms, then painted
+// chip-z-outer / layer-order-inner. Rotating raw layers (clean alpha edges)
+// instead of the flattened composite kills the baked-in inter-layer shadow
+// smear the first composed-slice spike showed on the forearms.
+//
+// Run:  npx tsx scripts/paperdoll-bake.ts
+// Out:  tmp/paperdoll/<clip>-{6x,onscreen,quant6x}.png   (one strip per clip)
+
+import { mkdirSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { PNG } from 'pngjs';
+import { bakeClip } from '@/render/paperdoll/rig';
+import {
+  DEFAULT_HUMANOID_LAYERS,
+  donorSheetCandidates,
+  HUMANOID_CLIPS,
+  HUMANOID_SOURCE,
+  LPC_HUMANOID_SOUTH,
+} from '@/render/paperdoll/lpc-humanoid';
+import { stampAnims } from '@/render/paperdoll/stamp';
+import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
+import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
+
+const OUT = 'tmp/paperdoll';
+mkdirSync(OUT, { recursive: true });
+const CELL = LPC_HUMANOID_SOUTH.cell;
+
+/** Extract the template's source cell (idle stand, south row) from one layer sheet. */
+async function loadLayerCell(publicPath: string): Promise<Raster> {
+  const png = PNG.sync.read(await readFile(`public/${publicPath}`));
+  const sx = HUMANOID_SOURCE.col * CELL;
+  const sy = HUMANOID_SOURCE.row * CELL;
+  const data = new Uint8ClampedArray(CELL * CELL * 4);
+  for (let y = 0; y < CELL; y++) {
+    for (let x = 0; x < CELL; x++) {
+      const si = ((sy + y) * png.width + (sx + x)) * 4;
+      data.set(png.data.subarray(si, si + 4), (y * CELL + x) * 4);
+    }
+  }
+  return { data, w: CELL, h: CELL };
+}
+
+/** Lay frames out as a horizontal strip (integer scale, dark bg, 2px gutters). */
+function strip(frames: readonly Raster[], scale: number): PNG {
+  const cw = frames[0].w;
+  const gap = 2;
+  const W = (cw * scale + gap) * frames.length + gap;
+  const H = cw * scale + gap * 2;
+  const png = new PNG({ width: W, height: H });
+  for (let i = 0; i < W * H; i++) png.data.set([22, 22, 30, 255], i * 4);
+  frames.forEach((f, fi) => {
+    const ox = gap + fi * (cw * scale + gap);
+    for (let y = 0; y < cw * scale; y++) {
+      for (let x = 0; x < cw * scale; x++) {
+        const si = ((y / scale | 0) * f.w + (x / scale | 0)) * 4;
+        if (f.data[si + 3] === 0) continue;
+        png.data.set([f.data[si], f.data[si + 1], f.data[si + 2], 255], ((gap + y) * W + ox + x) * 4);
+      }
+    }
+  });
+  return png;
+}
+
+/** Coverage-weighted box downscale (64 → 32 on-screen size). */
+function downscale(f: Raster, to: number): Raster {
+  const s = f.w / to;
+  const out = new Uint8ClampedArray(to * to * 4);
+  for (let y = 0; y < to; y++) {
+    for (let x = 0; x < to; x++) {
+      let r = 0, g = 0, b = 0, hit = 0;
+      for (let yy = 0; yy < s; yy++) {
+        for (let xx = 0; xx < s; xx++) {
+          const si = ((y * s + yy) * f.w + (x * s + xx)) * 4;
+          if (f.data[si + 3] > 0) { r += f.data[si]; g += f.data[si + 1]; b += f.data[si + 2]; hit++; }
+        }
+      }
+      if (hit > s * s * 0.35) {
+        out.set([r / hit, g / hit, b / hit, 255], (y * to + x) * 4);
+      }
+    }
+  }
+  return { data: out, w: to, h: to };
+}
+
+/** Full donor sheet as a Raster, or null when the layer ships no such anim. */
+async function loadSheet(publicPath: string): Promise<Raster | null> {
+  try {
+    const png = PNG.sync.read(await readFile(`public/${publicPath}`));
+    return { data: new Uint8ClampedArray(png.data), w: png.width, h: png.height };
+  } catch {
+    return null;
+  }
+}
+
+async function main() {
+  const anims = stampAnims(HUMANOID_CLIPS.map((c) => c.stamps));
+  const layers = await Promise.all(
+    DEFAULT_HUMANOID_LAYERS.map(async (spec) => {
+      const donors: Record<string, Raster> = {};
+      for (const anim of anims) {
+        for (const cand of donorSheetCandidates(spec.path, anim)) {
+          const sheet = await loadSheet(cand);
+          if (sheet) {
+            donors[anim] = sheet;
+            break;
+          }
+        }
+      }
+      return { raster: await loadLayerCell(spec.path), assign: spec.assign, donors };
+    }),
+  );
+  // Production finish: snap to the source palette + re-ink the silhouette —
+  // rotated frames otherwise read blurrier than frame 0 (blend AA + eroded
+  // 1px contour). The plain and Oklab-quantized strips stay for comparison.
+  const rasters = layers.map((l) => l.raster);
+  const palette = collectSourcePalette(rasters);
+  const outline = collectOutlinePalette(rasters);
+  for (const clip of HUMANOID_CLIPS) {
+    const frames = bakeClip(LPC_HUMANOID_SOUTH, layers, clip);
+    await writeFile(`${OUT}/${clip.name}-6x.png`, PNG.sync.write(strip(frames, 6)));
+    const inked = frames.map((f) => reinkOutline(snapToSourcePalette(f, palette), outline));
+    await writeFile(`${OUT}/${clip.name}-ink6x.png`, PNG.sync.write(strip(inked, 6)));
+    await writeFile(
+      `${OUT}/${clip.name}-onscreen.png`,
+      PNG.sync.write(strip(inked.map((f) => downscale(f, 32)), 4)),
+    );
+    const quant = frames.map((f) => quantizePaletteOklab(f, 32, { dither: 'bayer4' }));
+    await writeFile(`${OUT}/${clip.name}-quant6x.png`, PNG.sync.write(strip(quant, 6)));
+    console.log(`${clip.name}: ${frames.length} frames → ${OUT}/${clip.name}-{6x,ink6x,onscreen,quant6x}.png`);
+  }
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

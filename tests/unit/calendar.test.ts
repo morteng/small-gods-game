@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatCalendarTick, nightFactorForTick, solarHourForTick, tickAtSolarHour,
   TICKS_PER_DAY, DAYS_PER_YEAR, TICKS_PER_SOLAR_DAY, SOLAR_START_HOUR,
+  WORLD_START_HOUR,
 } from '@/core/calendar';
 
 describe('calendar', () => {
@@ -33,6 +34,11 @@ describe('calendar', () => {
         expect(solarHourForTick(tickAtSolarHour(h))).toBeCloseTo(h, 4);
       }
       expect(tickAtSolarHour(SOLAR_START_HOUR)).toBe(0);
+    });
+    it('fresh worlds anchor to a fixed 08:00 morning (never the wall clock)', () => {
+      expect(WORLD_START_HOUR).toBe(8);
+      expect(solarHourForTick(tickAtSolarHour(WORLD_START_HOUR))).toBeCloseTo(8, 4);
+      expect(nightFactorForTick(tickAtSolarHour(WORLD_START_HOUR))).toBeCloseTo(0, 3);
     });
   });
 
