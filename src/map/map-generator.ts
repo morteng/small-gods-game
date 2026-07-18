@@ -20,6 +20,9 @@ import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { styledClimate } from '@/terrain/climate';
 import { applyPoiInfluences } from '@/terrain/poi-influence';
 import { generateHydrology, buildVolcanoScorchMask } from '@/terrain/hydrology';
+import { siteBeaverDams, DAM_WOOD_BIOMES } from '@/world/beaver-dams';
+import { synthesizeBlueprint } from '@/blueprint/presets';
+import { rotateFootprint, type Orientation } from '@/blueprint/orientation';
 import { buildRoadGraph, repairRoadDiagonalGaps, repairConnectionSplits } from '@/world/road-graph';
 import { mergeParallelRoads } from '@/world/connectome/merge-parallel-roads';
 import { gateApproachPlan, realGateAnchors } from '@/world/connectome/gate-approach';
@@ -75,7 +78,7 @@ import { prewarmAllSettlementWear } from '@/world/settlement-wear';
 import { clearKillingFields } from '@/world/killing-field';
 import { TrampleGrid } from '@/sim/trample';
 import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
-import { blueprintOf } from '@/blueprint/entity';
+import { blueprintOf, blueprintEntity } from '@/blueprint/entity';
 import { clearObstructedVegetation } from '@/world/vegetation-clear';
 import { fillBareGround } from '@/world/vegetation-fill';
 import { getZoneRule } from '@/map/poi-zones';
@@ -295,7 +298,33 @@ export async function generateWithNoise(
   // the render-path recompute (hydrology-store) derives, so tiles and water agree.
   const scorchMask = buildVolcanoScorchMask(
     worldSeed?.pois, width, height, fields.elevation, config.seaLevel ?? 0.35, config.reliefM ?? 48);
-  const hydrology = generateHydrology(fields, config, { riverFlowThreshold, scorchMask });
+  let hydrology = generateHydrology(fields, config, { riverFlowThreshold, scorchMask });
+
+  // BEAVER DAMS (rivers R3 P2): a deterministic TWO-PASS. From the base (pass-1) hydrology above,
+  // site a few crest-clamp weirs on moderate-flow, narrow-valley, near-wood reaches, then RE-RUN
+  // hydrology with those weirs so the impounded reaches pond via P1's keep-rule. This runs BEFORE
+  // any water consumer (the tile stamp just below, POI snap-off-water, riparian, crossings), so
+  // every downstream pass sees the FINAL water. Persisted to `map.beaverDams` (declared below) and
+  // re-applied byte-identically by the render-path recompute (`hydrology-store`). Skipped entirely
+  // when zero dams site (the common case) ⇒ no extra flood, byte-identical to pre-P2.
+  const beaverDams = siteBeaverDams(hydrology, fields.elevation, {
+    width, height, seaLevel: config.seaLevel ?? 0.35, seed,
+    // Wood is derived from the biome field (available here; the recompute never re-sites — it reads
+    // the persisted records). A cell is "wood" near enough for beavers if its biome bears timber.
+    forestAt: (x, y) => DAM_WOOD_BIOMES.has(biomeMap.biomes[y * width + x] ?? ''),
+  });
+  if (beaverDams.length > 0) {
+    hydrology = generateHydrology(fields, config, { riverFlowThreshold, scorchMask, weirs: beaverDams });
+    // Bind each dam to the pond it impounded. The whole crest run clamps to one elevation, so the
+    // priority-flood's spill saddle can be ANY run cell (ties broken by insertion order) — match on
+    // the run, not just the channel cell. A dam whose reach fell outside the keep-rule (too
+    // broad/steep to pond) keeps −1.
+    for (const dam of beaverDams) {
+      const damCellSet = new Set(dam.cells);
+      const pond = hydrology.ponds?.find((p) => damCellSet.has(p.spillCell));
+      dam.pondId = pond ? pond.id : -1;
+    }
+  }
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const idx = y * width + x;
@@ -381,12 +410,16 @@ export async function generateWithNoise(
     return renderWaterMask(x, y);
   };
 
-  // Build World early so biome brushes and buildings can use it
+  // Build World early so biome brushes and buildings can use it. Carries `beaverDams` so any in-gen
+  // `getRenderWaterMask(mapStub)` recompute applies the SAME weirs the tile stamp did — the render
+  // water, the crossing seats and the vegetation clear all see the beaver ponds, consistent with
+  // the final map (and its cache key, so the store never serves a weir-less entry for a dammed map).
   const mapStub: GameMap = {
     tiles, width, height, villages: [], seed, success: true,
     worldSeed: worldSeed ?? null,
     stats: { iterations: 0, backtracks: 0 },
     buildings: [],
+    ...(beaverDams.length > 0 ? { beaverDams } : {}),
   };
   const world = new World(mapStub);
 
@@ -406,6 +439,25 @@ export async function generateWithNoise(
   await report('Dressing riverbanks...');
   for (const e of buildRiparianEntities(hydrology, width, height, seed + 4242, biomeMap.biomes)) {
     if (!world.registry.has(e.id)) world.addEntity(e);
+  }
+
+  // Beaver-dam bars (rivers R3 P2): a stick/mud PROP across each dam's crest run (the weir itself
+  // is the hydrology construct; this is the visible structure). Class 'prop', category
+  // 'infrastructure' — outside NATURE_CATEGORIES, so the end-of-gen habitat clear leaves it in the
+  // channel where it belongs. Canonical bar runs east–west (footprint 3×1); a dam whose run spans
+  // Y is quarter-turned. Centered on the channel cell so the bar crosses the impounded reach's lip.
+  for (const dam of beaverDams) {
+    const base = synthesizeBlueprint('beaver_dam', [], seed + 5100 + dam.id);
+    if (!base) continue;
+    const cx = dam.channelCell % width, cy = (dam.channelCell / width) | 0;
+    const second = dam.cells[1];
+    const runsAlongX = second === undefined ? true : (second % width) !== cx; // run spans X ⇒ canonical
+    const o: Orientation = runsAlongX ? 0 : 1;
+    const rb = o ? { ...base, orientation: o } : base;
+    const fp = rotateFootprint(base.footprint.w, base.footprint.h, o);
+    const px = cx - ((fp.w - 1) >> 1), py = cy - ((fp.h - 1) >> 1);
+    const dm = blueprintEntity(`beaver_dam_${dam.id}`, rb, px, py);
+    if (!world.registry.has(dm.id)) world.addEntity(dm);
   }
 
   // Coastal landmarks (sea arch / cliff-face / cave / hoodoo) are SHELVED: the mesh
@@ -802,6 +854,9 @@ export async function generateWithNoise(
     barrierRuns,
     roadGraph,
     riparianSeed: seed + 4242, // scatter identity — see the riparian pass above
+    // Beaver-dam crests (rivers R3 P2) — the render-path hydrology recompute re-applies these as
+    // weirs to reproduce the final water; absent when none sited. Declared, never re-guessed.
+    ...(beaverDams.length > 0 ? { beaverDams } : {}),
   };
 
   // Anchor snap-fit layer: gather every feature's connection anchors and match them into

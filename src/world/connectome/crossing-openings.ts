@@ -32,7 +32,10 @@ export interface CrossingOpening {
   axis: [number, number];
 }
 
-const cache = new WeakMap<object, CrossingOpening[]>();
+// Memo keyed on the graph OBJECT + its `rev`: the graph used to be immutable post-gen, but the
+// road-wear economy now mutates it in place (S2 class/surface flips bump rev; S4 adoption adds
+// edges), so a bare object key would serve stale openings after an adoption adds a crossing.
+const cache = new WeakMap<object, { rev: number; out: CrossingOpening[] }>();
 
 /** The edge id a crossing spec belongs to (`crossing@<edgeId>#<n>`). Exported so the deck siter
  *  reads the crossing's road from the SAME parse — a bridge's running surface must be the surface
@@ -50,8 +53,9 @@ export function edgeIdOf(specId: string): string {
 export function getCrossingOpenings(map: GameMap): CrossingOpening[] {
   const graph = map.roadGraph;
   if (!graph || !graph.edges.length || !map.tiles?.length) return [];
+  const rev = graph.rev ?? 0;
   const hit = cache.get(graph);
-  if (hit) return hit;
+  if (hit && hit.rev === rev) return hit.out;
 
   const wet = getRenderWaterMask(map);
   const out: CrossingOpening[] = [];
@@ -59,7 +63,7 @@ export function getCrossingOpenings(map: GameMap): CrossingOpening[] {
     if (!spec.bankCells || !spec.axis) continue;   // no ribbon-seated opening (ribbon missed the channel)
     out.push({ id: spec.id, edgeId: edgeIdOf(spec.id), a: spec.bankCells[0], b: spec.bankCells[1], axis: spec.axis });
   }
-  cache.set(graph, out);
+  cache.set(graph, { rev, out });
   return out;
 }
 

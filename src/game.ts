@@ -1274,7 +1274,7 @@ export class Game {
         if (!this.state.world) return;
         // Skips are committed one-way boundaries; never run while scrubbing the past.
         if (this.timeline.isScrubbed) this.timeline.returnToLive();
-        const summary = applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample);
+        const summary = applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample, this.state.crossingTiers, this.state.adoptions);
         // F6: arcs that spanned the skip settle their dispositions against the
         // post-skip world BEFORE the boundary snapshot, so the committed
         // baseline carries the settled arcs (scrub-safe — deterministic sweep).

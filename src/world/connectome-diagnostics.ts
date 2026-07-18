@@ -325,8 +325,19 @@ const redundantParallelRoad: DiagnosticRule = {
       (byPair.get(k) ?? byPair.set(k, []).get(k)!).push(e);
     }
     return [...byPair.entries()].filter(([, es]) => es.length > 1)
-      .sort((a, b) => a[0].localeCompare(b[0])).map(([k, es]) => {
+      .sort((a, b) => a[0].localeCompare(b[0])).map(([k, es]): Diagnostic => {
         const [a, b] = k.split('|');
+        // NAMED EXEMPTION (road-wear S4): a desire-line ADOPTED edge legitimately shadows
+        // the road it shortcuts — that redundancy is the emergent story, not a gen defect.
+        // The finding is still logged (info, named), never silent; a merge is never suggested.
+        if (es.some((e) => e.emergent)) {
+          return {
+            rule: this.id, severity: 'info' as const,
+            message: `${es.length} parallel roads between ${a} and ${b} — exempt: includes an emergent (adopted desire-line) edge`,
+            locus: { edges: es.map((e) => e.id), pois: [a, b].filter((x) => x.includes(':')) },
+            metrics: { count: es.length, emergentExempt: 1 },
+          };
+        }
         return {
           rule: this.id, severity: this.severity,
           message: `${es.length} parallel roads between ${a} and ${b} — merge into one`,
@@ -413,6 +424,18 @@ const parallelCorridorRoad: DiagnosticRule = {
         }
         const minLen = Math.min(polylineLength(e1.polyline), polylineLength(e2.polyline)) || 1;
         if (shared >= PARALLEL_MIN_SHARED_TILES && shared >= PARALLEL_MIN_SHARED_FRACTION * minLen) {
+          // NAMED EXEMPTION (road-wear S4): an emergent (adopted desire-line) edge running
+          // beside an authored road is a legitimate shortcut trail made real — logged as
+          // info (named), never silenced, never offered for merging.
+          if (e1.emergent || e2.emergent) {
+            out.push({
+              rule: this.id, severity: 'info',
+              message: `roads ${e1.id} and ${e2.id} run together for ~${Math.round(shared)} tiles — exempt: emergent (adopted desire-line) edge`,
+              locus: { edges: [e1.id, e2.id] },
+              metrics: { sharedTiles: Math.round(shared * 10) / 10, emergentExempt: 1 },
+            });
+            continue;
+          }
           out.push({
             rule: this.id, severity: this.severity,
             message: `roads ${e1.id} and ${e2.id} run together for ~${Math.round(shared)} tiles — consider merging into one corridor`,

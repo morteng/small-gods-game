@@ -91,6 +91,12 @@ export interface RoadEdge {
    *  it — the node fillet alone is discarded (gate/anchor fillets survive), one rung below
    *  the whole-edge `filletRejected` verdict. Persisted with the graph. */
   nodeTangentRejected?: boolean;
+  /** Road-wear economy S4: this edge was ADOPTED from a desire-line trample corridor at
+   *  runtime (`desire-line-adoption.ts`) rather than authored by worldgen. Grants the edge
+   *  its NAMED lint exemptions (`road.redundant-parallel` / `road.parallel-corridor` — a
+   *  desire line legitimately shadows the road it shortcuts) and marks the first sanctioned
+   *  breach of the "graph is immutable post-gen" rule. Persisted with the graph. */
+  emergent?: boolean;
   /** Bow-reconciliation PINS (`reconcileCenterlineBows`): indices into `polyline` forced to
    *  stay spline control points. Where plain Catmull-Rom smoothing bowed further than the
    *  reconcile margin off the walked path (the "ribbon sags off the walkable row" class), the
@@ -481,6 +487,111 @@ export function applyRoadMask(tiles: Tile[][], mask: RoadMask): void {
       t.walkable = roadTile !== 'river';
     }
   }
+}
+
+// ── S4 (road-wear economy): the FIRST runtime edge splitter ──────────────────
+// Desire-line adoption can land an endpoint mid-edge on an existing road; the host edge is
+// SPLIT at that polyline cell into two halves sharing a new junction node. Slice-0's "edges
+// stay whole" rule ends here — but only through this one audited seam: halves preserve
+// `dynamics`/`use` by copy, ids stay stable-ish by suffixing (`re42` → `re42a`/`re42b`),
+// and `graph.rev` bumps so every rev-keyed memo (carve, surface, tile→edge index, crossing
+// openings) re-derives. `unsplitEdge` is the exact reverse — the scrub-back path of the
+// adoption ledger replay (`desire-line-adoption.ts`) — restoring the host edge id so a
+// re-adoption after re-split is byte-identical.
+
+/** Everything needed to reverse one split (recorded in the adoption ledger). */
+export interface EdgeSplitRecord {
+  hostEdgeId: string;
+  /** Polyline index of the split cell on the host edge AT SPLIT TIME (strictly interior). */
+  atIndex: number;
+  /** The junction node created at that cell. */
+  nodeId: string;
+  /** The two halves: `[0]` covers polyline[0..atIndex], `[1]` covers [atIndex..end]. */
+  halfIds: [string, string];
+}
+
+/**
+ * Split `edgeId` at polyline index `index` (strictly interior — an endpoint landing needs a
+ * node connection, not a split). Both halves share the split cell (it ends A and starts B),
+ * copy `dynamics`/`use` (deep — the two halves evolve independently from here), partition
+ * `bridgeCells` and `pins` by side, and keep class/surface/feature. Returns the reversal
+ * record, or null when the edge is missing / the index is not interior. Bumps `graph.rev`.
+ */
+export function splitEdgeAtIndex(graph: RoadGraph, edgeId: string, index: number, width: number): EdgeSplitRecord | null {
+  const pos = graph.edges.findIndex((e) => e.id === edgeId);
+  if (pos < 0) return null;
+  const host = graph.edges[pos];
+  if (index <= 0 || index >= host.polyline.length - 1) return null;
+
+  const cell = host.polyline[index];
+  const node: RoadNode = { id: `rn-split:${edgeId}@${index}`, x: cell.x, y: cell.y, kind: 'junction' };
+  graph.nodes.push(node);
+
+  const polyA = host.polyline.slice(0, index + 1);
+  const polyB = host.polyline.slice(index);
+  const flat = (cs: { x: number; y: number }[]): Set<number> => new Set(cs.map((c) => c.y * width + c.x));
+  const cellsA = flat(polyA), cellsB = flat(polyB);
+  const half = (suffix: 'a' | 'b', poly: { x: number; y: number }[], cells: Set<number>, aNode: string, bNode: string): RoadEdge => {
+    const e: RoadEdge = {
+      id: `${edgeId}${suffix}`, a: aNode, b: bNode, polyline: poly,
+      feature: host.feature, class: host.class, surface: host.surface,
+      bridgeCells: host.bridgeCells.filter((k) => cells.has(k)),
+    };
+    if (host.dynamics) e.dynamics = structuredClone(host.dynamics);
+    if (host.use) e.use = structuredClone(host.use);
+    if (host.filletRejected) e.filletRejected = true;
+    if (host.nodeTangentRejected) e.nodeTangentRejected = true;
+    return e;
+  };
+  const halfA = half('a', polyA, cellsA, host.a, node.id);
+  const halfB = half('b', polyB, cellsB, node.id, host.b);
+  if (host.pins?.length) {
+    const pinsA = host.pins.filter((p) => p <= index);
+    const pinsB = host.pins.filter((p) => p >= index).map((p) => p - index);
+    if (pinsA.length) halfA.pins = pinsA;
+    if (pinsB.length) halfB.pins = pinsB;
+  }
+  graph.edges.splice(pos, 1, halfA, halfB);
+  graph.rev = (graph.rev ?? 0) + 1;
+  return { hostEdgeId: edgeId, atIndex: index, nodeId: node.id, halfIds: [halfA.id, halfB.id] };
+}
+
+/**
+ * Reverse one {@link splitEdgeAtIndex}: merge the two halves back into the host edge (original
+ * id — a later re-split reproduces identical half ids) and drop the junction node when nothing
+ * else references it. `dynamics`/`use` are taken from the `a` half — an approximation, but the
+ * halves' statistics are not scrub-authoritative anyway (they ride the map, not the snapshot).
+ * Returns false (graph untouched) when either half is missing. Bumps `graph.rev` on success.
+ */
+export function unsplitEdge(graph: RoadGraph, rec: EdgeSplitRecord): boolean {
+  const posA = graph.edges.findIndex((e) => e.id === rec.halfIds[0]);
+  const halfB = graph.edges.find((e) => e.id === rec.halfIds[1]);
+  if (posA < 0 || !halfB) return false;
+  const halfA = graph.edges[posA];
+  const merged: RoadEdge = {
+    id: rec.hostEdgeId, a: halfA.a, b: halfB.b,
+    polyline: [...halfA.polyline, ...halfB.polyline.slice(1)],
+    feature: halfA.feature, class: halfA.class, surface: halfA.surface,
+    bridgeCells: [...new Set([...halfA.bridgeCells, ...halfB.bridgeCells])].sort((m, n) => m - n),
+  };
+  if (halfA.dynamics) merged.dynamics = structuredClone(halfA.dynamics);
+  if (halfA.use) merged.use = structuredClone(halfA.use);
+  if (halfA.filletRejected) merged.filletRejected = true;
+  if (halfA.nodeTangentRejected) merged.nodeTangentRejected = true;
+  const pins = [
+    ...(halfA.pins ?? []),
+    ...(halfB.pins ?? []).map((p) => p + rec.atIndex),
+  ];
+  if (pins.length) merged.pins = [...new Set(pins)].sort((m, n) => m - n);
+  graph.edges.splice(posA, 1, merged);
+  const posB = graph.edges.findIndex((e) => e.id === rec.halfIds[1]);
+  if (posB >= 0) graph.edges.splice(posB, 1);
+  if (!graph.edges.some((e) => e.a === rec.nodeId || e.b === rec.nodeId)) {
+    const ni = graph.nodes.findIndex((n) => n.id === rec.nodeId);
+    if (ni >= 0) graph.nodes.splice(ni, 1);
+  }
+  graph.rev = (graph.rev ?? 0) + 1;
+  return true;
 }
 
 /**

@@ -128,7 +128,12 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   scheduler.register(new SettlementGrowthSystem(() => state.trample, getCohorts));
   // Road evolution ALSO folds the road-use tally into `edge.use` on its applying year-passes
   // (road-wear economy S1) — the tally + cohorts feed the measured-traffic + wealth terms.
-  scheduler.register(new RoadEvolutionSystem(() => state.roadUse, getCohorts));
+  // S2 steps the class ladder there; S3 steps the crossing-tier store (upgraded spans + the
+  // corridor log a promoted trail earns — the trample grid feeds that detection); S4 steps
+  // the adoption ledger (a corridor with sustained qualifying wear becomes a real path edge).
+  scheduler.register(new RoadEvolutionSystem(
+    () => state.roadUse, getCohorts, () => state.crossingTiers, () => state.trample,
+    () => state.adoptions));
   // W-G: deterministic water/atmosphere tick — steps the stepper installed on world
   // seed + polls the flood watch, writing place_flooded/receded into the event log.
   scheduler.register(new WeatherSystem(

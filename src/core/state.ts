@@ -18,6 +18,8 @@ import type { CausalSiteStore } from '@/world/causal-site';
 import type { TrampleGrid } from '@/sim/trample';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import { RoadUseTally } from '@/world/road-use';
+import { CrossingTierStore } from '@/world/crossing-tier-store';
+import { AdoptionLedger } from '@/world/desire-line-adoption';
 
 export interface GameState {
   map: GameMap | null;
@@ -117,6 +119,19 @@ export interface GameState {
    *  Rides the Snapshot as `roadUse?` (the transient counter scrubs with the timeline; the FOLDED
    *  `edge.use` rides `SaveFile.map`). See `@/world/road-use`. */
   roadUse: RoadUseTally;
+  /** Road-wear economy (S3): runtime crossing upgrades — the snapshot-authoritative store of
+   *  every crossing whose BUILT span deviates from the gen-time pick (upgraded past it, or the
+   *  tier-0 log a promoted trample corridor earned). Stepped on the road-evolution year-pass;
+   *  reconciled against world entities on every snapshot restore (the RuntimePoiStore pattern's
+   *  second consumer). Rides the Snapshot as `crossingTiers?`. See `@/world/crossing-tier-store`. */
+  crossingTiers: CrossingTierStore;
+  /** Road-wear economy (S4): the desire-line ADOPTION ledger — pre-adoption wear streaks +
+   *  one permanent record per corridor committed into the road graph as an emergent path
+   *  edge. Stepped on the road-evolution year-pass; the graph rides the map (not the
+   *  snapshot), so restore REPLAYS graph membership from this ledger (`reconcileAdoptions`
+   *  — a scrub un-adopts / re-adopts byte-identically). Rides the Snapshot as `adoptions?`.
+   *  See `@/world/desire-line-adoption`. */
+  adoptions: AdoptionLedger;
 }
 
 export function createState(): GameState {
@@ -174,5 +189,7 @@ export function createState(): GameState {
     trample: null,
     cohorts: new Map(),
     roadUse: new RoadUseTally(),
+    crossingTiers: new CrossingTierStore(),
+    adoptions: new AdoptionLedger(),
   };
 }

@@ -152,14 +152,15 @@ registerContract(gateFramed);
  *  ring and its POI. Called by worldgen after the map is assembled.
  *
  *  RUNTIME COMPLEX RINGS ARE EXEMPT (M4 S5, spike §7 Decision 2): a ring tagged
- *  `ownerPoiId` belongs to a runtime-founded complex (the lord's castle), and NO
- *  runtime road-topology path exists — `roadGraph` is immutable post-gen by
- *  design, so `gate.road-connected` could never be satisfied and would report to
- *  Fate as a world-quality error on every wake, forever. Organic access is the
- *  desire-line trample story (castle traffic wears real trails, no road graph
- *  needed); a runtime road spur is its own epic. The exemption is here at the
- *  DECLARATION builder — worldgen never sees runtime rings today, but any future
- *  re-declaration pass over a live map must keep skipping them. */
+ *  `ownerPoiId` belongs to a runtime-founded complex (the lord's castle), and no
+ *  GUARANTEED runtime road exists to satisfy `gate.road-connected` — it would
+ *  report to Fate as a world-quality error on every wake, forever. Since road-wear
+ *  S4 the graph is no longer immutable post-gen: desire-line ADOPTION
+ *  (`desire-line-adoption.ts`) can organically grow an emergent path to a castle
+ *  gate — but adoption is earned by traffic, never guaranteed, so the exemption
+ *  stands. Organic access remains the trample/adoption story; the exemption is
+ *  here at the DECLARATION builder — worldgen never sees runtime rings today, but
+ *  any future re-declaration pass over a live map must keep skipping them. */
 export function settlementRingContracts(barrierRuns: PlacedBarrier[]): ContractDeclaration[] {
   const decls: ContractDeclaration[] = [];
   for (const b of barrierRuns) {

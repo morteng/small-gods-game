@@ -3,13 +3,17 @@ import type { SettlementCohorts } from '@/sim/cohorts';
 import type { RoadUseTally, EdgeClassInputs, RoadClassTransition } from '@/world/road-use';
 import type { RoadEdge } from '@/world/road-graph';
 import { advanceRoadEvolution, connectomeEvolveOptions, buildRoadUseInputs, endpointPoiIdsFor, applyRoadClassSurface } from '@/world/road-evolution';
-import { foldRoadUse, evolveRoadClasses } from '@/world/road-use';
+import { foldRoadUse, evolveRoadClasses, ROAD_CLASS_LADDER, CROSSING_TIER_LABELS } from '@/world/road-use';
+import { stepCrossingTiers, corridorSitesFor, type CrossingTierStore, type CrossingUpgrade } from '@/world/crossing-tier-store';
+import { detectCorridorCrossings } from '@/world/corridor-crossings';
+import { stepAdoptions, type AdoptionLedger, type AdoptedEvent } from '@/world/desire-line-adoption';
 import { residentsByPoi } from '@/sim/systems/settlement-growth-system';
 import { lordSeatFunds } from '@/sim/lord';
 import { getClimateFields } from '@/world/heightfield';
 import type { EventLog } from '@/core/events';
 import type { World } from '@/world/world';
 import type { GameMap } from '@/core/types';
+import type { TrampleGrid } from '@/sim/trample';
 
 /** Build the class-ladder inputs from the live world: wealth from the use fold (one number), the
  *  highway lord-gate from the seat/dominion plumbing, and the endpoint ids for the events. */
@@ -22,15 +26,37 @@ export function buildRoadClassInputs(map: GameMap, world: World, wealthFor: (edg
   };
 }
 
-/** Emit the SimEvent for one class transition (promote/demote). Shared by the live tick + skip. */
+/** Emit the SimEvent for one class transition (promote/demote). Shared by the live tick + skip.
+ *  (Two literal `append` calls, not one with a ternary type: tsc widens the ternary discriminant
+ *  and the sim-event boundary guard needs each `type:` literal near an `append(`.) */
 export function emitRoadClassEvent(log: EventLog, tr: RoadClassTransition): void {
-  const LADDER = ['path', 'track', 'road', 'highway'];
   const { edgeId, from, to, fromPoiId, toPoiId } = tr;
-  if (LADDER.indexOf(to) > LADDER.indexOf(from)) {
+  if (ROAD_CLASS_LADDER.indexOf(to) > ROAD_CLASS_LADDER.indexOf(from)) {
     log.append({ type: 'road_promoted', edgeId, from, to, fromPoiId, toPoiId });
   } else {
     log.append({ type: 'road_demoted', edgeId, from, to, fromPoiId, toPoiId });
   }
+}
+
+/** Emit the SimEvent for one desire-line adoption. Shared by the live tick + skip. */
+export function emitRoadAdopted(log: EventLog, ev: AdoptedEvent): void {
+  log.append({
+    type: 'road_adopted',
+    edgeId: ev.edgeId, x: ev.x, y: ev.y, lengthT: ev.lengthT,
+    ...(ev.fromPoiId ? { fromPoiId: ev.fromPoiId } : {}),
+    ...(ev.toPoiId ? { toPoiId: ev.toPoiId } : {}),
+  });
+}
+
+/** Emit the SimEvent for one crossing-tier upgrade. Shared by the live tick + skip. */
+export function emitCrossingUpgraded(log: EventLog, u: CrossingUpgrade): void {
+  log.append({
+    type: 'crossing_upgraded',
+    crossingId: u.crossingId, x: u.x, y: u.y,
+    to: u.to, toLabel: CROSSING_TIER_LABELS[u.to],
+    ...(u.from !== undefined ? { from: u.from, fromLabel: CROSSING_TIER_LABELS[u.from] } : {}),
+    ...(u.edgeId ? { edgeId: u.edgeId } : {}),
+  });
 }
 
 /**
@@ -47,7 +73,8 @@ export function emitRoadClassEvent(log: EventLog, tr: RoadClassTransition): void
  *
  * Road-wear economy S1: on the SAME applying year-pass, the measured-footfall tally (fed 3 Hz by
  * the trample deposit system) is folded into each edge's `use` EMA — gated identically, so no new
- * cadence. Nothing READS `use` yet (S2/S3 wire the class + crossing ladders to it).
+ * cadence. S2 steps the class ladder off the freshly-folded use; S3 then steps the crossing-tier
+ * ladder (upgraded spans + the corridor log a promoted trail earns) through the store.
  */
 export class RoadEvolutionSystem implements System {
   readonly name = 'road-evolution';
@@ -57,6 +84,12 @@ export class RoadEvolutionSystem implements System {
   constructor(
     private readonly getRoadUse: () => RoadUseTally | null = () => null,
     private readonly getCohorts: () => ReadonlyMap<string, SettlementCohorts> | null = () => null,
+    /** S3: the crossing-tier store. Optional so headless/pre-S3 states run without one. */
+    private readonly getCrossingTiers: () => CrossingTierStore | null = () => null,
+    /** S3: the trample grid — corridor-log detection scans its promoted cells. */
+    private readonly getTrample: () => TrampleGrid | null = () => null,
+    /** S4: the adoption ledger — a qualifying corridor becomes an emergent path edge. */
+    private readonly getAdoptions: () => AdoptionLedger | null = () => null,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -86,6 +119,30 @@ export class RoadEvolutionSystem implements System {
       if (transitions.length) {
         applyRoadClassSurface(map, transitions);
         for (const tr of transitions) emitRoadClassEvent(ctx.log, tr);
+      }
+      // S3: the crossing-tier ladder steps on the SAME year-pass, after the class apply (the
+      // crossing reads the class the road just earned — LAG discipline in tierForUse). Seated
+      // graph crossings step toward their earned tier; promoted trample corridors earn their
+      // tier-0 log. Each physical change swaps the span entity and narrates.
+      const store = this.getCrossingTiers();
+      const trample = this.getTrample();
+      if (store) {
+        const upgrades = stepCrossingTiers({
+          world: ctx.world, map, store, nowTick: ctx.now,
+          wealthFor: useInputs.wealthFor,
+          corridorSites: trample ? corridorSitesFor(map, trample, detectCorridorCrossings) : undefined,
+        });
+        for (const u of upgrades) emitCrossingUpgraded(ctx.log, u);
+      }
+      // S4: LAST on the year-pass — a corridor that has sustained qualifying wear becomes a
+      // real path edge (the log the trail earned in S3 rides along via the ledger re-key).
+      // After the crossing step so the log precedes the road, live and in fiction.
+      const ledger = this.getAdoptions();
+      if (ledger && trample) {
+        const adopted = stepAdoptions({
+          world: ctx.world, map, ledger, trample, nowTick: ctx.now, crossingTiers: store,
+        });
+        for (const ev of adopted) emitRoadAdopted(ctx.log, ev);
       }
     }
   }

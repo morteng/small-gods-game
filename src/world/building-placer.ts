@@ -41,10 +41,12 @@ import { deriveCroftEnclosures, deriveSettlementRing, type EnclosureCtx } from '
 import { heightMetresAt } from '@/world/heightfield';
 import {
   planSettlement, orderedSlotsFor, subdivideLots, widenMarket, assignWards, planCivics,
-  WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES,
-  type SettlementPlan, type Lot, type FrontageSlot, type MillPlacement,
+  WATER_TYPES, BUILDABLE_TERRAIN, SITE_RULES, flankPoint, oppositeFace, faceVector,
+  type SettlementPlan, type Lot, type FrontageSlot, type MillPlacement, type FisheryPlacement,
+  type CivicSite, type CardinalFace,
 } from './settlement-plan';
 import { getMillSites, millSitesNear } from './mill-site-store';
+import { getFisherySites, fisherySitesNear } from './fishery-site-store';
 import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
 import { maxCarriageHalfWidth } from '@/world/road-state';
 import { SHOULDER_LIP_TILES } from '@/render/gpu/feature-geometry';
@@ -103,11 +105,14 @@ function siteProfileFor(presetName: string): SiteProfile {
 }
 
 /** Civic precinct type → Blueprint preset to emit through the generate→sprite
- *  pipeline. The mill is a working building (class:'building', S6); the well and
- *  graveyard are civic PROPS (class:'prop', render Slice 1) — both flow through
+ *  pipeline. The mill and fishery hut are working buildings (class:'building'); the well and
+ *  graveyard are civic PROPS (class:'prop', render Slice 1) — all flow through
  *  `blueprintEntity`. A civic type with no entry reserves ground but emits nothing
- *  (an agent-registered precinct without art). */
-const CIVIC_PRESETS: Record<string, string> = { mill: 'watermill', well: 'well', graveyard: 'graveyard' };
+ *  (an agent-registered precinct without art). The fishery hut ALSO gets a jetty + drying
+ *  racks (extra props, not looked up here — see the fishery branch in the civic loop below). */
+const CIVIC_PRESETS: Record<string, string> = {
+  mill: 'watermill', well: 'well', graveyard: 'graveyard', fishery: 'fisherman_hut',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -188,6 +193,99 @@ export function clearFootprint(
 
 // Need to import tryGetEntityKindDef
 import { tryGetEntityKindDef } from './entity-kinds';
+
+/** Inputs the civic loop already has in hand when it emits a fishery hut — pulled into a
+ *  standalone, independently testable function (see {@link emitFisheryFurniture}) rather than
+ *  inlined, since the surrounding loop is otherwise not unit-callable in isolation. */
+export interface FisheryFurnitureCtx {
+  poiId: string;
+  /** The already-seated fishery `CivicSite` — MUST carry a resolved `waterFace` (the
+   *  map-less/legacy fallback never sets one; the caller gates on that before calling). */
+  civic: CivicSite & { waterFace: CardinalFace };
+  /** The hut's own resolved footprint (its `waterFace` edge is what the jetty/racks anchor
+   *  off — see `flankPoint`). Square today (matches `CIVIC_RULES.fishery.size`), but this
+   *  takes whatever the hut actually resolved to rather than assuming it. */
+  hutFootprint: { w: number; h: number };
+  /** Does this cell RENDER as water — the same predicate the hydrology tag store used to
+   *  site the hut, so the jetty's far end is checked against the water the player sees. */
+  isWater: (x: number, y: number) => boolean;
+  tiles: Tile[][];
+  occ: OccupancyGrid;
+  registry: EntityRegistry;
+  /** Per-instance deterministic seed draw (the caller's `instSeed`) — called once per
+   *  synthesized preset, in a FIXED order (jetty then racks), so replay stays reproducible. */
+  nextSeed: () => number;
+}
+
+/**
+ * Emit the pond fishery's jetty + drying racks (rivers R3 P3) — the two EXTRA props beside
+ * the `fisherman_hut` civic building. Both are `class:'prop'` (out of the building count,
+ * exempt from `building.on-water`); neither is added to `occ` as `'building'` and neither
+ * goes through `clearFootprint` (which would stamp `newGroundType` over the water tiles the
+ * jetty deliberately overhangs). Returns the entities actually emitted (0, 1, or 2 — either
+ * can be skipped: the jetty if its far end isn't real water, the racks if the dry apron
+ * behind the hut is already claimed or unbuildable) — the caller `registry.add`s them as it
+ * builds `entities`, this function does that itself and just hands back the list to push.
+ *
+ * Jetty siting: the prop is authored canonical SOUTH-facing; `orientationForFacing` picks the
+ * quarter-turn that points its canonical flank at the hut's actual water face (the mill's
+ * wheel-turn trick, `wheelOrientationForFace`, applied to a jetty instead of a wheel). The
+ * world origin is then solved BACKWARDS from the known water-flank point (the same cell a
+ * wheel would dip into): the prop's canonical landward cell (local (0,0)), rotated the same
+ * way via `rotateCell`, must land exactly there, so the jetty's near end sits flush against
+ * the hut with no gap — mirrors the frontage placer's door-cell solve (`rotateCell` + a
+ * road-relative origin) elsewhere in this file.
+ */
+export function emitFisheryFurniture(ctx: FisheryFurnitureCtx): Entity[] {
+  const { poiId, civic: c, hutFootprint, isWater, tiles, occ, registry, nextSeed } = ctx;
+  const out: Entity[] = [];
+
+  const canon = faceVector('south');      // the jetty preset's authored canonical flank
+  const target = faceVector(c.waterFace);
+  const jettyBase = synthesizeBlueprint('fishery_jetty', [], nextSeed());
+  if (jettyBase) {
+    const o = orientationForFacing(canon[0], canon[1], target[0], target[1]);
+    const jrb = o ? { ...jettyBase, orientation: o as Orientation } : jettyBase;
+    const shoreLocal = rotateCell(0, 0, jettyBase.footprint.w, jettyBase.footprint.h, o);
+    const flank = flankPoint(c.x, c.y, hutFootprint.w, hutFootprint.h, c.waterFace);
+    const jx = flank.x - shoreLocal[0], jy = flank.y - shoreLocal[1];
+    // The jetty's FAR end must also be real (rendered) water — a small pond can leave the
+    // outward cell dry or off the far shore; skip rather than beach a jetty on land.
+    const { w: jw, h: jh } = rotateFootprint(jettyBase.footprint.w, jettyBase.footprint.h, o);
+    let allWet = true;
+    for (let dy = 0; dy < jh && allWet; dy++) {
+      for (let dx = 0; dx < jw; dx++) {
+        if (!isWater(jx + dx, jy + dy)) { allWet = false; break; }
+      }
+    }
+    if (allWet) {
+      const jetty = blueprintEntity(`${poiId}_civic_fishery_jetty`, jrb, jx, jy, { poiId });
+      jetty.tags = [...new Set([...(jetty.tags ?? []), 'settlement', 'civic'])];
+      registry.add(jetty);
+      out.push(jetty);
+      // A prop, not a building — no occ 'building' claim, and deliberately no clearFootprint
+      // (see the module doc above). Claimed 'civic' purely so nothing else stamps here later
+      // (the reservation, not a ground-type change).
+      occ.claimRect(jx, jy, jw, jh, 'civic');
+    }
+  }
+
+  // Drying racks sit on the DRY apron behind the hut — the flank OPPOSITE the water.
+  const away = oppositeFace[c.waterFace];
+  const spot = flankPoint(c.x, c.y, hutFootprint.w, hutFootprint.h, away);
+  const spotTile = tiles[spot.y]?.[spot.x];
+  if (spotTile && BUILDABLE_TERRAIN.has(spotTile.type) && !occ.has(spot.x, spot.y)) {
+    const racksBase = synthesizeBlueprint('fishery_racks', [], nextSeed());
+    if (racksBase) {
+      const racks = blueprintEntity(`${poiId}_civic_fishery_racks`, racksBase, spot.x, spot.y, { poiId });
+      racks.tags = [...new Set([...(racks.tags ?? []), 'settlement', 'civic'])];
+      registry.add(racks);
+      out.push(racks);
+      occ.claim(spot.x, spot.y, 'civic');
+    }
+  }
+  return out;
+}
 
 // ─── Spiral search ────────────────────────────────────────────────────────────
 
@@ -415,17 +513,23 @@ export function placeSettlement(
   // (getMillSites, keyed to the RENDER water). Hand planCivics the tags near this settlement
   // (nearest first) + the render-water predicate so it can seat the mill flush against water the
   // player sees — trying several, since not every bank cell admits a clean 2×2. No map
-  // (legacy/test callers) ⇒ planCivics keeps its tile-scan fallback.
+  // (legacy/test callers) ⇒ planCivics keeps its tile-scan fallback. A pond fishery (rivers R3
+  // P3) is the SAME pattern against still water (getFisherySites, pond klass only) — both share
+  // the one render-water predicate below.
   let mill: MillPlacement | undefined;
+  let fishery: FisheryPlacement | undefined;
   if (map) {
     const renderWT = buildRenderWaterTypeMemo(map);
     const isWater = (x: number, y: number): boolean =>
       x >= 0 && y >= 0 && x < map.width && y < map.height && renderWT[y * map.width + x] !== 0;
-    const hints = millSitesNear(getMillSites(map), cx, cy, radius + 12)
+    const millHints = millSitesNear(getMillSites(map), cx, cy, radius + 12)
       .map(s => ({ x: s.x, y: s.y, face: s.waterFace }));
-    mill = { hints, isWater };
+    mill = { hints: millHints, isWater };
+    const fisheryHints = fisherySitesNear(getFisherySites(map), cx, cy, radius + 12)
+      .map(s => ({ x: s.x, y: s.y, face: s.waterFace }));
+    fishery = { hints: fisheryHints, isWater };
   }
-  planCivics(plan, tiles, worldSeed, greenSize, mill);
+  planCivics(plan, tiles, worldSeed, greenSize, mill, fishery);
 
   // Civic precincts (S5): reserve every civic tile against building placement —
   // props don't block via canPlaceIgnoringNature, so the fallback spiral would
@@ -522,6 +626,20 @@ export function placeSettlement(
       if (isBuildingEntity(civic)) {
         occ.claimCells(buildingSolidCells(toCollision(rb), c.x, c.y), 'building');
         for (const cell of buildingVisualCells(rb, c.x, c.y)) buildingVisual.add(cell);
+      }
+      // Pond fishery (rivers R3 P3): the hut's water flank also gets a short jetty running
+      // out over the pond + a set of drying racks on the dry apron behind it — two EXTRA
+      // props for this SAME civic site (not looked up via CIVIC_PRESETS, which is one civic
+      // type → one preset). Only when the hut resolved a real hydrology `waterFace` — the
+      // map-less/legacy 'water' fallback never sets one, so a fishery sited that way (no
+      // hydrology tags in range) gets a hut only, same degraded behaviour a map-less mill
+      // gets no wheel-orientation fact to rotate against.
+      if (c.type === 'fishery' && c.waterFace) {
+        entities.push(...emitFisheryFurniture({
+          poiId: poi.id, civic: c as CivicSite & { waterFace: CardinalFace },
+          hutFootprint: rb.footprint, isWater: (x, y) => fishery?.isWater(x, y) ?? false,
+          tiles, occ, registry, nextSeed: instSeed,
+        }));
       }
     }
   }

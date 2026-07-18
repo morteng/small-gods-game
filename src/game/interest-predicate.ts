@@ -85,6 +85,12 @@ export function isInterestingEvent(ev: SimEvent, _state?: GameState): boolean {
     // path) is a visible shift in the land's connective fabric worth landing on.
     case 'road_promoted':
     case 'road_demoted':
+    // Road-wear S3 — a new bridge (or the trail's first-ever log crossing) is a
+    // visible change in the land worth landing on.
+    case 'crossing_upgraded':
+    // Road-wear S4 — a desire-line trample trail adopted into the road graph
+    // ("the mill path became a road") is a charming, visible beat.
+    case 'road_adopted':
       return true;
     default:
       return false;
@@ -127,6 +133,9 @@ export function describeInterest(ev: SimEvent): { rank: number; label: string } 
     case 'grip_broken':       return { rank: 56, label: "A castle's grip on a settlement was broken" };
     case 'road_promoted':     return { rank: 46, label: ev.to === 'highway' ? "A lord's highway was built" : 'A road rose in the world' };
     case 'road_demoted':      return { rank: 42, label: 'A road fell into disuse' };
+    case 'crossing_upgraded':
+      return { rank: ev.to >= 6 ? 47 : 44, label: ev.to >= 6 ? 'A stone bridge rose over the water' : ev.from === undefined ? 'A log was laid over the water' : 'A river crossing was built up' };
+    case 'road_adopted':      return { rank: 45, label: 'A well-worn trail became a road' };
     default:                  return { rank: 0, label: 'Something happened' };
   }
 }
