@@ -11,10 +11,12 @@ import {
   sampleTrack,
   type Affine,
   type AnimTemplate,
+  type ChipPose,
 } from '@/render/paperdoll/rig';
 import {
   CLIP_PRAY_BOW,
   CLIP_PRAY_RAISE,
+  DEFAULT_HUMANOID_LAYERS,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
 import type { Raster } from '@/render/sprite-postprocess';
@@ -29,6 +31,8 @@ const T: AnimTemplate = {
     { name: 'fore', rect: { x: 5, y: 5, w: 3, h: 3 }, pivot: [6, 5], parent: 1, z: 2 },
   ],
 };
+
+const P = (deg = 0, dx = 0, dy = 0): ChipPose => ({ deg, dx, dy });
 
 function solidCell(n: number, rgba: [number, number, number, number]): Raster {
   const data = new Uint8ClampedArray(n * n * 4);
@@ -57,31 +61,33 @@ describe('affine math', () => {
 
 describe('sampleTrack', () => {
   const track = [
-    { t: 0, deg: 0 },
-    { t: 1, deg: 90 },
+    { t: 0, deg: 0, dy: 0 },
+    { t: 1, deg: 90, dy: -4 },
   ];
 
   it('clamps to endpoints and hits them exactly', () => {
-    expect(sampleTrack(track, -1)).toBe(0);
-    expect(sampleTrack(track, 0)).toBe(0);
-    expect(sampleTrack(track, 1)).toBe(90);
-    expect(sampleTrack(track, 2)).toBe(90);
+    expect(sampleTrack(track, -1).deg).toBe(0);
+    expect(sampleTrack(track, 0).deg).toBe(0);
+    expect(sampleTrack(track, 1).deg).toBe(90);
+    expect(sampleTrack(track, 2).deg).toBe(90);
+    expect(sampleTrack(track, 1).dy).toBe(-4);
   });
 
   it('smoothsteps between keys (midpoint = mean, eased quarters)', () => {
-    expect(sampleTrack(track, 0.5)).toBeCloseTo(45, 10);
-    expect(sampleTrack(track, 0.25)).toBeLessThan(22.5); // ease-in undercuts linear
-    expect(sampleTrack(track, 0.75)).toBeGreaterThan(67.5); // ease-out overshoots linear
+    expect(sampleTrack(track, 0.5).deg).toBeCloseTo(45, 10);
+    expect(sampleTrack(track, 0.5).dy).toBeCloseTo(-2, 10);
+    expect(sampleTrack(track, 0.25).deg).toBeLessThan(22.5); // ease-in undercuts linear
+    expect(sampleTrack(track, 0.75).deg).toBeGreaterThan(67.5); // ease-out overshoots linear
   });
 
-  it('missing track = 0°', () => {
-    expect(sampleTrack(undefined, 0.5)).toBe(0);
+  it('missing track = identity pose', () => {
+    expect(sampleTrack(undefined, 0.5)).toEqual({ deg: 0, dx: 0, dy: 0 });
   });
 });
 
 describe('FK hierarchy', () => {
   it('rotation pivot is a fixed point of its own chip transform', () => {
-    const world = chipWorldTransforms(T, [0, 33, 0]);
+    const world = chipWorldTransforms(T, [P(), P(33), P()]);
     const [px, py] = applyAffine(world[1], 5, 2);
     expect(px).toBeCloseTo(5, 10);
     expect(py).toBeCloseTo(2, 10);
@@ -89,11 +95,18 @@ describe('FK hierarchy', () => {
 
   it('child inherits parent rotation', () => {
     // Parent arm rotates 90° about (5,2); child's pivot (6,5) must move with it.
-    const world = chipWorldTransforms(T, [0, 90, 0]);
+    const world = chipWorldTransforms(T, [P(), P(90), P()]);
     // y-down 90° CW about (5,2): (6,5) → (5 - (5-2), 2 + (6-5)) = (2, 3)
     const [cx, cy] = applyAffine(world[2], 6, 5);
     expect(cx).toBeCloseTo(2, 10);
     expect(cy).toBeCloseTo(3, 10);
+  });
+
+  it('translation offsets after rotation and propagates to children', () => {
+    // Arm translated (0, +2) with no rotation: its pivot AND its child move down 2.
+    const world = chipWorldTransforms(T, [P(), P(0, 0, 2), P()]);
+    expect(applyAffine(world[1], 5, 2)[1]).toBeCloseTo(4, 10);
+    expect(applyAffine(world[2], 6, 5)[1]).toBeCloseTo(7, 10);
   });
 });
 
@@ -109,9 +122,11 @@ describe('rootChipRaster', () => {
 });
 
 describe('renderPose', () => {
+  const REST = [P(), P(), P()];
+
   it('identity pose preserves opaque pixels exactly', () => {
     const cell = solidCell(8, [10, 200, 30, 255]);
-    const out = renderPose(T, [cell], [0, 0, 0]);
+    const out = renderPose(T, [cell], REST);
     for (let i = 0; i < 8 * 8; i++) {
       expect(out.data[i * 4]).toBe(10);
       expect(out.data[i * 4 + 1]).toBe(200);
@@ -122,8 +137,8 @@ describe('renderPose', () => {
 
   it('is deterministic', () => {
     const cell = solidCell(8, [90, 60, 120, 255]);
-    const a = renderPose(T, [cell], [0, 45, -30]);
-    const b = renderPose(T, [cell], [0, 45, -30]);
+    const a = renderPose(T, [cell], [P(), P(45), P(-30)]);
+    const b = renderPose(T, [cell], [P(), P(45), P(-30)]);
     expect(Buffer.from(a.data)).toEqual(Buffer.from(b.data));
   });
 
@@ -136,7 +151,7 @@ describe('renderPose', () => {
     for (let y = armRect.y; y < armRect.y + armRect.h; y++)
       for (let x = armRect.x; x < armRect.x + armRect.w; x++)
         data.set([255, 0, 0, 255], (y * n + x) * 4);
-    const out = renderPose(T, [{ data, w: n, h: n }], [0, 90, 0]);
+    const out = renderPose(T, [{ data, w: n, h: n }], [P(), P(90), P()]);
     // far corner of the original arm rect (7,4) is >2px from the pivot's new
     // footprint — must now be transparent.
     expect(out.data[(4 * n + 7) * 4 + 3]).toBe(0);
@@ -144,6 +159,30 @@ describe('renderPose', () => {
     let covered = 0;
     for (let i = 0; i < n * n; i++) if (out.data[i * 4 + 3] > 0) covered++;
     expect(covered).toBeGreaterThan(4);
+  });
+
+  it('an assigned layer rides its chip wholesale — even pixels outside the chip rect', () => {
+    // Layer opaque at (0,7) — far OUTSIDE the arm rect. Assigned to 'arm' and
+    // translated (+2,0): the pixel must move to (2,7) and never appear at rest.
+    const n = 8;
+    const data = new Uint8ClampedArray(n * n * 4);
+    data.set([0, 255, 0, 255], (7 * n + 0) * 4);
+    const layer = { raster: { data, w: n, h: n }, assign: 'arm' };
+    const moved = renderPose(T, [layer], [P(), P(0, 2, 0), P()]);
+    expect(moved.data[(7 * n + 2) * 4 + 3]).toBe(255);
+    expect(moved.data[(7 * n + 2) * 4 + 1]).toBe(255);
+    expect(moved.data[(7 * n + 0) * 4 + 3]).toBe(0); // origin vacated
+  });
+
+  it('an assigned layer contributes nothing to other chips (no trunk ghost)', () => {
+    // Same layer, arm rotated far away: pixel at (0,7) is outside every arm
+    // destination — if the root sliced this layer, a ghost would remain at (0,7).
+    const n = 8;
+    const data = new Uint8ClampedArray(n * n * 4);
+    data.set([0, 255, 0, 255], (7 * n + 0) * 4);
+    const layer = { raster: { data, w: n, h: n }, assign: 'arm' };
+    const out = renderPose(T, [layer], [P(), P(0, 5, -7), P()]);
+    expect(out.data[(7 * n + 0) * 4 + 3]).toBe(0);
   });
 });
 
@@ -174,9 +213,24 @@ describe('humanoid template + clips', () => {
     }
   });
 
+  it('layer assignments reference real chips', () => {
+    const names = new Set(LPC_HUMANOID_SOUTH.chips.map((c) => c.name));
+    for (const spec of DEFAULT_HUMANOID_LAYERS) {
+      if (spec.assign !== undefined) expect(names.has(spec.assign)).toBe(true);
+    }
+  });
+
+  it('head tracks translate, never rotate (front-facing pitch is faked with dy)', () => {
+    for (const clip of [CLIP_PRAY_RAISE, CLIP_PRAY_BOW]) {
+      for (const k of clip.tracks.head) expect(k.deg).toBe(0);
+      const end = clip.tracks.head[clip.tracks.head.length - 1];
+      expect(end.dy).not.toBe(0);
+    }
+  });
+
   it('frame 0 of a stand→pose clip is the rest pose', () => {
-    const angles = sampleClip(LPC_HUMANOID_SOUTH, CLIP_PRAY_RAISE, 0);
-    expect(angles.every((a) => a === 0)).toBe(true);
+    const poses = sampleClip(LPC_HUMANOID_SOUTH, CLIP_PRAY_RAISE, 0);
+    expect(poses.every((p) => p.deg === 0 && p.dx === 0 && p.dy === 0)).toBe(true);
   });
 
   it('bakeClip yields the declared frame count at cell size', () => {

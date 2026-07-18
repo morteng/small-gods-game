@@ -56,6 +56,20 @@ export interface Keyframe {
   t: number;
   /** Angle at `t`, degrees. +ve = clockwise in screen space (y-down). */
   deg: number;
+  /**
+   * Optional translation (px, parent space) — the 2D stand-in for OUT-OF-PLANE
+   * motion. A front-facing bow must NOT rotate (that reads as a sideways ear-to-
+   * shoulder tilt); the head translates down (chin tuck) / up (facing the sky).
+   */
+  dx?: number;
+  dy?: number;
+}
+
+/** Sampled pose of one chip at a clip time. */
+export interface ChipPose {
+  deg: number;
+  dx: number;
+  dy: number;
 }
 
 export interface Clip {
@@ -104,34 +118,49 @@ function rotAbout(px: number, py: number, deg: number): Affine {
 /** Smoothstep — matches the hand-eased spike motion between keyframes. */
 const smooth = (t: number): number => t * t * (3 - 2 * t);
 
-/** Sample one angle track at normalized time `t` (clamped, smoothstep between keys). */
-export function sampleTrack(track: readonly Keyframe[] | undefined, t: number): number {
-  if (!track || track.length === 0) return 0;
-  if (t <= track[0].t) return track[0].deg;
+const poseOf = (k: Keyframe): ChipPose => ({ deg: k.deg, dx: k.dx ?? 0, dy: k.dy ?? 0 });
+
+const lerpPose = (a: ChipPose, b: ChipPose, u: number): ChipPose => ({
+  deg: a.deg + (b.deg - a.deg) * u,
+  dx: a.dx + (b.dx - a.dx) * u,
+  dy: a.dy + (b.dy - a.dy) * u,
+});
+
+/** Sample one track at normalized time `t` (clamped, smoothstep between keys). */
+export function sampleTrack(track: readonly Keyframe[] | undefined, t: number): ChipPose {
+  if (!track || track.length === 0) return { deg: 0, dx: 0, dy: 0 };
+  if (t <= track[0].t) return poseOf(track[0]);
   const last = track[track.length - 1];
-  if (t >= last.t) return last.deg;
+  if (t >= last.t) return poseOf(last);
   for (let i = 1; i < track.length; i++) {
     const k0 = track[i - 1];
     const k1 = track[i];
     if (t <= k1.t) {
       const span = k1.t - k0.t;
       const u = span <= 0 ? 1 : (t - k0.t) / span;
-      return k0.deg + (k1.deg - k0.deg) * smooth(u);
+      return lerpPose(poseOf(k0), poseOf(k1), smooth(u));
     }
   }
-  return last.deg;
+  return poseOf(last);
 }
 
-/** Per-chip angles (template order) for clip time `t` ∈ [0,1]. */
-export function sampleClip(template: AnimTemplate, clip: Clip, t: number): number[] {
+/** Per-chip poses (template order) for clip time `t` ∈ [0,1]. */
+export function sampleClip(template: AnimTemplate, clip: Clip, t: number): ChipPose[] {
   return template.chips.map((ch) => sampleTrack(clip.tracks[ch.name], t));
 }
 
-/** FK: world affine per chip for the given per-chip angles (template order). */
-export function chipWorldTransforms(template: AnimTemplate, angles: readonly number[]): Affine[] {
+/** FK: world affine per chip for the given per-chip poses (template order). */
+export function chipWorldTransforms(template: AnimTemplate, poses: readonly ChipPose[]): Affine[] {
   const world: Affine[] = [];
   template.chips.forEach((ch, i) => {
-    const local = angles[i] === 0 ? IDENTITY : rotAbout(ch.pivot[0], ch.pivot[1], angles[i]);
+    const p = poses[i];
+    let local: Affine;
+    if (p.deg === 0 && p.dx === 0 && p.dy === 0) local = IDENTITY;
+    else {
+      // Rotate about the pivot, THEN offset — translation is the out-of-plane fake.
+      local = rotAbout(ch.pivot[0], ch.pivot[1], p.deg);
+      if (p.dx !== 0 || p.dy !== 0) local = mulAffine([1, 0, p.dx, 0, 1, p.dy], local);
+    }
     world[i] = ch.parent < 0 ? local : mulAffine(world[ch.parent], local);
   });
   return world;
@@ -163,55 +192,86 @@ export interface RenderPoseOptions {
 }
 
 /**
- * Render one pose: every layer's chips, rotated by shared per-chip transforms,
+ * One source layer for a pose render. `assign` names a chip this layer follows
+ * WHOLESALE: every pixel of the layer moves with that chip's transform and the
+ * layer is never rect-sliced (e.g. LPC head/face/hair layers ride the `head`
+ * bone — cropping them at the head rect cut chins and hair in half). Layers
+ * without `assign` are sliced by the template's chip rects as usual.
+ */
+export interface PoseLayer {
+  raster: Raster;
+  assign?: string;
+}
+
+export type PoseLayerInput = Raster | PoseLayer;
+
+const toPoseLayer = (l: PoseLayerInput): PoseLayer => ('raster' in l ? l : { raster: l });
+
+/**
+ * Render one pose: every layer's chips, moved by shared per-chip transforms,
  * painted chip-z outer / layer-order inner (so e.g. the body arm and its sleeve
- * stay stacked correctly inside the "upper arm" slot). Returns a cell-sized
- * premultiplied-free straight-alpha Raster.
+ * stay stacked correctly inside the "upper arm" slot). Whole-chip layers
+ * (`PoseLayer.assign`) render only under their chip, un-sliced. Returns a
+ * cell-sized straight-alpha Raster.
  */
 export function renderPose(
   template: AnimTemplate,
-  layers: readonly Raster[],
-  angles: readonly number[],
+  layers: readonly PoseLayerInput[],
+  poses: readonly ChipPose[],
   opts: RenderPoseOptions = {},
 ): Raster {
   const n = template.cell;
   const ss = Math.max(1, Math.round(opts.supersample ?? 4));
   const N = n * ss;
   const big = new Uint8ClampedArray(N * N * 4);
-  const world = chipWorldTransforms(template, angles);
-  const roots = layers.map((l) => rootChipRaster(template, l));
+  const world = chipWorldTransforms(template, poses);
+  const L = layers.map(toPoseLayer);
+  // Root-chip rasters (limb rects cleared) — only sliced layers need one.
+  const roots = L.map((l) => (l.assign ? null : rootChipRaster(template, l.raster)));
   const order = template.chips
     .map((_, i) => i)
     .sort((a, b) => template.chips[a].z - template.chips[b].z);
+  const FULL: ChipRect = { x: 0, y: 0, w: n, h: n };
 
   for (const i of order) {
     const ch = template.chips[i];
     const inv = invertAffine(world[i]);
-    const r = ch.rect;
-    // Transformed-rect bbox in supersampled output space.
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    for (const [cx, cy] of [
-      [r.x, r.y],
-      [r.x + r.w, r.y],
-      [r.x, r.y + r.h],
-      [r.x + r.w, r.y + r.h],
-    ] as const) {
-      const [px, py] = applyAffine(world[i], cx, cy);
-      minX = Math.min(minX, px);
-      minY = Math.min(minY, py);
-      maxX = Math.max(maxX, px);
-      maxY = Math.max(maxY, py);
-    }
-    const x0 = Math.max(0, Math.floor(minX * ss));
-    const x1 = Math.min(N, Math.ceil(maxX * ss));
-    const y0 = Math.max(0, Math.floor(minY * ss));
-    const y1 = Math.min(N, Math.ceil(maxY * ss));
 
-    for (let li = 0; li < layers.length; li++) {
-      const src = i === 0 ? roots[li] : layers[li].data;
+    for (let li = 0; li < L.length; li++) {
+      const layer = L[li];
+      let r: ChipRect;
+      let src: Uint8ClampedArray;
+      if (layer.assign !== undefined) {
+        if (layer.assign !== ch.name) continue; // whole layer rides ONE chip
+        r = FULL;
+        src = layer.raster.data;
+      } else {
+        r = ch.rect;
+        src = i === 0 ? roots[li]! : layer.raster.data;
+      }
+
+      // Transformed-rect bbox in supersampled output space.
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const [cx, cy] of [
+        [r.x, r.y],
+        [r.x + r.w, r.y],
+        [r.x, r.y + r.h],
+        [r.x + r.w, r.y + r.h],
+      ] as const) {
+        const [px, py] = applyAffine(world[i], cx, cy);
+        minX = Math.min(minX, px);
+        minY = Math.min(minY, py);
+        maxX = Math.max(maxX, px);
+        maxY = Math.max(maxY, py);
+      }
+      const x0 = Math.max(0, Math.floor(minX * ss));
+      const x1 = Math.min(N, Math.ceil(maxX * ss));
+      const y0 = Math.max(0, Math.floor(minY * ss));
+      const y1 = Math.min(N, Math.ceil(maxY * ss));
+
       for (let oy = y0; oy < y1; oy++) {
         for (let ox = x0; ox < x1; ox++) {
           const [sx, sy] = applyAffine(inv, (ox + 0.5) / ss, (oy + 0.5) / ss);
@@ -265,7 +325,7 @@ export function renderPose(
 /** Bake every frame of a clip. Frame i samples t = i/(frames-1) (frames ≥ 2). */
 export function bakeClip(
   template: AnimTemplate,
-  layers: readonly Raster[],
+  layers: readonly PoseLayerInput[],
   clip: Clip,
   opts: RenderPoseOptions = {},
 ): Raster[] {

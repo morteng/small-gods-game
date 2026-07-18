@@ -13,6 +13,14 @@
  */
 import type { AnimTemplate, Clip } from './rig';
 
+/** One vendored LPC layer + optional whole-layer chip assignment. */
+export interface HumanoidLayerSpec {
+  /** Path relative to `public/`. */
+  path: string;
+  /** Chip this layer follows wholesale (head/face/hair ride the head bone). */
+  assign?: string;
+}
+
 /** Source cell the chips are authored against: walk sheet, col 0 (idle), south row. */
 export const HUMANOID_SOURCE = { anim: 'walk', col: 0, row: 2 } as const;
 
@@ -45,14 +53,16 @@ export const LPC_HUMANOID_SOUTH: AnimTemplate = {
   ],
 };
 
-/** Raise-arms supplication: stand → arms swept up toward the sky, head tilts back. */
+/** Raise-arms supplication: stand → arms swept up toward the sky, face lifted. */
 export const CLIP_PRAY_RAISE: Clip = {
   name: 'pray-raise',
   frames: 7,
   tracks: {
+    // Front view: pitch is faked with translation — the head LIFTS (dy<0),
+    // never rotates (in-plane rotation reads as a sideways ear-to-shoulder tilt).
     head: [
-      { t: 0, deg: 0 },
-      { t: 1, deg: -9 },
+      { t: 0, deg: 0, dy: 0 },
+      { t: 1, deg: 0, dy: -2 },
     ],
     armL_up: [
       { t: 0, deg: 0 },
@@ -78,9 +88,10 @@ export const CLIP_PRAY_BOW: Clip = {
   name: 'pray-bow',
   frames: 7,
   tracks: {
+    // Chin tuck = translate down; no rotation (see pray-raise note).
     head: [
-      { t: 0, deg: 0 },
-      { t: 1, deg: 10 },
+      { t: 0, deg: 0, dy: 0 },
+      { t: 1, deg: 0, dy: 3 },
     ],
     armL_up: [
       { t: 0, deg: 0 },
@@ -102,13 +113,15 @@ export const CLIP_PRAY_BOW: Clip = {
 };
 
 /**
- * Default character stack for previews/bakes — same five layers the spike was
- * authored against, painted bottom→top. Paths are relative to `public/`.
+ * Default character stack for previews/bakes, painted bottom→top. The LPC body
+ * sheet is HEADLESS — skull/face/hair are separate whole-head layers, so they
+ * are assigned to the `head` chip wholesale (rect-slicing them cut chins and
+ * hair in half at the head-box boundary). Body + clothes stay rect-sliced.
  */
-export const DEFAULT_HUMANOID_LAYERS: readonly string[] = [
-  'sprites/lpc/spritesheets/body/bodies/male/walk.png',
-  'sprites/lpc/spritesheets/torso/clothes/longsleeve/longsleeve2_buttoned/male/walk.png',
-  'sprites/lpc/spritesheets/head/heads/human/male/walk.png',
-  'sprites/lpc/spritesheets/head/faces/male/neutral/walk.png',
-  'sprites/lpc/spritesheets/hair/plain/adult/walk.png',
+export const DEFAULT_HUMANOID_LAYERS: readonly HumanoidLayerSpec[] = [
+  { path: 'sprites/lpc/spritesheets/body/bodies/male/walk.png' },
+  { path: 'sprites/lpc/spritesheets/torso/clothes/longsleeve/longsleeve2_buttoned/male/walk.png' },
+  { path: 'sprites/lpc/spritesheets/head/heads/human/male/walk.png', assign: 'head' },
+  { path: 'sprites/lpc/spritesheets/head/faces/male/neutral/walk.png', assign: 'head' },
+  { path: 'sprites/lpc/spritesheets/hair/plain/adult/walk.png', assign: 'head' },
 ];

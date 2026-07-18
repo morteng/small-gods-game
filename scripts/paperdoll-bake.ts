@@ -85,7 +85,12 @@ function downscale(f: Raster, to: number): Raster {
 }
 
 async function main() {
-  const layers = await Promise.all(DEFAULT_HUMANOID_LAYERS.map(loadLayerCell));
+  const layers = await Promise.all(
+    DEFAULT_HUMANOID_LAYERS.map(async (spec) => ({
+      raster: await loadLayerCell(spec.path),
+      assign: spec.assign,
+    })),
+  );
   for (const clip of [CLIP_PRAY_RAISE, CLIP_PRAY_BOW]) {
     const frames = bakeClip(LPC_HUMANOID_SOUTH, layers, clip);
     await writeFile(`${OUT}/${clip.name}-6x.png`, PNG.sync.write(strip(frames, 6)));

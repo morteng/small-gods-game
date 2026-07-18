@@ -19,6 +19,7 @@ import {
   sampleClip,
   applyAffine,
   type Clip,
+  type PoseLayer,
 } from '@/render/paperdoll/rig';
 import {
   CLIP_PRAY_BOW,
@@ -99,7 +100,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   let workClip = cloneClip(CLIPS[0]);
 
   // ── bake state ──────────────────────────────────────────────────────────────
-  let layers: Raster[] | null = null;
+  let layers: PoseLayer[] | null = null;
   let frames: Raster[] = []; // raw baked cell frames (pre-quantize)
   let shownFrames: SpriteCanvas[] = []; // big-view canvases (quantized if toggled)
   let gameFrames: SpriteCanvas[] = []; // 32px downscales for the in-game loop
@@ -357,6 +358,25 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       };
       row.append(lbl, slider, val);
       poseHost.appendChild(row);
+
+      // Translation channel (the out-of-plane fake) — only for tracks that use it.
+      if (track.some((k) => k.dy !== undefined || k.dx !== undefined)) {
+        const dyRow = h('div', { style: 'display:flex;align-items:center;gap:7px;margin-bottom:5px' });
+        const dyLbl = h('span', { class: 'sg-muted', style: 'min-width:76px', text: `${name} ↕px` });
+        const dyVal = h('span', { class: 'sg-accent', style: 'min-width:38px;text-align:right', text: String(endKey.dy ?? 0) });
+        const dySlider = h('input', {
+          class: 'sg-range',
+          style: 'flex:1',
+          attrs: { type: 'range', min: '-10', max: '10', step: '1', value: String(endKey.dy ?? 0) },
+        }) as HTMLInputElement;
+        dySlider.oninput = () => {
+          endKey.dy = +dySlider.value;
+          dyVal.textContent = String(endKey.dy);
+          rebake();
+        };
+        dyRow.append(dyLbl, dySlider, dyVal);
+        poseHost.appendChild(dyRow);
+      }
     }
     const reset = h('button', { class: 'sg-btn', style: 'width:100%;margin-top:3px', text: '↺ Reset pose' });
     reset.onclick = () => {
@@ -382,16 +402,16 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   void (async () => {
     try {
       const sheets = await Promise.all(
-        DEFAULT_HUMANOID_LAYERS.map(async (p) => {
-          const resp = await fetch(assetUrl(p));
-          if (!resp.ok) throw new Error(`${p}: HTTP ${resp.status}`);
+        DEFAULT_HUMANOID_LAYERS.map(async (spec) => {
+          const resp = await fetch(assetUrl(spec.path));
+          if (!resp.ok) throw new Error(`${spec.path}: HTTP ${resp.status}`);
           const raster = await decodePngToRaster(await resp.blob());
-          if (!raster) throw new Error(`${p}: decode failed`);
+          if (!raster) throw new Error(`${spec.path}: decode failed`);
           return raster;
         }),
       );
       if (disposed) return;
-      layers = sheets.map((sheet) => {
+      layers = sheets.map((sheet, li) => {
         const data = new Uint8ClampedArray(CELL * CELL * 4);
         const sx = HUMANOID_SOURCE.col * CELL;
         const sy = HUMANOID_SOURCE.row * CELL;
@@ -399,7 +419,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
           const src = (sy + y) * sheet.w + sx;
           data.set(sheet.data.subarray(src * 4, (src + CELL) * 4), y * CELL * 4);
         }
-        return { data, w: CELL, h: CELL };
+        return { raster: { data, w: CELL, h: CELL }, assign: DEFAULT_HUMANOID_LAYERS[li].assign };
       });
       loading.remove();
       rebake();
