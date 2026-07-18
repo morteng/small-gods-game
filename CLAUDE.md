@@ -19,7 +19,7 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 
 Sim is deterministic with seedable RNG (sfc32); snapshot/replay supports scrub + commit + re-roll + jump-forward presets. `state.paused` retired for `scheduler.getRate()`. **All `src/sim/` is `Math.random`-free** (guard: `tests/unit/no-random-in-sim.test.ts`).
 
-**TIME IS 1:1 REALTIME (R8):** a calendar day = a solar day = 24 real hours at rate 1 (`TICKS_PER_DAY` 5,184,000; tick stays 16.667 sim-ms; rate stays a pure multiplier; NO offline catch-up). Fresh worlds stamp the clock's starting tick from the player's local time (`solarAnchorTickForDate`, `?solarhour=H` override; non-browser fallback = tick 0 = 09:00). Day-keyed lifecycle (mortality/births/growth) checks once per GAME HOUR (`GAME_HOUR_HZ`) with per-day meanings preserved; the belief/need economy stays REAL-TIME per-fire by design (the live loop). `SAVE_VERSION` 2 discards pre-1:1 saves. Constants meaning fiction-days must be `TICKS_PER_DAY` multiples — never raw tick literals.
+**TIME IS 1:1 REALTIME (R8):** a calendar day = a solar day = 24 real hours at rate 1 (`TICKS_PER_DAY` 5,184,000; tick stays 16.667 sim-ms; rate stays a pure multiplier; NO offline catch-up). Fresh worlds start at a fixed 08:00 morning (`WORLD_START_HOUR`, `?solarhour=H` override; non-browser fallback = tick 0 = 09:00) — never anchored to the player's wall clock. Day-keyed lifecycle (mortality/births/growth) checks once per GAME HOUR (`GAME_HOUR_HZ`) with per-day meanings preserved; the belief/need economy stays REAL-TIME per-fire by design (the live loop). `SAVE_VERSION` 2 discards pre-1:1 saves. Constants meaning fiction-days must be `TICKS_PER_DAY` multiples — never raw tick literals.
 
 ## Known gaps & gotchas (code reality)
 
