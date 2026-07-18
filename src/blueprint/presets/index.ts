@@ -427,6 +427,34 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
         prim: { prim: 'box', at: [0.18, 0.46, mToTiles(1.1)], size: [0.64, 0.04, 0.04], material: 'timber' } } },
     },
   }),
+  // Beaver dam (rivers R3 P2) — a low stick/mud bar across a dammed brook's crest (the WEIR
+  // itself is a hydrology construct, `world/beaver-dams.ts`; this is the visible structure).
+  // class:'prop' (out of the building count + the NATURE clear sweep, so it stays in-channel),
+  // composed entirely from raw prims (an `earth` mud berm + jumbled `bark` roundwood sticks) —
+  // grey-massing safe, no PartType, no paid art. Canonical bar runs EAST–WEST across a 3×1
+  // footprint (the placer quarter-turns it for a Y-spanning run), centred on the channel cell.
+  beaver_dam: prop('beaver_dam', {
+    category: 'infrastructure', era: 'primordial', footprint: { w: 3, h: 1 },
+    materials: { walls: 'timber', roof: 'wood', ground: 'dirt' },
+    parts: {
+      // Mud core: a low wide berm, and a narrower cap stacked on top to read as a tapered bar.
+      berm: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'box', at: [0.4, 0.28, 0], size: [2.2, 0.44, mToTiles(0.34)], material: 'earth' } } },
+      cap: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'box', at: [0.7, 0.36, mToTiles(0.3)], size: [1.6, 0.28, mToTiles(0.12)], material: 'earth' } } },
+      // Jumbled sticks lashed across the crest — round timber at varied yaw, feet in the mud.
+      stick0: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'roundwood', center: [0.95, 0.5, mToTiles(0.3)], length: 1.4, radius: 0.06, tipRadius: 0.035, yawDeg: -28, material: 'bark' } } },
+      stick1: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'roundwood', center: [1.35, 0.47, mToTiles(0.34)], length: 1.5, radius: 0.055, tipRadius: 0.03, yawDeg: 18, material: 'bark' } } },
+      stick2: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'roundwood', center: [1.7, 0.53, mToTiles(0.32)], length: 1.35, radius: 0.06, tipRadius: 0.035, yawDeg: -12, material: 'bark' } } },
+      stick3: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'roundwood', center: [2.05, 0.5, mToTiles(0.35)], length: 1.3, radius: 0.05, tipRadius: 0.03, yawDeg: 34, material: 'bark' } } },
+      stick4: { type: 'prim', size: { w: 3, h: 1 }, params: {
+        prim: { prim: 'roundwood', center: [1.5, 0.5, mToTiles(0.4)], length: 1.85, radius: 0.05, tipRadius: 0.03, yawDeg: 6, material: 'bark' } } },
+    },
+  }),
   // A canvas bell tent (prop) — the seed of the tent family; pairs with market stalls
   // for fairs/encampments. Open-frame `tent` part, no catalogue buildingType needed.
   bell_tent: prop('bell_tent', {

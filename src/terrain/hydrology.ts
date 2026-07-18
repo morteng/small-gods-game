@@ -105,6 +105,23 @@ export interface HydrologyOptions {
    * rendered water diverges from the tiles.
    */
   scorchMask?: Uint8Array | null;
+  /**
+   * Beaver-dam crest-clamp WEIRS (rivers R3 P2). Each weir raises the EFFECTIVE elevation of
+   * its `cells` to `crestElev` inside the priority-flood — a virtual barrier the flood must
+   * overtop — so the basin upstream fills to the crest and P1's depression keep-rule ponds it
+   * (see the effElev handling in the flood below for exactly HOW the crest becomes the saddle).
+   * Gen-time siting (`src/world/beaver-dams.ts`) persists the records on `map.beaverDams`, and
+   * BOTH callers (map-generator + hydrology-store) pass the SAME weirs, so the final water is
+   * byte-identical. Omitted/empty ⇒ effElev === elevation ⇒ byte-identical to a weir-free run.
+   */
+  weirs?: WeirInput[];
+}
+
+/** The minimal crest-clamp shape `generateHydrology` needs from a dam (DamRecord satisfies it
+ *  structurally, so callers pass `map.beaverDams` directly without a decoupling copy). */
+export interface WeirInput {
+  cells: number[];      // cell indices whose effective elevation clamps up to the crest
+  crestElev: number;    // normalized elevation the run clamps to
 }
 
 /**
@@ -154,6 +171,37 @@ export function generateHydrology(
   const { width, height, seaLevel = 0.35 } = config;
   const { elevation } = fields;
   const total = width * height;
+
+  // ── Beaver-dam WEIRS (rivers R3 P2). A weir is a crest-clamp: the flood, the drainage and
+  //    the depression discriminator all read an EFFECTIVE elevation `eff` where a weir cell is
+  //    lifted to its crest (`max(elevation, crestElev)`) — a virtual barrier that impounds the
+  //    reach behind it. With no weirs, `eff` IS `elevation` (same typed array, zero overhead),
+  //    so a weir-free run is byte-identical to pre-P2. The RAW `elevation` still governs true
+  //    depth (`W − elevation`) and the sub-sea/ocean branches; only the front's rise and the
+  //    saddle test switch to `eff`.
+  //
+  //    HOW THE CREST BECOMES THE SADDLE (the subtle bit): priority-flood reaches the dam from
+  //    the LOW (downstream/ocean) side and must climb the weir cell to W = crest before it can
+  //    spill upstream. So the weir cell is popped as the basin's rim, and — because the
+  //    discriminator's saddle elevation is `eff[c]` (NOT raw `elevation[c]`) — the saddle reads
+  //    `crest`, not the low channel bed. Upstream cells whose RAW bed sits below the crest then
+  //    satisfy `eff[n] < crest` and join as genuine members; the impounded reach fills to the
+  //    crest and, at a dam height in the pond band, falls out of the EXISTING keep-rule as a
+  //    pond. The weir cell itself is the spill saddle (never a member), so it stays a River cell
+  //    trickling over the crest, exactly as a dam reads.
+  const weirs = options.weirs;
+  let eff = elevation;
+  const weirCells = weirs && weirs.length > 0 ? new Set<number>() : null;
+  if (weirs && weirCells) {
+    eff = elevation.slice();
+    for (const w of weirs) {
+      for (const cell of w.cells) {
+        if (cell < 0 || cell >= total) continue;
+        if (w.crestElev > eff[cell]) eff[cell] = w.crestElev;
+        weirCells.add(cell);
+      }
+    }
+  }
   // Explicit override wins; otherwise scale the tuned default by map area (a fixed
   // threshold on a large map over-rivers — see areaScaledRiverThreshold).
   const riverFlowThreshold = options.riverFlowThreshold ?? areaScaledRiverThreshold(total);
@@ -254,22 +302,24 @@ export function generateHydrology(
 
   const raiseNeighbor = (n: number, c: number, cW: number): void => {
     if (closed[n]) return;
-    const en = elevation[n];
+    const en = eff[n];   // EFFECTIVE elevation (a weir cell reads its crest); === elevation with no weirs
     const wn = en > cW + PIT_FILL_EPSILON ? en : cW + PIT_FILL_EPSILON;
     W[n] = wn;
     closed[n] = 1;
     heapPush(wn, n);
-    // Land only — sub-sea pits are the existing `belowSea` lake branch (byte-identical).
-    if (en < seaLevel) return;
+    // Land only — sub-sea pits are the existing `belowSea` lake branch (byte-identical). Keyed on
+    // RAW elevation: a weir never sits sub-sea, and this keeps the ocean branch exactly as before.
+    if (elevation[n] < seaLevel) return;
     const dc = depId[c];
-    // The saddle the flood is spilling from: an existing depression's fixed spill, else
-    // the front cell c's OWN raw elevation (c is the candidate rim). RAW, not cW.
-    const spillElevRaw = dc >= 0 ? depSpillElevRaw[dc] : elevation[c];
-    if (en < spillElevRaw) {  // strictly below the raw saddle → genuine basin member
+    // The saddle the flood is spilling from: an existing depression's fixed spill, else the front
+    // cell c's OWN effective elevation (c is the candidate rim). eff, not cW — and for a weir cell
+    // eff = crest, so the crest (not the low bed) is the saddle a dam impounds behind.
+    const spillElevRaw = dc >= 0 ? depSpillElevRaw[dc] : eff[c];
+    if (en < spillElevRaw) {  // strictly below the effective saddle → genuine basin member
       let d = dc;
       if (d < 0) {
         d = depSpillCell.length;
-        depSpillCell.push(c); depSpillElevRaw.push(elevation[c]); depParent.push(d);
+        depSpillCell.push(c); depSpillElevRaw.push(eff[c]); depParent.push(d);
       }
       depId[n] = d;
       // Merge with any already-labelled member neighbour — stitches the flat-saddle rows.
@@ -390,6 +440,9 @@ export function generateHydrology(
       spillCell,
       outletCell: drainTo[spillCell],
       surfaceW: rootSpillElev[r],
+      // A pond whose spill saddle is a weir cell was impounded by a beaver dam (rivers R3 P2).
+      // Both callers pass the same weirs, so this tag is byte-derivable and travel-free.
+      kind: weirCells && weirCells.has(spillCell) ? 'beaver' : 'natural',
     });
   }
   if (ponds.length > 0) {
