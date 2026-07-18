@@ -204,6 +204,16 @@ export const CLIP_PRAY_ECSTATIC: Clip = {
   // Hands burst open as the arms sweep past horizontal (step-switch: the
   // one-frame fist→palm pop reads as the hands opening).
   stamps: [{ t: 0.15, refs: STAMP_PALMS_OPEN }],
+  // Reverse-IK touch: the trunk sway drives a LAGGED knee flex — thighs lean
+  // the knees into the sway, shins counter most of it (boots stay planted but
+  // drift a smidge, a beat late), so the legs read as absorbing the sway
+  // instead of rigidly counter-sliding under it.
+  couple: [
+    { from: 'trunk', prop: 'dx', to: 'legL_up', gain: -6, lag: 0.06 },
+    { from: 'trunk', prop: 'dx', to: 'legL_fore', gain: 4, lag: 0.12 },
+    { from: 'trunk', prop: 'dx', to: 'legR_up', gain: -6, lag: 0.06 },
+    { from: 'trunk', prop: 'dx', to: 'legR_fore', gain: 4, lag: 0.12 },
+  ],
   tracks: {
     // The sway lives on the TRUNK (head, arms and torso ride it) while the
     // legs counter-translate to stay planted — same planted-feet trick as
@@ -259,6 +269,12 @@ export const CLIP_DESPAIR: Clip = {
   frames: 8,
   // Mid-slump the fists fall open — the helpless empty-palm beat.
   stamps: [{ t: 0.5, refs: STAMP_PALMS_OPEN }],
+  // Shin counter-rotation derived from the thigh (was hand-keyed −1× tracks):
+  // full cancellation keeps the feet planted through the buckle.
+  couple: [
+    { from: 'legL_up', prop: 'deg', to: 'legL_fore', gain: -1 },
+    { from: 'legR_up', prop: 'deg', to: 'legR_fore', gain: -1 },
+  ],
   tracks: {
     head: [
       { t: 0, deg: 0, dy: 0 },
@@ -280,23 +296,15 @@ export const CLIP_DESPAIR: Clip = {
       { t: 0, deg: 0 },
       { t: 1, deg: -12 },
     ],
-    // Knee buckle: thighs splay outward while the shins counter-rotate to keep
-    // the feet planted — legs giving way under the slump, a few degrees only.
+    // Knee buckle: thighs splay outward, shins follow via the couple above —
+    // legs giving way under the slump, a few degrees only.
     legL_up: [
       { t: 0, deg: 0 },
       { t: 1, deg: 5 },
     ],
-    legL_fore: [
-      { t: 0, deg: 0 },
-      { t: 1, deg: -5 },
-    ],
     legR_up: [
       { t: 0, deg: 0 },
       { t: 1, deg: -5 },
-    ],
-    legR_fore: [
-      { t: 0, deg: 0 },
-      { t: 1, deg: 5 },
     ],
   },
 };

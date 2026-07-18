@@ -74,6 +74,31 @@ export interface ChipPose {
   dy: number;
 }
 
+export type PoseProp = 'deg' | 'dx' | 'dy';
+
+/**
+ * Secondary-motion coupling — a touch of reverse IK without a solver. The
+ * destination chip's pose gains `gain × (source chip's KEYED track value)`,
+ * optionally sampled a beat late (`lag`) for follow-through. Sources read raw
+ * tracks only (derived motion never chains), so couplings stay acyclic and
+ * order-independent. Typical uses: trunk sway → lagged knee flex; thigh angle
+ * → shin counter-rotation that keeps the foot planted.
+ */
+export interface Couple {
+  /** Chip whose keyed track drives the coupling. */
+  from: string;
+  /** Component of the source track to read. */
+  prop: PoseProp;
+  /** Chip receiving the derived motion. */
+  to: string;
+  /** Component written on the destination (default 'deg'). */
+  toProp?: PoseProp;
+  /** dst += gain × src — cross-unit gains are fine (trunk px → thigh degrees). */
+  gain: number;
+  /** Normalized-time follow-through delay; source sampled at t−lag (clamped to 0). */
+  lag?: number;
+}
+
 export interface Clip {
   /** Clip id, e.g. 'pray-raise'. */
   name: string;
@@ -81,6 +106,8 @@ export interface Clip {
   frames: number;
   /** Per-chip-name angle tracks; chips without a track stay at 0°. */
   tracks: Record<string, Keyframe[]>;
+  /** Secondary-motion couplings, applied on top of the sampled tracks. */
+  couple?: readonly Couple[];
   /**
    * Keyframed pixel stamps (donor hand/face poses) — applied to each layer's
    * rest cell BEFORE the FK/skin path so chip rotation carries the swapped
@@ -154,7 +181,16 @@ export function sampleTrack(track: readonly Keyframe[] | undefined, t: number): 
 
 /** Per-chip poses (template order) for clip time `t` ∈ [0,1]. */
 export function sampleClip(template: AnimTemplate, clip: Clip, t: number): ChipPose[] {
-  return template.chips.map((ch) => sampleTrack(clip.tracks[ch.name], t));
+  const poses = template.chips.map((ch) => sampleTrack(clip.tracks[ch.name], t));
+  if (clip.couple) {
+    for (const c of clip.couple) {
+      const di = template.chips.findIndex((ch) => ch.name === c.to);
+      if (di < 0) continue;
+      const src = sampleTrack(clip.tracks[c.from], Math.max(0, t - (c.lag ?? 0)));
+      poses[di][c.toProp ?? 'deg'] += c.gain * src[c.prop];
+    }
+  }
+  return poses;
 }
 
 /** FK: world affine per chip for the given per-chip poses (template order). */
