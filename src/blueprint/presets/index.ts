@@ -387,6 +387,46 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
           bore: { radius: 0.2, depth: 0.13 } } } },
     },
   }),
+  // Pond fishery furniture (rivers R3 P3) — the jetty + drying racks that flank a
+  // `fisherman_hut` civic (see world/settlement-plan.ts `CIVIC_RULES.fishery` +
+  // building-placer.ts's fishery realize step). Both class:'prop' — out of the building
+  // count, exempt from the `building.on-water` lint, and (the jetty) allowed to overhang water.
+  //
+  // Jetty: a short low deck on two piles standing in the shallow pond — composed from the
+  // SAME deck/pier vocabulary the crossing connectome bridges use (no new PartType). Authored
+  // canonical SOUTH-facing (the pond lies south of the hut in the canonical frame); the placer
+  // turns the WHOLE prop to the site's actual water flank via `orientation` — the mill's
+  // wheel-turn trick (`wheelOrientationForFace`), applied here to a jetty instead of a wheel.
+  // Non-solid (deck/pier both `toCollision: () => []`), so the far end legitimately sits over
+  // water — that IS the point of a jetty.
+  fishery_jetty: prop('fishery_jetty', {
+    category: 'infrastructure', era: 'medieval', footprint: { w: 1, h: 2 },
+    materials: { walls: 'timber', roof: 'wood', ground: 'dirt' },
+    parts: {
+      // 2 tiles long (2 m/tile ⇒ 4 m), narrow (under the 1-tile footprint width).
+      deck: {
+        type: 'deck', at: { x: 0, y: 0 }, size: { w: 1, h: 2 },
+        params: { lengthM: 4, widthM: 1.3, thicknessM: 0.1, dir: 'ns', parapet: 'none', baseZM: 0.7 },
+      },
+      pier0: { type: 'pier', at: { x: 0, y: 0 }, size: { w: 1, h: 1 }, params: { heightM: 0.7, widthM: 0.3 } },
+      pier1: { type: 'pier', at: { x: 0, y: 1 }, size: { w: 1, h: 1 }, params: { heightM: 0.7, widthM: 0.3 } },
+    },
+  }),
+  // Drying racks: a deterministic pair of A-frame timber poles carrying one horizontal rail
+  // for nets/fish, composed from raw prims exactly like the graveyard's headstone scatter
+  // (parts/civic.ts) — reusing the generic `prim` part rather than a new dedicated PartType.
+  fishery_racks: prop('fishery_racks', {
+    category: 'civic', era: 'medieval', footprint: { w: 1, h: 1 },
+    materials: { walls: 'timber', roof: 'wood', ground: 'dirt' },
+    parts: {
+      post0: { type: 'prim', size: { w: 1, h: 1 }, params: {
+        prim: { prim: 'box', at: [0.18, 0.44, 0], size: [0.08, 0.08, mToTiles(1.3)], material: 'timber' } } },
+      post1: { type: 'prim', size: { w: 1, h: 1 }, params: {
+        prim: { prim: 'box', at: [0.74, 0.44, 0], size: [0.08, 0.08, mToTiles(1.3)], material: 'timber' } } },
+      rail: { type: 'prim', size: { w: 1, h: 1 }, params: {
+        prim: { prim: 'box', at: [0.18, 0.46, mToTiles(1.1)], size: [0.64, 0.04, 0.04], material: 'timber' } } },
+    },
+  }),
   // A canvas bell tent (prop) — the seed of the tent family; pairs with market stalls
   // for fairs/encampments. Open-frame `tent` part, no catalogue buildingType needed.
   bell_tent: prop('bell_tent', {
