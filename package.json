@@ -26,7 +26,8 @@
     "electron:dev": "SG_DEV_URL=http://localhost:3000 electron .",
     "electron:preview": "npm run build:electron && electron .",
     "dist:linux": "npm run build:electron && electron-builder --linux AppImage --publish never",
-    "release": "commit-and-tag-version"
+    "release": "commit-and-tag-version",
+    "release:dev": "commit-and-tag-version --prerelease dev"
   },
   "keywords": [],
   "author": "",
