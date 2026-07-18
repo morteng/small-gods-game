@@ -190,8 +190,8 @@ export function sampleTrack(track: readonly Keyframe[] | undefined, t: number): 
   return poseOf(last);
 }
 
-/** Per-chip poses (template order) for clip time `t` ∈ [0,1]. */
-export function sampleClip(template: AnimTemplate, clip: Clip, t: number): ChipPose[] {
+/** Tracks + couplings only — the pose before ground plants pin it down. */
+function sampleClipRaw(template: AnimTemplate, clip: Clip, t: number): ChipPose[] {
   const poses = template.chips.map((ch) => sampleTrack(clip.tracks[ch.name], t));
   if (clip.couple) {
     for (const c of clip.couple) {
@@ -201,26 +201,111 @@ export function sampleClip(template: AnimTemplate, clip: Clip, t: number): ChipP
       poses[di][c.toProp ?? 'deg'] += c.gain * src[c.prop];
     }
   }
-  if (clip.plant) {
-    // Exact compensation: with world = P·T(dx,dy)·R, planting point p needs
-    // T(t) such that P·T·R(p) = p, i.e. t = P⁻¹(p) − R(p) — solved per plant
-    // against the parent chain's CURRENT world (parents sample first in
-    // template order, and plants target leaf chips, so parent poses are final).
-    const world = chipWorldTransforms(template, poses);
-    for (const pl of clip.plant) {
-      const ci = template.chips.findIndex((ch) => ch.name === pl.chip);
-      if (ci < 0) continue;
-      const ch = template.chips[ci];
-      const pose = poses[ci];
-      const P = ch.parent < 0 ? IDENTITY : world[ch.parent];
-      const [px, py] = pl.point;
-      const [wx, wy] = applyAffine(invertAffine(P), px, py);
-      const [rx, ry] = applyAffine(rotAbout(ch.pivot[0], ch.pivot[1], pose.deg), px, py);
-      pose.dx = wx - rx;
-      pose.dy = wy - ry;
+  return poses;
+}
+
+/**
+ * Exact plant compensation: with world = P·T(dx,dy)·R, planting point p needs
+ * T(t) such that P·T·R(p) = p, i.e. t = P⁻¹(p) − R(p) — solved per plant
+ * against the parent chain's CURRENT world (parents sample first in template
+ * order, and plants target leaf chips, so parent poses are final). Mutates
+ * the planted chips' dx/dy in place.
+ */
+function applyPlants(
+  template: AnimTemplate,
+  poses: ChipPose[],
+  plants: readonly { chip: string; point: [number, number] }[],
+): void {
+  const world = chipWorldTransforms(template, poses);
+  for (const pl of plants) {
+    const ci = template.chips.findIndex((ch) => ch.name === pl.chip);
+    if (ci < 0) continue;
+    const ch = template.chips[ci];
+    const pose = poses[ci];
+    const P = ch.parent < 0 ? IDENTITY : world[ch.parent];
+    const [px, py] = pl.point;
+    const [wx, wy] = applyAffine(invertAffine(P), px, py);
+    const [rx, ry] = applyAffine(rotAbout(ch.pivot[0], ch.pivot[1], pose.deg), px, py);
+    pose.dx = wx - rx;
+    pose.dy = wy - ry;
+  }
+}
+
+/** Per-chip poses (template order) for clip time `t` ∈ [0,1]. */
+export function sampleClip(template: AnimTemplate, clip: Clip, t: number): ChipPose[] {
+  const poses = sampleClipRaw(template, clip, t);
+  if (clip.plant) applyPlants(template, poses, clip.plant);
+  return poses;
+}
+
+/**
+ * One animation layer in a composed pose — the runtime currency that lets a
+ * character run (locomotion clip owning root + legs) while waving its arms
+ * (gesture clip overriding the arm chips and additively leaning the trunk).
+ *
+ * Merge semantics, in layer order over a zero-pose accumulator:
+ * - `override` (default): acc = lerp(acc, layer, weight) on the masked chips —
+ *   so a weighted override IS a crossfade. Fading a new gait in over the old
+ *   one needs no extra machinery: [old @ w1, new @ w=u] blends the two.
+ * - `additive`: acc += weight × layer on the masked chips — flinches, trunk
+ *   sway, mood posture riding on top of whatever the base is doing.
+ *
+ * Ground plants are collected across layers (a layer contributes plants only
+ * for chips inside its own mask; later layers win per chip) and applied ONCE
+ * on the merged pose — so the locomotion layer's soles stay nailed even while
+ * an additive overlay leans the trunk above them.
+ */
+export interface ClipLayer {
+  clip: Clip;
+  /** Normalized time in [0,1] to sample this layer's clip at. */
+  t: number;
+  /** Chip names this layer may write (omit = every chip). */
+  chips?: readonly string[];
+  /** Merge mode (default 'override'). */
+  mode?: 'override' | 'additive';
+  /** Blend weight in [0,1] (default 1). */
+  weight?: number;
+}
+
+/** Compose a layer stack into per-chip poses (template order). */
+export function sampleClipLayers(template: AnimTemplate, layers: readonly ClipLayer[]): ChipPose[] {
+  const acc: ChipPose[] = template.chips.map(() => ({ deg: 0, dx: 0, dy: 0 }));
+  const plants = new Map<string, [number, number]>();
+  for (const layer of layers) {
+    const raw = sampleClipRaw(template, layer.clip, layer.t);
+    const mask = layer.chips ? new Set(layer.chips) : null;
+    const w = layer.weight ?? 1;
+    const additive = layer.mode === 'additive';
+    template.chips.forEach((ch, i) => {
+      if (mask && !mask.has(ch.name)) return;
+      if (additive) {
+        acc[i].deg += w * raw[i].deg;
+        acc[i].dx += w * raw[i].dx;
+        acc[i].dy += w * raw[i].dy;
+      } else {
+        acc[i] = lerpPose(acc[i], raw[i], w);
+      }
+    });
+    if (layer.clip.plant) {
+      for (const pl of layer.clip.plant) {
+        if (mask && !mask.has(pl.chip)) continue;
+        plants.set(pl.chip, pl.point);
+      }
     }
   }
-  return poses;
+  if (plants.size > 0) {
+    applyPlants(
+      template,
+      acc,
+      [...plants.entries()].map(([chip, point]) => ({ chip, point })),
+    );
+  }
+  return acc;
+}
+
+/** Pose-space lerp between two sampled poses — transition crossfades. */
+export function lerpPoses(a: readonly ChipPose[], b: readonly ChipPose[], u: number): ChipPose[] {
+  return a.map((p, i) => lerpPose(p, b[i], u));
 }
 
 /** FK: world affine per chip for the given per-chip poses (template order). */
@@ -653,6 +738,36 @@ export function applyAnchoredStamps(
       }
     }
   }
+}
+
+/**
+ * Render one frame of a composed layer stack — the runtime pose-player entry
+ * point (bakeClip is its ahead-of-time cousin). Gathers active stamps across
+ * every layer's clip: pre-FK refs stack onto the rest cells in layer order,
+ * anchored refs paste after the render at their chip-carried positions. No
+ * caching here — memoizing (template, wardrobe, quantized pose) is the frame
+ * cache's job, one level up.
+ */
+export function renderClipLayers(
+  template: AnimTemplate,
+  layers: readonly PoseLayerInput[],
+  anim: readonly ClipLayer[],
+  opts: RenderPoseOptions = {},
+): Raster {
+  const L = layers.map(toPoseLayer);
+  const pre: StampRef[] = [];
+  const anchored: StampRef[] = [];
+  for (const cl of anim) {
+    const si = activeStampIndex(cl.clip.stamps, cl.t);
+    if (si < 0) continue;
+    for (const r of cl.clip.stamps![si].refs) (r.anchor !== undefined ? anchored : pre).push(r);
+  }
+  const use =
+    pre.length > 0 ? L.map((l) => ({ ...l, raster: applyStamps(l.raster, pre, l.donors, template.cell) })) : L;
+  const poses = sampleClipLayers(template, anim);
+  const frame = renderPose(template, use, poses, opts);
+  if (anchored.length > 0) applyAnchoredStamps(frame, template, L, anchored, poses);
+  return frame;
 }
 
 /** Bake every frame of a clip. Frame i samples t = i/(frames-1) (frames ≥ 2). */
