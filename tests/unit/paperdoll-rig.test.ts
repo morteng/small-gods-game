@@ -205,6 +205,14 @@ describe('humanoid template + clips', () => {
     });
   });
 
+  it('head renders in front of every arm chip (LPC paints head layers last)', () => {
+    const chips = LPC_HUMANOID_SOUTH.chips;
+    const headZ = chips.find((c) => c.name === 'head')!.z;
+    for (const ch of chips) {
+      if (ch.name !== 'head') expect(headZ).toBeGreaterThan(ch.z);
+    }
+  });
+
   it('clip tracks reference real chips, keys sorted, unique clip names', () => {
     const names = new Set(LPC_HUMANOID_SOUTH.chips.map((c) => c.name));
     const clipNames = new Set<string>();

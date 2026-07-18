@@ -24,11 +24,14 @@ export interface HumanoidLayerSpec {
 /** Source cell the chips are authored against: walk sheet, col 0 (idle), south row. */
 export const HUMANOID_SOURCE = { anim: 'walk', col: 0, row: 2 } as const;
 
-// Joints (cell coords, y-down): shoulders, elbows, neck.
+// Joints (cell coords, y-down): shoulders, elbows, neck. Elbows sit on the
+// ARM COLUMN's centerline (x≈19/44), not the rect's inner edge — a pivot at
+// the torso seam makes the forearm orbit instead of hinge. Tune live with the
+// studio's joint pin mode; verify with scripts/paperdoll-inspect.ts.
 const SHOULDER_L: [number, number] = [26, 37];
-const ELBOW_L: [number, number] = [23, 44];
+const ELBOW_L: [number, number] = [19, 44];
 const SHOULDER_R: [number, number] = [39, 37];
-const ELBOW_R: [number, number] = [42, 44];
+const ELBOW_R: [number, number] = [44, 44];
 const NECK: [number, number] = [32, 34];
 
 /**
@@ -42,7 +45,9 @@ export const LPC_HUMANOID_SOUTH: AnimTemplate = {
   chips: [
     { name: 'trunk', rect: { x: 0, y: 0, w: 64, h: 64 }, pivot: [32, 49], parent: -1, z: 0 },
     // Head stops above the collar (y32) so tilting doesn't drag shoulder pixels.
-    { name: 'head', rect: { x: 21, y: 11, w: 22, h: 21 }, pivot: NECK, parent: 0, z: 1 },
+    // Top z: the LPC compositor paints head/face/hair LAST, so the head chip
+    // must render in front of the arms (a bowed chin sits over the chest).
+    { name: 'head', rect: { x: 21, y: 11, w: 22, h: 21 }, pivot: NECK, parent: 0, z: 6 },
     // Arm rects hug the sleeve columns and stop OUTSIDE the dark underarm seam
     // (seam + sleeve cap stay with the trunk — cut-out rigging convention).
     // Wider boxes here scoop chest pixels that smear across rotation.

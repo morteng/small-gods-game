@@ -11,6 +11,9 @@
 //   • END-POSE sliders: live-retune each chip's final angle → instant re-bake
 //     (never reload; tuning here is the whole point of the bench).
 // Quantize toggle runs frames through the game's Oklab+Bayer palette pass.
+//   • GAIT lane: the untouched walk cycle played through a Tier-0 gait style
+//     (retiming + whole-sprite offsets, src/render/paperdoll/gait.ts) beside a
+//     normal-cadence control. No rebake — this simulates runtime playback.
 
 import { assetUrl } from '@/core/asset-url';
 import {
@@ -18,6 +21,7 @@ import {
   chipWorldTransforms,
   sampleClip,
   applyAffine,
+  type AnimTemplate,
   type Clip,
   type PoseLayer,
 } from '@/render/paperdoll/rig';
@@ -27,6 +31,9 @@ import {
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
+import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
+import { LPC_ANIMATIONS } from '@/core/npc-animation';
+import { FRAME_MS } from '@/render/npc-animator';
 import { decodePngToRaster } from '@/render/sprite-codec';
 import { rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
@@ -73,6 +80,37 @@ function downscale(f: Raster, to: number): Raster {
   return { data: out, w: to, h: to };
 }
 
+/** Alpha-over composite of one 64px cell (col,row) across all layer sheets. */
+function compositeCell(sheets: readonly Raster[], col: number, row: number): Raster {
+  const data = new Uint8ClampedArray(CELL * CELL * 4);
+  for (const sheet of sheets) {
+    const sx = col * CELL;
+    const sy = row * CELL;
+    for (let y = 0; y < CELL; y++) {
+      for (let x = 0; x < CELL; x++) {
+        const si = ((sy + y) * sheet.w + sx + x) * 4;
+        const a = sheet.data[si + 3];
+        if (a === 0) continue;
+        const di = (y * CELL + x) * 4;
+        const da = data[di + 3];
+        if (a === 255 || da === 0) {
+          data[di] = sheet.data[si];
+          data[di + 1] = sheet.data[si + 1];
+          data[di + 2] = sheet.data[si + 2];
+          data[di + 3] = a;
+        } else {
+          const na = a + (da * (255 - a)) / 255;
+          for (let c = 0; c < 3; c++) {
+            data[di + c] = (sheet.data[si + c] * a + (data[di + c] * da * (255 - a)) / 255) / na;
+          }
+          data[di + 3] = na;
+        }
+      }
+    }
+  }
+  return { data, w: CELL, h: CELL };
+}
+
 export function mountMotionStudio(container: HTMLElement): StudioHandle {
   let disposed = false;
   injectStudioTheme(container);
@@ -97,6 +135,9 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     bones: false,
   };
   let workClip = cloneClip(CLIPS[0]);
+  // Mutable template copy: joint pin mode edits pivots live (rest-space coords).
+  const workTemplate: AnimTemplate = JSON.parse(JSON.stringify(TEMPLATE)) as AnimTemplate;
+  const pin = { on: false, chip: 3 }; // default chip: armL_fore (the hinge that started this)
 
   // ── bake state ──────────────────────────────────────────────────────────────
   let layers: PoseLayer[] | null = null;
@@ -106,7 +147,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function rebake(): void {
     if (!layers) return;
-    frames = bakeClip(TEMPLATE, layers, workClip);
+    frames = bakeClip(workTemplate, layers, workClip);
     const display = state.quantize
       ? frames.map((f) => quantizePaletteOklab(f, 32, { dither: 'bayer4' }))
       : frames;
@@ -124,6 +165,17 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const bigWrap = h('div', { style: 'display:flex;gap:18px;align-items:flex-end' });
   const bigCv = document.createElement('canvas');
   bigCv.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+  // Joint pin mode: click the big view to place the selected chip's pivot.
+  // Screen→cell mapping is rest-space ONLY at the identity pose, so pin mode
+  // holds the view on frame 0.
+  bigCv.onclick = (ev) => {
+    if (!pin.on) return;
+    const cx = Math.max(0, Math.min(CELL - 1, Math.floor(ev.offsetX / state.zoom)));
+    const cy = Math.max(0, Math.min(CELL - 1, Math.floor(ev.offsetY / state.zoom)));
+    workTemplate.chips[pin.chip].pivot = [cx, cy];
+    updateJointReadout();
+    rebake();
+  };
   const gameCol = h('div', { style: 'display:flex;flex-direction:column;gap:5px;align-items:center' });
   const gameCv = document.createElement('canvas');
   gameCv.width = GAME_PX * 2;
@@ -136,6 +188,62 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   stripCv.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px;cursor:pointer';
   const stripNote = h('span', { class: 'sg-muted', style: 'font-size:10px', text: 'filmstrip — click a frame to scrub' });
   main.append(bigWrap, stripCv, stripNote);
+
+  // ── gait lane: the untouched walk cycle under a runtime-style timing warp ──
+  const WALK_N = LPC_ANIMATIONS.walk.lastCol - LPC_ANIMATIONS.walk.firstCol + 1;
+  const GAIT_ZOOM = 4;
+  const walkBig: SpriteCanvas[] = []; // composited walk frames, cell size
+  const walkSmall: SpriteCanvas[] = []; // 32px downscales
+  let gaitStyle = GAIT_STYLES[1]; // open on limp so the contrast is instant
+  const normalPlan = planGait(GAIT_NORMAL, WALK_N, FRAME_MS);
+  let styledPlan = planGait(gaitStyle, WALK_N, FRAME_MS);
+  let gaitClock = 0;
+
+  function gaitView(label: string): { col: HTMLElement; big: HTMLCanvasElement; small: HTMLCanvasElement; lbl: HTMLElement } {
+    const big = document.createElement('canvas');
+    big.width = CELL * GAIT_ZOOM;
+    big.height = CELL * GAIT_ZOOM;
+    big.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+    const small = document.createElement('canvas');
+    small.width = GAME_PX * 2;
+    small.height = GAME_PX * 2;
+    small.style.cssText = 'display:block;width:64px;height:64px;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+    const lbl = h('span', { class: 'sg-muted', style: 'font-size:10px', text: label });
+    const col = h('div', { style: 'display:flex;flex-direction:column;gap:5px;align-items:center' });
+    col.append(big, small, lbl);
+    return { col, big, small, lbl };
+  }
+  const gaitNormalView = gaitView('walk · normal');
+  const gaitStyledView = gaitView(`walk · ${gaitStyle.name}`);
+  const gaitWrap = h('div', { style: 'display:flex;gap:18px;align-items:flex-start' });
+  gaitWrap.append(gaitNormalView.col, gaitStyledView.col);
+  main.append(
+    h('div', { class: 'sg-eyebrow', style: 'margin-top:6px', text: 'Gait — walk cycle (Tier 0: timing + offsets, no new pixels)' }),
+    gaitWrap,
+  );
+
+  function drawGaitInto(view: { big: HTMLCanvasElement; small: HTMLCanvasElement }, plan: GaitPlan): void {
+    const f = gaitFrameAt(plan, gaitClock);
+    const g = view.big.getContext('2d');
+    if (g) {
+      g.imageSmoothingEnabled = false;
+      checker(g, view.big.width, view.big.height, 8 * GAIT_ZOOM);
+      const fr = walkBig[f.frame];
+      if (fr) g.drawImage(fr as CanvasImageSource, f.dx * GAIT_ZOOM, f.dy * GAIT_ZOOM, CELL * GAIT_ZOOM, CELL * GAIT_ZOOM);
+    }
+    const gs = view.small.getContext('2d');
+    if (gs) {
+      gs.imageSmoothingEnabled = false;
+      checker(gs, view.small.width, view.small.height, 8);
+      const fr = walkSmall[f.frame];
+      if (fr) gs.drawImage(fr as CanvasImageSource, f.dx, f.dy, GAME_PX * 2, GAME_PX * 2);
+    }
+  }
+  function drawGait(): void {
+    if (walkBig.length === 0) return;
+    drawGaitInto(gaitNormalView, normalPlan);
+    drawGaitInto(gaitStyledView, styledPlan);
+  }
 
   function checker(g: CanvasRenderingContext2D, w: number, hgt: number, sq: number): void {
     for (let y = 0; y < hgt; y += sq) {
@@ -176,8 +284,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function drawBones(g: CanvasRenderingContext2D, z: number): void {
     const t = workClip.frames <= 1 ? 0 : state.frame / (workClip.frames - 1);
-    const world = chipWorldTransforms(TEMPLATE, sampleClip(TEMPLATE, workClip, t));
-    TEMPLATE.chips.forEach((ch, i) => {
+    const world = chipWorldTransforms(workTemplate, sampleClip(workTemplate, workClip, t));
+    workTemplate.chips.forEach((ch, i) => {
       const col = CHIP_COLORS[i % CHIP_COLORS.length];
       g.strokeStyle = col;
       g.lineWidth = 1.5;
@@ -252,13 +360,18 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   function tick(now: number): void {
     if (disposed) return;
     if (last < 0) last = now;
-    acc += now - last;
+    const dt = now - last;
+    acc += dt;
     last = now;
     if (acc >= STEP_MS && state.playing && frames.length > 0) {
       acc = 0;
       state.frame = (state.frame + 1) % frames.length;
       drawStrip();
       drawBig();
+    }
+    if (state.playing && walkBig.length > 0) {
+      gaitClock += dt;
+      drawGait();
     }
     raf = requestAnimationFrame(tick);
   }
@@ -387,6 +500,79 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     frameSlider.max = String(workClip.frames - 1);
   }
 
+  // ── joint pin mode ──────────────────────────────────────────────────────────
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Joints' }));
+  const pinBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '📍 Pin joints (click big view)' });
+  const pinChipRow = h('div', { style: 'display:none;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
+  const pinChipBtns = workTemplate.chips.map((ch, i) => {
+    const b = h('button', { class: 'sg-btn', style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${CHIP_COLORS[i % CHIP_COLORS.length]}`, text: ch.name });
+    b.classList.toggle('is-on', i === pin.chip);
+    b.onclick = () => {
+      pin.chip = i;
+      pinChipBtns.forEach((bb, k) => bb.classList.toggle('is-on', k === i));
+    };
+    pinChipRow.appendChild(b);
+    return b;
+  });
+  const jointReadout = h('div', {
+    class: 'sg-muted',
+    style: 'font-size:10px;line-height:1.6;white-space:pre;margin-bottom:5px',
+    attrs: { 'data-joints': '' },
+  });
+  function updateJointReadout(): void {
+    jointReadout.textContent = workTemplate.chips
+      .map((ch) => `${ch.name.padEnd(10)} [${ch.pivot[0]},${ch.pivot[1]}]`)
+      .join('\n');
+  }
+  updateJointReadout();
+  pinBtn.onclick = () => {
+    pin.on = !pin.on;
+    pinBtn.classList.toggle('is-on', pin.on);
+    pinChipRow.style.display = pin.on ? 'flex' : 'none';
+    if (pin.on) {
+      setPlaying(false);
+      state.frame = 0; // rest pose — clicks map 1:1 to rest-space cell coords
+      state.bones = true;
+      bonesBtn.classList.add('is-on');
+      drawStrip();
+      drawBig();
+    }
+  };
+  const pinReset = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '↺ Reset joints' });
+  pinReset.onclick = () => {
+    workTemplate.chips.forEach((ch, i) => {
+      ch.pivot = [TEMPLATE.chips[i].pivot[0], TEMPLATE.chips[i].pivot[1]];
+    });
+    updateJointReadout();
+    rebake();
+  };
+  panel.append(pinBtn, pinChipRow, jointReadout, pinReset);
+
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Gait (walk cycle)' }));
+  const gaitRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:4px' });
+  const gaitBtns = GAIT_STYLES.map((s) => {
+    const b = h('button', { class: 'sg-btn', style: 'flex:1', text: s.name });
+    b.classList.toggle('is-on', s === gaitStyle);
+    b.onclick = () => {
+      gaitStyle = s;
+      styledPlan = planGait(s, WALK_N, FRAME_MS);
+      gaitClock = 0;
+      gaitStyledView.lbl.textContent = `walk · ${s.name}`;
+      gaitBtns.forEach((bb, i) => bb.classList.toggle('is-on', GAIT_STYLES[i] === s));
+      drawGait();
+    };
+    gaitRow.appendChild(b);
+    return b;
+  });
+  panel.appendChild(gaitRow);
+  panel.appendChild(
+    h('div', {
+      class: 'sg-muted',
+      style: 'font-size:10px;line-height:1.5;margin-bottom:6px',
+      text: 'runtime-style playback of the untouched walk sheet — styled loop vs normal cadence',
+    }),
+  );
+
   panel.appendChild(
     h('div', {
       class: 'sg-muted',
@@ -420,8 +606,20 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
         }
         return { raster: { data, w: CELL, h: CELL }, assign: DEFAULT_HUMANOID_LAYERS[li].assign };
       });
+      // Composite the walk cycle for the gait lane (existing frames, untouched).
+      for (let col = LPC_ANIMATIONS.walk.firstCol; col <= LPC_ANIMATIONS.walk.lastCol; col++) {
+        const cellR = compositeCell(sheets, col, HUMANOID_SOURCE.row);
+        const big = rgbaToCanvas(cellR.data, cellR.w, cellR.h);
+        const small = downscale(cellR, GAME_PX);
+        const smallCv = rgbaToCanvas(small.data, small.w, small.h);
+        if (big && smallCv) {
+          walkBig.push(big);
+          walkSmall.push(smallCv);
+        }
+      }
       loading.remove();
       rebake();
+      drawGait();
     } catch (err) {
       loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
     }
