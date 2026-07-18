@@ -181,6 +181,10 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return 'A child was born.';
     case 'era_skipped':
       return `Years passed: ${ev.years}, with ${ev.deaths} deaths and ${ev.births} births.`;
+    case 'road_promoted':
+      return `A well-trodden way was built up from a ${ev.from} to a ${ev.to}.`;
+    case 'road_demoted':
+      return `A neglected ${ev.from} dwindled back to a ${ev.to}.`;
     case 'belief_cross':
       return `Belief crossed ${ev.kind} (${Math.round(ev.faith * 100)}%).`;
     case 'mood_cross':

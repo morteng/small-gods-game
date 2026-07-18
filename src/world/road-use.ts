@@ -10,7 +10,7 @@
 //
 // Nothing here touches the sim, the graph, or persistence. Deterministic, RNG-free, allocation-
 // light: safe to call from the studio per input event AND from the year-pass per edge.
-import type { RoadClass, RoadEdge, RoadGraph } from '@/world/road-graph';
+import type { RoadClass, RoadEdge, RoadGraph, RoadSurface } from '@/world/road-graph';
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 
 const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
@@ -39,7 +39,7 @@ export const N_UP = 2;
  *  than it learns). */
 export const N_DOWN = 4;
 
-/** Consecutive-apply streak counters for one edge (persisted in `edge.use` from S1 on). */
+/** Consecutive-apply streak counters for one edge (persisted in `edge.use` from S2 on). */
 export interface UseStreaks {
   up: number;
   down: number;
@@ -205,6 +205,10 @@ export interface EdgeUse {
   tallies: number;
   /** Sim tick of the last fold. */
   sinceTick: number;
+  /** Class-ladder hysteresis streaks (consecutive qualifying year-passes). Persisted with the
+   *  graph so promote/demote streaks survive save + scrub. Absent = fresh (both 0). Written by
+   *  the S2 year-pass `evolveRoadClasses`; the S1 fold leaves it untouched. */
+  streaks?: UseStreaks;
 }
 
 /** `use01 = clamp01(W_TRAFFIC·traffic + W_WEALTH·wealth)` — traffic decides *whether* a route
@@ -243,7 +247,10 @@ export function foldEdgeUse(
   const use01 = clamp01(USE_W_TRAFFIC * traffic + USE_W_WEALTH * clamp01(wealth01));
   const seeded = prev?.ema01 ?? use01;
   const ema01 = clamp01(seeded + USE_EMA_ALPHA * (use01 - seeded));
-  return { ema01, tallies: (prev?.tallies ?? 0) + Math.max(0, rawAdded), sinceTick: now };
+  // Carry the class-ladder streaks THROUGH the fold — the fold updates the number the ladder
+  // reads, it must not reset the hysteresis the ladder owns (else no streak ever reaches N_UP/
+  // N_DOWN and the class can never move). `evolveRoadClasses` is the sole writer of `streaks`.
+  return { ema01, tallies: (prev?.tallies ?? 0) + Math.max(0, rawAdded), sinceTick: now, streaks: prev?.streaks };
 }
 
 /** Serialized form of the inter-fold raw tally — rides the Snapshot as optional `roadUse?`
@@ -379,4 +386,128 @@ export function foldRoadUse(graph: RoadGraph, tally: RoadUseTally, now: number, 
   tally.clearPasses();
   tally.sinceTick = now;
   return windowYears;
+}
+
+/**
+ * Fold ONE INFERRED year-pass (no measured footfall) into every road edge's use — the driver a
+ * closed-form time-skip uses, where no tick measured live footfall. Use therefore converges
+ * toward the endpoints' inferred structural importance (traffic floor + wealth). Pure; RNG-free;
+ * mirrors {@link foldRoadUse} minus the tally (rawAdded = 0, measuredNorm = 0 ⇒ traffic = floor).
+ */
+export function foldRoadUseInferred(graph: RoadGraph, now: number, inputs: RoadUseFoldInputs): void {
+  for (const edge of graph.edges) {
+    if (edge.feature !== 'road') continue;
+    edge.use = foldEdgeUse(edge.use, 0, inputs.trafficFloorFor(edge), inputs.wealthFor(edge), now, 0);
+  }
+}
+
+// ── the class ladder as a consumer of `use` (S2) ──────────────────────────────
+// One year-pass apply of the §3 ladder to every road edge, reading `edge.use.ema01` through the
+// SAME pure `stepEdgeClass` the studio dials drive (no forked logic). Live: one apply per
+// evolution year-pass. Skip: one apply per closed-form sub-step (see `projectRoadClassesOverSkip`).
+
+/** Wealth ≥ this ⇒ a promotion to `road`/`highway` PAVES the surface in stone; below it, a busy
+ *  but poor road stays a wide dirt road (§3 surface wealth gate). Studio-tunable. */
+export const STONE_WEALTH_MIN = 0.5;
+
+/** One year-pass of the class ladder = one apply. Same cadence as the dynamics/use year-pass
+ *  ({@link foldRoadUse}); the skip driver sub-steps at this resolution for live/skip parity. */
+export const CLASS_APPLY_YEARS = 0.5;
+
+/** Per-edge signals the class ladder reads (built in road-evolution.ts + the tick system, which
+ *  own the endpoint-POI + lord plumbing — road-use stays free of world/lord coupling). */
+export interface EdgeClassInputs {
+  /** Endpoint wealth 0..1 — the SAME number the use fold reads (`buildRoadUseInputs.wealthFor`);
+   *  gates the stone-surface upgrade. */
+  wealthFor(edge: RoadEdge): number;
+  /** True iff mortal power funds building at highway scale at ≥1 endpoint (a gripping/garrisoned
+   *  lord seat, §3 king's-highway gate). Without it an edge saturates at `road`. */
+  hasLordSeatFor(edge: RoadEdge): boolean;
+  /** Endpoint POI ids for the emitted event (either may be undefined — a road end at no POI). */
+  endpointPoiIds(edge: RoadEdge): [string | undefined, string | undefined];
+}
+
+/** One edge's class change in a year-pass (collected by the caller for events + surface re-raster). */
+export interface RoadClassTransition {
+  edgeId: string;
+  from: RoadClass;
+  to: RoadClass;
+  fromPoiId?: string;
+  toPoiId?: string;
+  /** True iff this transition also flipped `edge.surface` dirt→stone (needs a tile re-raster). */
+  surfaceChanged: boolean;
+}
+
+/**
+ * Apply ONE year-pass of the class ladder to every road edge in the graph. Mutates `edge.class`,
+ * `edge.use.streaks`, and (on a wealth-gated promotion to road+) `edge.surface`; bumps `graph.rev`
+ * iff anything moved so the carve/surface caches re-derive. Edges with no `use` yet (pre-first-fold)
+ * or non-road features are skipped. Deterministic; RNG-free; returns the transitions this apply made.
+ */
+export function evolveRoadClasses(graph: RoadGraph, inputs: EdgeClassInputs): RoadClassTransition[] {
+  const transitions: RoadClassTransition[] = [];
+  for (const edge of graph.edges) {
+    if (edge.feature !== 'road' || !edge.use) continue;
+    const streaks = edge.use.streaks ?? { up: 0, down: 0 };
+    const step = stepEdgeClass(edge.class, edge.use.ema01, streaks, inputs.hasLordSeatFor(edge));
+    edge.use.streaks = step.streaks;
+    if (!step.changed) continue;
+    const from = edge.class;
+    edge.class = step.next;
+    // Surface follows class with a wealth gate: a promotion INTO road/highway paves in stone only
+    // when the endpoints can afford it; a poor busy road stays wide dirt. Demotion never un-paves
+    // (a stranded stone road on a demoted track is exactly the medieval landscape we want).
+    let surfaceChanged = false;
+    const promotedToPaved = (step.next === 'road' || step.next === 'highway')
+      && ROAD_CLASS_LADDER.indexOf(step.next) > ROAD_CLASS_LADDER.indexOf(from);
+    if (promotedToPaved && edge.surface === 'dirt' && clamp01(inputs.wealthFor(edge)) >= STONE_WEALTH_MIN) {
+      edge.surface = 'stone';
+      surfaceChanged = true;
+    }
+    const [a, b] = inputs.endpointPoiIds(edge);
+    transitions.push({ edgeId: edge.id, from, to: step.next, fromPoiId: a, toPoiId: b, surfaceChanged });
+  }
+  if (transitions.length) graph.rev = (graph.rev ?? 0) + 1;
+  return transitions;
+}
+
+/**
+ * Project the use + class economy across a closed-form time-skip of `[fromTick, toTick]`. No tick
+ * measured live footfall over the era, so use is driven by the INFERRED floor/wealth and the class
+ * ladder steps once per {@link CLASS_APPLY_YEARS} sub-step — so an era-long jump promotes a road
+ * that live-ticking those years would have (streaks/hysteresis need ≥N_UP applies to move a rung).
+ * Transitions are COLLAPSED to the net per-edge change (one road_promoted/demoted per edge per era,
+ * not one per sub-step). Deterministic; RNG-free; returns the net transitions.
+ */
+export function projectRoadClassesOverSkip(
+  graph: RoadGraph, fromTick: number, toTick: number, useInputs: RoadUseFoldInputs, classInputs: EdgeClassInputs,
+): RoadClassTransition[] {
+  const span = toTick - fromTick;
+  if (span <= 0) return [];
+  const dtYears = span / TICKS_PER_YEAR;
+  // Cap sub-steps so a pathological span can't spin forever; the dynamics MAX_SUBSTEPS precedent.
+  const applies = Math.max(1, Math.min(8000, Math.round(dtYears / CLASS_APPLY_YEARS)));
+  const startClass = new Map<string, RoadClass>();
+  const startSurface = new Map<string, RoadSurface>();
+  const startPoi = new Map<string, [string | undefined, string | undefined]>();
+  for (const e of graph.edges) if (e.feature === 'road') { startClass.set(e.id, e.class); startSurface.set(e.id, e.surface); }
+  for (let k = 0; k < applies; k++) {
+    const t = fromTick + Math.round(((k + 1) / applies) * span);
+    foldRoadUseInferred(graph, t, useInputs);
+    for (const tr of evolveRoadClasses(graph, classInputs)) {
+      if (!startPoi.has(tr.edgeId)) startPoi.set(tr.edgeId, [tr.fromPoiId, tr.toPoiId]);
+    }
+  }
+  const net: RoadClassTransition[] = [];
+  for (const e of graph.edges) {
+    if (e.feature !== 'road') continue;
+    const from = startClass.get(e.id);
+    if (from === undefined || from === e.class) continue;
+    const [a, b] = startPoi.get(e.id) ?? [undefined, undefined];
+    net.push({
+      edgeId: e.id, from, to: e.class, fromPoiId: a, toPoiId: b,
+      surfaceChanged: startSurface.get(e.id) === 'dirt' && e.surface === 'stone',
+    });
+  }
+  return net;
 }

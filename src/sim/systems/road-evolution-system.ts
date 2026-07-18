@@ -1,10 +1,37 @@
 import type { System, SystemContext } from '@/core/scheduler';
 import type { SettlementCohorts } from '@/sim/cohorts';
-import type { RoadUseTally } from '@/world/road-use';
-import { advanceRoadEvolution, connectomeEvolveOptions, buildRoadUseInputs } from '@/world/road-evolution';
-import { foldRoadUse } from '@/world/road-use';
+import type { RoadUseTally, EdgeClassInputs, RoadClassTransition } from '@/world/road-use';
+import type { RoadEdge } from '@/world/road-graph';
+import { advanceRoadEvolution, connectomeEvolveOptions, buildRoadUseInputs, endpointPoiIdsFor, applyRoadClassSurface } from '@/world/road-evolution';
+import { foldRoadUse, evolveRoadClasses } from '@/world/road-use';
 import { residentsByPoi } from '@/sim/systems/settlement-growth-system';
+import { lordSeatFunds } from '@/sim/lord';
 import { getClimateFields } from '@/world/heightfield';
+import type { EventLog } from '@/core/events';
+import type { World } from '@/world/world';
+import type { GameMap } from '@/core/types';
+
+/** Build the class-ladder inputs from the live world: wealth from the use fold (one number), the
+ *  highway lord-gate from the seat/dominion plumbing, and the endpoint ids for the events. */
+export function buildRoadClassInputs(map: GameMap, world: World, wealthFor: (edge: RoadEdge) => number): EdgeClassInputs {
+  const ids = endpointPoiIdsFor(map);
+  return {
+    wealthFor,
+    endpointPoiIds: ids,
+    hasLordSeatFor: (edge) => { const [a, b] = ids(edge); return lordSeatFunds(world, a) || lordSeatFunds(world, b); },
+  };
+}
+
+/** Emit the SimEvent for one class transition (promote/demote). Shared by the live tick + skip. */
+export function emitRoadClassEvent(log: EventLog, tr: RoadClassTransition): void {
+  const LADDER = ['path', 'track', 'road', 'highway'];
+  const { edgeId, from, to, fromPoiId, toPoiId } = tr;
+  if (LADDER.indexOf(to) > LADDER.indexOf(from)) {
+    log.append({ type: 'road_promoted', edgeId, from, to, fromPoiId, toPoiId });
+  } else {
+    log.append({ type: 'road_demoted', edgeId, from, to, fromPoiId, toPoiId });
+  }
+}
 
 /**
  * Roads age, wear, are repaired, and overgrow over time. This system advances the road
@@ -51,10 +78,15 @@ export class RoadEvolutionSystem implements System {
     const tally = this.getRoadUse();
     if (dtYears > 0 && tally) {
       const cohorts = this.getCohorts() ?? undefined;
-      foldRoadUse(
-        graph, tally, ctx.now,
-        buildRoadUseInputs(map, { residents: residentsByPoi(ctx.world, cohorts), cohorts }),
-      );
+      const useInputs = buildRoadUseInputs(map, { residents: residentsByPoi(ctx.world, cohorts), cohorts });
+      foldRoadUse(graph, tally, ctx.now, useInputs);
+      // S2: on the SAME year-pass, the freshly-folded use drives the class ladder — one apply,
+      // hysteresis/streaks in edge.use. A surface flip re-rasters its tiles; each move narrates.
+      const transitions = evolveRoadClasses(graph, buildRoadClassInputs(map, ctx.world, useInputs.wealthFor));
+      if (transitions.length) {
+        applyRoadClassSurface(map, transitions);
+        for (const tr of transitions) emitRoadClassEvent(ctx.log, tr);
+      }
     }
   }
 }

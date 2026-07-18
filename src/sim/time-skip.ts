@@ -8,7 +8,9 @@ import { projectTurnover } from '@/sim/turnover';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { countPlayerBelievers } from '@/sim/believers';
 import { growSettlementsOnSkip, residentsByPoi } from '@/sim/systems/settlement-growth-system';
-import { advanceRoadEvolution, connectomeEvolveOptions } from '@/world/road-evolution';
+import { advanceRoadEvolution, connectomeEvolveOptions, buildRoadUseInputs, applyRoadClassSurface } from '@/world/road-evolution';
+import { projectRoadClassesOverSkip } from '@/world/road-use';
+import { buildRoadClassInputs, emitRoadClassEvent } from '@/sim/systems/road-evolution-system';
 import { getClimateFields } from '@/world/heightfield';
 import type { TrampleGrid } from '@/sim/trample';
 
@@ -69,10 +71,25 @@ export function applySkip(
   // the POST-skip population (deaths/births + settlement growth already applied above), so roads
   // to settlements that emptied over the era decay while roads to ones that grew stay kept.
   if (world.tiles.roadGraph) {
-    advanceRoadEvolution(world.tiles.roadGraph, toTick, connectomeEvolveOptions(world.tiles, {
-      residents: residentsByPoi(world),
+    const graph = world.tiles.roadGraph;
+    const residents = residentsByPoi(world);
+    advanceRoadEvolution(graph, toTick, connectomeEvolveOptions(world.tiles, {
+      residents,
       climate: getClimateFields(world.tiles),
     }));
+    // Roads also climb/fall the CLASS ladder across the era (S2). No tick measured live footfall,
+    // so use is driven by inferred structural importance and the ladder sub-steps at the year-pass
+    // resolution — a busy era-long route promotes as live-ticking those years would. Net per-edge
+    // transitions narrate as an era of road-building; a stone-paving flip re-rasters its tiles.
+    // (No cohort tier here → wealth reads the neutral prosperity — the skip is an approximation.)
+    const useInputs = buildRoadUseInputs(world.tiles, { residents });
+    const transitions = projectRoadClassesOverSkip(
+      graph, fromTick, toTick, useInputs, buildRoadClassInputs(world.tiles, world, useInputs.wealthFor),
+    );
+    if (transitions.length) {
+      applyRoadClassSurface(world.tiles, transitions);
+      for (const tr of transitions) emitRoadClassEvent(log, tr);
+    }
   }
 
   const believersAfter = countPlayerBelievers(world);

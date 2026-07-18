@@ -3,6 +3,7 @@ import type { EntityId, NpcNeeds, NpcRole, Region, WorldSeed, SettlementEventTyp
 import type { SpiritId } from '@/core/spirit';
 import type { ThreadId, ShapeId, ThreadSubject, NarrativeWeight } from '@/sim/threads/thread-types';
 import type { BeatId } from '@/sim/threads/staging-types';
+import type { RoadClass } from '@/world/road-graph';
 
 export type SimEvent =
   | { type: 'world_seeded';       worldSeed: WorldSeed; substrateSeed: number }
@@ -29,6 +30,12 @@ export type SimEvent =
   | { type: 'npc_birth';          npcId: EntityId; parentIds: EntityId[]; lineageId: EntityId }
   | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }
   | { type: 'era_skipped';        fromTick: number; toTick: number; years: number; deaths: number; births: number; believersBefore: number; believersAfter: number }
+  // Road-wear economy S2 — a road earned (or lost) a class at the year-pass: its use
+  // statistic crossed the promote/demote threshold with hysteresis. `fromPoiId`/`toPoiId`
+  // name the endpoints (either may be absent — a road end at no settlement). Fed to the
+  // chronicler (an "era of road-building") + the seek/landing surface (interest-predicate).
+  | { type: 'road_promoted';      edgeId: string; from: RoadClass; to: RoadClass; fromPoiId?: string; toPoiId?: string }
+  | { type: 'road_demoted';       edgeId: string; from: RoadClass; to: RoadClass; fromPoiId?: string; toPoiId?: string }
   | { type: 'authored_spawn';     entityIds: EntityId[]; role: string; count: number }
   | { type: 'authored_remove';    entityIds: EntityId[]; count: number }
   | { type: 'authored_modify';    entityId: EntityId; fields: string[] }

@@ -377,3 +377,54 @@ describe('advanceRoadEvolution — lazy opts thunk', () => {
     expect(g.evolvedAtTick).toBe(5 * TICKS_PER_YEAR);
   });
 });
+
+describe('applyRoadClassSurface + endpointPoiIdsFor (road-wear economy S2)', () => {
+  function mapWith(edges: RoadEdge[]): GameMap {
+    const width = 8, height = 3;
+    const tiles = Array.from({ length: height }, (_, y) =>
+      Array.from({ length: width }, (_, x) => ({ type: 'dirt_road', x, y, walkable: true, state: 'realized' as const })),
+    );
+    // A patch of water + a bridge deck on row 1 to prove they're skipped.
+    tiles[0][3].type = 'river'; tiles[0][3].walkable = false;
+    tiles[0][4].type = 'bridge';
+    return {
+      tiles, width, height, villages: [], seed: 1, success: true,
+      worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [],
+      roadGraph: { nodes: [], edges, rev: 0 },
+    } as unknown as GameMap;
+  }
+
+  it('re-stamps a stone-surfaced edge dirt_road → stone_road, skipping water/bridge, and bumps tilesRev', async () => {
+    const { applyRoadClassSurface, endpointPoiIdsFor } = await import('@/world/road-evolution');
+    const e = edge('e0', { surface: 'stone', polyline: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 }, { x: 5, y: 0 }] });
+    const map = mapWith([e]);
+    const before = map.tilesRev ?? 0;
+    const touched = applyRoadClassSurface(map, [{ edgeId: 'e0', from: 'track', to: 'road', surfaceChanged: true }]);
+    expect(touched).toBe(3); // (1,0) (2,0) (5,0) — the river (3,0) and bridge (4,0) are skipped
+    expect(map.tiles[0][1].type).toBe('stone_road');
+    expect(map.tiles[0][3].type).toBe('river');  // water untouched
+    expect(map.tiles[0][4].type).toBe('bridge'); // deck untouched
+    expect(map.tilesRev).toBe(before + 1);
+    void endpointPoiIdsFor;
+  });
+
+  it('is a no-op (no tilesRev bump) for transitions that did not change surface', async () => {
+    const { applyRoadClassSurface } = await import('@/world/road-evolution');
+    const map = mapWith([edge('e0', { surface: 'dirt', polyline: [{ x: 1, y: 0 }] })]);
+    const touched = applyRoadClassSurface(map, [{ edgeId: 'e0', from: 'path', to: 'track', surfaceChanged: false }]);
+    expect(touched).toBe(0);
+    expect(map.tilesRev ?? 0).toBe(0);
+  });
+
+  it('endpointPoiIdsFor resolves an edge\'s endpoint POI ids through the node→poi plumbing', async () => {
+    const { endpointPoiIdsFor } = await import('@/world/road-evolution');
+    const e = edge('e0', { a: 'n0', b: 'n1' });
+    const map = {
+      tiles: [], width: 8, height: 3, villages: [], seed: 1, success: true,
+      worldSeed: { pois: [{ id: 'town' }, { id: 'hamlet' }] },
+      stats: { iterations: 0, backtracks: 0 }, buildings: [],
+      roadGraph: { nodes: [{ id: 'n0', x: 0, y: 0, kind: 'poi', poiRef: 'town' }, { id: 'n1', x: 5, y: 0, kind: 'poi', poiRef: 'hamlet' }], edges: [e], rev: 0 },
+    } as unknown as GameMap;
+    expect(endpointPoiIdsFor(map)(e)).toEqual(['town', 'hamlet']);
+  });
+});

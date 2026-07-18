@@ -81,6 +81,10 @@ export function isInterestingEvent(ev: SimEvent, _state?: GameState): boolean {
     // an extraction-pressure edge the player can act on (need is opportunity).
     case 'grip_taken':
     case 'grip_broken':
+    // Road-wear S2 — a road climbing to a highway (or a route falling back to a
+    // path) is a visible shift in the land's connective fabric worth landing on.
+    case 'road_promoted':
+    case 'road_demoted':
       return true;
     default:
       return false;
@@ -121,6 +125,8 @@ export function describeInterest(ev: SimEvent): { rank: number; label: string } 
     case 'peace_lapsed':      return { rank: 48, label: 'The Peace of God lapsed' };
     case 'grip_taken':        return { rank: 64, label: 'Knights took a settlement in their grip' };
     case 'grip_broken':       return { rank: 56, label: "A castle's grip on a settlement was broken" };
+    case 'road_promoted':     return { rank: 46, label: ev.to === 'highway' ? "A lord's highway was built" : 'A road rose in the world' };
+    case 'road_demoted':      return { rank: 42, label: 'A road fell into disuse' };
     default:                  return { rank: 0, label: 'Something happened' };
   }
 }

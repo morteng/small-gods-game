@@ -18,13 +18,15 @@
 
 import type { RoadGraph, RoadEdge, RoadClass } from '@/world/road-graph';
 import type { RoadDynamics } from '@/world/road-state';
-import type { RoadUseFoldInputs } from '@/world/road-use';
+import type { RoadUseFoldInputs, RoadClassTransition } from '@/world/road-use';
 import type { GameMap, POI } from '@/core/types';
 import type { ClimateFields } from '@/world/heightfield';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import { cohortMeanProsperity } from '@/sim/cohorts';
 import { terrainContextFrom, weatherAggression } from '@/world/terrain-context';
 import { clamp01 } from '@/core/math';
+import { WATER_TYPES } from '@/core/constants';
+import { bumpTilesRev } from '@/core/tile-rev';
 import { TICKS_PER_DAY, DAYS_PER_YEAR } from '@/core/calendar';
 
 /** Per-year rates. Tuned so a kept highway stays pristine and a neglected path ruins in ~50y. */
@@ -131,6 +133,13 @@ function endpointPoisFor(map: GameMap): (edge: RoadEdge) => [POI | undefined, PO
   ];
 }
 
+/** Resolve an edge's two endpoint POI ids (either may be undefined). The road-class ladder (S2)
+ *  reads these for its `road_promoted/demoted` events; shares the same node→POI plumbing. */
+export function endpointPoiIdsFor(map: GameMap): (edge: RoadEdge) => [string | undefined, string | undefined] {
+  const pois = endpointPoisFor(map);
+  return (edge) => { const [a, b] = pois(edge); return [a?.id, b?.id]; };
+}
+
 export function connectomeEvolveOptions(map: GameMap, inputs: ConnectomeEvolveInputs = {}): EvolveOptions {
   const graph = map.roadGraph;
   if (!graph) return {};
@@ -194,6 +203,33 @@ export function buildRoadUseInputs(map: GameMap, inputs: RoadUseInputs = {}): Ro
       return present.length ? clamp01(present.reduce((s, w) => s + w, 0) / present.length) : 0;
     },
   };
+}
+
+/**
+ * Re-raster the tile TYPE of every edge whose S2 class transition flipped its surface dirt→stone
+ * (`dirt_road` → `stone_road`), so the tile grid agrees with the graph the render ribbon already
+ * re-derived off `graph.rev`. Bridge/water cells are left untouched (a stone road doesn't pave its
+ * own crossing). Bumps `tilesRev` once iff any tile changed — the standing rule for a post-gen
+ * `tile.type` write, so the terrain colour memo repaints. Returns the number of tiles re-stamped.
+ */
+export function applyRoadClassSurface(map: GameMap, transitions: RoadClassTransition[]): number {
+  const graph = map.roadGraph;
+  if (!graph) return 0;
+  const byId = new Map(graph.edges.map((e) => [e.id, e]));
+  let touched = 0;
+  for (const tr of transitions) {
+    if (!tr.surfaceChanged) continue;
+    const edge = byId.get(tr.edgeId);
+    if (!edge) continue;
+    const want = edge.surface === 'stone' ? 'stone_road' : 'dirt_road';
+    for (const c of edge.polyline) {
+      const t = map.tiles[c.y]?.[c.x];
+      if (!t || t.type === 'bridge' || WATER_TYPES.has(t.type)) continue;
+      if (t.type !== want) { t.type = want; t.walkable = true; touched++; }
+    }
+  }
+  if (touched) bumpTilesRev(map);
+  return touched;
 }
 
 export interface RoadStepContext {

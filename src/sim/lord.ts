@@ -148,6 +148,16 @@ export function grippingSeatOf(world: World, poiId: string): LordState | null {
   return seat && seat.garrison > 0 ? seat : null;
 }
 
+/** True iff mortal power funds building at king's-highway scale at `poiId`: a garrisoned seat
+ *  sits here, OR a castle grips it by dominion link. The road-wear economy's highway gate (S2 §3):
+ *  only a lord's reach raises a road to the top tier — otherwise the edge saturates at `road`. */
+export function lordSeatFunds(world: World, poiId: string | undefined): boolean {
+  if (!poiId) return false;
+  if (grippingSeatOf(world, poiId)) return true;
+  const own = world.lords.get(poiId);
+  return !!own && own.garrison > 0;
+}
+
 /** The settlement's current EFFECTIVE tithe rate — 0 when nobody extracts.
  *  This is the ONE read the activity system's M0.c scaling makes per work
  *  completion, and the rate LordSystem presses onto the statistical tier.
