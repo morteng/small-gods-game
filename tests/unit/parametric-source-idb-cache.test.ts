@@ -88,15 +88,19 @@ describe('ParametricBuildingSource × sprite cache', () => {
     expect(onWarm).toHaveBeenCalledTimes(1);   // render kick so an idle loop draws it
   });
 
-  it('a cache hit whose pack rebuild fails (no canvas) degrades to composing', async () => {
+  it('a cache hit whose pack rebuild returns null degrades to composing', async () => {
     const compose1 = vi.fn(async () => realResult());
     const src1 = new ParametricBuildingSource({ toSpec: () => spec, compose: compose1, toSprite: () => fakeSprite });
     src1.warm(entity());
     await until(async () => (await readParametricSprite(idbKey)) !== null);
 
     const compose2 = vi.fn(async () => realResult());
-    // Default packFromCache: jsdom has no canvas → null → must fall back to compose.
-    const src2 = new ParametricBuildingSource({ toSpec: () => spec, compose: compose2, toSprite: () => fakeSprite });
+    // The raw-upload rehydration path succeeds without a canvas, so a null rebuild is
+    // now an EXPLICIT failure (corrupt payload / degenerate) — inject one and assert
+    // the source still degrades to composing rather than caching null.
+    const src2 = new ParametricBuildingSource({
+      toSpec: () => spec, compose: compose2, toSprite: () => fakeSprite, packFromCache: () => null,
+    });
     src2.warm(entity());
     await until(() => src2.peek(entity()) === fakeSprite);
     expect(compose2).toHaveBeenCalledTimes(1);
