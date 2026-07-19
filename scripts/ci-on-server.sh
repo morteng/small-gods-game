@@ -99,6 +99,17 @@ for arg in "$@"; do
   esac
 done
 
+# Non-default images get their OWN remote dir (→ own node_modules). Native modules
+# (canvas, esbuild, …) are ABI-compiled by whichever image ran npm ci; sharing one
+# cache across images poisons it — a Playwright-image seed run left a `canvas` build
+# that broke jsdom 2d-ctx tests under node:22-bookworm. Disk on the ephemeral box is
+# cheap; ABI debugging is not.
+if [ "$NODE_IMAGE" != "node:22-bookworm" ]; then
+  IMAGE_SLUG=$(echo "$NODE_IMAGE" | tr -c 'a-zA-Z0-9' '-' | tail -c 30)
+  REMOTE_DIR="${REMOTE_DIR}-img-${IMAGE_SLUG}"
+  REMOTE_HASH_FILE="$REMOTE_DIR/.deps.hash"
+fi
+
 # --run needs a command; default its retrieval dir to the preview scratch dir.
 if [ "$MODE" = "run" ]; then
   [ -n "$RUN_CUSTOM" ] || fail "--run requires a command, e.g. --run=\"npx tsx scripts/building-preview.ts cottage\""
