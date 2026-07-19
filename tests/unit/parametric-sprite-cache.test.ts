@@ -180,12 +180,46 @@ describe('payloadFromResult', () => {
   });
 });
 
-describe('packFromPayload', () => {
-  it('returns null without a canvas backend (jsdom) — sources degrade to composing', () => {
-    expect(packFromPayload(makePayload())).toBeNull();
+describe('packFromPayload — raw-upload path (S2)', () => {
+  it('rehydrates all four maps as RAW typed arrays (no canvas), even without a canvas backend', () => {
+    // The raw path uses typed arrays only, so it succeeds under jsdom/Node where the
+    // old canvas path returned null. albedo/emissive are premultiplied; normal/material raw.
+    const p = makePayload();
+    p.anchors = { doors: [], vents: [], tags: [{ x: 0.5, y: 0.25, kind: 'sign' as never, z: 1 }] };
+    const pack = packFromPayload(p)!;
+    expect(pack).not.toBeNull();
+    // No canvas on the raw path.
+    expect(pack.albedo).toBeUndefined();
+    expect(pack.normal).toBeUndefined();
+    expect(pack.emissive).toBeUndefined();
+    // All four maps present as RawMaps, correctly sized.
+    expect(pack.albedoData).toBeDefined();
+    expect(pack.albedoData!.w).toBe(p.w);
+    expect(pack.albedoData!.h).toBe(p.h);
+    expect(pack.normalData).toBeDefined();
+    expect(pack.materialData).toBeDefined();
+    expect(pack.emissiveData).toBeDefined();
+    // Normal + material stay UN-premultiplied (byte-equal to the payload buffers).
+    expect(Array.from(pack.normalData!.data)).toEqual(Array.from(p.normal));
+    expect(Array.from(pack.materialData!.data)).toEqual(Array.from(p.material));
+    // tags ride along; shadow drops (no canvas backend to build the mask).
+    expect(pack.tags).toEqual(p.anchors.tags);
+    expect(pack.shadow).toBeUndefined();
   });
 
-  it('with a canvas backend: albedo non-null, RAW materialData, shadow offset + tags preserved', () => {
+  it('premultiplies albedo/emissive: alpha=0 pixels zero their RGB', () => {
+    const p = makePayload();
+    // Force a straight-alpha pixel with live RGB + a=0 in the albedo (grey) buffer.
+    p.grey[0] = 200; p.grey[1] = 150; p.grey[2] = 90; p.grey[3] = 0;
+    // And an opaque pixel that must survive verbatim.
+    p.grey[4] = 200; p.grey[5] = 150; p.grey[6] = 90; p.grey[7] = 255;
+    const pack = packFromPayload(p)!;
+    const a = pack.albedoData!.data;
+    expect([a[0], a[1], a[2], a[3]]).toEqual([0, 0, 0, 0]);         // a=0 ⇒ RGB zeroed
+    expect([a[4], a[5], a[6], a[7]]).toEqual([200, 150, 90, 255]);  // a=255 ⇒ identity
+  });
+
+  it('builds the geometry shadow mask when a canvas backend IS present', () => {
     class FakeOffscreen {
       width: number; height: number;
       constructor(w: number, h: number) { this.width = w; this.height = h; }
@@ -199,19 +233,9 @@ describe('packFromPayload', () => {
     vi.stubGlobal('OffscreenCanvas', FakeOffscreen);
     vi.stubGlobal('ImageData', FakeImageData);
     try {
-      const p = makePayload();
-      p.anchors = { doors: [], vents: [], tags: [{ x: 0.5, y: 0.25, kind: 'sign' as never, z: 1 }] };
-      const pack = packFromPayload(p)!;
-      expect(pack).not.toBeNull();
-      expect(pack.albedo).toBeTruthy();
-      expect(pack.normal).toBeTruthy();
-      // Material stays a RAW data map — never a canvas.
-      expect(pack.materialData).toBeDefined();
-      expect(pack.materialData!.w).toBe(p.w);
-      expect(Array.from(pack.materialData!.data)).toEqual(Array.from(p.material));
+      const pack = packFromPayload(makePayload())!;
       expect(pack.shadow).toMatchObject({ dx: -3.5, dy: 1.25 });
-      expect(pack.emissive).toBeTruthy();
-      expect(pack.tags).toEqual(p.anchors.tags);
+      expect(pack.shadow!.canvas).toBeTruthy();
     } finally {
       vi.unstubAllGlobals();
     }
