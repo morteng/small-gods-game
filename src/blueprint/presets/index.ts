@@ -13,7 +13,7 @@ import { expressBuilding } from './express';
 import { blueprintFromBuildingType } from './from-building-type';
 import { bridgeBlueprintByName } from './bridges';
 import type { Connectome } from '../connectome/types';
-import { allFloraSpecies, getFloraSpecies } from '@/flora/flora-registry';
+import { allFloraSpecies, getFloraSpecies, isClutterFloraKind } from '@/flora/flora-registry';
 import { stairFootprint } from '../parts/stair';
 import { deriveGenParams } from '@/flora/flora-species';
 import { mToTiles } from '@/render/scale-contract';
@@ -686,12 +686,15 @@ export function isPlantPreset(name: string): boolean {
   return BUILDING_BLUEPRINTS[name]?.class === 'plant' || floraPlantIds().has(name);
 }
 
-/** Every plant/species preset name. The renderer pre-warms all of these at load so
- *  trees never flash a placeholder mid-game. Includes both the hand-authored plant
- *  presets and the flora-DB species (the canonical, generative set). */
+/** Every plant/species preset name that COMPOSES a parametric sprite. The renderer
+ *  pre-warms all of these at load so trees never flash a placeholder mid-game.
+ *  Includes the hand-authored plant presets and the flora-DB species — MINUS the
+ *  ground-flora habits (herb/grass/fern), which render as clutter-atlas billboards
+ *  (ClutterFloraArtSource) and must never be composed or prewarmed. They stay in
+ *  `isPlantPreset` so the draw-list gate still routes them to the plant resolver. */
 export function plantPresetNames(): string[] {
   const hand = Object.keys(BUILDING_BLUEPRINTS).filter((n) => BUILDING_BLUEPRINTS[n].class === 'plant');
-  return [...hand, ...floraPlantIds()];
+  return [...hand, ...[...floraPlantIds()].filter((n) => !isClutterFloraKind(n))];
 }
 
 /** Lazily-built set of ALL flora-DB species ids — plants AND rocks; both resolve to

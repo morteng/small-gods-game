@@ -85,6 +85,19 @@ export function floraSwayAmplitude(id: string): number {
   }
 }
 
+/** Habits that render as cheap clutter-atlas billboards instead of composing a
+ *  parametric manifold sprite (trees/shrubs/rocks stay parametric). The render
+ *  seam (render-context) and the compose prewarm set (plantPresetNames) both key
+ *  on this, so a species can never be composed AND atlas-sliced at once. */
+const CLUTTER_HABITS: ReadonlySet<string> = new Set(['herb', 'grass', 'fern']);
+
+/** True for ground-flora species (habit herb/grass/fern) — the ones that render
+ *  from the clutter atlas. Unknown ids ⇒ false (they keep the parametric path). */
+export function isClutterFloraKind(id: string): boolean {
+  const h = getFloraSpecies(id)?.botanical.habit;
+  return h !== undefined && CLUTTER_HABITS.has(h);
+}
+
 /** TEST-ONLY: drop all runtime lazy-fills + caches + provider (curated core stays). */
 export function __resetFloraRuntime(): void {
   runtime.clear();

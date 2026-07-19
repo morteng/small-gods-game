@@ -8,6 +8,8 @@ import type { ParametricBarrierSource } from '@/render/parametric-barrier-source
 import type { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import type { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
+import type { ClutterFloraArtSource } from '@/render/clutter-flora-art-source';
+import { isClutterFloraKind } from '@/flora/flora-registry';
 import type { Viewport } from './viewport';
 import { toRenderNpc } from '@/world/npc-helpers';
 import { LIGHTING_OFF, type LightingState } from '@/render/lighting-state';
@@ -27,6 +29,9 @@ export interface RenderContextDeps {
   parametricPlantSource: ParametricPlantSource;
   generatedBuildingArtSource?: GeneratedBuildingArtSource;
   generatedFloraArtSource?: GeneratedFloraArtSource;
+  /** Ground-flora (herb/grass/fern) billboards sliced from the clutter atlas.
+   *  Absent ⇒ those species fall back to the flat billboard (never composed). */
+  clutterFloraSource?: ClutterFloraArtSource;
   devMode: DevModeState;
   /** Interior I-2 reveal flag (`?interiorReveal`/`?i2`): when on, the SELECTED building
    *  renders cutaway (roof off). Off ⇒ the cutaway swap is fully inert (byte-identical render). */
@@ -58,7 +63,7 @@ function liveLighting(tick: number): LightingState {
  *  `map` and `world` are asserted non-null — every caller guards both before calling.
  *  `npcs` is [] when no world exists yet (pre-generation). */
 export function buildRenderContext(deps: RenderContextDeps): RenderContext {
-  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricBarrierSource, parametricPlantSource, generatedBuildingArtSource, generatedFloraArtSource, devMode } = deps;
+  const { state, viewport, sheets, assets, decorationImages, artResolver, buildingArtResolver, parametricBuildingSource, parametricBarrierSource, parametricPlantSource, generatedBuildingArtSource, generatedFloraArtSource, clutterFloraSource, devMode } = deps;
   // Interior I-2: the focused building (if any) renders cutaway when the reveal flag is on.
   // Off (default) ⇒ null ⇒ every building takes the unchanged closed path.
   const cutawayBuildingId = deps.interiorReveal ? (state.selectedBuildingId ?? null) : null;
@@ -118,6 +123,15 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
         }
       : undefined,
     resolveParametricPlantArt: (kind: string, variant = 0) => {
+      // Ground flora (habit herb/grass/fern) NEVER composes: it renders as a cheap
+      // billboard sliced from the clutter atlas. Until the atlas lands, null ⇒ the
+      // draw list's flat-billboard fallback (something always renders).
+      if (clutterFloraSource && isClutterFloraKind(kind)) {
+        const c = clutterFloraSource.peek(kind, variant);
+        if (c) return c;
+        void clutterFloraSource.warm(); // fire-and-forget; never blocks the frame
+        return null;
+      }
       // Prefer the img2img-refined flora sprite (IDB cache / vendored library /
       // paid gen when enabled); fall back to the grey parametric massing on a miss.
       // Both warm fire-and-forget so the frame never blocks. The refined source is
@@ -163,7 +177,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     // taken before compose lands — freezes flatblock fallbacks forever).
     buildingArtRev: parametricBuildingSource.version() + (parametricBarrierSource?.version() ?? 0)
       + (generatedBuildingArtSource?.version() ?? 0) + parametricPlantSource.version()
-      + (generatedFloraArtSource?.version() ?? 0),
+      + (generatedFloraArtSource?.version() ?? 0) + (clutterFloraSource?.version() ?? 0),
     cutawayBuildingId,
   };
 }
