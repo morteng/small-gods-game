@@ -41,6 +41,7 @@ import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
+import { ClutterFloraArtSource } from '@/render/clutter-flora-art-source';
 import { FLORA_IMAGE_MODEL } from '@/assetgen/flora-image-prompt';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
@@ -236,6 +237,9 @@ export class Game {
     // tree layer rebuilds — else the vendored img2img sprite loads but never draws.
     onWarm: () => this.requestRender(),
   });
+  // Ground flora (herb/grass/fern) renders as clutter-atlas billboards — one async
+  // atlas fetch, no compose. onWarm repaints the billboard fallbacks once it lands.
+  private readonly clutterFloraSource = new ClutterFloraArtSource({ onWarm: () => this.requestRender() });
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
@@ -1274,7 +1278,7 @@ export class Game {
         if (!this.state.world) return;
         // Skips are committed one-way boundaries; never run while scrubbing the past.
         if (this.timeline.isScrubbed) this.timeline.returnToLive();
-        const summary = applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample);
+        const summary = applySkip(this.state.world, this.state.clock, this.state.rng, this.state.eventLog, years, this.state.trample, this.state.crossingTiers, this.state.adoptions);
         // F6: arcs that spanned the skip settle their dispositions against the
         // post-skip world BEFORE the boundary snapshot, so the committed
         // baseline carries the settled arcs (scrub-safe — deterministic sweep).
@@ -1362,6 +1366,7 @@ export class Game {
       parametricPlantSource: this.parametricPlantSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
       generatedFloraArtSource: this.generatedFloraArtSource,
+      clutterFloraSource: this.clutterFloraSource,
       devMode: this.dev.devMode,
       interiorReveal: this.interiorReveal,
     };
@@ -1386,6 +1391,9 @@ export class Game {
     // The orchestration (engine → renderer → art library → flora prewarm →
     // worldgen → art-settle hold) lives in boot-sequence.ts; the Game supplies
     // the surfaces it fills in and the world-ready chrome wiring.
+    // Ground-flora atlas: one fetch, kicked alongside boot so herb/grass/fern
+    // billboards are sliceable by frame one (misses degrade to flat billboards).
+    void this.clutterFloraSource.warm();
     const map = await runBootSequence({
       canvas: this.canvas, state: this.state, loading: this.ui.loadingScreen,
       assets: this.assets, sheets: this.sheets,

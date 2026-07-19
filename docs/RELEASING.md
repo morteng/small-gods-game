@@ -58,27 +58,104 @@ open the repo's **Actions → Release (Linux desktop) → Run workflow**, enter 
 and it builds+publishes on `ubuntu-latest` exactly as `release-desktop.sh` would. It is
 **not** tag-triggered, so it never double-publishes alongside the local path.
 
+## Dev builds (multi-platform)
+
+Beyond the Linux AppImage, dev builds are cut for macOS and Windows so invited
+collaborators can test on their own machines. These ship as **GitHub pre-releases to a
+SEPARATE private artifacts repo, [`morteng/small-gods-releases`](https://github.com/morteng/small-gods-releases)** —
+never the source repo. Keeping releases in an artifacts-only repo means the read token
+baked into the app (for the update feed, below) can never grant source access, which is
+what lets the source repo go private later.
+
+### One command: `scripts/dev-build.sh`
+
+```bash
+./scripts/dev-build.sh              # build Linux + Windows (box) + macOS (local); PRINT the publish cmd
+./scripts/dev-build.sh --publish    # also cut a dev tag (release:dev) + publish to the releases repo
+./scripts/dev-build.sh --skip-win   # skip a platform (--skip-linux / --skip-mac too)
+./scripts/dev-build.sh --draft      # with --publish, publish as a draft
+```
+
+Publishing is **gated behind `--publish`** — the user confirms every publish. The default
+run only builds and **prints the exact `gh release create` it would run**. With `--publish`
+it runs `npm run release:dev` (bump to `X.Y.Z-dev.N` + tag **locally**, no push) *first* so
+the `small-gods-<version>-*` artifacts match the tag, rebuilds at that version, then
+publishes to `small-gods-releases` from the Mac with your local `gh` auth (the publish
+token never touches the box).
+
+Per platform:
+
+- **macOS** — built **locally** on the Mac (`npm run dist:mac` → `release/small-gods-<version>-x64.dmg`
+  + `.zip`). The build Mac is **macOS 12 Monterey**, which caps Electron at **42.x** (Electron
+  44+ requires macOS 13) — do **not** bump `electron` past `42.x`. Builds are **unsigned**
+  (ad-hoc signature, `identity: null`, no notarization — no Apple Developer cert), so Gatekeeper
+  blocks a double-click on first launch. Testers must **right-click → Open** once, or clear the
+  quarantine attribute: `xattr -dr com.apple.quarantine "/Applications/Small Gods.app"`.
+- **Windows** — **cross-built on the `ci-eph` box** using the electron-builder wine image
+  (`./scripts/ci-on-server.sh --run="npm run dist:win" --out=release --image=electronuserland/builder:22-wine`),
+  producing `release/small-gods-<version>-setup.exe` (NSIS installer). The installer is
+  **unsigned**, so Windows SmartScreen shows an **"unknown publisher"** warning — testers click
+  **More info → Run anyway**.
+- **Linux** — AppImage built on `ci-eph` (`npm run dist:linux`); one of the two
+  self-updating targets (see below).
+
+### The update-feed read token (SG_RELEASES_READ_PAT)
+
+Because `small-gods-releases` is **private**, electron-updater can't read the feed
+anonymously — the app needs a token. This is a **fine-grained, read-only PAT** the user
+creates once (see the checklist at the bottom of this file) and stores in `.env` as
+`SG_RELEASES_READ_PAT` (gitignored). `dev-build.sh` injects it into the box container
+transiently (`ci-on-server.sh --env`, written `0600`, deleted right after the run), and
+`electron/after-pack.cjs` bakes it into the shipped app at package time.
+
+The token is **never** committed: the committed `electron/update-token.cjs` returns
+`null`; `asarUnpack` keeps that file out of `app.asar`; and `after-pack.cjs` overwrites
+only the *unpacked, shipped* copy (skipping darwin, which never self-updates). A build cut
+with no token still succeeds — it simply ships without one and the updater stays silent.
+
 ## Self-update (desktop)
 
-The desktop app updates itself, no store required:
+The desktop app updates itself from the private `small-gods-releases` feed, no store
+required. Two targets self-update, one doesn't:
 
-- **itch.io installs** are updated by the **itch desktop app** automatically (delta patches).
-  Nothing in our code is involved.
-- **Direct AppImage downloads** self-update via
+- **Linux AppImage** and **Windows NSIS** self-update via
   [`electron-updater`](https://www.electron.build/auto-update). On launch the packaged app
-  reads `latest-linux.yml` off the **latest GitHub Release** (the feed baked in from
-  `build.publish` in `package.json`), downloads a newer AppImage in the background, and
-  prompts *"Update ready — Restart now / Later"*. The two mechanisms coexist; on an itch
-  install the in-app updater simply finds nothing to do.
+  reads `latest-linux.yml` / `latest.yml` off the **latest release in
+  `small-gods-releases`** (authenticated with the baked read token), downloads the newer
+  binary in the background, and prompts *"Update ready — Restart now / Later"*.
+- **macOS** does **not** self-update — Squirrel.Mac needs a *signed* app and dev builds are
+  unsigned, so `after-pack.cjs` skips baking the token on darwin and `main.cjs` skips the
+  updater there. Mac testers update manually by downloading the new `.dmg`.
 
-It only runs in a packaged AppImage (`app.isPackaged && $APPIMAGE`) — `electron:preview` and
-the dev server skip it — and a dead/unreachable feed is logged, never fatal to launch.
+The gate decision is a pure, unit-tested function (`electron/update-gate.cjs`,
+`tests/unit/update-gate.test.ts`); `main.cjs` wires the side effects. It runs **only** in a
+packaged, self-updatable, **tokened** build:
 
-> **This ties the update feed to *public* GitHub Releases.** electron-updater fetches the
-> release asset anonymously, so the assets must be downloadable without auth. If you take the
-> source repo private (below), move releases to a **public** repo and repoint `build.publish`
-> `owner`/`repo` there — the split-repo path already covers this. itch-app users are
-> unaffected either way.
+- unpackaged (`electron:preview`, dev server) → skipped;
+- darwin → skipped;
+- Linux that isn't an AppImage → skipped;
+- **no baked token** (a dev build cut before the PAT exists) → skipped *silently* — a private
+  feed is unreadable anonymously, so we disable rather than emit 401s.
+
+**Fail-soft is a hard requirement:** every bit of updater setup and every event is wrapped so
+a missing/dead/unauthorized feed (offline, token revoked, repo empty, first release not cut
+yet) logs **one** line and is **never** fatal, and **never** dialogs or nags the player.
+
+## Creating the update-feed read PAT (one-time, user-only)
+
+Only the account owner can mint this. It is a **fine-grained** PAT scoped to a single repo:
+
+1. GitHub → **Settings → Developer settings → Personal access tokens → Fine-grained tokens
+   → Generate new token**.
+2. **Resource owner:** `morteng`. **Repository access:** *Only select repositories* →
+   **`small-gods-releases`** (NOT the source repo).
+3. **Permissions → Repository permissions → Contents: Read-only**. Nothing else.
+4. Set a sensible expiry; regenerate when it lapses.
+5. Copy the token into `.env` (gitignored) as `SG_RELEASES_READ_PAT=<token>`.
+
+That's all the app needs to read the private feed. `dev-build.sh` picks it up from `.env`
+automatically. Until it exists, dev builds still build and publish — they just ship without
+a self-update token (the updater stays silent), which is fine for early testing.
 
 ## Local desktop testing (macOS dev box)
 

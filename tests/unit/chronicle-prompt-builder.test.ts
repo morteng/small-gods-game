@@ -1,10 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import type { AppendedEvent, SimEvent } from '@/core/events';
 import type { CalendarTick } from '@/core/calendar';
+import type { GameMap } from '@/core/types';
+import { World } from '@/world/world';
 import {
   buildChroniclePrompt, renderOfflineAnnal, selectChronicleEvents, eventFactLine,
   MAX_CHRONICLE_EVENTS, CHRONICLER_SYSTEM_PROMPT, type ChronicleWindow,
 } from '@/llm/chronicle-prompt-builder';
+
+/** A minimal World whose directory (`worldSeed.pois`) resolves the given ids to
+ *  names — road-wear S4's `road_adopted` fact line names its POI anchors. */
+function worldWithPois(pois: { id: string; name?: string }[]): World {
+  const m = {
+    tiles: [], width: 1, height: 1, villages: [], seed: 1, success: true,
+    worldSeed: { pois }, stats: { iterations: 0, backtracks: 0 }, buildings: [],
+  } as unknown as GameMap;
+  return new World(m);
+}
 
 let nextId = 1;
 function appended(event: SimEvent, t = 0): AppendedEvent {
@@ -29,6 +41,39 @@ describe('eventFactLine', () => {
   it('templates omen (a portent) with its severity', () => {
     const line = eventFactLine(appended({ type: 'omen', spiritId: 'player', poiId: 'p1', severity: 0.5 }));
     expect(line.toLowerCase()).toContain('portent');
+  });
+
+  it('templates crossing_upgraded — first build (no from) reads as a fresh log laid', () => {
+    const line = eventFactLine(appended({ type: 'crossing_upgraded', crossingId: 'c1', x: 1, y: 2, to: 0, toLabel: 'log' }));
+    expect(line).toBe('A log was laid where the way crosses the water.');
+  });
+
+  it('templates crossing_upgraded — an upgrade names both tiers', () => {
+    const line = eventFactLine(appended({ type: 'crossing_upgraded', crossingId: 'c1', x: 1, y: 2, to: 6, toLabel: 'stone arch', from: 5, fromLabel: 'timber arch' }));
+    expect(line).toBe('The crossing was raised from a timber arch to a stone arch.');
+  });
+
+  it('templates road_adopted — both POI anchors present, names resolved from the world directory', () => {
+    const world = worldWithPois([{ id: 'town', name: 'Millbrook' }, { id: 'mill', name: 'Ashford Mill' }]);
+    const line = eventFactLine(
+      appended({ type: 'road_adopted', edgeId: 'e1', x: 3, y: 4, lengthT: 12, fromPoiId: 'town', toPoiId: 'mill' }),
+      world,
+    );
+    expect(line).toBe("A trail worn by travellers' feet between Millbrook and Ashford Mill became a true road.");
+  });
+
+  it('templates road_adopted — a single POI anchor reads as a graceful "near" variant', () => {
+    const world = worldWithPois([{ id: 'town', name: 'Millbrook' }]);
+    const line = eventFactLine(
+      appended({ type: 'road_adopted', edgeId: 'e1', x: 3, y: 4, lengthT: 12, fromPoiId: 'town' }),
+      world,
+    );
+    expect(line).toBe("A trail worn by travellers' feet near Millbrook became a true road.");
+  });
+
+  it('templates road_adopted — no POI anchors falls back to a generic line', () => {
+    const line = eventFactLine(appended({ type: 'road_adopted', edgeId: 'e1', x: 3, y: 4, lengthT: 12 }));
+    expect(line).toBe("A trail worn by travellers' feet became a true road.");
   });
 
   it('falls back to a generic line for an unhandled event type rather than throwing', () => {

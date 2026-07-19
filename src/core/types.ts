@@ -119,6 +119,31 @@ export interface GameMap {
    *  `riparianSeed`, taken to its exact form. Source of truth for the pad carve; persisted
    *  verbatim via SaveFile.map. */
   rockPads?: number[];
+  /** Beaver dams the generator sited (rivers R3 P2). Each is a crest-clamp WEIR — a short
+   *  cross-channel run whose effective elevation clamps up to `crestElev`, so the base-hydrology
+   *  basin behind it fills to the crest and falls out of the P1 pond keep-rule. Persisted so
+   *  the render-path hydrology recompute (`hydrology-store`) applies the SAME weirs and
+   *  reproduces the map-generator's final water byte-identically (the `scorchMask`/`riparianSeed`
+   *  "maps DECLARE derived identity" precedent). Absent ⇒ no weirs ⇒ base hydrology, byte-identical
+   *  to pre-P2. Persisted verbatim via SaveFile.map. */
+  beaverDams?: DamRecord[];
+}
+
+/**
+ * A gen-time beaver dam (rivers R3 P2) — a crest-clamp weir on a moderate-flow reach.
+ * The dam is NOT a terrain deformation: it is a virtual barrier applied only inside
+ * `generateHydrology` (a weir cell's effective elevation is `max(elevation, crestElev)`),
+ * so the channel behind it impounds to the crest and P1's depression keep-rule ponds it —
+ * the physical structure is a stick/mud bar PROP (Timberborn's crest-clamp model, no water
+ * sim, no ground raise). Sited deterministically from pass-1 hydrology + forest-ness; see
+ * `src/world/beaver-dams.ts`.
+ */
+export interface DamRecord {
+  id: number;            // index into GameMap.beaverDams
+  cells: number[];       // crest-run cell indices (the cross-channel segment), channelCell first
+  channelCell: number;   // the low channel cell the dam clamps — the impounded pond's spill saddle
+  crestElev: number;     // normalized elevation the whole run clamps up to (channel bed + dam height)
+  pondId: number;        // resulting pond id in the WEIR'd hydrology run, −1 if the pond didn't keep
 }
 
 /** Village/settlement on the map */
@@ -468,6 +493,27 @@ export enum WaterType {
   River = 3, // drainage accumulation ≥ threshold (stream = River with strahler 1)
 }
 
+/**
+ * A small genuine hollow kept as a flat pond by the rivers-R3 depression hierarchy
+ * (see `src/terrain/hydrology.ts`). A pond's cells classify `WaterType.Lake` even
+ * though their per-cell fill is below `LAKE_MIN_FILL` — so everything wired for lakes
+ * (tile raster stamp, standing-water routing, snap-off-water, lake-conform) applies
+ * for free. Pond IDENTITY (this record + `pondId`) is NEW metadata consumed later by
+ * the connectome pond node / fishery (P3). Deep basins that already read as lakes
+ * (max fill ≥ LAKE_MIN_FILL) are NOT ponds and get NO record this round — ponds only.
+ */
+export interface PondRecord {
+  id: number;          // index into HydrologyResult.ponds (== the value in pondId)
+  area: number;        // member cell count
+  maxDepth: number;    // deepest member fill (W − elevation), normalized elev units
+  spillCell: number;   // lowest boundary saddle (the flat pond's outlet lip)
+  outletCell: number;  // cell just downstream of the spill where flow resumes; −1 → sea/edge
+  surfaceW: number;    // flat pond water level (spill elevation), normalized elev units
+  // 'beaver' iff this pond's spill saddle is a weir cell (rivers R3 P2 — impounded behind a
+  // dam crest); 'natural' otherwise. Byte-derivable in both callers (both pass the same weirs).
+  kind?: 'natural' | 'beaver';
+}
+
 export interface HydrologyResult {
   riverMask: Uint8Array;   // [width * height], 0 or 1
   flowField: Float32Array; // [width * height], ≥ 0 (accumulation)
@@ -480,6 +526,9 @@ export interface HydrologyResult {
   flowDirY: Float32Array;  // unit flow vector y at river cells; 0 in still/dry water
   strahler: Uint8Array;    // Strahler order along the drainage tree; 0 off-channel
   width: Float32Array;     // channel width in cells (from strahler); 0 off-channel
+  // ── Rivers R3 (ponds). Optional so pre-R3 consumers are unaffected. ──
+  ponds?: PondRecord[];    // kept small hollows, sorted deterministically by spillCell
+  pondId?: Int32Array;     // [width*height] pond index per cell, −1 = none (kept ponds only)
 }
 
 // ─── Entity system (Phase II) — legacy type aliases ──────────────────────────

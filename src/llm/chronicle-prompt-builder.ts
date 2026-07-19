@@ -147,6 +147,15 @@ function resolveNpcName(world: World | null | undefined, id: EntityId): string {
   return npc ? npcProps(npc).name : id;
 }
 
+/** Resolve a POI id to its directory name (`worldSeed.pois` — authored ∪ projected
+ *  runtime entries, per `world/runtime-poi.ts`'s projection contract). Falls back
+ *  to the id when the world or the POI isn't available (tests may omit `world`). */
+function resolvePoiName(world: World | null | undefined, id: string): string {
+  if (!world) return id;
+  const poi = world.tiles.worldSeed?.pois.find(p => p.id === id);
+  return poi?.name ?? id;
+}
+
 /** One terse, factual line per event — no prose, no invention, just the given
  *  fields rendered as a clause. The register (system prompt) is what turns
  *  these into annotation; this function only reports what happened. */
@@ -185,6 +194,19 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return `A well-trodden way was built up from a ${ev.from} to a ${ev.to}.`;
     case 'road_demoted':
       return `A neglected ${ev.from} dwindled back to a ${ev.to}.`;
+    case 'crossing_upgraded':
+      return ev.from === undefined
+        ? `A ${ev.toLabel} was laid where the way crosses the water.`
+        : `The crossing was raised from a ${ev.fromLabel} to a ${ev.toLabel}.`;
+    case 'road_adopted': {
+      const from = ev.fromPoiId ? resolvePoiName(world, ev.fromPoiId) : undefined;
+      const to = ev.toPoiId ? resolvePoiName(world, ev.toPoiId) : undefined;
+      return from && to
+        ? `A trail worn by travellers' feet between ${from} and ${to} became a true road.`
+        : from || to
+          ? `A trail worn by travellers' feet near ${from ?? to} became a true road.`
+          : "A trail worn by travellers' feet became a true road.";
+    }
     case 'belief_cross':
       return `Belief crossed ${ev.kind} (${Math.round(ev.faith * 100)}%).`;
     case 'mood_cross':

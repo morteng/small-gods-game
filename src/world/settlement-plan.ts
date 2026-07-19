@@ -629,6 +629,10 @@ export const CIVIC_RULES: Record<string, CivicRule> = {
   well:      { size: { w: 1, h: 1 }, site: 'green' },
   graveyard: { size: { w: 2, h: 2 }, site: 'edge' },
   mill:      { size: { w: 2, h: 2 }, site: 'water', nearWater: 3 },
+  // Pond fishery (rivers R3 P3): a fisherman's hut seated flush against a POND shore (never a
+  // river bank — that's the mill's water). Same 2×2 footprint discipline as the mill (the hut
+  // preset is deliberately sized to match — see catalogue `fisherman_hut`, sizeBays [1,1]).
+  fishery:   { size: { w: 2, h: 2 }, site: 'water', nearWater: 3 },
 };
 
 export function registerCivicRule(type: string, rule: CivicRule): void {
@@ -652,30 +656,60 @@ function waterWithin(x: number, y: number, w: number, h: number, tiles: Tile[][]
  * only where water is in range. Each footprint must sit on buildable ground,
  * off existing roads/market/lots/other civics. Writes `plan.civics`.
  */
+/** The four cardinal wall/flank faces a footprint-seated fixture can point a "business end"
+ *  at — a mill's wheel, a fishery's jetty. Shared so every such siting rule speaks the same
+ *  vocabulary as the hydrology tag stores (`mill-site-store.ts`, `fishery-site-store.ts`). */
+export type CardinalFace = 'north' | 'south' | 'east' | 'west';
+
 /** A hydrology-tagged watermill site near this settlement (bank cell + the flank facing the
  *  river). See `world/mill-site-store.ts`. */
-export interface MillSiteHint { x: number; y: number; face: 'north' | 'south' | 'east' | 'west'; }
+export interface MillSiteHint { x: number; y: number; face: CardinalFace; }
 
 /** Mill placement inputs for the civic pass: the tagged sites near this settlement (nearest
  *  first) plus the "does this cell RENDER as water" predicate (the same source the tags were
  *  derived from), so the seated footprint's wheel dips into water the player actually sees. */
 export interface MillPlacement { hints: MillSiteHint[]; isWater: (x: number, y: number) => boolean; }
 
-/** The cell the WHEEL actually dips into — just beyond the CENTRE of `face` (the point
- *  `waterwheelPartType` hangs the wheel, so this matches where it renders) — is water. */
-function wheelCellWet(x: number, y: number, w: number, h: number, face: MillSiteHint['face'], isWater: (x: number, y: number) => boolean): boolean {
-  const cx = x + w / 2, cy = y + h / 2;
-  const [fx, fy] = face === 'west' ? [-1, 0] : face === 'east' ? [1, 0] : face === 'north' ? [0, -1] : [0, 1];
-  const wx = Math.floor(cx + fx * (w / 2 + 0.5));
-  const wy = Math.floor(cy + fy * (h / 2 + 0.5));
-  return isWater(wx, wy);
+/** Outward unit vector for a cardinal flank — the direction a fixture on that flank reaches
+ *  into (a wheel dipping into the river, a jetty running out over the pond). */
+export function faceVector(face: CardinalFace): [number, number] {
+  return face === 'west' ? [-1, 0] : face === 'east' ? [1, 0] : face === 'north' ? [0, -1] : [0, 1];
 }
 
-/** Seat a mill footprint so its wheel-face edge sits on the tagged bank cell and the wheel dips
- *  into the river beyond it. Tries the two footprints that put the bank cell on that edge, slid
- *  ±1 along the bank; returns the first that fits dry buildable ground with a wet wheel cell. */
-function millFootprintForHint(
-  hint: MillSiteHint, w: number, h: number, isWater: (x: number, y: number) => boolean,
+/** The opposite cardinal — the DRY flank of a footprint whose `face` faces water (where a
+ *  fishery's drying racks belong: the shore apron, not the water). */
+export const oppositeFace: Record<CardinalFace, CardinalFace> = {
+  north: 'south', south: 'north', east: 'west', west: 'east',
+};
+
+/** The cell just beyond the CENTRE of a footprint's `face` edge — the point a business-end
+ *  fixture on that flank reaches into (where `waterwheelPartType` hangs the wheel; where a
+ *  fishery jetty's landward end sits flush against the hut). */
+export function flankPoint(x: number, y: number, w: number, h: number, face: CardinalFace): { x: number; y: number } {
+  const cx = x + w / 2, cy = y + h / 2;
+  const [fx, fy] = faceVector(face);
+  return { x: Math.floor(cx + fx * (w / 2 + 0.5)), y: Math.floor(cy + fy * (h / 2 + 0.5)) };
+}
+
+/** A hydrology-tagged pond-shore fishery site near this settlement (bank cell + the flank
+ *  facing the pond). See `world/fishery-site-store.ts`. */
+export interface FisherySiteHint { x: number; y: number; face: CardinalFace; }
+
+/** Fishery placement inputs for the civic pass — same shape as {@link MillPlacement}: tagged
+ *  sites (nearest first) + the render-water predicate, so the hut seats with its water flank
+ *  genuinely against the pond. */
+export interface FisheryPlacement { hints: FisherySiteHint[]; isWater: (x: number, y: number) => boolean; }
+
+/** Seat a footprint so its `face` edge sits on a tagged bank cell with water genuinely just
+ *  beyond it — a mill's wheel dipping into the stream, a fishery jetty's landward reach into
+ *  the pond. Tries the two footprints that put the bank cell on that edge, slid ±1 along the
+ *  bank; returns the first that fits dry buildable ground with a wet flank ({@link flankPoint}
+ *  + `isWater`). Shared by mill AND fishery — both are the exact same "flush-or-nothing"
+ *  search over a hydrology-tagged hint, differing only in which tag store fed the hint and
+ *  what civic `type` names the result. */
+function flushFootprintForHint(
+  type: string, hint: { x: number; y: number; face: CardinalFace }, w: number, h: number,
+  isWater: (x: number, y: number) => boolean,
   fits: (x: number, y: number, w: number, h: number) => boolean,
 ): CivicSite | null {
   const { x: hx, y: hy, face } = hint;
@@ -687,12 +721,36 @@ function millFootprintForHint(
     else origins.push([hx + s, hy - h + 1], [hx - 1 + s, hy - h + 1]);   // south
   }
   for (const [ox, oy] of origins) {
-    if (fits(ox, oy, w, h) && wheelCellWet(ox, oy, w, h, face, isWater)) return { type: 'mill', x: ox, y: oy, w, h, waterFace: face };
+    if (!fits(ox, oy, w, h)) continue;
+    const flank = flankPoint(ox, oy, w, h, face);
+    if (isWater(flank.x, flank.y)) return { type, x: ox, y: oy, w, h, waterFace: face };
   }
   return null;
 }
 
-export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number, greenSize = 0, mill?: MillPlacement): CivicSite[] {
+/** Seat a mill footprint so its wheel-face edge sits on the tagged bank cell and the wheel dips
+ *  into the river beyond it. See {@link flushFootprintForHint}. */
+function millFootprintForHint(
+  hint: MillSiteHint, w: number, h: number, isWater: (x: number, y: number) => boolean,
+  fits: (x: number, y: number, w: number, h: number) => boolean,
+): CivicSite | null {
+  return flushFootprintForHint('mill', hint, w, h, isWater, fits);
+}
+
+/** Seat a fishery hut so its `face` edge sits on the tagged bank cell with real (rendered)
+ *  pond water just beyond it — the hut has no wheel to align, only a flank that must
+ *  genuinely border water. See {@link flushFootprintForHint}. */
+function fisheryFootprintForHint(
+  hint: FisherySiteHint, w: number, h: number, isWater: (x: number, y: number) => boolean,
+  fits: (x: number, y: number, w: number, h: number) => boolean,
+): CivicSite | null {
+  return flushFootprintForHint('fishery', hint, w, h, isWater, fits);
+}
+
+export function planCivics(
+  plan: SettlementPlan, tiles: Tile[][], seed: number, greenSize = 0,
+  mill?: MillPlacement, fishery?: FisheryPlacement,
+): CivicSite[] {
   void seed; // reserved for future dithered siting
   const { x: cx, y: cy } = plan.center;
 
@@ -794,6 +852,14 @@ export function planCivics(plan: SettlementPlan, tiles: Tile[][], seed: number, 
       // off any such stream simply gets no watermill (better than a wheel turning on dry grass).
       for (const hint of mill.hints) {
         best = millFootprintForHint(hint, w, h, mill.isWater, fits);
+        if (best) break;
+      }
+    } else if (type === 'fishery' && fishery !== undefined) {
+      // 'water' (fishery), real gen: the SAME flush-or-nothing discipline as the mill, but
+      // against a POND shore (the tags come from `fishery-site-store.ts`, pond klass only —
+      // never a river bank or the ocean). No settlement in reach of a pond ⇒ no fishery.
+      for (const hint of fishery.hints) {
+        best = fisheryFootprintForHint(hint, w, h, fishery.isWater, fits);
         if (best) break;
       }
     } else {

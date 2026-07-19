@@ -331,7 +331,7 @@ export function registerAlbedo(
  * (https://bottosson.github.io/posts/oklab/). Returns [L, a, b] where L is
  * roughly perceptual lightness in [0,1] and a/b are the opponent axes.
  */
-function rgbToOklab(r: number, g: number, b: number): [number, number, number] {
+export function rgbToOklab(r: number, g: number, b: number): [number, number, number] {
   const toLinear = (c: number) => {
     const cs = c / 255;
     return cs <= 0.04045 ? cs / 12.92 : ((cs + 0.055) / 1.055) ** 2.4;

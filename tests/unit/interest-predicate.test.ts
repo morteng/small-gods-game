@@ -31,6 +31,8 @@ describe('interest-predicate — seek filter', () => {
       { type: 'summon_storm', spiritId: PLAYER_SPIRIT_ID, poiId: 'p', depthM: 1, cells: 1 },
       { type: 'smite', spiritId: PLAYER_SPIRIT_ID, witnesses: 3 },
       { type: 'miracle', spiritId: PLAYER_SPIRIT_ID, poiId: 'p', needType: 'safety', amount: 1 },
+      { type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 0, toLabel: 'log' },
+      { type: 'road_adopted', edgeId: 'e1', x: 0, y: 0, lengthT: 10 },
     ];
     for (const ev of yes) expect(isInterestingEvent(ev), ev.type).toBe(true);
   });
@@ -60,5 +62,21 @@ describe('interest-predicate — seek filter', () => {
     expect(rival.rank).toBeGreaterThan(own.rank);
     expect(rival.label.length).toBeGreaterThan(0);
     expect(describeInterest({ type: 'smite', spiritId: PLAYER_SPIRIT_ID, witnesses: 1 }).label).toMatch(/lightning/i);
+  });
+
+  it('describeInterest ranks a stone arch above a mid-ladder crossing above the founding log', () => {
+    const stoneArch = describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 6, toLabel: 'stone arch', from: 5, fromLabel: 'timber arch' });
+    const midLadder = describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 3, toLabel: 'plank walk', from: 2, fromLabel: 'log + rail' });
+    const firstLog = describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 0, toLabel: 'log' });
+    expect(stoneArch).toEqual({ rank: 47, label: 'A stone bridge rose over the water' });
+    expect(midLadder).toEqual({ rank: 44, label: 'A river crossing was built up' });
+    expect(firstLog).toEqual({ rank: 44, label: 'A log was laid over the water' });
+  });
+
+  it('describeInterest ranks a road_adopted beat between a generic crossing build and a stone arch', () => {
+    const adopted = describeInterest({ type: 'road_adopted', edgeId: 'e1', x: 0, y: 0, lengthT: 10 });
+    expect(adopted).toEqual({ rank: 45, label: 'A well-worn trail became a road' });
+    expect(adopted.rank).toBeGreaterThan(describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 0, toLabel: 'log' }).rank);
+    expect(adopted.rank).toBeLessThan(describeInterest({ type: 'crossing_upgraded', crossingId: 'c1', x: 0, y: 0, to: 6, toLabel: 'stone arch', from: 5, fromLabel: 'timber arch' }).rank);
   });
 });

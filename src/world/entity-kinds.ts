@@ -85,6 +85,7 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   // ─── Settlement props ─────────────────────────────────────────────────────
   ['well',          def('well',          'prop',             '#5a8aa8', 'circle', ['water-source', 'settlement'], 0.5)],
   ['graveyard',     def('graveyard',     'prop',             '#8a8a72', 'square', ['civic', 'sacred', 'settlement'], 1)],
+  ['beaver_dam',    def('beaver_dam',    'prop',             '#6a5238', 'square', ['water-feature', 'natural'], 0.6)],
   ['fence',         def('fence',         'prop',             '#7a5a3a', 'square', ['barrier', 'settlement'], 0.3)],
   ['fence_post',    def('fence_post',    'prop',             '#7a5a3a', 'square', ['barrier', 'settlement'], 0.3)],
   ['gate',          def('gate',          'prop',             '#7a5a3a', 'square', ['barrier', 'opening'], 0.3)],

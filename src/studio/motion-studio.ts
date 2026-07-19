@@ -11,6 +11,9 @@
 //   • END-POSE sliders: live-retune each chip's final angle → instant re-bake
 //     (never reload; tuning here is the whole point of the bench).
 // Quantize toggle runs frames through the game's Oklab+Bayer palette pass.
+//   • GAIT lane: the untouched walk cycle played through a Tier-0 gait style
+//     (retiming + whole-sprite offsets, src/render/paperdoll/gait.ts) beside a
+//     normal-cadence control. No rebake — this simulates runtime playback.
 
 import { assetUrl } from '@/core/asset-url';
 import {
@@ -18,15 +21,25 @@ import {
   chipWorldTransforms,
   sampleClip,
   applyAffine,
+  type AnimTemplate,
   type Clip,
   type PoseLayer,
 } from '@/render/paperdoll/rig';
 import {
   DEFAULT_HUMANOID_LAYERS,
+  donorSheetCandidates,
   HUMANOID_CLIPS,
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
+import { stampAnims } from '@/render/paperdoll/stamp';
+import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
+import { LPC_ANIMATIONS } from '@/core/npc-animation';
+import { FRAME_MS } from '@/render/npc-animator';
+import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
+import { buildCharacterSpec, type CharacterSpec } from '@/render/lpc/character-builder';
+import { walkSpriteCandidates } from '@/render/lpc/lpc-walk-path';
+import type { NpcRole } from '@/core/types';
 import { decodePngToRaster } from '@/render/sprite-codec';
 import { rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
@@ -42,7 +55,18 @@ const CLIPS: readonly Clip[] = HUMANOID_CLIPS;
 const ZOOMS = [2, 4, 6, 10] as const;
 const STEP_MS = 120; // matches ACTION_FRAME_MS cadence
 const GAME_PX = 32; // on-screen sprite size at zoom 1
-const CHIP_COLORS = ['#787878', '#ffdc3c', '#50b4ff', '#3c78ff', '#ff8250', '#ff4628'];
+const CHIP_COLORS = [
+  '#787878', // trunk
+  '#ffdc3c', // head
+  '#50b4ff', // armL_up
+  '#3c78ff', // armL_fore
+  '#ff8250', // armR_up
+  '#ff4628', // armR_fore
+  '#50dc78', // legL_up
+  '#28a050', // legL_fore
+  '#c878ff', // legR_up
+  '#9640dc', // legR_fore
+];
 
 const cloneClip = (c: Clip): Clip => JSON.parse(JSON.stringify(c)) as Clip;
 
@@ -73,6 +97,37 @@ function downscale(f: Raster, to: number): Raster {
   return { data: out, w: to, h: to };
 }
 
+/** Alpha-over composite of one 64px cell (col,row) across all layer sheets. */
+function compositeCell(sheets: readonly Raster[], col: number, row: number): Raster {
+  const data = new Uint8ClampedArray(CELL * CELL * 4);
+  for (const sheet of sheets) {
+    const sx = col * CELL;
+    const sy = row * CELL;
+    for (let y = 0; y < CELL; y++) {
+      for (let x = 0; x < CELL; x++) {
+        const si = ((sy + y) * sheet.w + sx + x) * 4;
+        const a = sheet.data[si + 3];
+        if (a === 0) continue;
+        const di = (y * CELL + x) * 4;
+        const da = data[di + 3];
+        if (a === 255 || da === 0) {
+          data[di] = sheet.data[si];
+          data[di + 1] = sheet.data[si + 1];
+          data[di + 2] = sheet.data[si + 2];
+          data[di + 3] = a;
+        } else {
+          const na = a + (da * (255 - a)) / 255;
+          for (let c = 0; c < 3; c++) {
+            data[di + c] = (sheet.data[si + c] * a + (data[di + c] * da * (255 - a)) / 255) / na;
+          }
+          data[di + 3] = na;
+        }
+      }
+    }
+  }
+  return { data, w: CELL, h: CELL };
+}
+
 export function mountMotionStudio(container: HTMLElement): StudioHandle {
   let disposed = false;
   injectStudioTheme(container);
@@ -95,8 +150,33 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     zoom: 6 as number,
     quantize: false,
     bones: false,
+    skin: false, // contour-aware joint skinning (blend band 3px)
+    // Snap to the SOURCE sheets' palette + re-ink the silhouette outline.
+    // Default ON: rotated frames otherwise read blurrier than frame 0 (the
+    // supersample blend softens edges and erodes the 1px LPC contour).
+    snap: true,
   };
   let workClip = cloneClip(CLIPS[0]);
+  // Mutable template copy: joint pin mode edits pivots live (rest-space coords).
+  const workTemplate: AnimTemplate = JSON.parse(JSON.stringify(TEMPLATE)) as AnimTemplate;
+  const pin = { on: false, chip: 3, mirror: true }; // default chip: armL_fore (the hinge that started this)
+  const hiddenLayers = new Set<number>(); // indices into DEFAULT_HUMANOID_LAYERS
+  const hiddenChips = new Set<string>(); // chip names skipped at paint time
+
+  // L/R chip pairs mirror about the sprite's vertical axis. Pivots are grid
+  // POINTS, not pixels: pixel content mirrors as 63-x, but a point mirrors as
+  // 64-x (the mirror of column 19's left edge is column 45's left edge).
+  const mirrorName = (n: string): string | null =>
+    n.includes('L_') ? n.replace('L_', 'R_') : n.includes('R_') ? n.replace('R_', 'L_') : null;
+  function setPivot(idx: number, cx: number, cy: number): void {
+    workTemplate.chips[idx].pivot = [cx, cy];
+    if (pin.mirror) {
+      const mn = mirrorName(workTemplate.chips[idx].name);
+      const mi = mn === null ? -1 : workTemplate.chips.findIndex((c) => c.name === mn);
+      if (mi >= 0) workTemplate.chips[mi].pivot = [CELL - cx, cy];
+    }
+    updateJointReadout();
+  }
 
   // ── bake state ──────────────────────────────────────────────────────────────
   let layers: PoseLayer[] | null = null;
@@ -106,10 +186,20 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function rebake(): void {
     if (!layers) return;
-    frames = bakeClip(TEMPLATE, layers, workClip);
-    const display = state.quantize
+    const visible = layers.filter((_, i) => !hiddenLayers.has(i));
+    frames = bakeClip(workTemplate, visible, workClip, {
+      hide: hiddenChips,
+      skin: state.skin ? { band: 3 } : undefined,
+    });
+    let display = state.quantize
       ? frames.map((f) => quantizePaletteOklab(f, 32, { dither: 'bayer4' }))
       : frames;
+    if (state.snap) {
+      const rasters = visible.map((l) => l.raster);
+      const palette = collectSourcePalette(rasters);
+      const outline = collectOutlinePalette(rasters);
+      display = display.map((f) => reinkOutline(snapToSourcePalette(f, palette), outline));
+    }
     shownFrames = display.map((f) => rgbaToCanvas(f.data, f.w, f.h)).filter((c): c is SpriteCanvas => c !== null);
     gameFrames = display
       .map((f) => downscale(f, GAME_PX))
@@ -124,6 +214,52 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const bigWrap = h('div', { style: 'display:flex;gap:18px;align-items:flex-end' });
   const bigCv = document.createElement('canvas');
   bigCv.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+  // Joint pin mode: grab the nearest pivot cross and drag it (or click empty
+  // space to place the sidebar-selected chip's pivot). Screen→cell mapping is
+  // rest-space ONLY at the identity pose, so pin mode holds the view on frame 0.
+  // Frame 0's rendered image is pivot-independent, so drags only redraw the
+  // bones overlay + readout; the full rebake happens once on release.
+  let pinDragging = false;
+  const cellPos = (ev: MouseEvent): [number, number] => [
+    Math.max(0, Math.min(CELL - 1, Math.floor(ev.offsetX / state.zoom))),
+    Math.max(0, Math.min(CELL - 1, Math.floor(ev.offsetY / state.zoom))),
+  ];
+  bigCv.onmousedown = (ev) => {
+    if (!pin.on) return;
+    ev.preventDefault();
+    if (state.frame !== 0) {
+      state.frame = 0;
+      drawStrip();
+    }
+    const [cx, cy] = cellPos(ev);
+    // Grab the nearest pivot within 6 cell px; otherwise keep the current chip.
+    let best = -1;
+    let bestD = 36;
+    workTemplate.chips.forEach((ch, i) => {
+      const d = (ch.pivot[0] - cx) ** 2 + (ch.pivot[1] - cy) ** 2;
+      if (d < bestD) {
+        best = i;
+        bestD = d;
+      }
+    });
+    if (best >= 0) selectPinChip(best);
+    pinDragging = true;
+    setPivot(pin.chip, cx, cy);
+    drawBig();
+  };
+  bigCv.onmousemove = (ev) => {
+    if (!pin.on || !pinDragging) return;
+    const [cx, cy] = cellPos(ev);
+    setPivot(pin.chip, cx, cy);
+    drawBig();
+  };
+  const endPinDrag = (): void => {
+    if (!pinDragging) return;
+    pinDragging = false;
+    rebake();
+  };
+  bigCv.onmouseup = endPinDrag;
+  bigCv.onmouseleave = endPinDrag;
   const gameCol = h('div', { style: 'display:flex;flex-direction:column;gap:5px;align-items:center' });
   const gameCv = document.createElement('canvas');
   gameCv.width = GAME_PX * 2;
@@ -136,6 +272,81 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   stripCv.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px;cursor:pointer';
   const stripNote = h('span', { class: 'sg-muted', style: 'font-size:10px', text: 'filmstrip — click a frame to scrub' });
   main.append(bigWrap, stripCv, stripNote);
+
+  // ── gait lane: the untouched walk cycle under a runtime-style timing warp ──
+  const WALK_N = LPC_ANIMATIONS.walk.lastCol - LPC_ANIMATIONS.walk.firstCol + 1;
+  const GAIT_ZOOM = 4;
+  const walkBig: SpriteCanvas[] = []; // composited walk frames, cell size
+  const walkSmall: SpriteCanvas[] = []; // 32px downscales
+  let loadedSheets: Raster[] | null = null; // full LPC sheets, for lane recomposites
+
+  /** (Re)composite the gait lane's walk frames, honoring layer visibility. */
+  function rebuildWalkLane(): void {
+    if (!loadedSheets) return;
+    walkBig.length = 0;
+    walkSmall.length = 0;
+    const use = loadedSheets.filter((_, i) => !hiddenLayers.has(i));
+    for (let col = LPC_ANIMATIONS.walk.firstCol; col <= LPC_ANIMATIONS.walk.lastCol; col++) {
+      const cellR = compositeCell(use, col, HUMANOID_SOURCE.row);
+      const big = rgbaToCanvas(cellR.data, cellR.w, cellR.h);
+      const small = downscale(cellR, GAME_PX);
+      const smallCv = rgbaToCanvas(small.data, small.w, small.h);
+      if (big && smallCv) {
+        walkBig.push(big);
+        walkSmall.push(smallCv);
+      }
+    }
+  }
+  let gaitStyle = GAIT_STYLES[1]; // open on limp so the contrast is instant
+  const normalPlan = planGait(GAIT_NORMAL, WALK_N, FRAME_MS);
+  let styledPlan = planGait(gaitStyle, WALK_N, FRAME_MS);
+  let gaitClock = 0;
+
+  function gaitView(label: string): { col: HTMLElement; big: HTMLCanvasElement; small: HTMLCanvasElement; lbl: HTMLElement } {
+    const big = document.createElement('canvas');
+    big.width = CELL * GAIT_ZOOM;
+    big.height = CELL * GAIT_ZOOM;
+    big.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+    const small = document.createElement('canvas');
+    small.width = GAME_PX * 2;
+    small.height = GAME_PX * 2;
+    small.style.cssText = 'display:block;width:64px;height:64px;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+    const lbl = h('span', { class: 'sg-muted', style: 'font-size:10px', text: label });
+    const col = h('div', { style: 'display:flex;flex-direction:column;gap:5px;align-items:center' });
+    col.append(big, small, lbl);
+    return { col, big, small, lbl };
+  }
+  const gaitNormalView = gaitView('walk · normal');
+  const gaitStyledView = gaitView(`walk · ${gaitStyle.name}`);
+  const gaitWrap = h('div', { style: 'display:flex;gap:18px;align-items:flex-start' });
+  gaitWrap.append(gaitNormalView.col, gaitStyledView.col);
+  main.append(
+    h('div', { class: 'sg-eyebrow', style: 'margin-top:6px', text: 'Gait — walk cycle (Tier 0: timing + offsets, no new pixels)' }),
+    gaitWrap,
+  );
+
+  function drawGaitInto(view: { big: HTMLCanvasElement; small: HTMLCanvasElement }, plan: GaitPlan): void {
+    const f = gaitFrameAt(plan, gaitClock);
+    const g = view.big.getContext('2d');
+    if (g) {
+      g.imageSmoothingEnabled = false;
+      checker(g, view.big.width, view.big.height, 8 * GAIT_ZOOM);
+      const fr = walkBig[f.frame];
+      if (fr) g.drawImage(fr as CanvasImageSource, f.dx * GAIT_ZOOM, f.dy * GAIT_ZOOM, CELL * GAIT_ZOOM, CELL * GAIT_ZOOM);
+    }
+    const gs = view.small.getContext('2d');
+    if (gs) {
+      gs.imageSmoothingEnabled = false;
+      checker(gs, view.small.width, view.small.height, 8);
+      const fr = walkSmall[f.frame];
+      if (fr) gs.drawImage(fr as CanvasImageSource, f.dx, f.dy, GAME_PX * 2, GAME_PX * 2);
+    }
+  }
+  function drawGait(): void {
+    if (walkBig.length === 0) return;
+    drawGaitInto(gaitNormalView, normalPlan);
+    drawGaitInto(gaitStyledView, styledPlan);
+  }
 
   function checker(g: CanvasRenderingContext2D, w: number, hgt: number, sq: number): void {
     for (let y = 0; y < hgt; y += sq) {
@@ -176,8 +387,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function drawBones(g: CanvasRenderingContext2D, z: number): void {
     const t = workClip.frames <= 1 ? 0 : state.frame / (workClip.frames - 1);
-    const world = chipWorldTransforms(TEMPLATE, sampleClip(TEMPLATE, workClip, t));
-    TEMPLATE.chips.forEach((ch, i) => {
+    const world = chipWorldTransforms(workTemplate, sampleClip(workTemplate, workClip, t));
+    workTemplate.chips.forEach((ch, i) => {
       const col = CHIP_COLORS[i % CHIP_COLORS.length];
       g.strokeStyle = col;
       g.lineWidth = 1.5;
@@ -252,13 +463,18 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   function tick(now: number): void {
     if (disposed) return;
     if (last < 0) last = now;
-    acc += now - last;
+    const dt = now - last;
+    acc += dt;
     last = now;
     if (acc >= STEP_MS && state.playing && frames.length > 0) {
       acc = 0;
       state.frame = (state.frame + 1) % frames.length;
       drawStrip();
       drawBig();
+    }
+    if (state.playing && walkBig.length > 0) {
+      gaitClock += dt;
+      drawGait();
     }
     raf = requestAnimationFrame(tick);
   }
@@ -302,19 +518,33 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   frameRow.append(frameLbl, frameSlider);
   panel.appendChild(frameRow);
 
-  const zoomRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:8px' });
+  const zoomRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:4px' });
   const zoomBtns = ZOOMS.map((zz) => {
     const b = h('button', { class: 'sg-btn', style: 'flex:1', text: `×${zz}` });
     b.classList.toggle('is-on', zz === state.zoom);
-    b.onclick = () => {
-      state.zoom = zz;
-      zoomBtns.forEach((bb, i) => bb.classList.toggle('is-on', ZOOMS[i] === zz));
-      drawBig();
-    };
+    b.onclick = () => setZoom(zz);
     zoomRow.appendChild(b);
     return b;
   });
   panel.appendChild(zoomRow);
+  // Free zoom — integer factors only (pixel-perfect rule), rungs stay as presets.
+  const zoomSlideRow = h('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px' });
+  const zoomSlideLbl = h('span', { class: 'sg-accent', style: 'min-width:32px', text: `×${state.zoom}` });
+  const zoomSlider = h('input', {
+    class: 'sg-range',
+    style: 'flex:1',
+    attrs: { type: 'range', min: '1', max: '16', step: '1', value: String(state.zoom) },
+  }) as HTMLInputElement;
+  zoomSlider.oninput = () => setZoom(+zoomSlider.value);
+  zoomSlideRow.append(zoomSlideLbl, zoomSlider);
+  panel.appendChild(zoomSlideRow);
+  function setZoom(z: number): void {
+    state.zoom = z;
+    zoomBtns.forEach((bb, i) => bb.classList.toggle('is-on', ZOOMS[i] === z));
+    zoomSlider.value = String(z);
+    zoomSlideLbl.textContent = `×${z}`;
+    drawBig();
+  }
 
   const quantBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: 'Quantize (Oklab+Bayer)' });
   quantBtn.onclick = () => {
@@ -323,6 +553,22 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     rebake();
   };
   panel.appendChild(quantBtn);
+
+  const skinBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: 'Skin joints (blend 3px)' });
+  skinBtn.onclick = () => {
+    state.skin = !state.skin;
+    skinBtn.classList.toggle('is-on', state.skin);
+    rebake();
+  };
+  panel.appendChild(skinBtn);
+
+  const snapBtn = h('button', { class: 'sg-btn is-on', style: 'width:100%;margin-bottom:4px', text: 'Snap palette + ink outline' });
+  snapBtn.onclick = () => {
+    state.snap = !state.snap;
+    snapBtn.classList.toggle('is-on', state.snap);
+    rebake();
+  };
+  panel.appendChild(snapBtn);
 
   const bonesBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:10px', text: 'Bones overlay' });
   bonesBtn.onclick = () => {
@@ -339,11 +585,21 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function buildPoseSliders(): void {
     poseHost.replaceChildren();
-    for (const name of Object.keys(workClip.tracks)) {
-      const track = workClip.tracks[name];
+    // Every chip gets a slider — un-keyed chips (dimmed) grow a flat track on
+    // first touch, so any body part is adjustable in any clip.
+    for (const ch of workTemplate.chips) {
+      const name = ch.name;
+      const keyed = name in workClip.tracks;
+      const track = workClip.tracks[name] ?? [
+        { t: 0, deg: 0 },
+        { t: 1, deg: 0 },
+      ];
       const endKey = track[track.length - 1];
       const row = h('div', { style: 'display:flex;align-items:center;gap:7px;margin-bottom:5px' });
-      const lbl = h('span', { style: 'min-width:76px;color:var(--ink-0)', text: name });
+      const lbl = h('span', {
+        style: `min-width:76px;color:${keyed ? 'var(--ink-0)' : 'var(--ink-2)'}`,
+        text: name,
+      });
       const val = h('span', { class: 'sg-accent', style: 'min-width:38px;text-align:right', text: `${endKey.deg}°` });
       const slider = h('input', {
         class: 'sg-range',
@@ -351,7 +607,9 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
         attrs: { type: 'range', min: '-180', max: '180', step: '1', value: String(endKey.deg) },
       }) as HTMLInputElement;
       slider.oninput = () => {
+        if (!(name in workClip.tracks)) workClip.tracks[name] = track;
         endKey.deg = +slider.value;
+        lbl.style.color = 'var(--ink-0)';
         val.textContent = `${endKey.deg}°`;
         rebake();
       };
@@ -387,30 +645,270 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     frameSlider.max = String(workClip.frames - 1);
   }
 
-  panel.appendChild(
+  // ── joint pin mode ──────────────────────────────────────────────────────────
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Joints' }));
+  const pinBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '📍 Pin joints (click big view)' });
+  const pinChipRow = h('div', { style: 'display:none;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
+  const pinChipBtns = workTemplate.chips.map((ch, i) => {
+    const b = h('button', { class: 'sg-btn', style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${CHIP_COLORS[i % CHIP_COLORS.length]}`, text: ch.name });
+    b.classList.toggle('is-on', i === pin.chip);
+    b.onclick = () => selectPinChip(i);
+    pinChipRow.appendChild(b);
+    return b;
+  });
+  function selectPinChip(i: number): void {
+    pin.chip = i;
+    pinChipBtns.forEach((bb, k) => bb.classList.toggle('is-on', k === i));
+  }
+  const pinMirrorBtn = h('button', { class: 'sg-btn is-on', style: 'width:100%;margin-bottom:5px', text: '⇄ Mirror L/R pins' });
+  pinMirrorBtn.onclick = () => {
+    pin.mirror = !pin.mirror;
+    pinMirrorBtn.classList.toggle('is-on', pin.mirror);
+  };
+  const jointReadout = h('div', {
+    class: 'sg-muted',
+    style: 'font-size:10px;line-height:1.6;white-space:pre;margin-bottom:5px',
+    attrs: { 'data-joints': '' },
+  });
+  function updateJointReadout(): void {
+    jointReadout.textContent = workTemplate.chips
+      .map((ch) => `${ch.name.padEnd(10)} [${ch.pivot[0]},${ch.pivot[1]}]`)
+      .join('\n');
+  }
+  updateJointReadout();
+  pinBtn.onclick = () => {
+    pin.on = !pin.on;
+    pinBtn.classList.toggle('is-on', pin.on);
+    pinChipRow.style.display = pin.on ? 'flex' : 'none';
+    if (pin.on) {
+      setPlaying(false);
+      state.frame = 0; // rest pose — clicks map 1:1 to rest-space cell coords
+      state.bones = true;
+      bonesBtn.classList.add('is-on');
+      drawStrip();
+      drawBig();
+    }
+  };
+  const pinReset = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '↺ Reset joints' });
+  pinReset.onclick = () => {
+    workTemplate.chips.forEach((ch, i) => {
+      ch.pivot = [TEMPLATE.chips[i].pivot[0], TEMPLATE.chips[i].pivot[1]];
+    });
+    updateJointReadout();
+    rebake();
+  };
+  // Export pinned joints as the source-of-truth const block for lpc-humanoid.ts
+  // — "saving" a template edit means landing it in code, not in browser state.
+  const JOINT_CONST: Record<string, string> = {
+    head: 'NECK',
+    armL_up: 'SHOULDER_L',
+    armL_fore: 'ELBOW_L',
+    armR_up: 'SHOULDER_R',
+    armR_fore: 'ELBOW_R',
+    legL_up: 'HIP_L',
+    legL_fore: 'KNEE_L',
+    legR_up: 'HIP_R',
+    legR_fore: 'KNEE_R',
+  };
+  const pinCopy = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '⧉ Copy joints as TS' });
+  pinCopy.onclick = () => {
+    const lines = workTemplate.chips
+      .filter((ch) => JOINT_CONST[ch.name] !== undefined)
+      .map((ch) => `const ${JOINT_CONST[ch.name]}: [number, number] = [${ch.pivot[0]}, ${ch.pivot[1]}];`);
+    void navigator.clipboard.writeText(lines.join('\n')).then(() => {
+      pinCopy.textContent = '✓ copied';
+      setTimeout(() => (pinCopy.textContent = '⧉ Copy joints as TS'), 1200);
+    });
+  };
+  panel.append(pinBtn, pinMirrorBtn, pinChipRow, jointReadout, pinCopy, pinReset);
+
+  // ── character: preview any role's seeded wardrobe on the rig ────────────────
+  // Layer stacks come from the game's own role recipes (buildCharacterSpec) via
+  // the pure path resolver (walkSpriteCandidates) — same sheets the runtime
+  // compositor loads, so what bakes here is what the game would wear.
+  interface CharLayer {
+    path: string;
+    fallback?: string;
+    assign?: string;
+    label: string;
+  }
+  const DEFAULT_LABELS = ['body', 'shirt', 'head', 'face', 'hair'];
+  const defaultCharacter = (): CharLayer[] =>
+    DEFAULT_HUMANOID_LAYERS.map((s, i) => ({ path: s.path, assign: s.assign, label: DEFAULT_LABELS[i] ?? `layer ${i}` }));
+  // Paint order (bottom→top) across every selection key the role recipes use.
+  const KEY_ORDER = ['body', 'legs', 'shoes', 'clothes', 'armour', 'arms', 'head', 'expression', 'hair'] as const;
+  const HEAD_KEYS = new Set(['head', 'expression', 'hair']); // ride the head chip wholesale
+  function characterLayers(spec: CharacterSpec): CharLayer[] {
+    const out: CharLayer[] = [];
+    for (const key of KEY_ORDER) {
+      const sel = spec.items[key];
+      if (!sel) continue;
+      const [primary, fallback] = walkSpriteCandidates(sel.itemId, sel.variant, spec.bodyType);
+      if (!primary) continue;
+      out.push({
+        path: `sprites/lpc/spritesheets/${primary}`,
+        fallback: fallback ? `sprites/lpc/spritesheets/${fallback}` : undefined,
+        assign: HEAD_KEYS.has(key) ? 'head' : undefined,
+        label: key,
+      });
+    }
+    return out;
+  }
+
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Character' }));
+  const charState = { role: null as NpcRole | null, seed: 1 };
+  const ROLES: (NpcRole | null)[] = [null, 'farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
+  const roleRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px' });
+  const roleBtns = ROLES.map((role) => {
+    const b = h('button', { class: 'sg-btn', style: 'flex:1 1 30%;font-size:10px', text: role ?? 'default' });
+    b.classList.toggle('is-on', role === charState.role);
+    b.onclick = () => {
+      charState.role = role;
+      roleBtns.forEach((bb, i) => bb.classList.toggle('is-on', ROLES[i] === charState.role));
+      void applyCharacter();
+    };
+    roleRow.appendChild(b);
+    return b;
+  });
+  const rerollBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:4px', text: '⟳ Reroll (seed 1)' });
+  rerollBtn.onclick = () => {
+    charState.seed++;
+    rerollBtn.textContent = `⟳ Reroll (seed ${charState.seed})`;
+    void applyCharacter();
+  };
+  function applyCharacter(): Promise<void> {
+    return loadCharacter(
+      charState.role === null ? defaultCharacter() : characterLayers(buildCharacterSpec(charState.role, charState.seed)),
+    );
+  }
+  panel.append(
+    roleRow,
+    rerollBtn,
     h('div', {
       class: 'sg-muted',
-      style: 'margin-top:10px;font-size:10px;line-height:1.5',
-      text: `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing · layers ×${DEFAULT_HUMANOID_LAYERS.length}`,
+      style: 'font-size:10px;line-height:1.5;margin-bottom:5px',
+      text: 'seed picks sex/hair/outfit like in-game · chips are tuned on the male body — female/child are approximate',
     }),
   );
 
-  // ── load layers, then first bake ────────────────────────────────────────────
+  // ── visibility: LPC source layers + chips ───────────────────────────────────
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Visibility' }));
+  const layerRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
+  function rebuildLayerRow(labels: string[]): void {
+    layerRow.replaceChildren();
+    labels.forEach((label, i) => {
+      const b = h('button', { class: 'sg-btn is-on', style: 'flex:1 1 30%;font-size:10px', text: label });
+      b.onclick = () => {
+        if (hiddenLayers.has(i)) hiddenLayers.delete(i);
+        else hiddenLayers.add(i);
+        b.classList.toggle('is-on', !hiddenLayers.has(i));
+        rebake();
+        rebuildWalkLane();
+        drawGait();
+      };
+      layerRow.appendChild(b);
+    });
+  }
+  const chipVisRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
+  workTemplate.chips.forEach((ch, i) => {
+    const b = h('button', {
+      class: 'sg-btn is-on',
+      style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${CHIP_COLORS[i % CHIP_COLORS.length]}`,
+      text: ch.name,
+    });
+    b.onclick = () => {
+      if (hiddenChips.has(ch.name)) hiddenChips.delete(ch.name);
+      else hiddenChips.add(ch.name);
+      b.classList.toggle('is-on', !hiddenChips.has(ch.name));
+      rebake();
+    };
+    chipVisRow.appendChild(b);
+  });
+  panel.append(
+    h('div', { class: 'sg-muted', style: 'font-size:10px;margin-bottom:3px', text: 'LPC layers' }),
+    layerRow,
+    h('div', { class: 'sg-muted', style: 'font-size:10px;margin-bottom:3px', text: 'chips (hidden = hole)' }),
+    chipVisRow,
+  );
+
+  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Gait (walk cycle)' }));
+  const gaitRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:4px' });
+  const gaitBtns = GAIT_STYLES.map((s) => {
+    const b = h('button', { class: 'sg-btn', style: 'flex:1', text: s.name });
+    b.classList.toggle('is-on', s === gaitStyle);
+    b.onclick = () => {
+      gaitStyle = s;
+      styledPlan = planGait(s, WALK_N, FRAME_MS);
+      gaitClock = 0;
+      gaitStyledView.lbl.textContent = `walk · ${s.name}`;
+      gaitBtns.forEach((bb, i) => bb.classList.toggle('is-on', GAIT_STYLES[i] === s));
+      drawGait();
+    };
+    gaitRow.appendChild(b);
+    return b;
+  });
+  panel.appendChild(gaitRow);
+  panel.appendChild(
+    h('div', {
+      class: 'sg-muted',
+      style: 'font-size:10px;line-height:1.5;margin-bottom:6px',
+      text: 'runtime-style playback of the untouched walk sheet — styled loop vs normal cadence',
+    }),
+  );
+
+  const metaLbl = h('div', {
+    class: 'sg-muted',
+    style: 'margin-top:10px;font-size:10px;line-height:1.5',
+    text: `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing`,
+  });
+  panel.appendChild(metaLbl);
+
+  // ── load a character's layers, then bake ────────────────────────────────────
   const loading = h('div', { class: 'sg-muted', style: 'font-size:11px', text: 'loading LPC layers…' });
-  main.prepend(loading);
-  void (async () => {
+  let loadGen = 0; // a newer pick supersedes an in-flight one
+  async function loadCharacter(charLayers: CharLayer[]): Promise<void> {
+    const gen = ++loadGen;
+    loading.textContent = 'loading LPC layers…';
+    main.prepend(loading);
+    // NOTE: the dev server's SPA fallback answers missing files with 200 +
+    // index.html, so "does this variant exist" must survive decode, not just
+    // resp.ok — hence fallback on any failure, not only HTTP errors.
+    async function fetchRaster(path: string): Promise<Raster | null> {
+      const resp = await fetch(assetUrl(path));
+      if (!resp.ok) return null;
+      const type = resp.headers.get('content-type') ?? '';
+      if (!type.includes('image/png')) return null;
+      return decodePngToRaster(await resp.blob());
+    }
     try {
-      const sheets = await Promise.all(
-        DEFAULT_HUMANOID_LAYERS.map(async (spec) => {
-          const resp = await fetch(assetUrl(spec.path));
-          if (!resp.ok) throw new Error(`${spec.path}: HTTP ${resp.status}`);
-          const raster = await decodePngToRaster(await resp.blob());
-          if (!raster) throw new Error(`${spec.path}: decode failed`);
-          return raster;
+      const anims = stampAnims(CLIPS.map((c) => c.stamps));
+      const loaded = await Promise.all(
+        charLayers.map(async (spec) => {
+          let path = spec.path;
+          let sheet = await fetchRaster(path);
+          if (!sheet && spec.fallback) {
+            path = spec.fallback;
+            sheet = await fetchRaster(path);
+          }
+          if (!sheet) throw new Error(`${spec.path}: not found`);
+          // Donor anim sheets for clip stamps (open palms…), derived from the
+          // path that actually loaded. A layer without the donor anim simply
+          // keeps its rest pixels (e.g. the child wardrobe has no spellcast).
+          const donors: Record<string, Raster> = {};
+          for (const anim of anims) {
+            for (const cand of donorSheetCandidates(path, anim)) {
+              const d = await fetchRaster(cand);
+              if (d) {
+                donors[anim] = d;
+                break;
+              }
+            }
+          }
+          return { sheet, donors };
         }),
       );
-      if (disposed) return;
-      layers = sheets.map((sheet, li) => {
+      if (disposed || gen !== loadGen) return;
+      layers = loaded.map(({ sheet, donors }, li) => {
         const data = new Uint8ClampedArray(CELL * CELL * 4);
         const sx = HUMANOID_SOURCE.col * CELL;
         const sy = HUMANOID_SOURCE.row * CELL;
@@ -418,14 +916,23 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
           const src = (sy + y) * sheet.w + sx;
           data.set(sheet.data.subarray(src * 4, (src + CELL) * 4), y * CELL * 4);
         }
-        return { raster: { data, w: CELL, h: CELL }, assign: DEFAULT_HUMANOID_LAYERS[li].assign };
+        return { raster: { data, w: CELL, h: CELL }, assign: charLayers[li].assign, donors };
       });
+      // Composite the walk cycle for the gait lane (existing frames, untouched).
+      loadedSheets = loaded.map((l) => l.sheet);
+      hiddenLayers.clear();
+      rebuildLayerRow(charLayers.map((c) => c.label));
+      rebuildWalkLane();
+      metaLbl.textContent = `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing · layers ×${charLayers.length}`;
       loading.remove();
       rebake();
+      drawGait();
     } catch (err) {
+      if (gen !== loadGen) return;
       loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
     }
-  })();
+  }
+  void loadCharacter(defaultCharacter());
 
   buildPoseSliders();
   raf = requestAnimationFrame(tick);

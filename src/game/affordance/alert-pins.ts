@@ -10,8 +10,8 @@
 import type { Camera } from '@/core/types';
 import type { InboxItem } from '@/game/game-query';
 import type { AlertPinView } from '@/render/ui/ui-runtime';
-import { worldToScreen } from '@/render/camera';
-import { TILE_SIZE } from '@/core/constants';
+import { worldToScreen } from '@/render/iso/iso-projection';
+import { isoStageTransform } from '@/render/iso/entity-draw-list';
 
 /** Cap of simultaneously-drawn pins — aggregate visuals, not every soul (spec §6).
  *  The inbox arrives salience-ranked, so the first N anchored items ARE the top N. */
@@ -21,14 +21,24 @@ export const MAX_ALERT_PINS = 8;
  *  zoom, spec §6) — never collides with inbox ids (`prayer:`/`opp:`/`threat:`). */
 export const PIN_SELECTION_ID = 'selection';
 
-/** Project a tile anchor to a pixel-snapped device-px centre (tile centre = +0.5). */
+/** Iso-screen px the pin floats above the tile centre (≈ a sprite's head). */
+const PIN_HEAD_LIFT = 40;
+
+/** Project a tile anchor to a pixel-snapped device-px centre (tile centre = +0.5).
+ *  The live camera pans in ISO-SCREEN space, so this must go through the iso
+ *  projection + stage transform — the flat `tile × TILE_SIZE` mapping is a
+ *  different space and strands pins mid-ocean. */
 export function projectPinCentre(
   anchor: { x: number; y: number },
   cam: Camera,
   dpr: number,
 ): { x: number; y: number } {
-  const { sx, sy } = worldToScreen(cam, anchor.x + 0.5, anchor.y + 0.5, TILE_SIZE);
-  return { x: Math.round(sx * dpr), y: Math.round(sy * dpr) };
+  const iso = worldToScreen(anchor.x + 0.5, anchor.y + 0.5, PIN_HEAD_LIFT, 0, 0);
+  const t = isoStageTransform(cam);
+  return {
+    x: Math.round((iso.sx * t.scale + t.x) * dpr),
+    y: Math.round((iso.sy * t.scale + t.y) * dpr),
+  };
 }
 
 /**

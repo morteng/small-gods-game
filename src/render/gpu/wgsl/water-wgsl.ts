@@ -27,6 +27,15 @@
 // with depth (premultiplied-alpha blend; see the fragment tail).
 
 export const WATER_WGSL = /* wgsl */ `
+// CHEAP TIER (pipeline-overridable constant, folded at pipeline creation — the cheap
+// pipeline compiles the gated blocks OUT, it doesn't branch at runtime). 1 = the
+// low-cost water for fill-bound GPUs: every field samples BILINEAR (never the 16-tap
+// bicubic waterline), the ocean's coastal gradient fields (exposure/shoal central
+// differences) stay at their mid value, and glints + caustics are dropped. The
+// waterline is then C0 (kinks at tile seams) instead of C1, and surf/rapids lose
+// their per-coast variation — accepted while the pass is the frame's fill bill.
+override CHEAP_WATER : u32 = 0u;
+
 struct WGlobals {
   uViewport : vec2<f32>,
   uPad0     : vec2<f32>,
@@ -479,7 +488,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // cells, so the ENTIRE waterline band stays bicubic → zero visible change at the
   // water/land boundary. Rivers (narrow, always near a bank) always keep bicubic.
   let shoreCell = shoreD[ci];
-  let deepWater = (cellTyp == 1u || cellTyp == 2u) && shoreCell >= SHORE_CUBIC_TILES;
+  // CHEAP tier: EVERY ocean/lake fragment takes the bilinear "deep" path — the
+  // bicubic waterline is the pass's single largest read bill (~48 taps/frag).
+  let deepWater = (cellTyp == 1u || cellTyp == 2u)
+               && (CHEAP_WATER == 1u || shoreCell >= SHORE_CUBIC_TILES);
 
   if (cellTyp == 1u || cellTyp == 2u) {
     // PIXEL-PERFECT WATERLINE. The bed (terrainH) is bicubic, the surface bicubic, so
@@ -505,8 +517,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   }
 
   // Bed: bicubic near the bank (the waterline clip needs it), bilinear in deep water.
+  // CHEAP tier reads bilinear everywhere (rivers included — their silhouette is the
+  // analytic SDF, so the bed only tints depth).
   var bedN : f32;
-  if (deepWater) { bedN = sampleTerrainH(in.vGrid.x, in.vGrid.y); }
+  if (deepWater || CHEAP_WATER == 1u) { bedN = sampleTerrainH(in.vGrid.x, in.vGrid.y); }
   else { bedN = cubicTerrainH(in.vGrid.x, in.vGrid.y); }
   let rawDepthN = surfLvl - bedN;
   if (rawDepthN <= 0.0) { discard; }
@@ -593,10 +607,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // at COASTAL_GRAD_TILES and skip the 8 gradient taps entirely on deep fragments
     // (storage reads carry no derivative requirement, so the non-uniform branch is
     // legal). The mix() to the SAME constant the deep path uses keeps the seam C0.
+    // CHEAP tier holds both gradient fields at their open-sea mid value everywhere —
+    // exactly the constant the deep path already blends to, so the surf still runs,
+    // it just stops varying per-coast (windward/shelf reads flatten out).
     var exposure = 0.5;
     var shoal = 0.5;
     let coastal = smoothstep(COASTAL_GRAD_TILES, COASTAL_GRAD_TILES - 4.0, shore);
-    if (coastal > 0.0) {
+    if (CHEAP_WATER == 0u && coastal > 0.0) {
       // Coast normal (offshore) from the shore-distance gradient — windward coasts
       // (facing the swell) get rougher water + harder breakers than lee shores.
       let sgx = sampleShore(g.x + 1.0, g.y) - sampleShore(g.x - 1.0, g.y);
@@ -652,9 +669,12 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // atlas tap (the old ALU version was cut for cost — and its 0.82 threshold was
     // dead against the 0.75-max fbm anyway, so this is its first real appearance).
     // Warm-white, day-gated, and stronger toward open water so shallows stay soft.
-    let gl = fbm2b(g * 0.7 - dir * (t * 0.5));
-    color += vec3<f32>(1.0, 0.97, 0.86)
-           * (smoothstep(0.88, 0.97, gl) * day * mix(0.06, 0.16, shoreDeep));
+    // (Dropped on the CHEAP tier along with the lake glints + caustics.)
+    if (CHEAP_WATER == 0u) {
+      let gl = fbm2b(g * 0.7 - dir * (t * 0.5));
+      color += vec3<f32>(1.0, 0.97, 0.86)
+             * (smoothstep(0.88, 0.97, gl) * day * mix(0.06, 0.16, shoreDeep));
+    }
 
     // Faint sky sheen on the open sea — the ortho stand-in for the Fresnel-bright
     // far water: deep ocean leans a few percent toward the sky tone, which reads as
@@ -697,8 +717,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
                     + (fbm(g * 0.18 + vec2<f32>(t * 0.04, 0.0)) - 0.5) * 2.0;
     let ripple = sin(ripplePhase) * 0.5 + 0.5;
     color += vec3<f32>(smoothstep(0.6, 1.0, ripple) * 0.04);
-    let lakeGl = fbm2b(g * 0.55 + vec2<f32>(t * 0.05, -t * 0.04));
-    color += vec3<f32>(smoothstep(0.84, 0.97, lakeGl) * 0.05 * day);
+    if (CHEAP_WATER == 0u) {
+      let lakeGl = fbm2b(g * 0.55 + vec2<f32>(t * 0.05, -t * 0.04));
+      color += vec3<f32>(smoothstep(0.84, 0.97, lakeGl) * 0.05 * day);
+    }
 
     // Shore foam: a soft lapping band right at the bank (slow "breathing" so the edge
     // feels alive) plus the thin waterline lip. Much quieter than ocean surf.
@@ -773,7 +795,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // where the bed shows through the depth-keyed alpha, so the light appears to dance
   // on the bed itself.
   let cShallow = smoothstep(2.4, 0.3, depthM) * mix(0.3, 1.0, clar) * day;
-  if (cShallow > 0.004) {
+  if (CHEAP_WATER == 0u && cShallow > 0.004) {
     let c1 = fbm2b(g * 0.85 + vec2<f32>(t * 0.11, -t * 0.09));
     let c2 = fbm2b(g * 0.85 + vec2<f32>(29.0, 47.0) - vec2<f32>(t * 0.08, -t * 0.13));
     let fil = smoothstep(0.50, 0.80, min(c1, c2) * 1.5);
