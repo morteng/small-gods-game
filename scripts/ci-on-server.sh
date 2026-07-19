@@ -9,6 +9,11 @@
 #   ./scripts/ci-on-server.sh --build         # tsc + vite build instead of tests
 #   ./scripts/ci-on-server.sh --workers=N     # vitest maxWorkers (default 8)
 #   ./scripts/ci-on-server.sh --cpus=N        # docker CPU cap (default 11)
+#   ./scripts/ci-on-server.sh --image=IMG     # container image (default node:22-bookworm;
+#                                             #   or CI_IMAGE env). Use the electron-builder
+#                                             #   wine image for a Windows cross-build:
+#                                             #   --run="npm run dist:win" --out=release \
+#                                             #     --image=electronuserland/builder:22-wine
 #   ./scripts/ci-on-server.sh --clean         # remove remote CI dir + exit
 #   ./scripts/ci-on-server.sh --history       # recent run history
 #
@@ -45,7 +50,14 @@ SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o Server
 BRANCH_SLUG=$(git branch --show-current 2>/dev/null | tr '/' '-' | tail -c 30 || echo "detached")
 REMOTE_DIR="/tmp/smallgods-ci-${BRANCH_SLUG}"
 REMOTE_HASH_FILE="$REMOTE_DIR/.deps.hash"
-NODE_IMAGE="node:22-bookworm"
+# Container image the runner uses. Default is the plain node image; override with
+# CI_IMAGE=… (env) or --image=… (flag, wins over the env) to build with e.g. the
+# electron-builder wine image for a Windows cross-build (--run="npm run dist:win").
+NODE_IMAGE="${CI_IMAGE:-node:22-bookworm}"
+# electron-builder / electron download cache. Points inside the persisted
+# node_modules volume (kept on the box across runs, keyed on the lockfile hash) so a
+# ~100 MB Electron binary is fetched once, not on every desktop build.
+ELECTRON_CACHE_DIR="/app/node_modules/.cache/electron"
 HISTORY_LOG="/var/log/smallgods-ci.log"
 RUNNER_TIMEOUT=3600
 
@@ -79,6 +91,7 @@ for arg in "$@"; do
     --env=*)     ENV_FILE="${arg#*=}" ;;
     --workers=*) WORKERS="${arg#*=}" ;;
     --cpus=*)    CPUS="${arg#*=}" ;;
+    --image=*)   NODE_IMAGE="${arg#*=}" ;;
     --clean)     CLEAN_ONLY=true ;;
     --history)   HISTORY_ONLY=true ;;
     -h|--help)   sed -n '6,24p' "$0"; exit 0 ;;
@@ -221,7 +234,7 @@ cd "$REMOTE_DIR" || { echo 97 > "$REMOTE_EXIT"; exit 97; }
 flock -w 2400 /tmp/hetzner-ci.lock \
   timeout $RUNNER_TIMEOUT docker run --rm --name smallgods-ci-runner \
     -v $REMOTE_DIR:/app -w /app --cpus=$CPUS -m 10g \
-    -e CI=1 ${ENV_ARG} \
+    -e CI=1 -e ELECTRON_CACHE=$ELECTRON_CACHE_DIR ${ENV_ARG} \
     $NODE_IMAGE bash /app/.ci-cmd.sh > "$REMOTE_LOG" 2>&1
 ec=\$?
 rm -f "$REMOTE_ENV"

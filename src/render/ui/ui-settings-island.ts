@@ -29,6 +29,15 @@ export interface IslandRect {
 
 const PROVIDERS: ProviderType[] = ['mock', 'openai', 'openrouter'];
 
+// Build identity baked in by Vite `define` (see vite.config.ts). Guarded with `typeof`
+// so this module stays importable under vitest, which does not apply the vite define.
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
+const GIT_SHA = typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'unknown';
+/** Human-readable build stamp shown in the settings footer, e.g. `v0.1.0 (a11cd869)`. */
+export function buildStamp(): string {
+  return `v${APP_VERSION} (${GIT_SHA})`;
+}
+
 export class SettingsIsland {
   private root: HTMLDivElement;
   private providerSel: HTMLSelectElement;
@@ -89,6 +98,12 @@ export class SettingsIsland {
     this.status = document.createElement('div');
     this.status.style.cssText = 'font-size:11px;opacity:0.7;min-height:14px';
     this.root.appendChild(this.status);
+
+    // Build stamp footer — version + git SHA, for bug reports. Pushed to the bottom.
+    const footer = document.createElement('div');
+    footer.textContent = buildStamp();
+    footer.style.cssText = 'margin-top:auto;font-size:10px;letter-spacing:1px;opacity:0.4';
+    this.root.appendChild(footer);
 
     container.appendChild(this.root);
     this.populate();
