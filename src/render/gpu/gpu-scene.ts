@@ -152,6 +152,7 @@ export class GpuScene {
   private grassCount = 0;
   private grassSeaweedCount = 0;   // leading instances (seaweed) drawn pre-water
   private grassSrcHeights: Float32Array | null = null;
+  private grassSrcRoad: Uint32Array | null = null;
   private grassSrcWaterSurf: Float32Array | null = null;
   // Dedicated grass globals (step 3, wind): the shared 80-byte entity Globals has no
   // time/wind slot, so grass gets its own uniform packed once per frame.
@@ -550,19 +551,35 @@ export class GpuScene {
         'desert-dune', 'cracked-hardpan',
         'snow', 'forest-litter',
       ] as const;
-      const bmps = await Promise.all(names.map(async (n) => {
+      const blobs = await Promise.all(names.map(async (n) => {
         const resp = await fetch(assetUrl(`textures/ground/${n}.png`));
         if (!resp.ok) throw new Error(`ground/${n}.png ${resp.status}`);
-        return createImageBitmap(await resp.blob(), { colorSpaceConversion: 'none' });
+        return resp.blob();
       }));
+      const bmps = await Promise.all(blobs.map((b) => createImageBitmap(b, { colorSpaceConversion: 'none' })));
       const size = bmps[0].width;
+      // FULL MIP CHAIN, CPU-downsampled per level. The swatches are 512px over a
+      // ~1.25-tile repeat, so at gameplay zoom every screen pixel spans MANY texels;
+      // sampled at mip 0 (the only level the old single-mip texture had) that detail
+      // decimated into aliased grit and the pebble/gravel/grass character never
+      // resolved at 1:1. With the pyramid + the footprint LOD in groundPatch
+      // (terrain-wgsl) each zoom reads the finest level it can actually show.
+      const mipCount = Math.floor(Math.log2(size)) + 1;
       const tex = this.device.createTexture({
-        size: [size, size, names.length], format: 'rgba8unorm',
+        size: [size, size, names.length], format: 'rgba8unorm', mipLevelCount: mipCount,
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
       });
-      bmps.forEach((bmp, l) => this.device.queue.copyExternalImageToTexture(
-        { source: bmp, flipY: false }, { texture: tex, origin: [0, 0, l] }, [size, size, 1],
-      ));
+      for (let l = 0; l < bmps.length; l++) {
+        for (let lvl = 0, s = size; lvl < mipCount; lvl++, s = Math.max(1, s >> 1)) {
+          const scaled = lvl === 0 ? bmps[l] : await createImageBitmap(blobs[l], {
+            colorSpaceConversion: 'none', resizeWidth: s, resizeHeight: s, resizeQuality: 'high',
+          });
+          this.device.queue.copyExternalImageToTexture(
+            { source: scaled, flipY: false }, { texture: tex, origin: [0, 0, l], mipLevel: lvl }, [s, s, 1],
+          );
+          if (lvl > 0) scaled.close();
+        }
+      }
       this.groundView = tex.createView({ dimension: '2d-array' });
       this.terrainBind = null;   // rebuild both bind groups with the real array
       this.detailBind = null;
@@ -917,14 +934,20 @@ export class GpuScene {
     // Memoised on the height array AND the water-surface array (which arrives a frame or two
     // after terrain, and shifts on drought/flood) so river/lake weed re-packs when it lands.
     const waterSurf = water?.surfaceW ?? null;
-    if (terrain.heights === this.grassSrcHeights && this.grassSrcWaterSurf === waterSurf && this.grassBind) {
+    // Road identity rides the memo too: desire-line adoption / road evolution bumps
+    // roadGraph.rev, which mints a new (memoised) feature geometry — the carpet must
+    // re-pack so the billboards clear off a NEW carriageway.
+    const roadPacked = terrain.roadGeo?.packed ?? null;
+    if (terrain.heights === this.grassSrcHeights && this.grassSrcWaterSurf === waterSurf
+        && this.grassSrcRoad === roadPacked && this.grassBind) {
       return this.grassCount > 0;
     }
 
     const { data, count, seaweedCount } = buildGrassInstances(
-      terrain, this.clutterManifest, waterSurf, water?.waterType ?? null,
+      terrain, this.clutterManifest, waterSurf, water?.waterType ?? null, terrain.roadGeo ?? null,
     );
     this.grassSrcHeights = terrain.heights;
+    this.grassSrcRoad = roadPacked;
     this.grassSrcWaterSurf = waterSurf;
     this.grassCount = count;
     this.grassSeaweedCount = seaweedCount;

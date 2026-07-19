@@ -221,6 +221,56 @@ export function roadPavednessAt(geo: RoadFeatureGeometry, x: number, y: number):
   return best;
 }
 
+/** What the billboard scatter needs to know about the road under/near a point. */
+export interface RoadPointInfo {
+  /** RAW (unfaded) pavedness tier of the governing segment — 0 when no road within reach. */
+  tier: number;
+  /** Distance to that segment's centreline (tiles); Infinity when no road near. */
+  d: number;
+  /** Its carriageway half-width (tiles); 1 when no road near (safe divisor). */
+  half: number;
+}
+
+/**
+ * CPU sibling of the shader's roadInfo(): the governing segment's raw tier + the
+ * lateral coordinate at (x,y). Governing = the covering segment with the highest
+ * faded pavedness (matching roadPavednessAt's winner); where nothing covers the
+ * point, the nearest segment whose verge band (d ≤ half + 0.5) still reaches it.
+ * The grass scatter reads this to keep the billboard carpet OFF carriageways
+ * (crown-strip tufts + verge pebbles excepted) — before this, ground cover grew
+ * straight through every road and erased it at gameplay zoom.
+ */
+export function roadInfoAt(geo: RoadFeatureGeometry, x: number, y: number): RoadPointInfo {
+  const none: RoadPointInfo = { tier: 0, d: Infinity, half: 1 };
+  if (geo.segCount === 0) return none;
+  const bx = Math.min(geo.nbx - 1, Math.max(0, Math.floor(x / geo.bucketTiles)));
+  const by = Math.min(geo.nby - 1, Math.max(0, Math.floor(y / geo.bucketTiles)));
+  const b = by * geo.nbx + bx;
+  const s = geo.segments;
+  let best = 0, bestD = Infinity, bestHalf = 1, bestTier = 0;
+  let vergeD = Infinity, vergeHalf = 1, vergeTier = 0, vergeAbs = Infinity;
+  for (let p = geo.bucketOffset[b]; p < geo.bucketOffset[b + 1]; p++) {
+    const o = geo.bucketSegs[p] * FEATURE_SEG_STRIDE;
+    const { t, d } = segDist(s[o], s[o + 1], s[o + 2], s[o + 3], x, y);
+    const half = s[o + 4] * (1 - t) + s[o + 5] * t;
+    const paved = s[o + 6] * (1 - t) + s[o + 7] * t;
+    if (paved <= 0) continue;
+    if (d <= half) {
+      const core = half * ROAD_CORE_FRACTION;
+      const fade = d <= core ? 1 : 1 - (d - core) / (half - core);
+      // tier from the strongest covering segment; the lateral coordinate from the
+      // NEAREST one (min-d = distance to the polyline — see the shader's roadInfo).
+      if (paved * fade > best) { best = paved * fade; bestTier = paved; }
+      if (d < bestD) { bestD = d; bestHalf = half; }
+    } else if (d <= half + 0.5 && d - half < vergeAbs) {
+      vergeAbs = d - half; vergeD = d; vergeHalf = half; vergeTier = paved;
+    }
+  }
+  if (best > 0) return { tier: bestTier, d: bestD, half: bestHalf };
+  if (vergeAbs < Infinity) return { tier: vergeTier, d: vergeD, half: vergeHalf };
+  return none;
+}
+
 // ── Memoised per (seed, dims, roadGraph.rev) — static for a world until roads evolve ──
 const roadCache = new Map<string, RoadFeatureGeometry>();
 const CACHE_CAP = 4;

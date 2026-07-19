@@ -22,7 +22,7 @@ import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
 import { effectiveTileType, RENDER_LAYERS, layerFlag } from '@/render/layer-visibility';
 import { ELEVATION_SEA_LEVEL, getClimateFields } from '@/world/heightfield';
 import { getComposedHeightfield } from '@/world/road-deformation';
-import { getRoadFeatureGeometry } from '@/render/gpu/feature-geometry';
+import { getRoadFeatureGeometry, type RoadFeatureGeometry } from '@/render/gpu/feature-geometry';
 import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 import type { LightingState } from '@/render/lighting-state';
 import type { TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
@@ -398,6 +398,11 @@ export interface TerrainField {
    *  pavedness analytically by distance to the centreline (no per-cell field), then ramps
    *  it to a road albedo (earth→cobble); snow/ice/mud still compose on top via climate. */
   roadFeature: Uint32Array;
+  /** The same road geometry as its full object — the grass scatter walks it on the CPU
+   *  (roadInfoAt) to keep the billboard carpet off carriageways. Identity is stable per
+   *  (seed, dims, roadGraph.rev) via the feature-geometry memo, so it doubles as the
+   *  scatter's road memo key. Optional so synthetic test fields need not build one. */
+  roadGeo?: RoadFeatureGeometry;
   /** Vertices the grid-gen vertex shader draws (`quadsX*quadsY*6`). */
   vertexCount: number;
   /** Terrain uniform input (camera + iso + z + lighting); `packTerrainGlobals`-ready. */
@@ -551,12 +556,14 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
   });
   const climate = getClimateFields(map);
   const cw = opts.connectomeWater;
+  const roadGeo = getRoadFeatureGeometry(map);
   return {
     heights: heightField(map),
     colors: packColorFieldMemo(map, opts.devMode, cw?.waterType, cw?.version),
     moisture: climate.moisture,
     temperature: climate.temperature,
-    roadFeature: getRoadFeatureGeometry(map).packed,
+    roadFeature: roadGeo.packed,
+    roadGeo,
     vertexCount: grid.vertexCount,
     globals,
   };

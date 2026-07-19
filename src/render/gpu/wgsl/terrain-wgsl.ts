@@ -83,11 +83,20 @@ const GROUND_LAYER_LITTER      : i32 = 10;
 
 // Sample one ground-patch layer with a gentle domain warp + a light second octave so the
 // ~5-tile repeat never reads as a stamp while the crisp primary detail survives.
-fn groundPatch(layer : i32, grid : vec2<f32>, warp : f32, mixW : f32) -> vec3<f32> {
+// fwGrid = the pixel footprint of \`grid\` (fwidth of whatever the caller passes, INCLUDING
+// any frequency multiplier) — it selects the mip whose texel density matches the screen, so
+// the 512px swatches finally RESOLVE at gameplay zoom instead of decimating mip-0 detail
+// into aliased grit (the "splatmaps never show at 1:1" bug; the texture now carries a full
+// CPU-built pyramid — gpu-scene loadGroundTexture).
+fn groundPatch(layer : i32, grid : vec2<f32>, fwGrid : f32, warp : f32, mixW : f32) -> vec3<f32> {
   let uv0 = grid / GROUND_REPEAT_TILES + vec2<f32>(warp, warp * 0.6);
   let uv1 = grid / (GROUND_REPEAT_TILES * 2.3) + vec2<f32>(0.37, 0.61);
-  let s0 = textureSampleLevel(groundTex, groundSamp, uv0, layer, 0.0).rgb;
-  let s1 = textureSampleLevel(groundTex, groundSamp, uv1, layer, 0.0).rgb;
+  let texels = fwGrid / GROUND_REPEAT_TILES * f32(textureDimensions(groundTex).x);
+  let maxLod = f32(textureNumLevels(groundTex) - 1u);
+  let lod0 = clamp(log2(max(texels, 1e-4)), 0.0, maxLod);
+  let lod1 = clamp(lod0 - 1.2, 0.0, maxLod);            // the /2.3 octave is coarser per px
+  let s0 = textureSampleLevel(groundTex, groundSamp, uv0, layer, lod0).rgb;
+  let s1 = textureSampleLevel(groundTex, groundSamp, uv1, layer, lod1).rgb;
   return mix(s0, s1, mixW);   // crisp primary, light second octave breaks the repeat (mean-agnostic)
 }
 
@@ -219,14 +228,32 @@ fn sampleColorBi(b : BiCell) -> vec3<f32> {
 // take the MAX of paved·fade over its segments (fade = 1 inside the core, → 0 at the
 // half-width). Byte-equivalent to roadPavednessAt() in feature-geometry.ts.
 fn rfF(i : u32) -> f32 { return bitcast<f32>(roadFeat[i]); }
-// Returns .x = pavedness (max paved·fade over this bucket's segments) and .y = inside
-// depth in TILES = max(half − d) over the covering segments ≈ distance to the road's
-// OUTER boundary (deep inside a wide road / overlap = large; at the edge → 0). The edge
-// outline (fsMain) band-limits .y against fwidth for a crisp, colour-defined kerb line
-// that does NOT depend on terrain shading. Byte-equivalent .x to roadPavednessAt().
-fn roadPavedEdge(fx : f32, fy : f32) -> vec2<f32> {
+// Everything the path-biome treatment needs from ONE bucket walk:
+//   paved — max paved·fade over the covering segments (byte-equivalent to the old
+//           roadPavedEdge .x / the CPU roadPavednessAt mirror).
+//   edge  — inside depth in TILES = max(half − d) ≈ distance to the road's OUTER
+//           boundary (the kerb-outline coordinate).
+//   d/half — the winning segment's centreline distance + half-width, the lateral
+//           coordinate the wheel-rut / crown-strip bands are drawn in.
+//   verge — min(d − half) over the near segments: 0-at-the-edge growing outward
+//           (negative inside), the coordinate for pebbly verge spill OUTSIDE the
+//           ribbon. Segments register in buckets out to half+0.5 (reach), so the
+//           verge coordinate is valid ~half a tile beyond the surface.
+//   near  — max UNfaded pavedness among near segments — gates verge dressing by
+//           the road's tier even where the faded pavedness is already 0.
+struct RoadInfo {
+  paved : f32,
+  edge  : f32,
+  d     : f32,
+  half  : f32,
+  verge : f32,
+  near  : f32,
+}
+fn roadInfo(fx : f32, fy : f32) -> RoadInfo {
+  var out : RoadInfo;
+  out.paved = 0.0; out.edge = 0.0; out.d = 9.0; out.half = 1.0; out.verge = 9.0; out.near = 0.0;
   let segCount = roadFeat[3];
-  if (segCount == 0u) { return vec2<f32>(0.0, 0.0); }
+  if (segCount == 0u) { return out; }
   let bt  = f32(roadFeat[0]);
   let nbx = roadFeat[1];
   let nby = roadFeat[2];
@@ -239,8 +266,6 @@ fn roadPavedEdge(fx : f32, fy : f32) -> vec2<f32> {
   let b = by * nbx + bx;
   let start = roadFeat[offBase + b];
   let end   = roadFeat[offBase + b + 1u];
-  var best = 0.0;
-  var depth = 0.0;
   for (var p = start; p < end; p = p + 1u) {
     let o = segBase + roadFeat[refBase + p] * 8u;
     let ax = rfF(o); let ay = rfF(o + 1u);
@@ -252,17 +277,23 @@ fn roadPavedEdge(fx : f32, fy : f32) -> vec2<f32> {
     let cx = ax + t * dx; let cy = ay + t * dy;
     let d = length(vec2<f32>(fx - cx, fy - cy));
     let half = mix(rfF(o + 4u), rfF(o + 5u), t);
+    let paved = mix(rfF(o + 6u), rfF(o + 7u), t);
+    out.verge = min(out.verge, d - half);
+    if (d <= half + 0.5) { out.near = max(out.near, paved); }
     if (d <= half) {
       let core = half * 0.7;
       let fade = select((half - d) / max(half - core, 1e-4), 1.0, d <= core);
-      let paved = mix(rfF(o + 6u), rfF(o + 7u), t);
-      best = max(best, paved * fade);
-      depth = max(depth, half - d);   // distance inside this segment's boundary
+      out.paved = max(out.paved, paved * fade);
+      // Lateral coordinate = MIN distance over covering segments — the distance to the
+      // polyline as a whole. Taking it from the pavedness winner instead (first-covering
+      // segment on ties) read the RADIAL cap distance near every joint, and the rut band
+      // traced a chain of rings down the road (arcs of radius rutOff around each vertex).
+      if (d < out.d) { out.d = d; out.half = half; }
+      out.edge = max(out.edge, half - d);   // distance inside this segment's boundary
     }
   }
-  return vec2<f32>(best, depth);
+  return out;
 }
-fn roadPaved(fx : f32, fy : f32) -> f32 { return roadPavedEdge(fx, fy).x; }
 
 // Value noise for jittering material thresholds so edges wander (kills the flat
 // contour rings / square biome borders that betray procedural terrain). Now a single
@@ -565,51 +596,28 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // and reusable in the submarine section below). texFade decays every patch to the flat biome
   // colour as a texel shrinks past the pixel footprint (no fizz + the px1 overview perf guard).
   let gwarp = (vnoise(in.vGrid * 0.045 + vec2<f32>(3.0, 9.0)) - 0.5) * 0.18;
+  let fwG = max(fwTiles.x, fwTiles.y);   // grid-space footprint for groundPatch mip selection
   let fwTexels = max(fwTiles.x, fwTiles.y) / MAT_TILES * f32(textureDimensions(matAtlas).x);
   let texFade = smoothstep(4.0, 1.0, fwTexels);
 
-  let roadFE = roadPavedEdge(in.vGrid.x, in.vGrid.y);
-  let road = roadFE.x;              // pavedness (dirt 0.2 · gravel 0.45 · cobble 0.75 · paved 1.0)
-  let roadEdgeDepth = roadFE.y;    // tiles inside the road's outer boundary
-  // Road surface = the full packed-dirt → gravel → cobble exemplar spectrum (real
-  // sett/grain texture), driven by pavedness. feature-geometry.ts encodes the road
-  // TIER into this scalar at the material anchors (dirt 0.2 · gravel 0.45 · cobble 0.75 ·
-  // paved 1.0), dimmed by condition·overgrowth — so a worn cobble road drifts toward
-  // gravel→dirt on its own, the wear IS the lower pavedness. Packed DIRT stays a baked
-  // low-relief swatch (layer 6); GRAVEL and COBBLE are now ANALYTIC (per-pixel, scaled in
-  // real world units, band-limited — analyticCobble/Gravel above) so their sett/chip size
-  // is correct at every zoom with no tiling seam. Dirt is sampled unconditionally (texture
-  // LOD needs uniform control flow); the analytic Voronoi is the cost, so it's gated behind
-  // road presence — off-road fragments skip it entirely.
-  // Road-vs-land blend. The OLD smoothstep(0,0.16,road) saturated to ~1 at a dirt road's
-  // 0.2 pavedness, so a dirt track painted a hard-edged, full-strength uniform brown SLAB
-  // (read as a wide muddy scar) while only cobble feathered. Now the blend STRENGTH scales
-  // with pavedness: a dirt track blends ~0.35 (grass shows through, a packed-earth desire
-  // path), gravel rises, cobble/paved go fully opaque. A narrow edge smoothstep keeps the
-  // sub-tile boundary soft for every tier.
-  // TUNING KNOB (roadMix dirt-tier floor): 0.45 = a dirt track blends ~45% of its
-  // packed-earth swatch over grass. Raised from 0.35 once the deformation shading-rim
-  // was removed (road-deformation.ts smoothstep falloff) — final value is a live visual pass.
-  let roadMix = smoothstep(0.0, 0.08, road) * mix(0.45, 1.0, smoothstep(0.20, 0.75, road));
+  let rInfo = roadInfo(in.vGrid.x, in.vGrid.y);
+  let road = rInfo.paved;           // pavedness (dirt 0.2 · gravel 0.45 · cobble 0.75 · paved 1.0)
+  let roadEdgeDepth = rInfo.edge;   // tiles inside the road's outer boundary
+  // Road-vs-land blend. The blend STRENGTH scales with pavedness: a dirt track blends
+  // ~0.45 of its packed-earth swatch (grass shows through, a packed-earth desire path),
+  // gravel rises, cobble/paved go fully opaque. A narrow edge smoothstep keeps the
+  // sub-tile boundary soft for every tier — and the boundary itself is RAGGED now: a
+  // low-frequency wobble shifts where the feather crosses zero, so a track's edge
+  // wanders in and out of the grass instead of tracing the SDF's clean parallel line
+  // (nothing in nature draws an offset curve). Gated on road presence so off-road
+  // fragments can't wobble INTO phantom pavedness.
+  let edgeWob = (vnoise(in.vGrid * 1.9 + vec2<f32>(41.0, 7.0)) - 0.5) * step(0.001, road);
+  let roadMix = smoothstep(0.0, 0.08, road + edgeWob * 0.07)
+              * mix(0.45, 1.0, smoothstep(0.20, 0.75, road));
+  // Packed DIRT stays a baked low-relief swatch (layer 6), sampled here in UNIFORM
+  // control flow (implicit-derivative texture LOD); the road albedo itself is built
+  // AFTER the ground splat below, so the crown strip can reclaim the living grass.
   let dirtA = matSample(6, muv);
-  var roadAlb = dirtA;
-  if (roadMix > 0.0) {
-    let gravelA = analyticGravel(in.vGrid, fwTiles);
-    let cobbleA = analyticCobble(in.vGrid, fwTiles);
-    let upper = road >= 0.45;                      // above the gravel anchor?
-    roadAlb = select(
-      mix(dirtA,   gravelA, smoothstep(0.20, 0.45, road)),   // dirt → gravel
-      mix(gravelA, cobbleA, smoothstep(0.45, 0.78, road)),   // gravel → cobble
-      upper);
-    // Authored kerb outline — a crisp, COLOUR-defined road edge (not terrain shading).
-    // Same fwidth band-limiting as analyticCobble's grout: darken a ~1px inner rim where
-    // the fragment sits within one pixel of the road's outer boundary (roadEdgeDepth→0),
-    // so every tier (bare dirt included) reads as a real surface with a defined edge.
-    // TUNING KNOB (edge-darken factor 0.85): lower = darker/heavier kerb line.
-    let edgeAA = max(max(fwTiles.x, fwTiles.y), 1e-4);
-    let edgeLine = 1.0 - smoothstep(0.0, edgeAA, roadEdgeDepth);
-    roadAlb = roadAlb * mix(1.0, 0.85, edgeLine);
-  }
   // ── Per-biome COLOUR ground texture (Slice 2 of the material-exemplar epic) ──
   // Open ground samples the exemplar atlas as full COLOUR: climate picks the ground
   // CHARACTER (whose grain — grass on moist temperate ground, dirt as it dries, sand
@@ -633,28 +641,51 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let dry   = 1.0 - moist;
       let gvar  = vnoise(in.vGrid * 0.09 + vec2<f32>(5.0, 2.0));
       let bareField = vnoise(in.vGrid * 0.06 + vec2<f32>(17.0, 4.0));   // low-freq bare-earth field
+      // MACRO SWARD DRIFT: a ~45-tile field sweeping the meadow through deep cool
+      // green, fresh mid-green and warm straw — the large-scale tonal patchiness a
+      // real sward has (grazing, soil, drainage) and the single biggest thing that
+      // separates a painted meadow from a flat green fill. It also nudges the
+      // parched-grass threshold so the straw drifts genuinely DRY at their hearts.
+      let sward = vnoise(in.vGrid * 0.022 + vec2<f32>(9.0, 23.0));
 
       // Splat weights (jittered thresholds so borders wander off the tile grid).
       let wDust  = smoothstep(0.58, 0.86, dry * 0.65 + bareField * 0.55 + jit * 0.10);   // bare earth
-      let wDry   = smoothstep(0.40, 0.68, dry + jit * 0.12) * (1.0 - wDust);         // parched grass
+      let wDry   = smoothstep(0.40, 0.68, dry + jit * 0.12 + (sward - 0.5) * 0.22) * (1.0 - wDust);  // parched grass
       let wGrass = max(1.0 - wDust - wDry, 0.0);                                     // lush default
 
       // Lush grass: mean-normalised so the BIOME stays the hue authority; a patchy olive↔fresh
-      // tint gives many subtle greens. Dust/dry keep their own real earthy colour.
-      let gTint    = mix(vec3<f32>(0.90, 1.04, 0.86), vec3<f32>(1.06, 1.0, 0.90), gvar);
-      let grassRaw = groundPatch(GROUND_LAYER_GRASS, in.vGrid, gwarp, 0.28 + 0.16 * gvar);
+      // tint (gvar, fine) times the macro drift palette (sward, broad) gives the many-greens
+      // meadow. Dust/dry keep their own real earthy colour.
+      let swardTint = select(
+        mix(vec3<f32>(0.82, 0.98, 0.86), vec3<f32>(1.0, 1.0, 1.0), sward * 2.0),
+        mix(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.16, 1.08, 0.80), sward * 2.0 - 1.0),
+        sward >= 0.5);
+      let gTint    = mix(vec3<f32>(0.90, 1.04, 0.86), vec3<f32>(1.06, 1.0, 0.90), gvar) * swardTint;
+      let grassRaw = groundPatch(GROUND_LAYER_GRASS, in.vGrid, fwG, gwarp, 0.28 + 0.16 * gvar);
       let grassCol = biome * clamp(grassRaw / GROUND_GRASS_MEAN, vec3<f32>(0.55), vec3<f32>(1.7)) * gTint;
-      let dryCol   = groundPatch(GROUND_LAYER_DRY,  in.vGrid, gwarp, 0.22);
-      let dustCol  = groundPatch(GROUND_LAYER_DUST, in.vGrid, gwarp * 0.7, 0.20);
+      let dryCol   = groundPatch(GROUND_LAYER_DRY,  in.vGrid, fwG, gwarp, 0.22);
+      let dustCol  = groundPatch(GROUND_LAYER_DUST, in.vGrid, fwG, gwarp * 0.7, 0.20);
       var gnd = grassCol * wGrass + dryCol * wDry + dustCol * wDust;
 
       // SCATTERED PEBBLES over the top: real pebble-gravel swatch, clumped by a low-freq field and
       // denser on drier / worn ground — grey stones dotting the dust between the tufts (complements
       // the standing pebble BILLBOARDS). Finer repeat so individual stones read at gameplay zoom.
-      let pebRaw  = groundPatch(GROUND_LAYER_PEBBLE, in.vGrid * 1.8, gwarp, 0.15);
+      let pebRaw  = groundPatch(GROUND_LAYER_PEBBLE, in.vGrid * 1.8, fwG * 1.8, gwarp, 0.15);
+      // PATH VERGE: a road sheds worn ground into the grass beside it — pebbly dust
+      // spilling ~a third of a tile past the ribbon's edge, strongest right at the
+      // boundary and on better-built (higher-tier) roads. rInfo.verge is the analytic
+      // distance OUTSIDE the carriageway (negative inside, so the spill also dresses
+      // the ground showing through a semi-transparent dirt track); rInfo.near gates by
+      // tier even where the faded pavedness is already zero. This is what makes a path
+      // read as a TRAVELLED thing at 1:1 — margins of kicked gravel, not a clean stripe.
+      let vergeW = smoothstep(0.35, 0.02, max(rInfo.verge, 0.0))
+                 * smoothstep(0.10, 0.40, rInfo.near);
       let pebMask = smoothstep(0.40, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)))
-                  * (0.22 + 0.55 * dry);
-      gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.6));
+                  * (0.22 + 0.55 * dry) + 0.55 * vergeW;
+      gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.6 + 0.15 * vergeW));
+      if (vergeW > 0.0) {
+        gnd = mix(gnd, mix(dustCol, pebRaw, 0.45), vergeW * 0.40);
+      }
 
       // DESERT: hot + genuinely arid ground → warm wind-rippled dune sand, with cracked hardpan
       // (dry clay playa) showing through the bare-field flats. Keyed on the climate fields (no
@@ -662,8 +693,8 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let hot     = smoothstep(0.60, 0.80, temp);
       let arid    = smoothstep(0.70, 0.92, dry);
       let desertW = hot * arid;
-      let duneCol = groundPatch(GROUND_LAYER_DUNE,    in.vGrid,       gwarp, 0.20);
-      let hardCol = groundPatch(GROUND_LAYER_HARDPAN, in.vGrid * 1.2, gwarp, 0.16);
+      let duneCol = groundPatch(GROUND_LAYER_DUNE,    in.vGrid,       fwG, gwarp, 0.20);
+      let hardCol = groundPatch(GROUND_LAYER_HARDPAN, in.vGrid * 1.2, fwG * 1.2, gwarp, 0.16);
       let desertCol = mix(duneCol, hardCol, smoothstep(0.52, 0.80, bareField) * 0.75);
       gnd = mix(gnd, desertCol, desertW);
 
@@ -675,7 +706,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
                   * (1.0 - smoothstep(0.20, 0.42, slope))
                   * smoothstep(0.02, 0.10, aboveSea)
                   * (1.0 - desertW);
-      let litterCol = groundPatch(GROUND_LAYER_LITTER, in.vGrid * 1.3, gwarp, 0.24);
+      let litterCol = groundPatch(GROUND_LAYER_LITTER, in.vGrid * 1.3, fwG * 1.3, gwarp, 0.24);
       gnd = mix(gnd, litterCol, clamp(forestW, 0.0, 0.85));
 
       ground = mix(biome, gnd, texFade);
@@ -684,6 +715,48 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // Pre-Slice-2 look: grass exemplar's grayscale detail (luminance / mean) only.
     let groundDetail = clamp(dot(matSample(0, muv), vec3<f32>(0.3333)) / 0.5, 0.72, 1.28);
     ground = biome * groundDetail;
+  }
+
+  // ── Road surface albedo (the PATH BIOME) ─────────────────────────────────────
+  // The full packed-dirt → gravel → cobble spectrum driven by pavedness (tier
+  // anchors dirt 0.2 · gravel 0.45 · cobble 0.75, dimmed by condition·overgrowth —
+  // a worn road drifts down the ladder on its own). GRAVEL and COBBLE are analytic
+  // (per-pixel, world-scaled, band-limited); the Voronoi cost is gated behind road
+  // presence. On top of the surface, three marks of actual TRAVEL:
+  //  · WHEEL RUTS — two darker compacted bands at cart gauge (~1.44 m), straight
+  //    where the road runs but wobbling a hand-width like real ruts, fading out on
+  //    engineered cobble and at overview zoom.
+  //  · CROWN STRIP — between the ruts on dirt/gravel tiers the living grass splat
+  //    survives as a tufty central ridge (wagons kill the wheel lines, hooves thin
+  //    the middle, grass keeps the crown) — THE two-track country lane read.
+  //  · KERB — the crisp colour-defined edge line, now only on engineered tiers
+  //    (gravel and up); a dirt track keeps its ragged organic boundary instead.
+  var roadAlb = dirtA;
+  if (roadMix > 0.0) {
+    let gravelA = analyticGravel(in.vGrid, fwTiles);
+    let cobbleA = analyticCobble(in.vGrid, fwTiles);
+    let upper = road >= 0.45;                      // above the gravel anchor?
+    roadAlb = select(
+      mix(dirtA,   gravelA, smoothstep(0.20, 0.45, road)),   // dirt → gravel
+      mix(gravelA, cobbleA, smoothstep(0.45, 0.78, road)),   // gravel → cobble
+      upper);
+    // Lateral coordinate with a light wander so the ruts are not laser-parallel.
+    let dJit = rInfo.d + (vnoise(in.vGrid * 1.3 + vec2<f32>(57.0, 13.0)) - 0.5) * 0.05;
+    let gaugeFade = smoothstep(0.30, 0.14, fwG);   // gameplay zooms only (sub-px at overview)
+    let rutOff = min(0.36, rInfo.half * 0.62);     // half-gauge, squeezed on narrow tracks
+    let rutAA = max(0.055, fwG * 1.6);
+    let rutMask = (1.0 - smoothstep(0.045, 0.045 + rutAA, abs(dJit - rutOff)))
+                * (1.0 - smoothstep(0.55, 0.78, road))        // cobble loses its ruts
+                * step(0.24, rInfo.half) * gaugeFade;
+    roadAlb = roadAlb * mix(vec3<f32>(1.0), vec3<f32>(0.78, 0.74, 0.70), rutMask);
+    let crownMask = (1.0 - smoothstep(rutOff * 0.20, rutOff * 0.55, dJit))
+                  * (1.0 - smoothstep(0.26, 0.48, road))      // dirt tier only
+                  * step(0.24, rInfo.half) * gaugeFade;
+    roadAlb = mix(roadAlb, ground * vec3<f32>(0.94, 1.02, 0.90), crownMask * 0.62);
+    let edgeAA = max(max(fwTiles.x, fwTiles.y), 1e-4);
+    let edgeLine = (1.0 - smoothstep(0.0, edgeAA, roadEdgeDepth))
+                 * smoothstep(0.28, 0.50, road);
+    roadAlb = roadAlb * mix(1.0, 0.85, edgeLine);
   }
   let base = mix(ground, roadAlb, roadMix);
 
@@ -732,13 +805,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   }
   // Snow = the harvested fresh-snow swatch (drift bumps + sparkle + the odd rock tip), not the
   // flat procedural grey-init — real character on every white crown and cold plain.
-  let SNOW = groundPatch(GROUND_LAYER_SNOW, in.vGrid * 1.2, gwarp, 0.25);
+  let SNOW = groundPatch(GROUND_LAYER_SNOW, in.vGrid * 1.2, fwG * 1.2, gwarp, 0.25);
   // BEACH character keys on climate + shore steepness (field-classifiable, no biome id): tropical
   // WHITE shell-sand on hot coasts, temperate TAN sand (procedural default) on mild ones, grey
   // SHINGLE where the strand is steep/rocky. Fed into the shore-band material weight (wSand) below.
   let tanSand   = matSample(3, muv);
-  let whiteSand = groundPatch(GROUND_LAYER_SAND_WHITE, in.vGrid * 1.4, gwarp, 0.20);
-  let shingle   = groundPatch(GROUND_LAYER_SHINGLE,    in.vGrid * 1.1, gwarp, 0.18);
+  let whiteSand = groundPatch(GROUND_LAYER_SAND_WHITE, in.vGrid * 1.4, fwG * 1.4, gwarp, 0.20);
+  let shingle   = groundPatch(GROUND_LAYER_SHINGLE,    in.vGrid * 1.1, fwG * 1.1, gwarp, 0.18);
   let hotCoast   = smoothstep(0.56, 0.76, temp);
   let steepCoast = smoothstep(0.34, 0.58, slope);
   var SAND = mix(tanSand, whiteSand, hotCoast);
@@ -842,7 +915,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // Textured display mode only; deep water still darkens to the abyss via submerge below.
   var bedAlbedo = modeAlbedo;
   if (mode == 0u && G.uFlags.x > 0.5 && depthBelow > 0.0) {
-    let seabedTex  = groundPatch(GROUND_LAYER_SEABED, in.vGrid * 1.3, gwarp, 0.22);
+    let seabedTex  = groundPatch(GROUND_LAYER_SEABED, in.vGrid * 1.3, fwG * 1.3, gwarp, 0.22);
     let shallowVis = (1.0 - smoothstep(0.0, 0.14, depthBelow)) * texFade;   // near-shore + band-limited
     bedAlbedo = mix(modeAlbedo, seabedTex, clamp(shallowVis, 0.0, 1.0));
   }

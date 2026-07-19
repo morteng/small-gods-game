@@ -16,6 +16,7 @@
 // identity change), so per-frame cost is just the draw.
 
 import type { TerrainField } from '@/render/gpu/terrain-field';
+import { roadInfoAt, type RoadFeatureGeometry } from '@/render/gpu/feature-geometry';
 import { computeSnow01, type SnowFields } from '@/render/snow-mask';
 
 /** Vertical segments per blade ribbon → 2·(SEG+1) strip verts, SEG·2 triangles.
@@ -78,6 +79,7 @@ function vnoise(x: number, y: number): number {
 export function buildGrassInstances(
   field: TerrainField, m: ClutterManifest,
   waterSurf: Float32Array | null = null, waterType: Uint32Array | null = null,
+  roadGeo: RoadFeatureGeometry | null = null,
 ): { data: Float32Array; count: number; seaweedCount: number } {
   const { heights, moisture, temperature, globals: g } = field;
   const W = g.grid[0] | 0, H = g.grid[1] | 0;
@@ -130,14 +132,14 @@ export function buildGrassInstances(
   // Shared by land veg + the coastal seaweed/wrack so placement stays one code path.
   const emit = (
     fx: number, fy: number, e: number, cat: ClutterCat,
-    size: number, widthMul: number, bendK: number,
+    size: number, widthMul: number, bendK: number, layerR?: number,
   ): void => {
     const isWeed = cat === 'seaweed';
     if (isWeed) wantWeed++; else wantLand++;
     const keep = isWeed ? keepWeed : keepLand;
     if (keep < 1 && hash2(fx * 9.7 + 4.9, fy * 6.1 + 8.3) >= keep) return;
     if (isWeed ? nWeed >= MAX_WEED : nLand >= MAX_GRASS) return;
-    const [u0, v0, u1, v1] = cellRect(pickLayer(cat, hash2(fx * 8.1 + 3.3, fy * 5.9 + 7.7)));
+    const [u0, v0, u1, v1] = cellRect(pickLayer(cat, layerR ?? hash2(fx * 8.1 + 3.3, fy * 5.9 + 7.7)));
     const hPx = (e - sea) * relief * zPx;           // foot lift (negative below the waterline)
     const footX = (fx - fy) * halfW;
     const footY = (fx + fy) * halfH - hPx;
@@ -327,6 +329,41 @@ export function buildGrassInstances(
           }
         }
 
+        // ── ROADS: the carpet does not grow through a carriageway. Before this the
+        //    scatter was road-blind and 15 attempts/tile of grass billboards stood ON
+        //    every road, visually erasing it at gameplay zoom. On the ribbon only two
+        //    things survive: sparse short tufts on the CROWN STRIP between the wheel
+        //    ruts of a dirt track (the two-track country-lane read; the shader keeps
+        //    the living grass splat there too), and near-nothing elsewhere. Just off
+        //    the edge, kicked-off PEBBLES gather along the verge, and flowers keep
+        //    clear of the trodden margin (verge grass itself stays). ──
+        let vergeNoFlower = false;
+        if (roadGeo) {
+          const ri = roadInfoAt(roadGeo, fx, fy);
+          if (ri.tier > 0.04 && ri.d < ri.half + 0.4) {
+            const rKeep = hash2(fx * 6.3 + 7.7, fy * 9.4 + 3.9);
+            if (ri.d <= ri.half) {
+              const rutOff = Math.min(0.36, ri.half * 0.62);
+              const inRut = Math.abs(ri.d - rutOff) < 0.13;
+              const onCrown = ri.d < rutOff * 0.5 && ri.tier <= 0.3 && ri.half >= 0.24;
+              if (onCrown) {
+                if (rKeep < 0.42 && !softDrop) {
+                  emit(fx, fy, e, 'grass', 15 * (0.8 + 0.4 * sJit), 0.8, 0.12);
+                }
+              } else if (rKeep < (inRut ? 0.015 : ri.tier > 0.3 ? 0.02 : 0.06) && !softDrop) {
+                emit(fx, fy, e, 'grass', 11 * (0.8 + 0.4 * sJit), 0.8, 0.12);
+              }
+              continue;
+            }
+            const vergeD = ri.d - ri.half;
+            if (rKeep < 0.22 * (1 - vergeD / 0.4)) {
+              emit(fx, fy, e, 'rock', 5 + 5 * sJit, 1.2, 0.0);   // tiny kicked-off pebble
+              continue;
+            }
+            vergeNoFlower = true;
+          }
+        }
+
         // Clumping fields — low-frequency, so a category gathers into patches/outcrops.
         const flowerField = vnoise(fx / 5.5 + 11.2, fy / 5.5 + 4.7);
         const rockField = vnoise(fx / 4.0 + 31.7, fy / 4.0 + 19.3);
@@ -344,7 +381,15 @@ export function buildGrassInstances(
         else if (boulderField > 0.80 && rr > 0.55) { cat = 'rock'; boulder = true; }   // boulder cluster on flat grass
         else if (nearWater && moist > 0.48 && reedField > 0.50) { if (softDrop) continue; cat = 'reed'; } // tall stiff reeds at the water's edge
         else if (moist < 0.55 && pebbleField > 0.68 && rr > 0.72) { cat = 'rock'; pebble = true; } // tiny strewn pebbles on drier/worn ground
-        else if (moist > 0.30 && flowerField > 0.58) { if (softDrop) continue; cat = 'flower'; } // more, wider-spread flower clumps
+        else if (moist > 0.30 && !vergeNoFlower && flowerField > 0.56) {
+          if (softDrop) continue;
+          // FLOWER DRIFTS, not confetti: a drift core (field high) is DENSER than its
+          // fringe — extra emissions thin outside the core so a patch reads as a mass
+          // of bloom melting into grass, the way the inspiration meadows drift.
+          const core = clamp01((flowerField - 0.56) / 0.30);
+          if (hash2(fx * 3.7 + 14.3, fy * 6.9 + 21.1) > 0.35 + 0.65 * core) { cat = 'grass'; }
+          else { cat = 'flower'; }
+        }
         else { if (softDrop) continue; cat = 'grass'; }                                // grass is the dense default (full carpet)
 
         // Per-instance size (world px) + wind stiffness by category (bendK, the 12th float):
@@ -358,7 +403,11 @@ export function buildGrassInstances(
         } else if (cat === 'reed') {
           emit(fx, fy, e, 'reed', 52 + 20 * sJit, 0.95, 0.85);                  // tall stiff reed at the water's edge
         } else if (cat === 'flower') {
-          emit(fx, fy, e, 'flower', 28 + 10 * sJit, 0.9, 0.55);                 // a bloom on a stalk only nods
+          // SPECIES DRIFT: the flower sprite is picked per ~6.5-tile PATCH cell, not per
+          // instance — a drift is all poppies or all ox-eyes, melting into the next patch,
+          // instead of the old per-instance confetti where every clump mixed every species.
+          const species = hash2(Math.floor(fx / 6.5) * 1.3 + 47.9, Math.floor(fy / 6.5) * 2.1 + 8.3);
+          emit(fx, fy, e, 'flower', 28 + 10 * sJit, 0.9, 0.55, species);        // a bloom on a stalk only nods
         } else {
           // Thin the grass carpet on arid ground (see keepGrass above) — dropped attempts
           // leave bare dune/hardpan showing, so a desert reads as sparse scrub, not meadow.
