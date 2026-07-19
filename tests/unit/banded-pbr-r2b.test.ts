@@ -140,8 +140,17 @@ describe('R2b — WGSL parity with the reference', () => {
   });
 
   it('a mirrored instance negates the sampled normal\'s x (lighting follows the flip)', () => {
-    expect(LIT_WGSL).toContain('if (vMisc.y > 0.5) {');
+    // iMisc.y packs mirror (integer part) + 2x scallop (fractional part) since the
+    // buried-rock wavy-foot round — the flip check reads the decoded integer flag.
+    expect(LIT_WGSL).toContain('let mirrorF = floor(vMisc.y);');
+    expect(LIT_WGSL).toContain('if (mirrorF > 0.5) {');
     expect(LIT_WGSL).toContain('n = vec3<f32>(-n.x, n.y, n.z);');
+  });
+
+  it('the scalloped bury edge is IDENTITY at scallop 0 (non-buried sprites untouched)', () => {
+    expect(LIT_WGSL).toContain('let scallop = fract(vMisc.y) * 0.5;');
+    expect(LIT_WGSL).toContain('if (scallop > 0.0) {');
+    expect(LIT_WGSL).toContain('if (vFoot > 1.0 - scallop * wob) { discard; }');
   });
 
   it('the ground CONTACT blend is IDENTITY at strength 0 and only reaches the FOOT', () => {
