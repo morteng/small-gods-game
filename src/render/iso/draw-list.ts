@@ -84,6 +84,15 @@ export type DrawItem =
        */
       mirror?: boolean;
       /**
+       * Scalloped bury edge (buried rocks): fraction of the DRAWN height, from the
+       * foot up, over which the lit shader ERODES the silhouette along a wavy line —
+       * the ground reads as banking unevenly over the rock's base instead of the
+       * bury crop's razor-straight cut (user report: "the entire bottom is cut off
+       * flat"). 0/absent = byte-identical output. Capped ≤ 0.24 (encoding shares
+       * the mirror instance float).
+       */
+      scallop?: number;
+      /**
        * Skip this item in the cast-shadow pass entirely. Ground-cover habits
        * (grass/herb/fern tufts) are too small to read a silhouette shadow and
        * their instance count dwarfs everything else once density rises — a

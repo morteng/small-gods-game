@@ -116,14 +116,18 @@ export function buildShadowBatches(
     // and items without a baked shadow take the projected silhouette below.
     if (mode === 'geometry' && it.shadowSprite) {
       const { w, h } = srcSize(it.shadowSprite.src);
-      // A mirrored sprite mirrors its baked ground shadow about the foot centre:
-      // the offset reflects and the blit u-flips.
-      const x0 = it.dx + it.dw / 2 + (it.mirror ? -(it.shadowSprite.dx + w) : it.shadowSprite.dx);
+      // A mirrored sprite does NOT mirror its baked ground shadow: the bake
+      // integrates the sun's throw, so reflecting it about the foot centre put
+      // the shadow on the WRONG side of the sun — half the trees cast west and
+      // half north-east (user report 2026-07-19). The unmirrored blob is the
+      // wrong silhouette for a flipped sprite but the right direction, and for
+      // soft organic shadows direction is the only thing the eye checks.
+      const x0 = it.dx + it.dw / 2 + it.shadowSprite.dx;
       const y0 = it.dy + it.dh + it.shadowSprite.dy;
       push(it.shadowSprite.src, {
         cTop: [x0, y0, x0 + w, y0],
         cBot: [x0, y0 + h, x0 + w, y0 + h],
-        uv: it.mirror ? [1, 0, 0, 1] : [0, 0, 1, 1],
+        uv: [0, 0, 1, 1],
       });
       continue;
     }

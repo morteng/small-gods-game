@@ -115,14 +115,27 @@ fn fsMain(
   let albedo = textureSample(uAlbedo, uSampler, vUV);
   if (albedo.a < 0.5) { discard; }   // hard pixel-art cutout, not soft AA
 
+  // iMisc.y packs TWO signals: integer part = the mirror flag, fractional part =
+  // 2 x scallop (buried-rock foot erosion fraction). See instance-batch.ts.
+  let mirrorF = floor(vMisc.y);
+  let scallop = fract(vMisc.y) * 0.5;
+  // Scalloped bury edge: the rect bury crop ends a rock in a razor-straight line
+  // at the ground (user report). Erode the last scallop-fraction of the drawn
+  // height along a wavy line instead, so the terrain behind reads as soil banking
+  // unevenly over the base. Two incommensurate sines = irregular, deterministic.
+  if (scallop > 0.0) {
+    let wob = 0.5 + 0.28 * sin(vUV.x * 61.0) + 0.22 * sin(vUV.x * 23.7 + 1.9);
+    if (vFoot > 1.0 - scallop * wob) { discard; }
+  }
+
   let nrm = textureSample(uNormalMap, uSampler, vUV);
   var n = vec3<f32>(0.0, 0.0, 1.0);
   if (nrm.a > 0.5) {
     n = normalize(nrm.rgb * 2.0 - 1.0);
   }
-  // Mirrored instance (iMisc.y): the UV rect is u-flipped, so the sampled normal's
+  // Mirrored instance: the UV rect is u-flipped, so the sampled normal's
   // screen-x component points the wrong way — negate it so lighting matches the flip.
-  if (vMisc.y > 0.5) {
+  if (mirrorF > 0.5) {
     n = vec3<f32>(-n.x, n.y, n.z);
   }
 

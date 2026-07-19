@@ -156,7 +156,15 @@ export function plantSpriteItemFromPack(
   // Wind sway (billboard shear): the lit shader bends the top of the quad along the
   // global wind, foot fixed. Amplitude is per-species (flexibility); 0 ⇒ rigid.
   if (sway > 0) item.sway = Math.min(1, sway);
-  if (buryPx > 0) item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
+  if (buryPx > 0) {
+    item.frame = { sx: 0, sy: 0, sw: w, sh: visH };   // keep the TOP visH rows
+    // The rect crop alone ends the rock in a razor-straight line at the ground —
+    // "the entire bottom is cut off flat" (user). The lit shader erodes the last
+    // `scallop` of the drawn height along a wavy line so the ground banks over the
+    // base unevenly, like soil actually does. Amplitude scales with the bury depth
+    // (a deeply lodged boulder gets a taller, rougher ground line than a cobble).
+    item.scallop = Math.min(0.22, Math.max(2, buryPx * 0.6) / Math.max(1, visH));
+  }
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
   }

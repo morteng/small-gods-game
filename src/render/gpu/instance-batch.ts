@@ -141,7 +141,11 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
     const c = it.contact;
     batch.instances.push({
       dx: it.dx, dy: it.dy, dw: it.dw, dh: it.dh, u0, v0, u1, v1, depth,
-      whiten: it.whiten ?? 0, mirror: it.mirror ? 1 : 0,
+      // mirror carries TWO signals in one float: integer part = the mirror flag,
+      // fractional part = 2×scallop (buried-rock wavy foot erosion, ≤ 0.48). The
+      // shader decodes floor/fract — see lit-wgsl fsMain.
+      whiten: it.whiten ?? 0,
+      mirror: (it.mirror ? 1 : 0) + 2 * Math.min(0.24, Math.max(0, it.scallop ?? 0)),
       contact: c?.strength ?? 0, contactBand: c?.band ?? 0,
       groundR: c?.r ?? 0, groundG: c?.g ?? 0, groundB: c?.b ?? 0,
       sway: it.sway ?? 0,
