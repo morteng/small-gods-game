@@ -30,7 +30,7 @@ import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { withIdbTimeout } from '@/services/idb-guard';
 import { readVendoredSprite } from '@/render/vendored-sprite-bundle';
 import type { StructureResult, StructureAnchors } from '@/assetgen/compose';
-import { cropRgba, rgbaToCanvas, hasEmissivePixels, type SpritePack } from '@/render/iso/sprite-canvas';
+import { cropRgba, rgbaToCanvas, hasEmissivePixels, premultiplyRgba, type SpritePack } from '@/render/iso/sprite-canvas';
 
 const DB_NAME = 'small-gods-parametric-sprites';
 const DB_VERSION = 1;
@@ -74,6 +74,20 @@ interface RecordMeta {
   shadow?: { w: number; h: number; dx: number; dy: number };
   hasEmissive: boolean;
   segs: number[];                // raw (pre-deflate) byte length per segment
+}
+
+/** Rehydration-CPU diagnostics — surfaced as `__packRehydrateStats`. Measures the
+ *  cost of turning a decoded payload into a draw-ready SpritePack (the canvas
+ *  round-trip on the old path; typed-array premultiply on the raw path), so the
+ *  S2 before/after CPU delta is apples-to-apples (same timer, both code paths). */
+export const packRehydrateStats = {
+  count: 0,
+  totalMs: 0,
+  /** Bytes premultiplied/materialized (albedo+normal+material+emissive crops). */
+  bytes: 0,
+};
+if (typeof globalThis !== 'undefined') {
+  (globalThis as Record<string, unknown>).__packRehydrateStats = packRehydrateStats;
 }
 
 /** Session diagnostics — surfaced as `__spriteCacheStats` (mirrors __composeStats). */
@@ -156,32 +170,45 @@ export function payloadFromResult(r: StructureResult): CachedSpritePayload | nul
 }
 
 /**
- * Rebuild a draw-ready SpritePack from a cached payload. Pixel-identical to the
- * fresh `structureResultToPack` path: putImageData of the same cropped bytes
- * lands the same premultiplied backing values as the full-buffer putImageData +
- * integer-rect drawImage crop, and the material map stays RAW (`materialData`),
- * never touching a premultiplied canvas. Null where no 2D canvas exists
- * (jsdom) — callers fall back to composing.
+ * Rebuild a draw-ready SpritePack from a cached payload — the RAW-UPLOAD path
+ * (S2). All four maps rehydrate as typed arrays and upload to the GPU via
+ * `writeTexture`, eliminating the canvas `putImageData` + `copyExternalImage`
+ * round-trip whose only purpose was premultiply + a CanvasImageSource identity:
+ *   • albedo/emissive — {@link premultiplyRgba} in the typed array (byte-matching
+ *     the old canvas copy to within ±1), so the GPU texel is identical;
+ *   • normal/material — carried raw and UN-premultiplied (a>0 flag / DATA map).
+ * No canvas anywhere for these, so this now succeeds under Node/jsdom too (the
+ * old canvas-only path returned null there). The geometry ground SHADOW still
+ * builds a small mask canvas (out of the four-map scope; `rgbaToCanvas` degrades
+ * to null in a canvas-less context, dropping only the shadow). Never throws near
+ * the frame path.
  */
 export function packFromPayload(p: CachedSpritePayload): SpritePack | null {
+  const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
   try {
-    const albedo = rgbaToCanvas(p.grey, p.w, p.h);
-    if (!albedo) return null;
     const pack: SpritePack = {
-      albedo,
-      normal: rgbaToCanvas(p.normal, p.w, p.h) ?? undefined,
+      albedoData: premultiplyRgba(p.grey, p.w, p.h),
+      normalData: { data: p.normal, w: p.w, h: p.h },
       materialData: { data: p.material, w: p.w, h: p.h },
     };
-    if (p.emissive) pack.emissive = rgbaToCanvas(p.emissive, p.w, p.h) ?? undefined;
+    if (p.emissive) pack.emissiveData = premultiplyRgba(p.emissive, p.w, p.h);
+    // The geometry shadow is the one remaining canvas (out of the four-map scope). Isolate
+    // its build: a canvas-less / half-implemented backend must drop only the shadow, never
+    // discard the (canvas-free) raw maps — `rgbaToCanvas` can THROW (e.g. ImageData missing),
+    // not just return null.
     if (p.shadow) {
-      const canvas = rgbaToCanvas(p.shadow.data, p.shadow.w, p.shadow.h);
-      if (canvas) pack.shadow = { canvas, dx: p.shadow.dx, dy: p.shadow.dy };
+      try {
+        const canvas = rgbaToCanvas(p.shadow.data, p.shadow.w, p.shadow.h);
+        if (canvas) pack.shadow = { canvas, dx: p.shadow.dx, dy: p.shadow.dy };
+      } catch { /* shadow is optional — keep the raw pack */ }
     }
     if (p.anchors.tags?.length) pack.tags = p.anchors.tags;
+    packRehydrateStats.count++;
+    packRehydrateStats.totalMs += (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
+    packRehydrateStats.bytes += p.w * p.h * 4 * (3 + (p.emissive ? 1 : 0));
     return pack;
   } catch {
-    // e.g. a half-implemented canvas (jsdom has a 2D ctx object but no ImageData):
-    // degrade to composing rather than ever throwing near the frame path.
+    // Defensive: the raw path shouldn't throw, but never let the frame path see one.
     return null;
   }
 }

@@ -47,10 +47,14 @@ export interface InstanceAttrs {
   sway: number;
 }
 
-/** One instanced draw: a texture (+ optional PBR maps) and its instances. */
+/** One instanced draw: a texture (+ optional PBR maps) and its instances. The
+ *  albedo `texture` and the companion maps may be a `CanvasImageSource` OR a raw
+ *  premultiplied {@link RawMap} (the cache-rehydration path uploads via writeTexture). */
 export interface InstanceBatch {
-  texture: CanvasImageSource;
+  texture: CanvasImageSource | RawMap;
   normal?: CanvasImageSource;
+  /** Raw normal map (preferred over `normal` — uploaded UN-premultiplied via writeTexture). */
+  normalData?: RawMap;
   material?: CanvasImageSource;
   /** Raw material map (preferred over `material` — uploaded via writeTexture so the
    *  data channels survive; the canvas form premultiplies away AO/roughness). */
@@ -58,13 +62,18 @@ export interface InstanceBatch {
   /** Self-illumination map (lit window panes); added by the shader × night factor.
    *  Optional and independent of `lit` — a sprite can glow without normal/material. */
   emissive?: CanvasImageSource;
+  /** Raw emissive map (preferred over `emissive` — already premultiplied, writeTexture). */
+  emissiveData?: RawMap;
   /** True when normal+material are present ⇒ the lit WGSL path; else flat blit. */
   lit: boolean;
   instances: InstanceAttrs[];
 }
 
-/** Read intrinsic pixel size off any CanvasImageSource (img/canvas/bitmap). */
-export function srcSize(s: CanvasImageSource): { w: number; h: number } {
+/** Read intrinsic pixel size off any CanvasImageSource (img/canvas/bitmap) OR a
+ *  {@link RawMap} (the raw-upload albedo/shadow source). */
+export function srcSize(s: CanvasImageSource | RawMap): { w: number; h: number } {
+  const r = s as RawMap;
+  if (r.data instanceof Uint8ClampedArray) return { w: r.w, h: r.h };
   const a = s as { naturalWidth?: number; naturalHeight?: number; videoWidth?: number; videoHeight?: number; width?: number; height?: number };
   const w = a.naturalWidth || a.videoWidth || a.width || 0;
   const h = a.naturalHeight || a.videoHeight || a.height || 0;
@@ -90,7 +99,7 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
   passthrough: DrawItem[];
 } {
   const batches: InstanceBatch[] = [];
-  const byTexture = new Map<CanvasImageSource, InstanceBatch>();
+  const byTexture = new Map<CanvasImageSource | RawMap, InstanceBatch>();
   const passthrough: DrawItem[] = [];
   const count = items.length;
 
@@ -106,10 +115,12 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
       batch = {
         texture: it.src,
         normal: it.maps?.normal,
+        normalData: it.maps?.normalData,
         material: it.maps?.material,
         materialData: it.maps?.materialData,
         emissive: it.maps?.emissive,
-        lit: !!(it.maps?.normal && (it.maps?.material || it.maps?.materialData)),
+        emissiveData: it.maps?.emissiveData,
+        lit: !!((it.maps?.normal || it.maps?.normalData) && (it.maps?.material || it.maps?.materialData)),
         instances: [],
       };
       byTexture.set(it.src, batch);

@@ -20,6 +20,7 @@
 // Corner/UV ordering matches the unit quad + shadow-wgsl.ts vertex shader.
 
 import type { DrawItem } from '@/render/iso/draw-list';
+import type { RawMap } from '@/render/iso/sprite-canvas';
 import type { LightingState } from '@/render/lighting-state';
 import { srcSize, type ViewTransform } from '@/render/gpu/instance-batch';
 
@@ -39,9 +40,11 @@ export interface ShadowInstance {
   uv: [number, number, number, number];
 }
 
-/** One instanced shadow draw: a source texture (alpha-sampled) + its instances. */
+/** One instanced shadow draw: a source texture (alpha-sampled) + its instances.
+ *  The source may be a canvas/image OR a raw premultiplied {@link RawMap} (the
+ *  rehydrated-albedo silhouette / raw geometry-shadow mask — only its alpha is read). */
 export interface ShadowBatch {
-  texture: CanvasImageSource;
+  texture: CanvasImageSource | RawMap;
   instances: ShadowInstance[];
 }
 
@@ -97,8 +100,8 @@ export function buildShadowBatches(
   const { leanX, dropY, mag } = sunLean(lighting);
   if (mag <= 0.05) return [];
 
-  const byTexture = new Map<CanvasImageSource, ShadowBatch>();
-  const push = (texture: CanvasImageSource, inst: ShadowInstance): void => {
+  const byTexture = new Map<CanvasImageSource | RawMap, ShadowBatch>();
+  const push = (texture: CanvasImageSource | RawMap, inst: ShadowInstance): void => {
     let batch = byTexture.get(texture);
     if (!batch) { batch = { texture, instances: [] }; byTexture.set(texture, batch); }
     batch.instances.push(inst);

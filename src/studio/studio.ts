@@ -292,7 +292,8 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
     if (!massing) { warmSubject(); return null; }
     if (!state.textured) return massing;
     const fin = finishedSubject();   // this session's paid render; library/IDB art → genBuilding
-    if (fin && fin.width === massing.albedo.width && fin.height === massing.albedo.height) {
+    // Studio subject packs come from structureResultToPack ⇒ canvas-backed albedo.
+    if (fin && fin.width === massing.albedo!.width && fin.height === massing.albedo!.height) {
       return { ...massing, albedo: fin };
     }
     return massing;
@@ -319,8 +320,10 @@ export function mountObjectStudio(container: HTMLElement, opts: ObjectStudioOpts
       return '⚠ painted sprite predates geometry edits (preset match — not verified)';
     }
     const massing = peekSubject();
-    if (massing && (pack.albedo.width !== massing.albedo.width
-      || pack.albedo.height !== massing.albedo.height)) {
+    // Both are canvas-backed here: genBuilding is a GeneratedBuildingArtSource (img2img
+    // library ⇒ canvas) and massing is a structureResultToPack subject pack.
+    if (massing && (pack.albedo!.width !== massing.albedo!.width
+      || pack.albedo!.height !== massing.albedo!.height)) {
       return '⚠ painted sprite size disagrees with current geometry';
     }
     return null;

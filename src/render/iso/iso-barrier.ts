@@ -17,7 +17,7 @@ import type { BarrierRun } from '@/world/barrier';
 import { worldToScreen } from './iso-projection';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
 import { type DrawItem } from './draw-list';
-import type { BarrierPiece } from './sprite-canvas';
+import { packAlbedoSource, mapSize, type BarrierPiece } from './sprite-canvas';
 
 /**
  * One composed-and-lit barrier chunk → an image DrawItem, placed pixel-exactly: the chunk's
@@ -29,10 +29,11 @@ import type { BarrierPiece } from './sprite-canvas';
  */
 export function barrierPieceItem(o: { originX: number; originY: number }, piece: BarrierPiece): DrawItem {
   const { pack } = piece;
-  const w = pack.albedo.width, h = pack.albedo.height;
+  const src = packAlbedoSource(pack);
+  const { w, h } = mapSize(src);
   const s = worldToScreen(piece.refX, piece.refY, 0, o.originX, o.originY);
   const item: DrawItem = {
-    t: 'image', src: pack.albedo,
+    t: 'image', src,
     dx: Math.round(s.sx - piece.anchorNX * w),
     dy: Math.round(s.sy - piece.anchorNY * h),
     dw: w, dh: h,
@@ -40,12 +41,14 @@ export function barrierPieceItem(o: { originX: number; originY: number }, piece:
     // the building `dw/4` convention samples an off-anchor tile and splits seams on slopes). D6.
     foot: { sx: s.sx, sy: s.sy },
   };
-  if (pack.normal || pack.material || pack.materialData || pack.emissive) {
+  if (pack.normal || pack.normalData || pack.material || pack.materialData || pack.emissive || pack.emissiveData) {
     item.maps = {
       normal: pack.normal as CanvasImageSource | undefined,
+      normalData: pack.normalData,
       material: pack.material as CanvasImageSource | undefined,
       materialData: pack.materialData,
       emissive: pack.emissive as CanvasImageSource | undefined,
+      emissiveData: pack.emissiveData,
     };
   }
   if (pack.shadow) item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };

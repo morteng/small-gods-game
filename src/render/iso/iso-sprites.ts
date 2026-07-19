@@ -7,6 +7,7 @@ import { getSpriteCoords } from '@/render/npc-animator';
 import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
 import { type DrawItem } from './draw-list';
+import { packAlbedoSource, mapSize } from './sprite-canvas';
 
 export interface IsoDrawCtx {
   ctx: CanvasRenderingContext2D;
@@ -121,8 +122,8 @@ export function plantSpriteItemFromPack(
   sway = 0,
 ): DrawItem {
   const { sx, sy } = worldToScreen(x, y, 0, o.originX, o.originY);
-  const src = pack.albedo;
-  const w = src.width, h = src.height;
+  const src = packAlbedoSource(pack);
+  const { w, h } = mapSize(src);
   // BURY (R5): sink the sprite into the ground by cropping the bottom `buryPx` rows and
   // seating the CROPPED base at the ground line (sy). The painter-order entity pass has
   // no per-pixel terrain clip, so we can't just push the sprite down (it'd float lower) —
@@ -159,12 +160,14 @@ export function plantSpriteItemFromPack(
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };
   }
-  if (pack.normal || pack.material || pack.materialData || pack.emissive) {
+  if (pack.normal || pack.normalData || pack.material || pack.materialData || pack.emissive || pack.emissiveData) {
     item.maps = {
       normal: pack.normal as CanvasImageSource | undefined,
+      normalData: pack.normalData,
       material: pack.material as CanvasImageSource | undefined,
       materialData: pack.materialData,
       emissive: pack.emissive as CanvasImageSource | undefined,
+      emissiveData: pack.emissiveData,
     };
   }
   return item;

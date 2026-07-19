@@ -51,6 +51,25 @@ import { WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { createNoiseTexture } from '@/render/gpu/noise-texture';
 import { UiPass } from '@/render/ui/ui-pass';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
+import { isRawMap, type RawMap } from '@/render/iso/sprite-canvas';
+
+/** Sprite-texture VRAM + per-frame batch diagnostics — surfaced as `__gpuTexStats`
+ *  (mirrors `__spriteCacheStats`). `canvas*` counts the `copyExternalImageToTexture`
+ *  path (albedo/normal/emissive on the old rehydration path); `raw*` counts the
+ *  `writeTexture` path (material always; all four maps once the raw path lands).
+ *  `entityBatches`/`entityBindGroups` are the last entity pass's bucket + bind-group
+ *  switch count. Bytes = Σ w·h·4 over live (cached) textures. */
+export const gpuTexStats = {
+  canvasTextures: 0,
+  rawTextures: 0,
+  canvasBytes: 0,
+  rawBytes: 0,
+  entityBatches: 0,
+  entityBindGroups: 0,
+};
+if (typeof globalThis !== 'undefined') {
+  (globalThis as Record<string, unknown>).__gpuTexStats = gpuTexStats;
+}
 
 /** 1-element placeholders bound to the river-channel storage slots when a world has
  *  no rivers, so the bind group always satisfies the (auto) layout; the shader skips
@@ -257,13 +276,16 @@ export class GpuScene {
   private stencilTex: GPUTexture | null = null;
   private stencilW = 0;
   private stencilH = 0;
-  private shadowBindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
-  /** Per-batch bind group cache, keyed by the albedo source (batch identity). */
-  private bindCache = new WeakMap<CanvasImageSource, GPUBindGroup>();
+  /** Keyed by the batch texture identity — a CanvasImageSource OR a RawMap object. */
+  private shadowBindCache = new WeakMap<object, GPUBindGroup>();
+  /** Per-batch bind group cache, keyed by the albedo source (batch identity —
+   *  a CanvasImageSource or a RawMap). */
+  private bindCache = new WeakMap<object, GPUBindGroup>();
   private texCache = new WeakMap<CanvasImageSource, GPUTexture>();
   /** One-shot warn flag for transient texture-upload failures (see uploadTexture). */
   private uploadWarned = false;
-  /** Raw material-map textures, keyed by RawMap identity (not a CanvasImageSource). */
+  /** Raw-map textures (material always; albedo/normal/emissive on the raw
+   *  rehydration path), keyed by RawMap identity (not a CanvasImageSource). */
   private rawTexCache = new WeakMap<object, GPUTexture>();
   /** Persistent, grow-on-demand vertex/instance buffers (one per stream), reused
    *  every frame instead of allocating + destroying dozens of buffers per frame. */
@@ -280,7 +302,7 @@ export class GpuScene {
    *  a lighting signature (sun move re-bakes). The camera bake is the shader uXform. */
   private staticShadowSrc: readonly DrawItem[] | null = null;
   private staticShadowSig = '';
-  private staticShadowBundle: { texture: CanvasImageSource; buf: GPUBuffer; count: number }[] = [];
+  private staticShadowBundle: { texture: CanvasImageSource | RawMap; buf: GPUBuffer; count: number }[] = [];
   /** L2 static shape bundle: the static layer's poly/circle fills (flora trunks +
    *  canopies, fallback shapes) triangulated ONCE into a persistent WORLD-px vertex
    *  buffer, keyed by the lifted-array identity. The camera xform is applied in the
@@ -574,6 +596,8 @@ export class GpuScene {
       return tex;
     }
     this.texCache.set(src, tex);
+    gpuTexStats.canvasTextures++;
+    gpuTexStats.canvasBytes += Math.max(1, w) * Math.max(1, h) * 4;
     return tex;
   }
 
@@ -595,23 +619,40 @@ export class GpuScene {
       [w, h, 1],
     );
     this.rawTexCache.set(m, tex);
+    gpuTexStats.rawTextures++;
+    gpuTexStats.rawBytes += w * h * 4;
     return tex;
+  }
+
+  /** Upload an albedo/companion map to a texture. A RawMap goes straight to
+   *  `writeTexture` (already premultiplied where it needs to be — albedo/emissive —
+   *  or a DATA/normal map that must stay un-premultiplied); a CanvasImageSource
+   *  takes the `copyExternalImageToTexture` path with the given premultiply flag. */
+  private uploadMap(src: CanvasImageSource | RawMap, premultiply: boolean): GPUTexture {
+    return isRawMap(src) ? this.uploadRawTexture(src) : this.uploadTexture(src, premultiply);
   }
 
   private batchBind(b: InstanceBatch): GPUBindGroup {
     const cached = this.bindCache.get(b.texture);
     if (cached) return cached;
-    const albedo = this.uploadTexture(b.texture, true);
-    // Failed/pending upload (not in texCache) → build the bind for THIS frame but
-    // don't memoize it, so the retry next frame isn't masked by a stale bind.
-    const settled = this.texCache.has(b.texture);
-    const normal = b.normal ? this.uploadTexture(b.normal, false) : this.flatNormal;
+    const albedo = this.uploadMap(b.texture, true);
+    // Failed/pending CANVAS upload (not in texCache) → build the bind for THIS
+    // frame but don't memoize, so the retry next frame isn't masked by a stale
+    // bind. A raw upload can't transiently fail (writeTexture from owned bytes), so
+    // it's always settled.
+    const settled = isRawMap(b.texture) ? true : this.texCache.has(b.texture);
+    const normal = b.normalData
+      ? this.uploadRawTexture(b.normalData)
+      : b.normal ? this.uploadTexture(b.normal, false) : this.flatNormal;
     const material = b.materialData
       ? this.uploadRawTexture(b.materialData)
       : b.material ? this.uploadTexture(b.material, false) : this.neutralMaterial;
     // Emissive is premultiplied-uploaded (true) like the albedo: lit-pane RGB is
-    // co-keyed to the same alpha cutout, and the shader scales it by alpha.
-    const emissive = b.emissive ? this.uploadTexture(b.emissive, true) : this.blackEmissive;
+    // co-keyed to the same alpha cutout, and the shader scales it by alpha. The raw
+    // form (emissiveData) is premultiplied at rehydration, so it uploads as-is.
+    const emissive = b.emissiveData
+      ? this.uploadRawTexture(b.emissiveData)
+      : b.emissive ? this.uploadTexture(b.emissive, true) : this.blackEmissive;
     const bind = this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(1),
       entries: [
@@ -626,12 +667,14 @@ export class GpuScene {
     return bind;
   }
 
-  /** Per-source bind group for the shadow pass (sampler + alpha-sampled tex). */
-  private shadowBind(texture: CanvasImageSource): GPUBindGroup {
+  /** Per-source bind group for the shadow pass (sampler + alpha-sampled tex). The
+   *  source is the entity albedo (silhouette) or the baked geometry-shadow mask —
+   *  a canvas OR a raw premultiplied map; only its alpha is read either way. */
+  private shadowBind(texture: CanvasImageSource | RawMap): GPUBindGroup {
     const cached = this.shadowBindCache.get(texture);
     if (cached) return cached;
-    // Reuse the entity albedo upload (same src) — only the alpha is read.
-    const tex = this.uploadTexture(texture, true);
+    // Reuse the entity albedo upload (same src object) — only the alpha is read.
+    const tex = this.uploadMap(texture, true);
     const bind = this.device.createBindGroup({
       layout: this.shadowPipeline.getBindGroupLayout(1),
       entries: [
@@ -639,8 +682,9 @@ export class GpuScene {
         { binding: 1, resource: tex.createView() },
       ],
     });
-    // As in batchBind: only memoize once the underlying upload actually landed.
-    if (this.texCache.has(texture)) this.shadowBindCache.set(texture, bind);
+    // As in batchBind: only memoize once the underlying upload actually landed (raw
+    // uploads are always settled; canvas uploads may be pending a decode).
+    if (isRawMap(texture) || this.texCache.has(texture)) this.shadowBindCache.set(texture, bind);
     return bind;
   }
 
@@ -1448,6 +1492,10 @@ export class GpuScene {
     epass.setVertexBuffer(0, this.quadBuf);
     epass.setBindGroup(0, this.globalsBind);
     if (entitiesOn) {
+      // Per-frame batch/bind diagnostics (one bind-group switch per drawn bucket).
+      gpuTexStats.entityBatches = this.staticBundle.length
+        + dynBatches.filter((b) => b.instances.length > 0).length;
+      gpuTexStats.entityBindGroups = gpuTexStats.entityBatches;
       // Static bundle — persistent per-batch buffers, packed once (world px).
       for (const e of this.staticBundle) {
         epass.setBindGroup(1, this.batchBind(e.batch));

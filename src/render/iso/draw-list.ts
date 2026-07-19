@@ -17,16 +17,26 @@ export interface SrcFrame { sx: number; sy: number; sw: number; sh: number }
 export type DrawItem =
   | {
       t: 'image';
-      src: CanvasImageSource;
+      /** The albedo upload source: a `CanvasImageSource` (AI-art / compose-direct
+       *  packs, NPC/tree sheets) OR a premultiplied {@link RawMap} (cache-rehydrated
+       *  parametric packs — uploaded via `writeTexture`, no canvas). Its OBJECT
+       *  identity is the batch/texture cache key in both cases. */
+      src: CanvasImageSource | RawMap;
       /** Sheet frame; omitted = the whole source. */
       frame?: SrcFrame;
       dx: number; dy: number; dw: number; dh: number;
       /**
        * Co-registered PBR companion maps (same dimensions as `src`, never
        * framed). Present only on building-pack sprites; the GPU scene lights
-       * items that carry a normal map.
+       * items that carry a normal map. Each map is either a canvas (`normal`/
+       * `material`/`emissive`) or a raw typed array (`*Data`) — the raw form is
+       * preferred and uploaded via `writeTexture` (no premultiplied-canvas round-trip).
        */
-      maps?: { normal?: CanvasImageSource; material?: CanvasImageSource; materialData?: RawMap; emissive?: CanvasImageSource };
+      maps?: {
+        normal?: CanvasImageSource; normalData?: RawMap;
+        material?: CanvasImageSource; materialData?: RawMap;
+        emissive?: CanvasImageSource; emissiveData?: RawMap;
+      };
       /**
        * Cast-shadow hint. `footLift` = screen px the ground-contact point sits
        * ABOVE the sprite's bottom edge (buildings anchor at their

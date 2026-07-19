@@ -176,7 +176,7 @@ export function mountCrossingStudio(container: HTMLElement): StudioHandle {
     const cx = streamXAt(cy);
     if (pack === undefined) { note('composing…', cx, cy, '#5b6878'); return; }
     if (pack === null) { note('✕ no geometry', cx, cy, '#c2603a'); return; }
-    const src = pack.albedo, sw = src.width, sh = src.height;
+    const src = pack.albedo!, sw = src.width, sh = src.height; // studio packs are canvas-backed
     // 1:1-friendly integer-ish scale, capped so the stone arch doesn't dwarf its band.
     const s = Math.min(1, (maxH - 18) / sh, (cssW * 0.5) / sw);
     const dw = Math.max(1, Math.round(sw * s)), dh = Math.max(1, Math.round(sh * s));

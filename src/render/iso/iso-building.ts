@@ -11,7 +11,7 @@
  */
 import { worldToScreen } from './iso-projection';
 import { opaqueAnchor, type SpriteAnchor } from './iso-sprite-bbox';
-import type { SpritePack } from './sprite-canvas';
+import { packAlbedoSource, mapSize, type SpritePack, type RawMap } from './sprite-canvas';
 import type { BuildingRenderMode } from '@/core/types';
 import { HEIGHT_UNIT_PX, ISO_TILE_H } from '@/render/scale-contract';
 import { type DrawItem } from './draw-list';
@@ -69,7 +69,7 @@ function boxItems(g: Corners, height: number, wall: string): DrawItem[] {
 
 /** Shared placement: land `anchor` (in sprite px) on the footprint's front tip. */
 export function buildingSpriteItem(
-  o: { originX: number; originY: number }, src: CanvasImageSource, natW: number, natH: number,
+  o: { originX: number; originY: number }, src: CanvasImageSource | RawMap, natW: number, natH: number,
   anchor: SpriteAnchor, tileX: number, tileY: number, footprint: { w: number; h: number },
 ): DrawItem {
   const { originX, originY } = o;
@@ -145,13 +145,19 @@ export function buildingSpriteItemFromPack(
   o: { originX: number; originY: number }, pack: SpritePack,
   tileX: number, tileY: number, footprint: { w: number; h: number },
 ): DrawItem {
-  const item = buildingSpriteItemFromCanvas(o, pack.albedo, tileX, tileY, footprint);
-  if (item.t === 'image' && (pack.normal || pack.material || pack.materialData || pack.emissive)) {
+  // The crop is opaque-content-tight, so the base anchor is centre/bottom whether the
+  // albedo is a canvas (AI-art / compose-direct) or a raw premultiplied map (cache path).
+  const src = packAlbedoSource(pack);
+  const { w: natW, h: natH } = mapSize(src);
+  const item = buildingSpriteItem(o, src, natW, natH, { centerX: natW / 2, bottom: natH }, tileX, tileY, footprint);
+  if (item.t === 'image' && (pack.normal || pack.normalData || pack.material || pack.materialData || pack.emissive || pack.emissiveData)) {
     item.maps = {
       normal: pack.normal as CanvasImageSource | undefined,
+      normalData: pack.normalData,
       material: pack.material as CanvasImageSource | undefined,
       materialData: pack.materialData,
       emissive: pack.emissive as CanvasImageSource | undefined,
+      emissiveData: pack.emissiveData,
     };
   }
   if (item.t === 'image' && pack.shadow) {

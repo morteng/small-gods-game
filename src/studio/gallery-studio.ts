@@ -122,7 +122,7 @@ export function mountGalleryStudio(container: HTMLElement, opts: GalleryStudioOp
     const g = cv.getContext('2d'); if (!g) return;
     g.clearRect(0, 0, cv.width, cv.height);
     g.imageSmoothingEnabled = false;
-    const src = pack.albedo, sw = src.width, sh = src.height, pad = 12;
+    const src = pack.albedo!, sw = src.width, sh = src.height, pad = 12; // studio packs are canvas-backed
     const s = Math.min((cv.width - pad * 2) / sw, (cv.height - pad * 2) / sh);
     const dw = Math.max(1, Math.round(sw * s)), dh = Math.max(1, Math.round(sh * s));
     const dx = Math.round((cv.width - dw) / 2), dy = Math.round(cv.height - pad - dh);

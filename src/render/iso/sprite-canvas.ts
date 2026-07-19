@@ -27,13 +27,28 @@ export interface RawMap {
  * when the sprite actually has emissive pixels (saves a black-texture upload).
  */
 export interface SpritePack {
-  albedo: SpriteCanvas;
+  /** Albedo as a 2D canvas (AI-art + compose-direct paths). Absent on the raw
+   *  rehydration path, which carries {@link albedoData} instead — exactly one of
+   *  the two is set. Use {@link packAlbedoSource} to read whichever is present. */
+  albedo?: SpriteCanvas;
+  /** Albedo as ALREADY-PREMULTIPLIED raw RGBA (cache rehydration path). Uploaded
+   *  straight to the GPU via `writeTexture`, skipping the canvas `putImageData` +
+   *  `copyExternalImageToTexture` round-trip whose only job was premultiply +
+   *  a CanvasImageSource identity. Premultiplied at rehydration so the byte form
+   *  matches what the canvas copy would have produced (see {@link premultiplyRgba}). */
+  albedoData?: RawMap;
   normal?: SpriteCanvas;
+  /** Normal map as raw RGBA — UN-premultiplied (the alpha is a flat-normal FLAG,
+   *  not coverage; a>0 ⇒ use the encoded normal). Uploaded via `writeTexture`. */
+  normalData?: RawMap;
   material?: SpriteCanvas;
   /** The material map as raw RGBA (preferred over `material` for GPU upload).
    *  See {@link RawMap}: the canvas form destroys AO/roughness where metallic=0. */
   materialData?: RawMap;
   emissive?: SpriteCanvas;
+  /** Emissive (lit-pane self-illumination) as ALREADY-PREMULTIPLIED raw RGBA —
+   *  premultiplied like the albedo (the shader scales it by the sampled alpha). */
+  emissiveData?: RawMap;
   /** Geometry-baked ground cast shadow + its offset (px) from the albedo crop's
    *  top-left, so the runtime blits it on the ground under the sprite. */
   shadow?: { canvas: SpriteCanvas; dx: number; dy: number };
@@ -59,6 +74,55 @@ export interface BarrierPiece {
   refX: number; refY: number;        // world tile point the sprite anchors on (z=0)
   anchorNX: number; anchorNY: number; // normalised (0..1 of the crop) position of (refX,refY)
   sortX: number; sortY: number;       // y-sort anchor tile (the chunk's midpoint)
+}
+
+/** Discriminate a {@link RawMap} from a `CanvasImageSource` — the raw form carries
+ *  a `.data` typed array; canvases/images do not. */
+export function isRawMap(s: CanvasImageSource | RawMap): s is RawMap {
+  return (s as RawMap).data instanceof Uint8ClampedArray;
+}
+
+/** The albedo GPU-upload source: the premultiplied {@link RawMap} on the raw
+ *  rehydration path, else the canvas. Exactly one is present on a well-formed pack. */
+export function packAlbedoSource(pack: SpritePack): CanvasImageSource | RawMap {
+  return (pack.albedoData ?? pack.albedo) as CanvasImageSource | RawMap;
+}
+
+/** Intrinsic pixel size of a canvas/image OR a {@link RawMap} — the emitters read
+ *  it to size the draw item regardless of which backing the pack carries. */
+export function mapSize(s: CanvasImageSource | RawMap): { w: number; h: number } {
+  if (isRawMap(s)) return { w: s.w, h: s.h };
+  const a = s as { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number };
+  return { w: a.naturalWidth || a.width || 0, h: a.naturalHeight || a.height || 0 };
+}
+
+/**
+ * Premultiply a straight-alpha RGBA buffer in a fresh typed array — the raw-upload
+ * equivalent of the old `putImageData` → `copyExternalImageToTexture(premultiply)`
+ * round-trip, but with no canvas. Alpha=0 pixels zero their RGB (matching the
+ * premultiplied canvas backing); alpha=255 pixels are copied verbatim (identity).
+ * Rounds to nearest so the byte form matches what the canvas copy produced to
+ * within ±1 at partial alphas (sprites are hard-alpha, so partials are edge-rare).
+ * Used for ALBEDO and EMISSIVE only — normal/material must stay un-premultiplied.
+ */
+export function premultiplyRgba(src: Uint8ClampedArray, w: number, h: number): RawMap {
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < out.length; i += 4) {
+    const a = src[i + 3];
+    if (a === 0) { out[i + 3] = 0; continue; }          // RGB already 0 from the fill
+    if (a === 255) {
+      out[i] = src[i]; out[i + 1] = src[i + 1]; out[i + 2] = src[i + 2]; out[i + 3] = 255;
+      continue;
+    }
+    // Round-half-up integer premultiply (branchless, no Math.round call): the
+    // fast path (hard-alpha) covers the vast majority of a sprite's pixels; only
+    // anti-aliased edge texels take this partial-alpha branch.
+    out[i] = (src[i] * a + 127) / 255 | 0;
+    out[i + 1] = (src[i + 1] * a + 127) / 255 | 0;
+    out[i + 2] = (src[i + 2] * a + 127) / 255 | 0;
+    out[i + 3] = a;
+  }
+  return { data: out, w, h };
 }
 
 /** True if an emissive RGBA buffer has any self-illuminated (non-black) pixel. */
