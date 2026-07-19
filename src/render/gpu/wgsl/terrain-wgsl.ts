@@ -93,7 +93,10 @@ fn groundPatch(layer : i32, grid : vec2<f32>, fwGrid : f32, warp : f32, mixW : f
   let uv1 = grid / (GROUND_REPEAT_TILES * 2.3) + vec2<f32>(0.37, 0.61);
   let texels = fwGrid / GROUND_REPEAT_TILES * f32(textureDimensions(groundTex).x);
   let maxLod = f32(textureNumLevels(groundTex) - 1u);
-  let lod0 = clamp(log2(max(texels, 1e-4)), 0.0, maxLod);
+  // −0.7 sharpen bias: exact trilinear leaves the fine-repeat swatches a shade soft at
+  // gameplay zoom (≈LOD 4 — "terrain texture looks very blended"); biasing under one
+  // mip restores grain punch with negligible pan shimmer at these densities.
+  let lod0 = clamp(log2(max(texels, 1e-4)) - 0.7, 0.0, maxLod);
   let lod1 = clamp(lod0 - 1.2, 0.0, maxLod);            // the /2.3 octave is coarser per px
   let s0 = textureSampleLevel(groundTex, groundSamp, uv0, layer, lod0).rgb;
   let s1 = textureSampleLevel(groundTex, groundSamp, uv1, layer, lod1).rgb;
@@ -374,6 +377,29 @@ fn analyticGravel(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
   let val = tone * (0.7 + 0.3 * dome);
   return vec3<f32>(val, val * 0.95, val * 0.86);
 }
+// Scattered pebble STONES on open ground — analytic like the road gravel, because a
+// baked swatch cannot survive gameplay-zoom minification (at 1:1 the pebble layer sits
+// ~4 mips deep and every stone averages into speckle — the "very blended" read).
+// Each Voronoi cell carries a stone only where its hash clears the density gate, so
+// coverage is per-stone: a distinct AA'd dome with its own size, grey tone and warm/cool
+// cast, and the living ground completely untouched between stones. Returns rgb + coverage.
+fn analyticPebbles(uvTiles : vec2<f32>, fwTiles : vec2<f32>, density : f32) -> vec4<f32> {
+  let stoneTiles = 0.14;                       // ~0.28 m cells → fist-to-cobble stones
+  let uv = uvTiles / stoneTiles;
+  let cellFw = max(fwTiles.x, fwTiles.y) / stoneTiles;
+  let v = vorCell(uv, 0.9);
+  let lod = detailLod(cellFw);
+  let has = step(1.0 - density, v.y);          // sparse: only some cells grow a stone
+  let r = 0.20 + 0.22 * fract(v.y * 7.31);     // per-stone size (small pebble → cobble)
+  let aa = max(cellFw, 0.07);
+  let body = 1.0 - smoothstep(r - aa, r + aa, v.x);
+  let t = min(1.0, v.x / max(r, 1e-3));
+  let dome = sqrt(max(0.0, 1.0 - t * t));      // rounded top-lit crown
+  let tone = (0.40 + 0.24 * fract(v.y * 5.17)) * (0.68 + 0.32 * dome);
+  let warm = fract(v.y * 3.77);                // per-stone warm/cool mineral cast
+  let rgb = vec3<f32>(tone * mix(0.94, 1.05, warm), tone, tone * mix(1.08, 0.90, warm));
+  return vec4<f32>(rgb, body * has * lod);
+}
 // Stratified cliff face. The old version was uniform ~1 m Voronoi facets, which on a
 // big face read as flat grey mush (user report: the rocky-cliff texture is not great).
 // Three world-scaled, band-limited ingredients now compose the face:
@@ -572,8 +598,12 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // edges as a hard rim. Discard it: the uniform infinite-ocean backdrop + water
   // surface fill that screen area instead, so the bottom map edges fully vanish.
   if (seaLevel - elev > 0.10) { discard; }
-  let moist = moisture[ci];
-  let temp = temperature[ci];
+  // Climate fields BILINEAR like every other per-cell field — these were the last
+  // nearest-cell reads, and every weight keyed on them (snow, mud, desert, forest
+  // floor, beach character) stepped at tile borders: the snowline rendered the
+  // tile grid ("you can clearly see the terrain tiles in the blend").
+  let moist = sampleScalarBi(bc, &moisture);
+  let temp = sampleScalarBi(bc, &temperature);
   let jit = vnoise(in.vGrid * 0.35) - 0.5;       // [-0.5,0.5] threshold wander
 
   // ── Road surface as a CONTEXT BLEND of the ground layer ──────────────────────
@@ -667,10 +697,6 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       let dustCol  = groundPatch(GROUND_LAYER_DUST, in.vGrid, fwG, gwarp * 0.7, 0.20);
       var gnd = grassCol * wGrass + dryCol * wDry + dustCol * wDust;
 
-      // SCATTERED PEBBLES over the top: real pebble-gravel swatch, clumped by a low-freq field and
-      // denser on drier / worn ground — grey stones dotting the dust between the tufts (complements
-      // the standing pebble BILLBOARDS). Finer repeat so individual stones read at gameplay zoom.
-      let pebRaw  = groundPatch(GROUND_LAYER_PEBBLE, in.vGrid * 1.8, fwG * 1.8, gwarp, 0.15);
       // PATH VERGE: a road sheds worn ground into the grass beside it — pebbly dust
       // spilling ~a third of a tile past the ribbon's edge, strongest right at the
       // boundary and on better-built (higher-tier) roads. rInfo.verge is the analytic
@@ -680,11 +706,21 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
       // read as a TRAVELLED thing at 1:1 — margins of kicked gravel, not a clean stripe.
       let vergeW = smoothstep(0.35, 0.02, max(rInfo.verge, 0.0))
                  * smoothstep(0.10, 0.40, rInfo.near);
-      let pebMask = smoothstep(0.40, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)))
-                  * (0.22 + 0.55 * dry) + 0.55 * vergeW;
-      gnd = mix(gnd, pebRaw, clamp(pebMask, 0.0, 0.6 + 0.15 * vergeW));
+      // The verge BED stays the harvested swatch (a dusty-gravel tint under the stones)…
       if (vergeW > 0.0) {
-        gnd = mix(gnd, mix(dustCol, pebRaw, 0.45), vergeW * 0.40);
+        let pebRaw = groundPatch(GROUND_LAYER_PEBBLE, in.vGrid * 1.8, fwG * 1.8, gwarp, 0.15);
+        gnd = mix(gnd, mix(dustCol, pebRaw, 0.45), vergeW * 0.55);
+      }
+      // …but the STONES themselves are analytic Voronoi domes (the swatch mip-crushed to
+      // translucent speckle at gameplay zoom). Clump field drives stone DENSITY, denser on
+      // dry/worn ground and on verges; coverage is per-stone and opaque, so pebbles read as
+      // individual rocks with living ground between them. Faded before overview (sub-pixel).
+      let pebClump = smoothstep(0.38, 0.72, vnoise(in.vGrid * 0.5 + vec2<f32>(21.0, 8.0)));
+      let pebDen = clamp(pebClump * (0.14 + 0.60 * dry) + 0.85 * vergeW, 0.0, 0.9)
+                 * smoothstep(0.45, 0.20, fwG);
+      if (pebDen > 0.01) {
+        let peb = analyticPebbles(in.vGrid, fwTiles, pebDen);
+        gnd = mix(gnd, peb.rgb, peb.a);
       }
 
       // DESERT: hot + genuinely arid ground → warm wind-rippled dune sand, with cracked hardpan
