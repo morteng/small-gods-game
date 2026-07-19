@@ -68,21 +68,45 @@ function subject(name: string, b: Botanical): string {
   }
 }
 
+/** Subject clauses for the PRESET rock kinds (no flora-DB species behind them —
+ *  without this they fell through to "A single plant" and the repaint clause asked
+ *  for botanical colours on a boulder). Wording follows the reference STUDYs
+ *  (reference-library/tti/rock-*): knapped facets + lichen for boulders; for the
+ *  outcrop the anti-masonry clause is load-bearing — "strata + blocky jointed"
+ *  phrasing makes image models draw cut-block masonry. */
+const ROCK_SUBJECTS: Record<string, string> = {
+  boulder: 'A single large weathered grey granite boulder, broad softly-rounded knapped facets, pale lichen patches and hairline cracks',
+  rock_small: 'A single small weathered grey granite boulder with softly-rounded knapped facets and pale lichen patches',
+  rock_pile: 'A low pile of weathered grey field stones, rounded and lichen-flecked, long settled together',
+  pebbles: 'A small scatter of weathered grey pebbles, partly sunken as if long settled into the soil',
+  standing_stone: 'A single tall ancient standing stone, a weathered moss-flecked menhir set upright in the earth',
+  shrine_stone: 'A single small sacred stone, weathered and moss-flecked',
+  ore_vein: 'A single weathered grey rock knob shot through with glinting metallic ore seams',
+  rock_outcrop: 'A craggy natural bedrock outcrop, tilted uneven rock layers with deep natural fractures — wild natural stone, never masonry, no cut blocks, no straight edges',
+};
+
 /**
  * Build the img2img prompt for a flora species. `rb.preset` is the species id
  * (the synthesized blueprint's preset name). Falls back to a generic plant prompt
- * for an unknown id so the pipeline never throws.
+ * for an unknown id so the pipeline never throws. Rock blueprints (flora-DB
+ * habit:'rock' species AND the preset rock kinds) take a stone repaint clause —
+ * muted mineral colours, never "botanical".
  */
 export function floraImagePrompt(rb: ResolvedBlueprint, _model?: string): string {
   const chroma = hex(CHROMA_RGB);
   const sp = rb.preset ? getFloraSpecies(rb.preset) : undefined;
-  const head = sp ? subject(sp.identity.commonName, sp.botanical) : 'A single plant';
-  const evergreen = sp && isEvergreen(sp.botanical)
+  const presetRock = rb.preset ? ROCK_SUBJECTS[rb.preset] : undefined;
+  const isRock = !!presetRock || sp?.botanical.habit === 'rock';
+  const head = presetRock ?? (sp ? subject(sp.identity.commonName, sp.botanical) : 'A single plant');
+  const evergreen = !isRock && sp && isEvergreen(sp.botanical)
     ? ' Keep the foliage evergreen green all year — never autumn yellow, orange or red.'
     : '';
+  const repaint = isRock
+    ? 'Repaint the grey shape as weathered natural stone in muted mineral greys with subtle warm-cool variation, but PRESERVE its exact silhouette, height and proportions. Wild natural rock — never masonry, no cut blocks, no plants growing on it.'
+    : `Repaint the grey shape as this plant in realistic botanical colours, but PRESERVE its exact silhouette, height and proportions.${evergreen}`;
   return [
     `${head}, painted as a crisp hand-painted pixel-art game sprite in three-quarter top-down view, soft natural daylight from the upper-left.`,
-    `Repaint the grey shape as this plant in realistic botanical colours, but PRESERVE its exact silhouette, height and proportions.${evergreen}`,
+    repaint,
     `The background is solid flat ${chroma} magenta and stays solid ${chroma} magenta — no ground, no shadow, no scenery, no extra plants.`,
   ].join(' ');
 }

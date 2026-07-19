@@ -243,6 +243,87 @@
       "normal": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.normal.png",
       "material": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.material.png",
       "emissive": "v34_black-forest-labs_flux.2-klein-4b_1x1_b5293m.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:1q4yrly": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_1q4yrly.png",
+      "targetWidth": 70,
+      "species": "boulder",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_1q4yrly.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_1q4yrly.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_1q4yrly.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:1185myg": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_1185myg.png",
+      "targetWidth": 60,
+      "species": "rock_pile",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_1185myg.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_1185myg.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_1185myg.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:chh06w": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_chh06w.png",
+      "targetWidth": 18,
+      "species": "pebbles",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_chh06w.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_chh06w.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_chh06w.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:cq9mqj": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_cq9mqj.png",
+      "targetWidth": 28,
+      "species": "standing_stone",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_cq9mqj.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_cq9mqj.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_cq9mqj.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:1xy8xp6": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_1xy8xp6.png",
+      "targetWidth": 23,
+      "species": "shrine_stone",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_1xy8xp6.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_1xy8xp6.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_1xy8xp6.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:6hjih8": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_6hjih8.png",
+      "targetWidth": 44,
+      "species": "ore_vein",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_6hjih8.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_6hjih8.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_6hjih8.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:r588ty": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_r588ty.png",
+      "targetWidth": 54,
+      "species": "rock_outcrop",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_r588ty.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_r588ty.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_r588ty.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:rmjncg": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_rmjncg.png",
+      "targetWidth": 47,
+      "species": "granite-boulder",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_rmjncg.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_rmjncg.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_rmjncg.emissive.png"
+    },
+    "v35:black-forest-labs/flux.2-klein-4b:1x1:11ly20p": {
+      "file": "v35_black-forest-labs_flux.2-klein-4b_1x1_11ly20p.png",
+      "targetWidth": 12,
+      "species": "field-stone",
+      "anchors": "{\"doors\":[],\"vents\":[]}",
+      "normal": "v35_black-forest-labs_flux.2-klein-4b_1x1_11ly20p.normal.png",
+      "material": "v35_black-forest-labs_flux.2-klein-4b_1x1_11ly20p.material.png",
+      "emissive": "v35_black-forest-labs_flux.2-klein-4b_1x1_11ly20p.emissive.png"
     }
   }
 }
