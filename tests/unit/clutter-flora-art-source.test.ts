@@ -97,7 +97,8 @@ describe('ClutterFloraArtSource', () => {
     expect(src.version()).toBe(1);
     const pack = src.peek('foxglove');
     expect(pack).not.toBeNull();
-    expect(pack!.albedo.height).toBeGreaterThan(0);
+    // Clutter packs are canvas-backed (atlas slices), so albedo is always set.
+    expect(pack!.albedo!.height).toBeGreaterThan(0);
     // Albedo-only: no compose-derived maps ride along.
     expect(pack!.normal).toBeUndefined();
     expect(pack!.material).toBeUndefined();
