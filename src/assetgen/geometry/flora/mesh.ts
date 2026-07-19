@@ -199,6 +199,12 @@ export interface RockOpts {
   /** Vertical stretch (×Z, applied after the default squat squash). 1 = squat
    *  boulder; ~3 reads as a standing stone / monolith. */
   aspect?: number;
+  /** Random plane cuts clamped onto the displaced spheroid — each cut flattens every
+   *  vertex beyond it onto the plane, so the tris there go coplanar and flat-shade as
+   *  ONE large facet: the knapped look of weathered stone (reference-library
+   *  rock-boulder-granite: 5-9 big soft facets per boulder, never a lumpy ball).
+   *  0 (default) = the legacy smooth noise-lump, byte-identical. */
+  cuts?: number;
 }
 
 /** A noise-displaced octa-sphere boulder, resting with its base at `baseZ`. */
@@ -215,6 +221,24 @@ export function rockFacets(o: RockOpts): WorldFacet[] {
     // so a standing stone keeps rough shoulders but straight-ish sides)
     return [v[0] * f, v[1] * f, v[2] * f * zScale] as Vec3;
   });
+  const cuts = o.cuts ?? 0;
+  if (cuts > 0) {
+    // Seeded LCG local to the cut pass — vert displacement above keeps its own stream.
+    let h = ((o.seed >>> 0) ^ 0x51abc123) >>> 0;
+    const rnd = (): number => { h = (Math.imul(h, 1664525) + 1013904223) >>> 0; return h / 4294967296; };
+    for (let k = 0; k < cuts; k++) {
+      // Cut normal biased away from straight-down: the base is buried, so spending a
+      // cut there wastes it; elevations from slightly-below-horizon to near-up.
+      const az = rnd() * Math.PI * 2;
+      const el = rnd() * 1.6 - 0.55;
+      const n: Vec3 = [Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el)];
+      const d = (0.58 + rnd() * 0.27) * (n[2] > 0 ? Math.max(zScale, 0.7) : 1);
+      for (const v of disp) {
+        const t = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+        if (t > d) { v[0] -= n[0] * (t - d); v[1] -= n[1] * (t - d); v[2] -= n[2] * (t - d); }
+      }
+    }
+  }
   const m = new MeshSoup();
   for (const [a, b, cc] of tris) {
     m.tri(add(scale(disp[a], o.radius), c) as Vec3, add(scale(disp[b], o.radius), c) as Vec3, add(scale(disp[cc], o.radius), c) as Vec3);

@@ -41,6 +41,7 @@ export const ALPINE_PARAMS: VegetationParams = {
     ['heather', 0.04],
     ['common-juniper', 0.03],
     ['gorse', 0.02],
+    ['rock_outcrop', 0.012],
     ['standing_stone', 0.01],
   ],
   density: 1.0,             // ~7× the old effective rate; sized to keep whole worlds < ~37k entities
@@ -55,6 +56,7 @@ export const ALPINE_PARAMS: VegetationParams = {
   // the cover can't root on it. The undergrowth pool takes the cover band too.
   slope: {
     boulder: ROCK_SLOPE, rock_pile: ROCK_SLOPE, pebbles: ROCK_SLOPE, standing_stone: ROCK_SLOPE,
+    rock_outcrop: ROCK_SLOPE,
     'tussock-grass': COVER_SLOPE, heather: COVER_SLOPE, 'common-juniper': COVER_SLOPE, gorse: COVER_SLOPE,
     ...Object.fromEntries(undergrowthOf('alpine').map(([k]) => [k, COVER_SLOPE])),
   },

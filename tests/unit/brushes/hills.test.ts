@@ -34,7 +34,7 @@ describe('hills brush', () => {
   });
   it('only emits allowed kinds — the alpine rock vocabulary + tussock + hardy dwarf shrubs', () => {
     const allowed = new Set(['tussock-grass', 'rock_pile', 'boulder', 'pebbles',
-      'standing_stone', 'heather', 'common-juniper', 'gorse']);
+      'standing_stone', 'rock_outcrop', 'heather', 'common-juniper', 'gorse']);
     const c = allHills(16, 16);
     for (const e of hillsBrush({ x: 0, y: 0, w: 16, h: 16 }, 3, c)) {
       expect(allowed.has(e.kind)).toBe(true);

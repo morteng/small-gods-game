@@ -66,6 +66,9 @@ export const entityKinds: ReadonlyMap<string, EntityKindDef> = new Map<string, E
   // placement/clearing consumers treat the two categories identically
   // (NATURE_CATEGORIES), so this only turns their rendering on.
   ['boulder',       def('boulder',       'vegetation',       '#888888', 'circle', ['rock', 'obstacle'], 1)],
+  // A craggy bedrock outcrop (stacked cut-slab pinnacle, ~3 m) — the stone landmark
+  // between a boulder and the painted cliff faces. Blocks movement like a boulder.
+  ['rock_outcrop',  def('rock_outcrop',  'vegetation',       '#83838b', 'square', ['rock', 'obstacle'], 1.5)],
   ['rock_pile',     def('rock_pile',     'vegetation',       '#777777', 'circle', ['rock'], 0.5)],
   ['pebbles',       def('pebbles',       'vegetation',       '#999999', 'circle', ['rock', 'small'], 0.1)],
   ['driftwood',     def('driftwood',     'terrain-feature',  '#a07a4a', 'square', ['debris', 'coastal'], 0.3)],
@@ -184,19 +187,21 @@ export function isRockKind(kind: string): boolean {
 }
 
 /**
- * Decorative loose stone that snowpack simply BURIES — boulders, rock piles,
- * pebbles and procedural rock species. Once the ground paints predominantly
- * white the draw list hides these entirely: a grey lump on a snowfield, even
- * per-instance whitened, still reads as dropped ON the snow rather than under
- * it (the snow swatch already carries its own poking rock tips). Deliberately
- * NARROWER than isRockKind: `standing_stone` is a monument (a menhir must not
- * vanish from its sacred site) and `ore_vein` is a resource marker — both stay
- * drawn and take the whiten instead.
+ * SMALL loose stone that snowpack simply BURIES — pebbles, rock piles, field
+ * stones. Once the ground paints predominantly white the draw list hides these
+ * entirely: a knee-high grey lump on a snowfield, even whitened, reads as
+ * dropped ON the snow rather than under it (the snow swatch already carries its
+ * own poking rock tips). SIZE-KEYED: rocks a metre and taller (boulder,
+ * granite-boulder, rock_outcrop) do NOT vanish — 20 cm of snowpack cannot
+ * swallow a 2 m boulder; they stay drawn and take the per-instance whiten
+ * (snow-on-up-normals) instead, like standing_stone (a monument) and ore_vein
+ * (a resource marker) always did.
  */
 export function isSnowBuriedRockKind(kind: string): boolean {
   if (kind === 'standing_stone') return false;
   const tags = tryGetEntityKindDef(kind)?.defaultTags;
-  return !!tags && tags.includes('rock') && !tags.includes('resource');
+  if (!tags || !tags.includes('rock') || tags.includes('resource')) return false;
+  return natureSizeM(kind) < 1.0;
 }
 
 /** Real-entity size of a nature kind in metres: the catalogue height × the entity's

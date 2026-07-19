@@ -689,6 +689,11 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
 
   // Material WEIGHTS — each becomes a height-blend layer below.
   let wRock = smoothstep(0.42, 0.78, slope + jit * 0.18);                 // steep faces
+  // Scree apron: loose weathered gravel in the band BETWEEN sward and cliff paint —
+  // the transition ring under every rock face, so vegetation does not butt straight
+  // against painted stone. Hands over to rock as wRock saturates (the 1-wRock term);
+  // never a standalone field on gentle ground (band starts above the cover slopes).
+  let wScree = smoothstep(0.30, 0.48, slope + jit * 0.18) * (1.0 - wRock);
   // Snow: cold ground (latitude/lapse) OR a permanent high-altitude cap. The
   // elevation snowline gives every great peak a white crown regardless of climate
   // (aboveSea ≈ 0.47 ≈ elev 0.82 = upper mountain, full by ≈ 0.58 = the summit);
@@ -718,6 +723,13 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // rock faces; the baked rock swatch (layer 2) stays in the atlas as the img2img grey-init.
   var ROCK = vec3<f32>(0.42, 0.40, 0.37);
   if (wRock > 0.0) { ROCK = analyticRock(in.vGrid, fwTiles); }
+  // Scree = the road-gravel chip field, cooled from its warm track tone toward the
+  // neutral grey of the rock it weathered off; gated so the Voronoi only runs on aprons.
+  var SCREE = vec3<f32>(0.40, 0.40, 0.41);
+  if (wScree > 0.0) {
+    let g = analyticGravel(in.vGrid, fwTiles);
+    SCREE = vec3<f32>(g.x * 0.88, g.y * 0.92, g.z * 1.04);
+  }
   // Snow = the harvested fresh-snow swatch (drift bumps + sparkle + the odd rock tip), not the
   // flat procedural grey-init — real character on every white crown and cold plain.
   let SNOW = groundPatch(GROUND_LAYER_SNOW, in.vGrid * 1.2, gwarp, 0.25);
@@ -738,14 +750,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // exceeds the running max within a transition band ("sand fills the cracks").
   let band = 0.12;
   let hGround = 0.34;
-  let m = max(max(hGround, wRock), max(wSnow, max(wSand, wMud))) - band;
+  let m = max(max(hGround, wRock), max(wSnow, max(wSand, max(wMud, wScree)))) - band;
   let bG = max(hGround - m, 0.0);
   let bR = max(wRock   - m, 0.0);
   let bS = max(wSnow   - m, 0.0);
   let bA = max(wSand   - m, 0.0);
   let bM = max(wMud    - m, 0.0);
-  let sum = bG + bR + bS + bA + bM + 1e-4;
-  let albedo = (base * bG + ROCK * bR + SNOW * bS + SAND * bA + MUD * bM) / sum;
+  let bC = max(wScree  - m, 0.0);
+  let sum = bG + bR + bS + bA + bM + bC + 1e-4;
+  let albedo = (base * bG + ROCK * bR + SNOW * bS + SAND * bA + MUD * bM + SCREE * bC) / sum;
 
   // Wet-sand band (T-C shore coordination): damp + darken the land within a thin
   // strip just above the waterline so the water pass's contact-fade edge melts into

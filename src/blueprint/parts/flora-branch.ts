@@ -191,11 +191,16 @@ export const rockPartType: PartType = {
     jitter: { kind: 'number', min: 0, max: 0.7, default: 0.35 },
     aspect: { kind: 'number', min: 0.4, max: 4, default: 1 },
     cluster: { kind: 'number', min: 1, max: 6, default: 1 },
+    // Plane-cut faceting (see rockFacets): large knapped facets instead of a noise
+    // lump. Defaulted ON — the smooth-ball look was the user-rejected one.
+    cuts: { kind: 'number', min: 0, max: 12, default: 6 },
+    // >1 = a craggy OUTCROP: stacked shrinking cut-slabs + foot stones, not a pile.
+    shelves: { kind: 'number', min: 1, max: 6, default: 1 },
     seed: { kind: 'number', default: 0 },
   },
   resolve: (part, ctx) => ({
     params: {
-      sizeM: 1.5, jitter: 0.35, aspect: 1, cluster: 1,
+      sizeM: 1.5, jitter: 0.35, aspect: 1, cluster: 1, cuts: 6, shelves: 1,
       ...(part.params ?? {}),
       // 0 = schema-default sentinel ⇒ derive from the blueprint seed (same latent-bug
       // fix as branch_plant), so rock variants actually vary their arrangement.
@@ -210,9 +215,44 @@ export const rockPartType: PartType = {
     const jitter = p.params.jitter as number;
     const aspect = (p.params.aspect as number) ?? 1;
     const cluster = Math.max(1, Math.round((p.params.cluster as number) ?? 1));
+    const cuts = Math.max(0, Math.round((p.params.cuts as number) ?? 6));
+    const shelves = Math.max(1, Math.round((p.params.shelves as number) ?? 1));
     const cx = p.at.x + p.size.w / 2, cy = p.at.y + p.size.h / 2;
+    if (shelves > 1) {
+      // Outcrop: stacked shrinking cut-slabs with per-shelf drift + squat variation
+      // (reference rock-outcrop-strata-2: a tapering ASYMMETRIC pinnacle — the drift
+      // and per-shelf cuts are what keep it from reading as coursed masonry), plus a
+      // couple of fist-stones spilled at the foot. Own rng stream — the cluster
+      // arrangement stream below stays byte-identical.
+      const rng = createRng((seed ^ 0x0c8a95e1) >>> 0);
+      const prims: Prim[] = [];
+      let z = 0;
+      for (let i = 0; i < shelves; i++) {
+        const t = i / (shelves - 1);
+        const rr = radius * (1 - 0.58 * t) * (0.92 + rng.next() * 0.16);
+        const ang = rng.next() * Math.PI * 2;
+        const off = i === 0 ? 0 : radius * 0.30 * rng.next();
+        // Squat shelves low, a stretched broken tip on top — the pinnacle silhouette.
+        const squat = (0.8 + rng.next() * 0.5) * (i === shelves - 1 ? 1.5 : 1);
+        prims.push({
+          prim: 'rock', center: [cx + Math.cos(ang) * off, cy + Math.sin(ang) * off],
+          baseZ: z, radius: rr, seed: (seed + i * 104729) >>> 0, jitter, aspect: squat, cuts, mat: 'stone',
+        });
+        z += rr * 2 * 0.7 * squat * 0.62; // next shelf sinks ~38% into this one
+      }
+      for (let i = 0; i < 2; i++) {
+        const ang = rng.next() * Math.PI * 2;
+        const d = radius * (0.95 + rng.next() * 0.45);
+        prims.push({
+          prim: 'rock', center: [cx + Math.cos(ang) * d, cy + Math.sin(ang) * d],
+          baseZ: 0, radius: radius * (0.20 + rng.next() * 0.1), seed: (seed + 7 + i * 15485863) >>> 0,
+          jitter, aspect: 0.8, cuts: 4, mat: 'stone',
+        });
+      }
+      return prims;
+    }
     if (cluster === 1) {
-      return [{ prim: 'rock', center: [cx, cy], baseZ: 0, radius, seed, jitter, aspect, mat: 'stone' }];
+      return [{ prim: 'rock', center: [cx, cy], baseZ: 0, radius, seed, jitter, aspect, cuts, mat: 'stone' }];
     }
     // A pile: the largest stone near centre, smaller ones leaning around it. The
     // seeded rng keeps the arrangement stable per kind (one cached sprite).

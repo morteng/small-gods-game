@@ -38,8 +38,11 @@ export const NATURE_HEIGHT_M: Record<string, number> = {
   flower_patch: 0.3, mushroom: 0.2, grass_tuft: 0.3, tundra_moss: 0.1,
   // coastal / forest debris
   driftwood: 0.4, shell: 0.15, stump: 0.6, log: 0.6,
-  // rocks / geology
-  boulder: 1.2, rock_pile: 0.7, pebbles: 0.2, ore_vein: 0.8,
+  // rocks / geology (flora-DB rock species included: the size-keyed snow burial in
+  // isSnowBuriedRockKind reads THIS table — a species absent here defaults to 1.0
+  // and lands on the wrong side of the bury line)
+  boulder: 1.2, rock_pile: 0.7, pebbles: 0.2, ore_vein: 0.8, rock_outcrop: 3.0,
+  'granite-boulder': 1.8, 'field-stone': 0.6,
   // monuments
   standing_stone: 3.0, shrine_stone: 1.2,
   // natural landforms (mesh props; placement currently shelved in map-generator,

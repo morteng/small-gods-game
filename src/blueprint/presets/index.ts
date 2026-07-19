@@ -126,7 +126,7 @@ const barrier = (
  *  stones), `cluster` scatters N sub-boulders (rock piles), `jitter` roughens. */
 const rock = (
   preset: string, sizeM: number,
-  opts: { aspect?: number; cluster?: number; jitter?: number } = {},
+  opts: { aspect?: number; cluster?: number; jitter?: number; shelves?: number; cuts?: number } = {},
 ): Blueprint => ({
   version: BLUEPRINT_VERSION, class: 'plant', preset,
   category: 'flora', footprint: { w: 1, h: 1 },
@@ -139,6 +139,8 @@ const rock = (
         ...(opts.aspect != null ? { aspect: opts.aspect } : {}),
         ...(opts.cluster != null ? { cluster: opts.cluster } : {}),
         ...(opts.jitter != null ? { jitter: opts.jitter } : {}),
+        ...(opts.shelves != null ? { shelves: opts.shelves } : {}),
+        ...(opts.cuts != null ? { cuts: opts.cuts } : {}),
       },
     },
   },
@@ -470,13 +472,16 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
   shrub_bush: branched('shrub_bush', 'shrub', 2.2, 0.06),
   bracken_fern: branched('bracken_fern', 'fern', 1.1, 0.03),
   wildflower: branched('wildflower', 'flower', 0.6, 0.02),
-  boulder: rock('boulder', 2.5),
+  boulder: rock('boulder', 2.5, { aspect: 1.12, cuts: 7 }),
   rock_small: rock('rock_small', 1.0),
   // The rest of the geology vocabulary worldgen already scatters (hills/quarry/
   // sacred-grove brushes) — visible for the first time now rocks render at all.
   rock_pile: rock('rock_pile', 1.6, { cluster: 4, jitter: 0.4 }),
   pebbles: rock('pebbles', 0.55, { cluster: 3, jitter: 0.45 }),
   standing_stone: rock('standing_stone', 1.1, { aspect: 3.2, jitter: 0.22 }),
+  // A craggy bedrock outcrop (stacked shrinking cut-slabs + foot stones) — the mid-size
+  // stone landmark between a boulder and the painted cliff faces.
+  rock_outcrop: rock('rock_outcrop', 2.4, { shelves: 4, jitter: 0.26, cuts: 8 }),
   shrine_stone: rock('shrine_stone', 0.9, { aspect: 1.8, jitter: 0.25 }),
   ore_vein: rock('ore_vein', 1.5, { cluster: 2, jitter: 0.5 }),
   // Stairs — "all kinds, the same way we support all kinds of buildings." One part type,
