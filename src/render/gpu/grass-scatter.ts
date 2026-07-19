@@ -16,6 +16,7 @@
 // identity change), so per-frame cost is just the draw.
 
 import type { TerrainField } from '@/render/gpu/terrain-field';
+import { computeSnow01, type SnowFields } from '@/render/snow-mask';
 
 /** Vertical segments per blade ribbon → 2·(SEG+1) strip verts, SEG·2 triangles.
  *  Subdivision exists so wind/push can bend the planar sprite along its height. */
@@ -98,6 +99,13 @@ export function buildGrassInstances(
   const land = new Float32Array(MAX_GRASS * GRASS_INSTANCE_FLOATS);
   const weed = new Float32Array(MAX_WEED * GRASS_INSTANCE_FLOATS);
   let nLand = 0, nWeed = 0;
+  // Cap handling: `want*` counts every requested emission (incl. past the cap). When a
+  // scan overflows, it is RERUN with `keep*` thinning (a deterministic per-sample hash
+  // test) so the carpet thins UNIFORMLY across the whole map — never truncating at a
+  // row: the old early-break filled the buffer top-down and left everything south of
+  // ~row 60 of a big map completely bare ("thin out", the intent, not "cut off").
+  let wantLand = 0, wantWeed = 0;
+  let keepLand = 1, keepWeed = 1;
 
   const cellRect = (layer: number): [number, number, number, number] => {
     const col = layer % m.cols, row = (layer / m.cols) | 0;
@@ -121,6 +129,9 @@ export function buildGrassInstances(
     size: number, widthMul: number, bendK: number,
   ): void => {
     const isWeed = cat === 'seaweed';
+    if (isWeed) wantWeed++; else wantLand++;
+    const keep = isWeed ? keepWeed : keepLand;
+    if (keep < 1 && hash2(fx * 9.7 + 4.9, fy * 6.1 + 8.3) >= keep) return;
     if (isWeed ? nWeed >= MAX_WEED : nLand >= MAX_GRASS) return;
     const [u0, v0, u1, v1] = cellRect(pickLayer(cat, hash2(fx * 8.1 + 3.3, fy * 5.9 + 7.7)));
     const hPx = (e - sea) * relief * zPx;           // foot lift (negative below the waterline)
@@ -149,6 +160,18 @@ export function buildGrassInstances(
   const FRESH_WEED_MAX_DEPTH_M = 2.20;
   const freshOk = !!waterSurf && !!waterType && waterSurf.length === W * H;
 
+  // SNOW: land clutter is not emitted where the terrain shader paints snow cover —
+  // the billboards carry bare-ground colours (green tufts, grey-brown fieldstone)
+  // and have no snow shading of their own, so on a white field they read as pasted
+  // on top of the snow rather than under it. Same kernel + threshold as the
+  // draw-list's ground-cover hide (GROUND_COVER_SNOW_HIDE, entity-draw-list.ts);
+  // submerged categories (seaweed/waterweed/lilypad) are unaffected — they live
+  // under liquid water. Static per world, like the rest of the scatter.
+  const SNOW_CLUTTER_HIDE = 0.2;
+  const snowFields: SnowFields = {
+    heights, temperature, width: W, height: H, reliefM: relief, zPxPerM: zPx,
+  };
+
   // LILY PADS — flat pads floating ON calm fresh water. A pad roots in the bed, so it
   // keeps the waterweed's shallow depth band, but it RENDERS at the water surface: the
   // instance foot is the LOCAL surface elevation (not the bed), and the pad goes into
@@ -172,9 +195,11 @@ export function buildGrassInstances(
     return d * relief;
   };
 
-  for (let ty = 0; ty < H && nLand < MAX_GRASS; ty++) {
-    for (let tx = 0; tx < W && nLand < MAX_GRASS; tx++) {
-      for (let k = 0; k < PER_TILE && nLand < MAX_GRASS; k++) {
+  const scan = (): void => {
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const snowT = computeSnow01(snowFields, tx, ty);
+      for (let k = 0; k < PER_TILE; k++) {
         const jx = hash2(tx * 3.1 + k * 17.3, ty * 2.7 + k * 5.1);
         const jy = hash2(tx * 6.7 + k * 9.2, ty * 4.4 + k * 12.6);
         const fx = tx + jx, fy = ty + jy;
@@ -234,6 +259,10 @@ export function buildGrassInstances(
             }
           }
         }
+
+        // Snow-covered ground carries NO land clutter (see SNOW_CLUTTER_HIDE above) —
+        // checked after the submerged branches so underwater categories still grow.
+        if (snowT >= SNOW_CLUTTER_HIDE) continue;
 
         // Slope from central differences (same frame as the terrain normal).
         const hL = elevAt(fx - 1, fy), hR = elevAt(fx + 1, fy);
@@ -309,6 +338,16 @@ export function buildGrassInstances(
         }
       }
     }
+  }
+  };
+  scan();
+  if (wantLand > nLand || wantWeed > nWeed) {
+    // Overflow: rescan with uniform thinning targeted just under the cap (0.995 leaves
+    // headroom for hash variance, so the tail of the second pass isn't truncated either).
+    keepLand = Math.min(1, (MAX_GRASS * 0.995) / Math.max(1, wantLand));
+    keepWeed = Math.min(1, (MAX_WEED * 0.995) / Math.max(1, wantWeed));
+    nLand = 0; nWeed = 0; wantLand = 0; wantWeed = 0;
+    scan();
   }
   // Concatenate with SEAWEED FIRST so the renderer can draw instances [0, seaweedCount) as
   // the pre-water submerged sub-pass and [seaweedCount, count) as the over-water land pass.

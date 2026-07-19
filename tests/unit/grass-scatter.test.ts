@@ -25,29 +25,33 @@ function makeGlobals(w: number, h: number, seaLevel = 0.35): TerrainGlobalsInput
   };
 }
 
-/** Build a minimal synthetic TerrainField. `heightFn`/`moistureFn` are sampled per
- *  tile (tx,ty); `colors`/`temperature`/`roadFeature` are unread by the scatter and
- *  filled with harmless placeholders. */
+/** Build a minimal synthetic TerrainField. `heightFn`/`moistureFn`/`temperatureFn`
+ *  are sampled per tile (tx,ty); `colors`/`roadFeature` are unread by the scatter
+ *  and filled with harmless placeholders. Temperature defaults TEMPERATE (0.5) —
+ *  an all-zero field would read as arctic and the snow skip would empty it. */
 function makeField(
   w: number, h: number,
   heightFn: (tx: number, ty: number) => number,
   moistureFn: (tx: number, ty: number) => number = () => 0.5,
   seaLevel = 0.35,
+  temperatureFn: (tx: number, ty: number) => number = () => 0.5,
 ): TerrainField {
   const heights = new Float32Array(w * h);
   const moisture = new Float32Array(w * h);
+  const temperature = new Float32Array(w * h);
   for (let ty = 0; ty < h; ty++) {
     for (let tx = 0; tx < w; tx++) {
       const i = ty * w + tx;
       heights[i] = heightFn(tx, ty);
       moisture[i] = moistureFn(tx, ty);
+      temperature[i] = temperatureFn(tx, ty);
     }
   }
   return {
     heights,
     colors: new Uint32Array(w * h),
     moisture,
-    temperature: new Float32Array(w * h),
+    temperature,
     roadFeature: new Uint32Array(4),
     vertexCount: 0,
     globals: makeGlobals(w, h, seaLevel),
@@ -354,8 +358,8 @@ describe('buildGrassInstances — category selection vs manifest ranges', () => 
   });
 });
 
-describe('buildGrassInstances — hard cap', () => {
-  it('plateaus at the same instance count on two grids of different (large) size, and stays byte-consistent', () => {
+describe('buildGrassInstances — hard cap thins uniformly', () => {
+  it('plateaus near one cap on two grids of different (large) size', () => {
     const manifest = makeManifest();
     // Lush moisture (≥ the aridity-thinning threshold) so the grass carpet saturates the
     // MAX_GRASS cap — the point of this test. A dry field would thin below the cap and mask it.
@@ -364,10 +368,67 @@ describe('buildGrassInstances — hard cap', () => {
     expect(big.data.length).toBe(big.count * GRASS_INSTANCE_FLOATS);
     expect(bigger.data.length).toBe(bigger.count * GRASS_INSTANCE_FLOATS);
     expect(Number.isFinite(big.count)).toBe(true);
-    // A 170x170 grid at 7 attempts/tile already offers ~200k candidate placements —
-    // well above any sane cap — so an uncapped generator would scale with the grid;
-    // a capped one plateaus. Confirms a cap exists without hardcoding its value.
-    expect(bigger.count).toBe(big.count);
+    // An uncapped generator would scale ~2.3x with the grid area; the thinned cap
+    // plateaus both at (just under) the same ceiling. Not exact equality — the
+    // deterministic keep-hash lands slightly differently per grid.
+    const ratio = bigger.count / big.count;
+    expect(ratio).toBeGreaterThan(0.97);
+    expect(ratio).toBeLessThan(1.03);
+  });
+
+  it('covers the WHOLE map when capped — thinning, never truncating at a row', () => {
+    // Regression: the old cap broke out of the row scan when the buffer filled, so a
+    // big lush map got a full-density carpet down to ~row N and NOTHING below it —
+    // "the terrain looks bare" over most of the world. Thinning must reach the bottom.
+    const W = 260, H = 260;
+    const field = makeField(W, H, () => 0.6, () => 0.6);
+    const { data, count } = buildGrassInstances(field, makeManifest());
+    const halfW = field.globals.half[0];
+    let bottomQuarter = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * GRASS_INSTANCE_FLOATS;
+      const sum = data[o + 2] * (W + H);         // fx + fy (from the packed depth)
+      const diff = data[o] / halfW;              // fx - fy
+      const fy = (sum - diff) / 2;
+      if (fy >= H * 0.75) bottomQuarter++;
+    }
+    // Uniform thinning ⇒ the bottom quarter of a uniform field holds ~25% of the
+    // instances. The truncating cap put exactly 0 there.
+    expect(bottomQuarter).toBeGreaterThan(count * 0.15);
+  });
+});
+
+describe('buildGrassInstances — snow-covered ground carries no land clutter', () => {
+  it('emits nothing on an arctic-cold flat field where the terrain shader paints snow', () => {
+    // temp 0.1 → the snow kernel's cold term saturates on flat ground; the same
+    // field at temperate 0.5 is a full meadow (control), so the emptiness is the
+    // snow skip and not some other gate.
+    const cold = makeField(20, 20, () => 0.6, () => 0.5, 0.35, () => 0.1);
+    const warm = makeField(20, 20, () => 0.6, () => 0.5, 0.35, () => 0.5);
+    expect(buildGrassInstances(warm, makeManifest()).count).toBeGreaterThan(0);
+    expect(buildGrassInstances(cold, makeManifest()).count).toBe(0);
+  });
+
+  it('still grows submerged waterweed under a cold climate — snow never covers liquid water', () => {
+    // Cold flat isle with a river block ~1 m deep: the land stays clutter-bare
+    // (snow) but the freshwater submerged branch runs before the snow check.
+    const W = 24, H = 24;
+    const field = makeField(W, H, () => 0.50, () => 0.5, 0.35, () => 0.1);
+    const surfaceW = new Float32Array(W * H).fill(-1);
+    const waterType = new Uint32Array(W * H);
+    for (let y = 8; y < 16; y++) for (let x = 8; x < 16; x++) {
+      const i = y * W + x;
+      waterType[i] = 3;        // WaterType.River
+      surfaceW[i] = 0.52;
+    }
+    const { data, count, seaweedCount } = buildGrassInstances(field, makeManifest(), surfaceW, waterType);
+    expect(seaweedCount).toBeGreaterThan(0);
+    // Everything emitted is submerged/surface water flora (seaweed or lilypad) — no
+    // green tufts or bare-ground rocks pasted onto the snowfield.
+    for (let i = 0; i < count; i++) {
+      const cat = data[i * GRASS_INSTANCE_FLOATS + 10];
+      expect([4, 6]).toContain(cat);
+    }
   });
 });
 

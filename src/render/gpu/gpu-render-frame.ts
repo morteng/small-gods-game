@@ -306,7 +306,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water, structures,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
-      xform, uiGroups,
+      xform, uiGroups, camZoom: camera.zoom,
       ...(chrome ? null : { passes: { ui: false } }),
     });
     const tRender = performance.now();

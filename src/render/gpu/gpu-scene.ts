@@ -1151,6 +1151,12 @@ export class GpuScene {
     out?: { w: number; h: number };
     /** P-E: snap-then-offset remainder in OUTPUT pixels (default 0). */
     pixelOffset?: readonly [number, number];
+    /** The CAMERA's zoom (world scale the player chose) — drives zoom-LOD gates
+     *  like the standing-grass cutoff. Distinct from xform.sx, which is divided
+     *  by the adaptive pixel-scale: gating on sx made ground cover vanish whenever
+     *  the resolution dropped to px2/px3, even at gameplay zoom. Absent ⇒ falls
+     *  back to xform.sx (tests / direct callers without a camera). */
+    camZoom?: number;
     /** Profiler ablation: turn individual passes off to attribute GPU cost
      *  (all on by default). */
     passes?: {
@@ -1249,8 +1255,12 @@ export class GpuScene {
     // the terrain scatter, drawn between structures and the entity depth-clear so it shares
     // the terrain depth. Gated to gameplay zoom (a full meadow is noise + fill cost at
     // overview) and to a loaded clutter atlas + manifest.
-    const zoom = xform?.sx ?? 1;
+    const zoom = opts.camZoom ?? xform?.sx ?? 1;
     const hasGrass = !!(hasTerrain && zoom >= GRASS_MIN_ZOOM && this.ensureGrass(terrain!, water ?? null));
+    // Dev observability (mutated in place — no per-frame alloc), like __gpuTexStats.
+    const gStats = ((globalThis as Record<string, unknown>).__grassStats ??= {}) as Record<string, unknown>;
+    gStats.zoom = zoom; gStats.hasGrass = hasGrass;
+    gStats.count = this.grassCount; gStats.seaweed = this.grassSeaweedCount;
 
     // P-E: the scene passes target the low-res offscreen when `out` is set, then
     // a blit upscales it to the swapchain; otherwise they draw straight to it.
