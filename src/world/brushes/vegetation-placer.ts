@@ -35,6 +35,35 @@ export interface SlopeBand {
   bandM?: number;
 }
 
+/** Shared steepness bands (m rise / tile; one tile = 2 m). CALIBRATED TO THE PAINT,
+ *  not to physics: the terrain shader's slope is computed in SCREEN space with the
+ *  vertical exaggeration baked in (zPxPerM 20 px/m against an 8 px half-tile), so the
+ *  rock ramp (wRock in from render-slope ~0.42, visible ~0.5, saturated 0.78) maps back
+ *  to PHYSICAL gradients of only ~0.55 / ~0.7 / ~1.8 m per tile. A band in true
+ *  angle-of-repose metres (1.4 ≈ 35°) therefore left grass mats standing on ground the
+ *  shader had already painted as bare cliff — the exact bug these exist to kill.
+ *  COVER (grass tufts / heather mat) dies as the paint arrives: fading from ~0.55,
+ *  gone by 0.85. TREE lets go a little later (a trunk on a part-painted brow is fine,
+ *  on a face it floats); CONIFER clings longest of the rooted kinds. STONE closes
+ *  almost as early as COVER: a rock SPRITE pasted over the painted face reads as
+ *  floating on the cliff (user report), so loose stone keeps to the foot slopes and
+ *  brows below the paint and the face itself stays pure shader rock. Against the
+ *  measured upland distribution (hills.ts: p50 ≈ 0.4, p90 ≈ 1.2, p99 ≈ 2, faces to
+ *  ~11.6) COVER thins across the p75–p90 tail and rolling ground below ~0.55 keeps
+ *  its full mat. Every band is a smooth thinning ramp, never a contour line. */
+export const STONE_SLOPE: SlopeBand = { maxSlopeM: 1.1, bandM: 0.4 };
+export const TREE_SLOPE: SlopeBand = { maxSlopeM: 1.3, bandM: 0.5 };
+export const CONIFER_SLOPE: SlopeBand = { maxSlopeM: 1.5, bandM: 0.55 };
+export const COVER_SLOPE: SlopeBand = { maxSlopeM: 0.85, bandM: 0.3 };
+
+/** Blanket every kind of a weighted pool with one band — how a brush covers its
+ *  canopy/undergrowth pools; spread per-kind overrides after it (later keys win). */
+export function slopeBandAll(
+  kinds: ReadonlyArray<readonly [string, ...unknown[]]>, band: SlopeBand,
+): Record<string, SlopeBand> {
+  return Object.fromEntries(kinds.map(([k]) => [k, band]));
+}
+
 export interface VegetationParams {
   /** Brush name for entity ID generation */
   brush: string;

@@ -1,4 +1,4 @@
-import { placeVegetation } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, TREE_SLOPE, COVER_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -22,6 +22,12 @@ const DENSE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     'english-oak': { maxHeightM: 15, bandM: 6 },
     'european-beech': { maxHeightM: 15, bandM: 6 },
     'silver-birch': { maxHeightM: 19, bandM: 5 },
+  },
+  // STEEPNESS: nothing roots on a cliff face — the terrain shader paints those
+  // as bare rock. Canopy + undergrowth pools take the shared thinning bands.
+  slope: {
+    ...slopeBandAll(canopyOf('dense_forest'), TREE_SLOPE),
+    ...slopeBandAll(undergrowthOf('dense_forest'), COVER_SLOPE),
   },
 };
 

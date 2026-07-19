@@ -374,7 +374,7 @@ describe('buildGrassInstances — hard cap thins uniformly', () => {
     const ratio = bigger.count / big.count;
     expect(ratio).toBeGreaterThan(0.97);
     expect(ratio).toBeLessThan(1.03);
-  });
+  }, 20_000);   // two big double-scanned grids — well past the 5 s default on a busy box
 
   it('covers the WHOLE map when capped — thinning, never truncating at a row', () => {
     // Regression: the old cap broke out of the row scan when the buffer filled, so a
@@ -395,7 +395,7 @@ describe('buildGrassInstances — hard cap thins uniformly', () => {
     // Uniform thinning ⇒ the bottom quarter of a uniform field holds ~25% of the
     // instances. The truncating cap put exactly 0 there.
     expect(bottomQuarter).toBeGreaterThan(count * 0.15);
-  });
+  }, 20_000);   // one big double-scanned grid (see above)
 });
 
 describe('buildGrassInstances — snow-covered ground carries no land clutter', () => {
@@ -472,5 +472,72 @@ describe('buildGrassInstances — flower clumping', () => {
     const occupiedBlocks = blockCounts.size;
     // Loose but meaningful: clustering leaves a real fraction of blocks untouched.
     expect(occupiedBlocks).toBeLessThan(totalBlocks);
+  });
+});
+
+describe('buildGrassInstances — soft cover obeys the terrain splat ramps', () => {
+  const FLOATS = GRASS_INSTANCE_FLOATS;
+  /** Reconstruct the continuous tile fx of a packed LAND instance (halfW = 64). */
+  const fxOf = (data: Float32Array, o: number, W: number, H: number): number => {
+    const sum = data[o + 2] * (W + H);        // depth = (fx+fy)/(W+H)
+    const diff = data[o] / 64;                // footX = (fx-fy)*halfW
+    return (sum + diff) / 2;
+  };
+  const SOFT = new Set([0, 1, 3]);            // grass / flower / reed cat ids
+
+  it('a steep ramp face carries NOTHING — the rock paint owns it outright', () => {
+    // 0.04 elevation per tile at zPxPerM 60 -> slope ~0.51 of vertical, right in the
+    // shader's wRock ramp. Sea at 0.2 keeps the whole ramp far above the wrack band.
+    // No clutter of ANY category: a scree billboard pasted over the painted face
+    // reads as floating on the cliff (user report), so past the 0.48 threshold the
+    // scatter emits nothing and the analytic rock texture carries the face alone.
+    const W = 20, H = 8;
+    const field = makeField(W, H, (tx) => Math.min(0.98, 0.36 + tx * 0.04), () => 0.5, 0.2);
+    field.globals.zPxPerM = 60;
+    const { data, count, seaweedCount } = buildGrassInstances(field, makeManifest());
+    expect(seaweedCount).toBe(0);
+    let onRamp = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * FLOATS;
+      const fx = fxOf(data, o, W, H);
+      if (fx < 2 || fx > 13) continue;        // interior of the steep band only
+      onRamp++;
+    }
+    expect(onRamp).toBe(0);
+  });
+
+  it('a cool high plateau thins the carpet toward the snowline (alpine approach)', () => {
+    // metresAS = 20 (past the 16 m alpine fade start, below the 22.5 m snowline) —
+    // cool ground thins, warm ground at the SAME altitude keeps its full carpet.
+    const h = 0.35 + 20 / 48;
+    const W = 30, H = 30;
+    const soft = (temp: number): number => {
+      const f = makeField(W, H, () => h, () => 0.5, 0.35, () => temp);
+      const { data, count } = buildGrassInstances(f, makeManifest());
+      let n = 0;
+      for (let i = 0; i < count; i++) if (SOFT.has(data[i * FLOATS + 10])) n++;
+      return n;
+    };
+    const warm = soft(0.5), cool = soft(0.35);
+    expect(warm).toBeGreaterThan(0);
+    const ratio = cool / warm;
+    expect(ratio).toBeGreaterThan(0.4);
+    expect(ratio).toBeLessThan(0.8);
+  });
+
+  it('soft cover fades out on the approach to the snowline, not at a hard wall', () => {
+    // temp 0.26 -> snow01 ~ 0.198: just under the 0.2 hide line. The fade leaves
+    // almost nothing standing there (the shader speckles snow into this zone).
+    const W = 30, H = 30;
+    const soft = (temp: number): number => {
+      const f = makeField(W, H, () => 0.5, () => 0.5, 0.35, () => temp);
+      const { data, count } = buildGrassInstances(f, makeManifest());
+      let n = 0;
+      for (let i = 0; i < count; i++) if (SOFT.has(data[i * FLOATS + 10])) n++;
+      return n;
+    };
+    const temperate = soft(0.5), fringe = soft(0.26);
+    expect(temperate).toBeGreaterThan(0);
+    expect(fringe / temperate).toBeLessThan(0.15);
   });
 });

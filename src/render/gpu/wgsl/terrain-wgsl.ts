@@ -343,22 +343,54 @@ fn analyticGravel(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
   let val = tone * (0.7 + 0.3 * dome);
   return vec3<f32>(val, val * 0.95, val * 0.86);
 }
-// Blocky outcrop — larger Voronoi facets (~1 m) with darkened seam grooves + fine grain,
-// scaled in world units + band-limited like the road materials. Mirrors the baked rock
-// swatch (worley facets, grooved seams, warm grey) but with no fixed-px resolution ceiling.
+// Stratified cliff face. The old version was uniform ~1 m Voronoi facets, which on a
+// big face read as flat grey mush (user report: the rocky-cliff texture is not great).
+// Three world-scaled, band-limited ingredients now compose the face:
+//  1. BEDDING: tonal strata keyed on ABSOLUTE elevation (metres), noise-warped so the
+//     beds undulate along the landform's contours like real sedimentary layering —
+//     soft dark partings between beds, and a per-bed tone + warm/cool sway so
+//     neighbouring beds actually separate. Fades out when a bed goes sub-pixel.
+//  2. JOINTING: the Voronoi facets stay, enlarged to ~1.6 m blocks with crevice
+//     seams — the vertical fracture that breaks the bedding into a face. Each block
+//     also shifts the bed phase slightly (v.y), so strata step at joints (faulting).
+//  3. GRAIN: the fine surface noise, unchanged.
 fn analyticRock(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
-  let facetTiles = 0.5;                        // ~1.0 m facets / 2 m-per-tile
+  let facetTiles = 0.8;                        // ~1.6 m jointing blocks / 2 m-per-tile
   let uv = uvTiles / facetTiles;
   let cellFw = max(fwTiles.x, fwTiles.y) / facetTiles;
   let v = vorCell(uv, 0.8);
   let lod = detailLod(cellFw);
   let grain = (vnoise(uvTiles * 3.2) - 0.5) * lod;          // fine surface grain (~0.31 m)
   let aa = max(cellFw, 1e-4);
-  let seam = 1.0 - smoothstep(0.04, 0.04 + aa, v.z);        // darken facet crevices (F2−F1 edge)
-  let tone = 0.40 + 0.10 * v.y + 0.10 * grain;
-  let shade = mix(1.0, 0.55, seam);
+  // Facet crevices (F2−F1 edge). Softened three ways so they read as hairline
+  // cracks in stone rather than a scale net: darkness eased below, faded with the
+  // same detail LOD as the grain (a far face falls back to tone variation, never
+  // the web), and modulated per-cell so only some joints are open at all.
+  let seamOpen = 0.35 + 0.65 * vnoise(floor(uv) * 0.71 + vec2<f32>(3.1, 17.9));
+  let seam = (1.0 - smoothstep(0.05, 0.05 + aa, v.z)) * lod * seamOpen;
+
+  // Bedding coordinate: metres of elevation, warped low-frequency, block-faulted.
+  let elevM = (heightAtF(uvTiles.x, uvTiles.y) - G.uZParams.y) * G.uZParams.z;
+  let warp = (vnoise(uvTiles * 0.35 + vec2<f32>(13.7, 71.3)) - 0.5) * 1.6;
+  let bedsPerM = 1.1;
+  let bandC = elevM * bedsPerM + warp + v.y * 0.35;
+  let bandI = floor(bandC);
+  let bandT = fract(bandC);
+  // Band-limit: beds are only visible on faces, where elevation climbs ~2 m per
+  // tile — approximate the bed-space footprint from that and fade before shimmer.
+  let bandFw = max(fwTiles.x, fwTiles.y) * 2.0 * bedsPerM;
+  let bedLod = (1.0 - smoothstep(0.25, 0.7, bandFw)) * lod;
+  let bedR = vnoise(vec2<f32>(bandI * 0.37 + 4.2, 7.7));    // per-bed random, stable along the bed
+  let parting = smoothstep(0.0, 0.18, min(bandT, 1.0 - bandT));
+  let bedTone = mix(1.0, 0.74 + 0.40 * bedR, bedLod);       // thick lit beds vs recessive ones
+  let bedSeam = mix(1.0, mix(0.60, 1.0, parting), bedLod);  // soft dark parting seam
+
+  let tone = (0.46 + 0.10 * v.y + 0.09 * grain) * bedTone * bedSeam;
+  let shade = mix(1.0, 0.68, seam);
   let lit = tone * shade;
-  return vec3<f32>(lit * 1.05, lit, lit * 0.93);
+  // Warm sediment vs cool grey sway per bed, so a face is not one monotone grey.
+  let wc = (vnoise(vec2<f32>(bandI * 0.61 + 9.1, 3.3)) * 2.0 - 1.0) * bedLod;
+  return vec3<f32>(lit * (1.05 + 0.06 * wc), lit, lit * (0.93 - 0.05 * wc));
 }
 
 // Hypsometric tint ramp: lowland green → tan → brown → snow, keyed by the

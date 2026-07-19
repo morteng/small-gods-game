@@ -11,16 +11,24 @@ import { WorldRenderGraph } from '@/render/graph/world-render-graph';
 import type { RenderCategory } from '@/render/graph/render-graph';
 import type { DrawItem } from './draw-list';
 import type { IsoItemCtx } from './iso-sprites';
-import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, isGroundCoverKind, natureContact } from './iso-sprites';
+import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, natureBuryFrac, isGroundCoverKind, isLowShrubKind, natureContact } from './iso-sprites';
 import { isPlantPreset } from '@/blueprint/presets';
+import { isSnowBuriedRockKind } from '@/world/entity-kinds';
 import { snowAmount01 } from '@/render/snow-mask';
 import { floraVariantForSnow } from '@/render/flora-phenology';
 
-/** Snow level past which ground cover (grass/herb/fern) is not drawn at all —
- *  deliberately below `SNOW_BARE_THRESHOLD` (0.35): the terrain blend already
- *  paints mostly white around ~0.2, and a green tuft on a white pocket reads
- *  as floating on the snow rather than growing through it. */
+/** Snow level past which ground cover (grass/herb/fern) AND decorative loose
+ *  stone (isSnowBuriedRockKind) are not drawn at all — deliberately below
+ *  `SNOW_BARE_THRESHOLD` (0.35): the terrain blend already paints mostly white
+ *  around ~0.2, and a green tuft or grey boulder on a white pocket reads as
+ *  sitting ON the snow rather than in/under it (per-instance whiten softened
+ *  but never fixed the rocks — user report). Snowpack buries both. */
 const GROUND_COVER_SNOW_HIDE = 0.2;
+/** Knee-high shrubs (heather, gorse, prostrate juniper — isLowShrubKind) survive a
+ *  dusting that buries a tuft, but deep pack swallows them too: heather tops out
+ *  ~0.5 m, well under a drifted snowpack. Between the two thresholds they draw
+ *  whitened; past this they vanish like ground cover. */
+const SHRUB_SNOW_HIDE = 0.5;
 import { floraSwayAmplitude } from '@/flora/flora-registry';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
@@ -268,7 +276,10 @@ export function buildEntityDrawList(
         // species — the bare-crown variant swap. Static per world (altitude/cold
         // mask only; a seasonal term would fold in inside floraVariantForSnow).
         const isPlant = isPlantPreset(v.kind);
-        const snow = isPlant ? snowAmount01(rc.map, v.x, v.y) : 0;
+        // Loose stone is snow-buried like ground cover (see the constant's doc);
+        // computed here too so a rock without a plant preset still gets a mask read.
+        const buriedRock = isSnowBuriedRockKind(v.kind);
+        const snow = isPlant || buriedRock ? snowAmount01(rc.map, v.x, v.y) : 0;
         // Snow buries ground cover: a grass tuft drawn over the shader's white
         // field reads as sitting ON the snow, so once the ground paints
         // predominantly white we simply don't draw it (taller flora swaps to
@@ -277,7 +288,8 @@ export function buildEntityDrawList(
         // white well before the mask hits 0.35, and a green tuft floating on a
         // white pocket was the exact complaint. Tufts below it keep poking
         // through the barely-dusted melt fringe, which reads naturally.
-        if (snow >= GROUND_COVER_SNOW_HIDE && isGroundCoverKind(v.kind)) continue;
+        if (snow >= GROUND_COVER_SNOW_HIDE && (isGroundCoverKind(v.kind) || buriedRock)) continue;
+        if (snow >= SHRUB_SNOW_HIDE && isLowShrubKind(v.kind)) continue;
         const pack = isPlant
           ? rc.resolveParametricPlantArt?.(v.kind, floraVariantForSnow(v.kind, v.id, snow)) ?? null
           : null;

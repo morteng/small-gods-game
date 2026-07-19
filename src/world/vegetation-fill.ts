@@ -27,6 +27,11 @@ import { getRenderWaterMask } from '@/world/render-water';
 import { isRoadOrRiver } from '@/world/vegetation-clear';
 import { worldStyleOf } from '@/core/world-style';
 import { smoothNoise } from '@/core/noise';
+import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
+import { styledIslandSpec } from '@/terrain/island-mask';
+import { styledShapeSpec } from '@/terrain/terrain-shape';
+import { siteMetrics } from '@/terrain/terrain-generator';
+import { COVER_SLOPE } from '@/world/brushes/vegetation-placer';
 
 /** Open-ground tile types that read as bare when unplanted — the grass sward. Matches
  *  the grassland brush's `tileType`; forest/scrub/wetland carry their own undergrowth. */
@@ -99,9 +104,25 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
   const height = map.height;
   const width = map.width;
   const isWater = getRenderWaterMask(map);
+  const style = worldStyleOf(map.worldSeed);
   // Denser worlds (simulator 1.2) fill fuller; sparser (storybook 0.85) fill lighter —
   // the fill tracks the same dial as every brush so one lever moves the whole look.
-  const floraDensity = worldStyleOf(map.worldSeed).floraDensity;
+  const floraDensity = style.floraDensity;
+  // STEEPNESS: the fill runs LAST, after the biome brushes' SlopeBands have left the
+  // painted-rock faces deliberately bare — without its own gate it re-planted exactly
+  // those cells (the brushes' "bare" IS this pass's trigger). Same COVER_SLOPE ramp,
+  // same siteMetrics slope, thinning via the Bernoulli prob so the fade stays smooth.
+  const heightField = map.flatHeight
+    ? null
+    : getHeightfield(map.seed, width, height, styledIslandSpec(map.worldSeed), map.worldSeed?.pois ?? null, styledShapeSpec(map.worldSeed));
+  const slopeKeep = (x: number, y: number): number => {
+    if (!heightField) return 1;
+    const slopeM = siteMetrics(heightField, x, y, width, height, ELEVATION_SEA_LEVEL, style.mountainRelief).slopeM;
+    const lo = COVER_SLOPE.maxSlopeM - (COVER_SLOPE.bandM ?? COVER_SLOPE.maxSlopeM * 0.4);
+    if (slopeM <= lo) return 1;
+    if (slopeM >= COVER_SLOPE.maxSlopeM) return 0;
+    return (COVER_SLOPE.maxSlopeM - slopeM) / (COVER_SLOPE.maxSlopeM - lo);
+  };
 
   let placed = 0;
   for (let y = 0; y < height; y++) {
@@ -124,7 +145,7 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
 
       // Clumped Bernoulli roll: patches of tufts, gaps between — never a flat carpet.
       const clump = smoothNoise(x, y, seed + 71, FILL_CLUMP_SCALE) * 2;
-      const prob = Math.min(1, FILL_BASE_PROB * floraDensity * clump);
+      const prob = Math.min(1, FILL_BASE_PROB * floraDensity * clump) * slopeKeep(x, y);
       const s = (seed ^ 0x51ed) + 0;
       if (hash01(x, y, s) >= prob) continue;
 

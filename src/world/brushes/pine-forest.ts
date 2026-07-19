@@ -1,4 +1,4 @@
-import { placeVegetation } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, CONIFER_SLOPE, COVER_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -23,6 +23,12 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     'scots-pine': { maxHeightM: 22, bandM: 8 },
     'norway-spruce': { maxHeightM: 21, bandM: 8 },
     'silver-birch': { maxHeightM: 19, bandM: 5 },
+  },
+  // STEEPNESS: conifers cling to steeper ground than broadleaf but still let go
+  // of the faces the shader paints as bare rock.
+  slope: {
+    ...slopeBandAll(canopyOf('pine_forest'), CONIFER_SLOPE),
+    ...slopeBandAll(undergrowthOf('pine_forest'), COVER_SLOPE),
   },
 };
 

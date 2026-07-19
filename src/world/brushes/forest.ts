@@ -1,4 +1,4 @@
-import { placeVegetation } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, TREE_SLOPE, COVER_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -32,6 +32,12 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     'european-ash': { maxHeightM: 15, bandM: 6 },
     'small-leaved-lime': { maxHeightM: 14, bandM: 5 },
     'silver-birch': { maxHeightM: 19, bandM: 5 },   // hardy pioneer climbs higher
+  },
+  // STEEPNESS: nothing roots on a cliff face — the terrain shader paints those
+  // as bare rock. Canopy + undergrowth pools take the shared thinning bands.
+  slope: {
+    ...slopeBandAll(canopyOf('forest'), TREE_SLOPE),
+    ...slopeBandAll(undergrowthOf('forest'), COVER_SLOPE),
   },
 };
 

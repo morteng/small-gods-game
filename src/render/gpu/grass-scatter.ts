@@ -59,6 +59,10 @@ function hash2(x: number, y: number): number {
   return h - Math.floor(h);
 }
 
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x));
+}
+
 /** Low-frequency value noise in [0,1] for clumping fields (bilinear over a hash lattice). */
 function vnoise(x: number, y: number): number {
   const x0 = Math.floor(x), y0 = Math.floor(y);
@@ -277,6 +281,31 @@ export function buildGrassInstances(
         const rr = hash2(fx * 1.7, fy * 2.3);
         const sJit = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
 
+        // SOFT-COVER VIABILITY (grass/flower/reed) — mirrors the terrain splat's own
+        // ramps so soft vegetation never stands on ground the shader paints as rock
+        // or snow:
+        //  · slope: the rock weight ramps smoothstep(0.42, 0.78, slope + jit*0.18)
+        //    and pokes through the height-blend from ~0.52; the jitter term speckles
+        //    it in from ~0.48. Soft cover fades out across 0.32→0.48 — gone before
+        //    the first painted stone (green tufts on a near-vertical stone face was
+        //    the user-visible bug).
+        //  · snow: the hard SNOW_CLUTTER_HIDE line above matches where the height-
+        //    blend first lets snow poke through, but the shader's pixel jitter
+        //    speckles white into the approach — density fades from snowT 0.05 so
+        //    the snowline feathers instead of a green/white wall.
+        //  · altitude: the permanent-cap snowline (wSnowAlt: metresAS 22.5→28 on
+        //    cool ground) gets an alpine approach — the carpet thins from ~16 m so
+        //    a cool peak wears sparse tussock below its crown, not lowland sward.
+        //    Hot summits keep their cover (gate mirrors the shader's cool term).
+        // Stone categories (scree/outcrop/boulder/pebble) are exempt — stones ON
+        // rock paint read correctly, and the snow hard-cut still removes them.
+        const slopeKeep = 1 - clamp01((slope - 0.32) / 0.16);
+        const snowKeep = 1 - clamp01((snowT - 0.05) / (SNOW_CLUTTER_HIDE - 0.05));
+        const coolT = clamp01((0.45 - temp) / 0.12);
+        const alpineKeep = 1 - 0.92 * clamp01((aboveM - 16) / 8) * coolT;
+        const keepSoft = slopeKeep * snowKeep * alpineKeep;
+        const softDrop = keepSoft < 1 && hash2(fx * 7.9 + 2.7, fy * 5.3 + 11.3) >= keepSoft;
+
         // ARIDITY THINNING: hot, dry ground carries sparse xerophytic scrub, not a meadow —
         // grass cover falls toward bare dune/hardpan as moisture drops, mirroring the terrain
         // splat that already turns arid there (before this the billboard grass carpeted a
@@ -309,13 +338,14 @@ export function buildGrassInstances(
         let cat: ClutterCat;
         let boulder = false, pebble = false;
         const pebbleField = vnoise(fx / 3.5 + 5.5, fy / 3.5 + 88.1);                   // dusty-ground pebble clumps
-        if (slope > 0.55) { if (rr > 0.5) continue; cat = 'rock'; }                    // steep: sparse rock only
+        if (slope > 0.48) continue;                                                    // steep: rock paint owns the face — a scree
+                                                                                       // billboard pasted on it floats (user report)
         else if (slope > 0.28 && rockField > 0.50) { cat = 'rock'; boulder = rockField > 0.70; } // outcrop, big at core
         else if (boulderField > 0.80 && rr > 0.55) { cat = 'rock'; boulder = true; }   // boulder cluster on flat grass
-        else if (nearWater && moist > 0.48 && reedField > 0.50) cat = 'reed';          // tall stiff reeds at the water's edge
+        else if (nearWater && moist > 0.48 && reedField > 0.50) { if (softDrop) continue; cat = 'reed'; } // tall stiff reeds at the water's edge
         else if (moist < 0.55 && pebbleField > 0.68 && rr > 0.72) { cat = 'rock'; pebble = true; } // tiny strewn pebbles on drier/worn ground
-        else if (moist > 0.30 && flowerField > 0.58) cat = 'flower';                   // more, wider-spread flower clumps
-        else cat = 'grass';                                                            // grass is the dense default (full carpet)
+        else if (moist > 0.30 && flowerField > 0.58) { if (softDrop) continue; cat = 'flower'; } // more, wider-spread flower clumps
+        else { if (softDrop) continue; cat = 'grass'; }                                // grass is the dense default (full carpet)
 
         // Per-instance size (world px) + wind stiffness by category (bendK, the 12th float):
         // grass floppy (occasional TALL hero tuft), flowers stiffer with bigger blooms, REEDS

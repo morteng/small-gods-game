@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v34');
   });
 
-  it('declares the current world content version (106: beaver dams — crest-clamp weirs impound brook/stream reaches into ponds)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(106);
+  it('declares the current world content version (107: vegetation obeys steepness — biome brushes band their pools off painted-rock faces)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(107);
   });
 });

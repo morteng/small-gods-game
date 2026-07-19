@@ -4,7 +4,7 @@
 // barren. This brush dresses the swamp/grass/dirt tiles with a sparse alder/willow/
 // birch canopy, and packs common-reed / bulrush / sedge DENSELY along the standing-
 // water edges (the reedbed fringe) where the swamp meets shallow water.
-import { placeVegetation, type VegetationParams } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, TREE_SLOPE, COVER_SLOPE, type VegetationParams } from './vegetation-placer';
 import { defaultEntity } from '@/world/brush-helpers';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -29,6 +29,12 @@ const SWAMP_PARAMS: VegetationParams = {
   offsetRange: [0.5, 0.5],
   undergrowth: undergrowthOf('swamp'),   // reed/bulrush/sedge across the fen
   openUndergrowth: 1,
+  // STEEPNESS: fens are flat by nature, but swamp regions can lap against rising
+  // ground — the carr canopy and fen cover both fade off any painted-rock face.
+  slope: {
+    ...slopeBandAll(canopyOf('swamp'), TREE_SLOPE),
+    ...slopeBandAll(undergrowthOf('swamp'), COVER_SLOPE),
+  },
 };
 
 /** Decorrelated [0,1) hash — the mix the vegetation placer uses (no Math.random). */

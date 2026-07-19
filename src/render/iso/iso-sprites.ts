@@ -262,6 +262,19 @@ export function isGroundCoverKind(kind: string): boolean {
   return def.defaultTags.includes('grass') || def.defaultTags.includes('herb') || def.defaultTags.includes('fern');
 }
 
+/**
+ * Knee-high woody flora (heather, gorse, prostrate juniper — flora species with
+ * habit 'shrub' tag, plus the static 'undergrowth'-tagged shrub kind). Not ground
+ * cover — they keep their shadow and survive a dusting — but deep snowpack buries
+ * them at draw time (entity-draw-list SHRUB_SNOW_HIDE), where a tree would poke
+ * through. Trees are excluded by tag: 'tree' wins over everything.
+ */
+export function isLowShrubKind(kind: string): boolean {
+  const def = tryGetEntityKindDef(kind);
+  if (!def || def.defaultTags.includes('tree')) return false;
+  return def.defaultTags.includes('shrub') || def.defaultTags.includes('undergrowth');
+}
+
 const TRUNK_COLOR = '#5a4030';
 
 /**

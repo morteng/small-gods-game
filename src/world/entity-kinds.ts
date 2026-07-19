@@ -183,6 +183,22 @@ export function isRockKind(kind: string): boolean {
   return tryGetEntityKindDef(kind)?.defaultTags.includes('rock') ?? false;
 }
 
+/**
+ * Decorative loose stone that snowpack simply BURIES — boulders, rock piles,
+ * pebbles and procedural rock species. Once the ground paints predominantly
+ * white the draw list hides these entirely: a grey lump on a snowfield, even
+ * per-instance whitened, still reads as dropped ON the snow rather than under
+ * it (the snow swatch already carries its own poking rock tips). Deliberately
+ * NARROWER than isRockKind: `standing_stone` is a monument (a menhir must not
+ * vanish from its sacred site) and `ore_vein` is a resource marker — both stay
+ * drawn and take the whiten instead.
+ */
+export function isSnowBuriedRockKind(kind: string): boolean {
+  if (kind === 'standing_stone') return false;
+  const tags = tryGetEntityKindDef(kind)?.defaultTags;
+  return !!tags && tags.includes('rock') && !tags.includes('resource');
+}
+
 /** Real-entity size of a nature kind in metres: the catalogue height × the entity's
  *  per-instance scale multiplier. The one place the pad/bury/blend sizing reads
  *  "how big is this rock" (kinds absent from the table take the default). */

@@ -6,7 +6,7 @@
 // inside almost every biome's tile mix (forest 15%, scrubland 30%, beach 20%, …),
 // and brushes run one-per-biome-region: each vegetation brush calls this for the
 // grass tiles in ITS region, so meadows bloom wherever the tiles actually are.
-import { placeVegetation } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, COVER_SLOPE, STONE_SLOPE } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -25,6 +25,13 @@ const GRASSLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
   offsetRange: [0.5, 0.5],  // full-cell scatter — ground cover must not reveal the grid
   undergrowth: undergrowthOf('grassland'),
   openUndergrowth: 1,       // field-stones don't need a canopy
+  // STEEPNESS: meadow cover fades off the faces the shader paints as rock; the
+  // field-stone is LOOSE stone and obeys the tighter angle-of-repose band.
+  slope: {
+    ...slopeBandAll(canopyOf('grassland'), COVER_SLOPE),
+    ...slopeBandAll(undergrowthOf('grassland'), COVER_SLOPE),
+    'field-stone': STONE_SLOPE,
+  },
 };
 
 /** Scatter grassland ground cover over the grass/meadow/glen tiles of `region`.

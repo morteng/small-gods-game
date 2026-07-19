@@ -16,14 +16,15 @@ import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { siteMetrics } from '@/terrain/terrain-generator';
 import { worldStyleOf } from '@/core/world-style';
 import { isRockKind } from '@/world/entity-kinds';
+import { STONE_SLOPE } from '@/world/brushes/vegetation-placer';
 import { isEmergentSpecies, waterHabitatOf } from '@/world/water-habitat';
 import { collectRockPads, ROCK_PAD_STRIDE } from '@/world/rock-deformation';
 import type { GameMap, WorldSeed, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 
 const SEEDS = [12345, 777];
-/** The steepest ground the hills brush's ROCK band tolerates (hills.ts ROCK_SLOPE.maxSlopeM). */
-const ROCK_SLOPE_CEILING_M = 1.8;
+/** The steepest ground the hills brush's ROCK band tolerates (hills.ts ROCK_SLOPE = STONE_SLOPE). */
+const ROCK_SLOPE_CEILING_M = STONE_SLOPE.maxSlopeM;
 const DEEP = new Set(['deep_water', 'ocean']);
 
 const worlds = new Map<number, { map: GameMap; world: World }>();

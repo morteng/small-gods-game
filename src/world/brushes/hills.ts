@@ -8,25 +8,20 @@
 // The primary pool mixes the alpine ROCK vocabulary (rocks aren't flora-DB species,
 // so they live here, not in biome-flora) with dense tussock and the odd hardy dwarf
 // shrub; the `alpine` biome-flora pool carries the heather/juniper undergrowth layer.
-import { placeVegetation, type VegetationParams, type SlopeBand } from './vegetation-placer';
+import { placeVegetation, STONE_SLOPE, COVER_SLOPE, type VegetationParams, type SlopeBand } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import { undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
 const BRUSH = 'hills';
 
-// ── STEEPNESS BANDS (m of rise per tile; one tile = 2 m, so 1.4 ≈ 35°) ──
-// A loose stone cannot rest above the ANGLE OF REPOSE (~35°) — it sheds downhill and
-// collects as talus at the foot of the face. Rocks glued to a cliff face were the whole
-// complaint, so the rock band closes just past repose: full acceptance to 1.1 (~29°),
-// thinning to zero at 1.8 (~42°). Rooted cover holds a steeper slope than a loose rock,
-// so it keeps a looser band (zero at 2.6 ≈ 52°) — enough to strip tussock/heather off
-// the near-vertical faces without shaving the crags bare.
-// Calibrated, not guessed: the alpine ground's own slope runs p50 0.38–0.47, p90
-// 1.15–1.26, p99 1.9–2.3, max ~11.6 (seeds 12345/777) — so these bands bite exactly the
-// tail that reads as a face and leave the rolling upland untouched.
-const ROCK_SLOPE: SlopeBand = { maxSlopeM: 1.8, bandM: 0.7 };
-const COVER_SLOPE: SlopeBand = { maxSlopeM: 2.6, bandM: 1.0 };
+// ── STEEPNESS BANDS — now the SHARED constants (vegetation-placer.ts), which carry
+// this brush's original calibration story: STONE closes just past the angle of repose
+// (rocks glued to a cliff face were the whole complaint), rooted COVER holds steeper
+// (zero at 2.6 ≈ 52°) — enough to strip tussock/heather off the near-vertical faces
+// without shaving the crags bare. Measured against the alpine ground's own slope
+// distribution: p50 0.38–0.47, p90 1.15–1.26, p99 1.9–2.3, max ~11.6 (seeds 12345/777).
+const ROCK_SLOPE: SlopeBand = STONE_SLOPE;
 
 // Weights (sum ≈ 1) chosen against a measured density so tussock covers ~50–60% of
 // upland cells and rocks ~25% (clumped): expected tussock/cell ≈ density·0.66 and
