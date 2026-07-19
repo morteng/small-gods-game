@@ -22,6 +22,15 @@ function ctx(rows: string[][], seed = 0): BrushContext {
 }
 const fill = (w: number, h: number, type: string, seed = 0) =>
   ctx(Array.from({ length: h }, () => Array(w).fill(type)), seed);
+/** Flat-ground variant: slope/altitude gates inert, for tests that measure the brush's
+ *  AUTHORED density — a tiny synthetic map's heightfield is mostly steep island edge,
+ *  which the WCV-107 slope bands would cull in a way no real-world interior sees.
+ *  (The treeline tests below deliberately keep the real field.) */
+const flatFill = (w: number, h: number, type: string, seed = 0) => {
+  const c = fill(w, h, type, seed);
+  c.tiles.flatHeight = true;
+  return c;
+};
 
 /** Seed 1234 at 160² has a real alpine tail: ~179 cells above 22 m, ~1526 above 15 m —
  *  enough high ground for both the conifer (22 m) and broadleaf (15 m) ceilings to bite. */
@@ -181,7 +190,7 @@ describe('treeline — per-species altitude band thins canopy toward its ceiling
 });
 
 describe('alpine scatter — the lattice is dead', () => {
-  const out = hillsBrush({ x: 0, y: 0, w: 48, h: 48 }, 3, fill(48, 48, 'mountain'));
+  const out = hillsBrush({ x: 0, y: 0, w: 48, h: 48 }, 3, flatFill(48, 48, 'mountain'));
 
   it('scatters at real intra-tile offsets, not all at the tile centre (x+0.5)', () => {
     const rocks = out.filter((e) => e.kind === 'boulder' || e.kind === 'rock_pile' || e.kind === 'pebbles');
