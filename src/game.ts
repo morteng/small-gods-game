@@ -57,6 +57,7 @@ import { registerSimSystems } from '@/game/sim-systems';
 import { applySkip } from '@/sim/time-skip';
 import { settleArcsAcrossSkip } from '@/sim/fate/arc-era';
 import { runBootSequence } from '@/game/boot-sequence';
+import { kickOffSheets } from '@/game/bootstrap-world';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
 import { clearSave } from '@/services/save-store';
@@ -87,6 +88,11 @@ const ALERT_FLY_ZOOM = 0.5;
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
  *  the readout yet collapses ~4–6 full congregation sweeps/frame to one. */
 const HUD_SIM_TTL_MS = 150;
+
+/** Cadence of the post-boot LPC sheet re-kick (real ms) — catches NPCs born
+ *  after the boot pass so they render with a sheet, not a fallback circle.
+ *  Births are rare; the scan is a Map.has per NPC, so slow is plenty. */
+const SHEET_REKICK_MS = 5000;
 
 export interface GameOptions {
   width?: number;
@@ -241,6 +247,8 @@ export class Game {
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
+  /** Slow re-kick so post-boot births get LPC sheets too (see generateWorld). */
+  private sheetRekickTimer: ReturnType<typeof setInterval> | null = null;
   private assets = new AssetManager();
   private chrome!: ChromeHandle;
   private veil!: ReturnType<typeof mountPastVeil>;
@@ -1370,6 +1378,15 @@ export class Game {
       },
     }, worldSeed);
     this.startLoop();
+    // Presentation: NPCs born after boot (birth/lineage) must get their LPC sheet
+    // too, or they stand around as fallback circles — the boot pass only covered
+    // the seeded population. A slow re-kick is enough: births are rare real-time
+    // events, and kickOffSheets dedupes so a quiet world costs one map scan.
+    if (this.sheetRekickTimer === null) {
+      this.sheetRekickTimer = setInterval(() => {
+        if (this.state.world) kickOffSheets(this.state, this.sheets);
+      }, SHEET_REKICK_MS);
+    }
     // Auto-pause when the tab is hidden (the loop + audio fully idle; resumes on return) —
     // so a backgrounded game never burns CPU/GPU on this machine.
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -1513,6 +1530,7 @@ export class Game {
   }
 
   destroy(): void {
+    if (this.sheetRekickTimer !== null) { clearInterval(this.sheetRekickTimer); this.sheetRekickTimer = null; }
     this.frameLoop.destroy();
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibilityChange);
     this.presentation.destroy();

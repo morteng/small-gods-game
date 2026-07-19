@@ -219,7 +219,11 @@ function instantiateRivals(state: GameState, ws: WorldSeed): void {
   }
 }
 
-function kickOffSheets(state: GameState, sheets: Map<string, HTMLCanvasElement>): void {
+/** Request an LPC sheet for every NPC that doesn't have one yet. Dedupes via the
+ *  `sheets` map + the cache's inflight set, so calling it repeatedly is cheap.
+ *  Exported for the Game's slow re-kick: NPCs BORN after boot (birth/lineage)
+ *  otherwise never get a sheet and would stand around as fallback circles. */
+export function kickOffSheets(state: GameState, sheets: Map<string, HTMLCanvasElement>): void {
   if (!state.world) return;
   for (const e of state.world.query({ kind: 'npc' })) {
     if (sheets.has(e.id)) continue;
