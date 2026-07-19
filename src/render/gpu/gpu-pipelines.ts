@@ -178,16 +178,33 @@ export function createGrassPipeline(
   });
 }
 
+/** The water fragment tier. Default = CHEAP (bilinear-only fields, mid-value coastal
+ *  gradients, no glints/caustics — see CHEAP_WATER in water-wgsl.ts): the water
+ *  pass is the frame's dominant fill bill on integrated GPUs, and the rich shader's
+ *  extra storage reads buy detail those machines can't afford. `?water=rich` opts
+ *  back into the full-cost fragment (A/B + capable hardware). */
+export function cheapWaterEnabled(): boolean {
+  try { return new URLSearchParams(window.location.search).get('water') !== 'rich'; }
+  catch { return true; }
+}
+
 /** Water pipeline (S2): GPU-generated per-cell quads (no vertex buffers), lifted to
  *  the water surface + blended over the terrain. Shares the terrain depth buffer
  *  (greater-equal, NO depth write) so nearer terrain occludes water but water never
- *  writes into the entity depth scheme. Premultiplied alpha out, like the sprites. */
-export function createWaterPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+ *  writes into the entity depth scheme. Premultiplied alpha out, like the sprites.
+ *  `cheap` folds the CHEAP_WATER pipeline constant in at compile time (default —
+ *  see {@link cheapWaterEnabled}); the gated blocks are compiled out, not branched. */
+export function createWaterPipeline(
+  device: GPUDevice, format: GPUTextureFormat, cheap: boolean = cheapWaterEnabled(),
+): GPURenderPipeline {
   const module = device.createShaderModule({ code: WATER_WGSL });
   return device.createRenderPipeline({
     layout: 'auto',
     vertex: { module, entryPoint: 'vsMain' },
-    fragment: { module, entryPoint: 'fsMain', targets: [{ format, blend: PREMULT_BLEND }] },
+    fragment: {
+      module, entryPoint: 'fsMain', targets: [{ format, blend: PREMULT_BLEND }],
+      constants: { CHEAP_WATER: cheap ? 1 : 0 },
+    },
     primitive: { topology: 'triangle-list' },
     depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
   });
