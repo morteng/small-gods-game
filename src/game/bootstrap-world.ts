@@ -22,6 +22,7 @@ import { CausalSiteStore } from '@/world/causal-site';
 import { readSave as readSaveDefault } from '@/services/save-store';
 import { applySaveFile, type SaveFile } from '@/core/save-file';
 import { tickAtSolarHour, WORLD_START_HOUR } from '@/core/calendar';
+import { PINNED_GEN_SEED } from '@/core/constants';
 
 export interface BootstrapDeps {
   state: GameState;
@@ -87,15 +88,12 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   }
 
   const ws = deps.worldSeed || await WorldManager.loadDefault();
-  // Terrain gen seed: random per fresh world, overridable via `?genseed=N` so a dev (or
-  // an agent verifying worldgen) can load the SAME roll the offline probes/lint use.
-  const seed = (() => {
-    try {
-      const p = Number(new URLSearchParams(window.location.search).get('genseed'));
-      if (Number.isFinite(p) && p > 0) return p;
-    } catch { /* non-browser host */ }
-    return Date.now();
-  })();
+  // Terrain gen seed: PINNED by default (not random) so a fresh boot builds the
+  // exact world the vendored sprite bundle was seeded against — every bld/bar
+  // pack is a bundle hit and "Raising the buildings…" costs ~nothing. Variety
+  // stays an explicit ask: `?genseed=N` rolls any other world (and pays its
+  // first-boot composes, cached to IDB after).
+  const seed = genseedOverride ?? PINNED_GEN_SEED;
 
   // Fixed morning start: every fresh world's clock is stamped to
   // WORLD_START_HOUR (08:00) — regardless of the player's wall clock, so a new

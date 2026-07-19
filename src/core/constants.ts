@@ -231,3 +231,11 @@ export const POI_ICONS: Record<string, { color: string; shape: 'circle' | 'trian
   bridge:     { color: '#8D6E63', shape: 'square' },
   crossroads: { color: '#BDBDBD', shape: 'circle' },
 };
+
+/** The gen seed a fresh world boots at when none is asked for (`?genseed=N`
+ *  overrides). PINNED — not random — so the shipped default scene is exactly
+ *  the world the vendored sprite bundle, lint:world, and the offline probes
+ *  were built against: every building/barrier pack is a bundle hit and cold
+ *  boot composes ~nothing. Bump in lockstep with the seeder's DEFAULT_SEEDS
+ *  (scripts/seed-parametric-sprites.ts) or first boots pay the full compose. */
+export const PINNED_GEN_SEED = 12345;

@@ -15,6 +15,7 @@ import type { GeneratedBuildingArtSource } from '@/render/generated-building-art
 import type { Viewport } from './viewport';
 import { waitForArtSettled } from '@/game/art-settle-gate';
 import { composeQueuePending } from '@/render/compose-scheduler';
+import { pendingSheets } from '@/render/lpc/spritesheet-cache';
 import { selectRenderer, type RenderFn } from '@/render/select-renderer';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { loadBaseLibrary } from '@/services/base-library-loader';
@@ -128,7 +129,11 @@ async function holdLoadingUntilArtSettled(deps: BootSequenceDeps, buildingArtRes
       composeQueuePending()
       + deps.parametricBuildingSource.pending()
       + deps.parametricBarrierSource.pending()
-      + deps.generatedBuildingArtSource.pending(),
+      + deps.generatedBuildingArtSource.pending()
+      // NPC LPC sheets too ("all sprites ready before the fade — that goes for
+      // NPCs"): kickOffSheets requested every NPC's sheet during bootstrap, so
+      // holding on inflight here means nobody pops in over a live frame loop.
+      + pendingSheets(),
     // Mirror the draw-cache's buildingArtRev exactly (render-context.ts) — the
     // generated (painted) source repaints buildings too.
     artRev: () =>

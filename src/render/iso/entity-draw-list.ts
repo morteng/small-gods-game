@@ -15,6 +15,12 @@ import { npcItems, vegetationItems, artBillboardItem, plantSpriteItemFromPack, n
 import { isPlantPreset } from '@/blueprint/presets';
 import { snowAmount01 } from '@/render/snow-mask';
 import { floraVariantForSnow } from '@/render/flora-phenology';
+
+/** Snow level past which ground cover (grass/herb/fern) is not drawn at all —
+ *  deliberately below `SNOW_BARE_THRESHOLD` (0.35): the terrain blend already
+ *  paints mostly white around ~0.2, and a green tuft on a white pocket reads
+ *  as floating on the snow rather than growing through it. */
+const GROUND_COVER_SNOW_HIDE = 0.2;
 import { floraSwayAmplitude } from '@/flora/flora-registry';
 import {
   buildingSpriteItemFromImage, buildingSpriteItemFromPack, flatBlockItems, pickBuildingSource,
@@ -263,6 +269,15 @@ export function buildEntityDrawList(
         // mask only; a seasonal term would fold in inside floraVariantForSnow).
         const isPlant = isPlantPreset(v.kind);
         const snow = isPlant ? snowAmount01(rc.map, v.x, v.y) : 0;
+        // Snow buries ground cover: a grass tuft drawn over the shader's white
+        // field reads as sitting ON the snow, so once the ground paints
+        // predominantly white we simply don't draw it (taller flora swaps to
+        // bare variants instead — a tree pokes through snowpack, a tuft doesn't).
+        // Threshold sits BELOW the bare-crown one: the painted blend looks
+        // white well before the mask hits 0.35, and a green tuft floating on a
+        // white pocket was the exact complaint. Tufts below it keep poking
+        // through the barely-dusted melt fringe, which reads naturally.
+        if (snow >= GROUND_COVER_SNOW_HIDE && isGroundCoverKind(v.kind)) continue;
         const pack = isPlant
           ? rc.resolveParametricPlantArt?.(v.kind, floraVariantForSnow(v.kind, v.id, snow)) ?? null
           : null;

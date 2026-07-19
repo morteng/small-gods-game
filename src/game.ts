@@ -67,8 +67,6 @@ import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
 import { zoomBand, type ZoomBand } from '@/game/affordance/zoom-band';
-import { projectAlertPins, projectPinCentre, PIN_SELECTION_ID } from '@/game/affordance/alert-pins';
-import type { AlertPinView } from '@/render/ui/ui-runtime';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { ChronicleService } from '@/game/chronicle-service';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
@@ -745,9 +743,9 @@ export class Game {
           this.requestRender();
         }
       },
-      // ── P5 semantic zoom: the zoomed-out inbox as world-anchored alert pins ──
-      getAlertPins: () => this.alertPins(),
-      onAlertPin: (id) => this.flyToInboxItem(id),
+      // P5 alert pins are PARKED (user: no floating icons over the world) — the
+      // projection (`affordance/alert-pins.ts`) and the ui-runtime renderer stay,
+      // but nothing feeds them. Re-enable by restoring the getAlertPins hook here.
       // ── W-I-d: selected causal-site card ──
       getSelectedSite: () => {
         const id = this.state.selectedCausalSiteId;
@@ -1064,33 +1062,6 @@ export class Game {
     return this.zoomBandState;
   }
 
-  /** The zoomed-OUT inbox surface: the top-N salience-ranked inbox items that have a
-   *  world anchor, projected to on-screen device-px pin centres — plus a distinct
-   *  `selection` pin for the collapsed inspector's subject (selection survives zoom,
-   *  spec §6). Null in the zoomed-IN band (the hover/inspector/list surfaces own that
-   *  altitude). Recomputed every frame from the live camera so pins track pan/zoom
-   *  with no lag or swim. */
-  private alertPins(): AlertPinView[] | null {
-    if (this.currentBand() !== 'out') return null;
-    const cam = this.state.camera;
-    const dpr = devicePixelRatio;
-    const pins = projectAlertPins(this.hudSim().inbox, cam, dpr);
-    // Selection-survives-zoom: the inspector collapsed at this altitude, so its
-    // subject renders as a distinct pin; clicking it flies back in (which restores
-    // the inspector — the selection itself was never cleared).
-    const sel = this.inspectorTarget();
-    const pos = sel ? this.targetWorldPos(sel) : null;
-    if (pos) {
-      pins.unshift({
-        id: PIN_SELECTION_ID,
-        kind: 'selection',
-        ...projectPinCentre({ x: Math.floor(pos.x), y: Math.floor(pos.y) }, cam, dpr),
-        surfaced: false,
-      });
-    }
-    return pins;
-  }
-
   // Sim-derived HUD reads (belief power, granted powers, divine inbox) come from
   // full-congregation sweeps, yet the barebones UI reads them EVERY frame — the orb
   // (beliefState), the POWERS pill (beliefPowers), the INBOX pill (divineInbox), AND
@@ -1117,22 +1088,6 @@ export class Game {
   /** Drop the HUD memo so the next read recomputes — called when a divine action
    *  shifts belief, so the orb/powers/inbox reflect the change on the very next frame. */
   private invalidateHudSim(): void { this.hudSimCache = null; }
-
-  /** Click a zoomed-out alert pin. The selection pin just flies home (the inspector
-   *  re-opens on arrival because the selection survived); an inbox pin routes through
-   *  the SAME `actOnInbox` path as the list's ACT (never strand an action). */
-  private flyToInboxItem(id: string): void {
-    if (id === PIN_SELECTION_ID) {
-      const sel = this.inspectorTarget();
-      const pos = sel ? this.targetWorldPos(sel) : null;
-      if (pos) this.flyTo(Math.floor(pos.x), Math.floor(pos.y));
-      this.requestRender();
-      return;
-    }
-    const item = this.query.divineInbox().find((it) => it.id === id);
-    if (item) this.actOnInbox(item);
-    this.requestRender();
-  }
 
   /** Queue the P5 camera-fly toward a tile anchor — `flyTo(tx, ty)` or `flyTo({x, y})`.
    *  Lands at an in-band zoom when starting zoomed out; keeps the player's zoom when

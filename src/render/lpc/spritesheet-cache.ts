@@ -69,6 +69,13 @@ export function getOrGenerateSheet(spec: CharacterSpec): Promise<HTMLCanvasEleme
   return promise;
 }
 
+/** Unsettled sheet requests (queued + running). The boot art-settle gate sums
+ *  this into its pending count so the loading overlay outlives LPC composition —
+ *  NPCs never pop in one by one over a live, janking frame loop. */
+export function pendingSheets(): number {
+  return inflight.size;
+}
+
 /** Clear the cache (e.g. for testing) */
 export function clearSheetCache(): void {
   cache.clear();

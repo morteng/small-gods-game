@@ -62,7 +62,7 @@ const SHARD_TARGET_BYTES = 4 * 1024 * 1024;
  *  fully covers pinned-seed boots AND every boot's plants (seed-independent);
  *  random-seed boots get all plants + the recurring barrier subset and compose the
  *  world's bld/bar rest, as before. Pass --seeds=… to widen deliberately (budget ~60 MB). */
-const DEFAULT_SEEDS = [12345];
+const DEFAULT_SEEDS = [12345]; // = PINNED_GEN_SEED (core/constants.ts): the seed fresh boots use
 const DEFAULT_WORLDS = ['public/data/worlds/default.json'];
 
 interface Job {
