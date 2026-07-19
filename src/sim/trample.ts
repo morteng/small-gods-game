@@ -22,9 +22,14 @@
  * the passes are pure integer arithmetic — no RNG (guard: no-random-in-sim).
  *
  * Opt-out is by terrain: only soft natural ground (`SOFT_GROUND`) ever trampls,
- * and a trail caps at `dirt` — it NEVER produces road-class tiles, so it can
- * never feed the road graph / roads-lead-to-gates lint contracts. Trails are
- * ground wear, not roads.
+ * and a trail caps at `dirt` — trampling itself NEVER produces road-class tiles.
+ * The ONE sanctioned seam across that line is desire-line ADOPTION (road-wear
+ * economy S4, `world/desire-line-adoption.ts`): a corridor that has sustained
+ * qualifying wear is promoted into a real `RoadEdge` by the ADOPTER, which then
+ * calls `release()` to hand the cells over — they leave this grid WITHOUT the
+ * tile being reverted, because the road graph owns them from that moment.
+ * Trails are ground wear, not roads; a road born from a trail is the graph's
+ * doing, not this module's.
  */
 
 import type { GameMap, Tile } from '@/core/types';
@@ -113,6 +118,28 @@ export class TrampleGrid {
   /** Number of cells currently carrying wear (for tests / diagnostics). */
   activeCount(): number {
     return this.accum.size;
+  }
+
+  /** Every currently-promoted trail cell, row-major sorted (deterministic). The corridor
+   *  detectors (S3 crossing sites, S4 adoption tracing) iterate this instead of sweeping
+   *  the whole grid. */
+  promotedCellList(): Array<{ x: number; y: number }> {
+    const keys = [...this.promoted.keys()].sort((a, b) => a - b);
+    return keys.map((i) => ({ x: i % this.width, y: (i - (i % this.width)) / this.width }));
+  }
+
+  /**
+   * The ADOPTION seam (road-wear economy S4): hand these cells over to the road graph.
+   * Deletes them from the accumulator AND the promoted set WITHOUT reverting the tile —
+   * the adopter has just rasterized road over them, and reverting would fight it. Only
+   * `adoptDesireLine` may call this; everything else releases wear through decay.
+   */
+  release(cells: Iterable<{ x: number; y: number }>): void {
+    for (const c of cells) {
+      const i = this.idx(c.x, c.y);
+      this.accum.delete(i);
+      this.promoted.delete(i);
+    }
   }
 
   /**

@@ -20,7 +20,15 @@ const cache = new Map<string, HydrologyResult>();
 const CACHE_CAP = 4;
 
 function key(map: GameMap): string {
-  return `${map.seed}:${map.width}x${map.height}:s${shapeSignature(styledShapeSpec(map.worldSeed))}`;
+  // Beaver-dam WEIRS (rivers R3 P2) change the water, so they MUST be in the cache key: a map WITH
+  // dams and one WITHOUT must not share an entry. Without this, an in-gen call on the weir-less
+  // `mapStub` would prime the cache with base hydrology and the final (weir'd) map would read it
+  // back stale (a dam pond that never appears). Compact signature — dams are few and stable.
+  const dams = map.beaverDams;
+  const damSig = dams && dams.length > 0
+    ? `:d${dams.map((d) => `${d.channelCell}@${d.crestElev.toFixed(5)}`).join('_')}`
+    : '';
+  return `${map.seed}:${map.width}x${map.height}:s${shapeSignature(styledShapeSpec(map.worldSeed))}${damSig}`;
 }
 
 /** The world's water model — memoised. Deterministic from (seed, dims) + the seed heightfield. */
@@ -46,9 +54,17 @@ export function getHydrologyResult(map: GameMap): HydrologyResult {
   const scorchMask = buildVolcanoScorchMask(
     map.worldSeed?.pois, map.width, map.height, elevation, ELEVATION_SEA_LEVEL,
     worldStyleOf(map.worldSeed ?? undefined).mountainRelief);
+  // BEAVER-DAM WEIRS (rivers R3 P2): the map DECLARES its dam crests (`map.beaverDams`), so this
+  // recompute applies the SAME weirs map-generator's second pass did and reproduces the final
+  // water byte-identically — never re-siting (the `riparianSeed`/`scorchMask` precedent). Absent
+  // ⇒ no weirs ⇒ base hydrology, byte-identical to pre-P2.
   const res = generateHydrology(fields, {
     seed: map.seed, width: map.width, height: map.height, seaLevel: ELEVATION_SEA_LEVEL,
-  }, { scorchMask, riverFlowThreshold: styledRiverFlowThreshold(map.worldSeed, map.width, map.height) });
+  }, {
+    scorchMask,
+    riverFlowThreshold: styledRiverFlowThreshold(map.worldSeed, map.width, map.height),
+    weirs: map.beaverDams,
+  });
 
   cache.set(k, res);
   if (cache.size > CACHE_CAP) {

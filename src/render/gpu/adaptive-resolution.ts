@@ -4,19 +4,27 @@
 // (`gpu-scene` blit); this controller picks the art-pixel size from a smoothed
 // frame time.
 //
-// POLICY: strive for the HIGHEST resolution that holds the 30 fps target. Render
-// 1:1 (px=1, crispest) by default; coarsen one step up the [1,2,3,4] ladder only
-// when the smoothed rate sags below 30 fps (each coarser level cuts the fragment
-// cost ~quadratically); and refine back toward 1:1 as soon as there is comfortable
-// headroom (≥40 fps). Resolution is a responsiveness fallback, NOT a quality knob —
-// any spare frame budget is spent on more pixels.
+// POLICY: native 1:1 (px=1) is the thing worth protecting, NOT 30 fps. User
+// directive: "I can live with even 25fps as long as it shows px1 at 1:1." Render
+// 1:1 (crispest) by default; coarsen one step up the [1,2,3,4] ladder only when
+// the smoothed rate sags below ~22 fps (each coarser level cuts the fragment cost
+// ~quadratically); and refine back toward 1:1 once there is headroom at ≥28 fps —
+// a bar reachable on modest hardware, unlike the old 40 fps refine floor. The
+// 22–28 fps band is a deliberate HOLD state: 25fps at px1 must sit there stably,
+// not get walked down the ladder in search of an unreachable frame rate.
+// Resolution is a responsiveness fallback, NOT a quality knob — any spare frame
+// budget is spent on more pixels, and the controller trades fps for pixels much
+// more readily than it used to.
 //
 // Two earlier failure modes this version fixes:
 //   1. DEAD ZONE — the refine threshold sat at 50 fps and the coarsen threshold at
 //      30 fps, so a machine cruising at 30–50 fps (above target, with headroom)
 //      fell in a band where neither counter advanced and it stuck at the coarsest
-//      level forever. The band is now 30→40 fps and the in-band rule HOLDS rather
-//      than resetting progress.
+//      level forever. The band is now 22→28 fps and the in-band rule HOLDS rather
+//      than resetting progress. (This band was originally 30→40 fps; it was
+//      retuned down again because 30fps-sustained/40fps-refine walked a real
+//      25–30fps machine down to px4 and stranded it there — 40 fps was never
+//      going to happen on that hardware, so the ladder never climbed back.)
 //   2. SPIKE FRAGILITY — a single slow frame (GC, a zoom-time instance repack) hard-
 //      reset the "frames of headroom" counter, so the 60-frame climb-back almost
 //      never completed under real jitter. Counters now BLEED (decrement) on an off-
@@ -29,9 +37,9 @@
 export interface AdaptiveResolutionOpts {
   /** Art-pixel ladder, ascending (finer → coarser). Default [1, 2, 3, 4]. */
   levels?: number[];
-  /** Smoothed frame-time (ms) above which to coarsen. Default 33.3 (≈30 fps). */
+  /** Smoothed frame-time (ms) above which to coarsen. Default ≈45.45 (≈22 fps). */
   downMs?: number;
-  /** Smoothed frame-time (ms) below which to refine. Default 25 (≈40 fps). */
+  /** Smoothed frame-time (ms) below which to refine. Default ≈35.71 (≈28 fps). */
   upMs?: number;
   /** Sustained frames over `downMs` before coarsening. Default 20. */
   downFrames?: number;
@@ -52,11 +60,13 @@ export interface AdaptiveResolutionOpts {
 
 /**
  * Hysteretic frame-time → art-pixel-level controller. Coarsens (fewer pixels)
- * after the rate stays below 30 fps for `downFrames`, and refines back (more
- * pixels) after it stays above 40 fps for `upFrames`. The asymmetric thresholds
- * give a 30–40 fps hold band; the counters bleed rather than reset so a stray slow
- * frame can't undo climb progress; and a flap-guard stops it from oscillating into
- * a finer level the machine can't actually hold. On a level change the EMA resets
+ * after the rate stays below 22 fps for `downFrames`, and refines back (more
+ * pixels) after it stays above 28 fps for `upFrames`. The asymmetric thresholds
+ * give a 22–28 fps hold band — a machine holding 25fps at px1 sits there, stable,
+ * rather than getting coarsened in pursuit of a framerate the user explicitly said
+ * they don't need; the counters bleed rather than reset so a stray slow frame
+ * can't undo climb progress; and a flap-guard stops it from oscillating into a
+ * finer level the machine can't actually hold. On a level change the EMA resets
  * to the band midpoint so the next decision starts clean.
  */
 export class AdaptiveResolution {
@@ -79,8 +89,8 @@ export class AdaptiveResolution {
 
   constructor(opts: AdaptiveResolutionOpts = {}) {
     this.levels = opts.levels && opts.levels.length > 0 ? opts.levels.slice() : [1, 2, 3, 4];
-    this.downMs = opts.downMs ?? 1000 / 30;
-    this.upMs = opts.upMs ?? 1000 / 40;
+    this.downMs = opts.downMs ?? 1000 / 22;
+    this.upMs = opts.upMs ?? 1000 / 28;
     this.downFrames = opts.downFrames ?? 20;
     this.upFrames = opts.upFrames ?? 60;
     this.alpha = opts.emaAlpha ?? 0.1;
@@ -107,17 +117,17 @@ export class AdaptiveResolution {
     if (this.refineCooldown > 0) this.refineCooldown--;
 
     if (this.ema > this.downMs) {
-      // Slower than 30 fps → build coarsen pressure, bleed off refine progress. A
+      // Slower than 22 fps → build coarsen pressure, bleed off refine progress. A
       // sustained slowdown both maxes `over` AND drains `under`; a brief dip only
       // nicks it.
       this.over++;
       this.under = Math.max(0, this.under - 2);
     } else if (this.ema < this.upMs) {
-      // Comfortable headroom (≥40 fps) → build refine pressure, bleed off coarsen.
+      // Comfortable headroom (≥28 fps) → build refine pressure, bleed off coarsen.
       this.under++;
       this.over = Math.max(0, this.over - 2);
     } else {
-      // In the 30–40 fps hold band → keep this level; let both pressures decay
+      // In the 22–28 fps hold band → keep this level; let both pressures decay
       // slowly so a brief excursion through the band doesn't erase progress (this
       // is what used to pin it at the coarsest level).
       this.over = Math.max(0, this.over - 1);
