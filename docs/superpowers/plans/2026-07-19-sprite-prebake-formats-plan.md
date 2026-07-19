@@ -86,6 +86,35 @@ set on EVERY boot); keep bld/bar at the pinned seed 12345 (covers the canonical 
 world's ~50 bld + ~65 bar — irreducible without a boot-seed pin (product change) or the
 rejected quantization. No ART bump (same recipe, more/correct packs).
 
+#### S1 box-seeder proof + a workflow gotcha
+
+Ran the WHOLE seeder on ci-eph in the Playwright image and byte-verified it against a
+Mac run:
+
+```
+./scripts/ci-on-server.sh \
+  --run='vite --port 3033 & wait-for-ready; npx tsx scripts/seed-parametric-sprites.ts; kill vite' \
+  --out=public/data/parametric-sprites \
+  --image=mcr.microsoft.com/playwright:v1.60.0-jammy
+```
+
+Box worldgen 16s + compose 31s (16-vCPU); output identical to the Mac reseed — same
+330 keys, same meta, **same shard SHA-256s** (compose is IEEE-deterministic across
+Node/Linux + macOS, plant keys from Chromium 148 both sides). Needed: `--no-sandbox`
+on the headless key browser (root in the container), and NO named inner function in
+`page.evaluate` (esbuild's `__name` helper is undefined in the page).
+
+**GOTCHA (box, native modules):** `ci-on-server.sh` caches `node_modules` on the box
+keyed on the lockfile hash ALONE, reused across `--image=`. The seeder run's first
+`npm ci` (in the Playwright image) built the native `canvas` module for THAT image's
+node ABI; the subsequent default-`node:22-bookworm` test run reused it, and the ABI
+mismatch made jsdom's `getContext('2d')` return null → `tests/dom/pause-banner`
+failed with `Cannot read properties of null (reading 'setTransform')` (green in
+isolation on the Mac; failed even ALONE on the box). Fix: `./scripts/ci-on-server.sh
+--clean` then a fresh run rebuilds `canvas` for node 22 → full suite green
+(4833/4833). Durable fix (future): key the box node_modules cache on image too, or
+run the seeder in its own REMOTE_DIR.
+
 ### S2 — raw-upload rehydration (branch `sprite-raw-upload`)
 1. Baseline numbers FIRST: per-pack rehydration CPU (`packFromPayload`), entity batch
    + bind-group counts per frame, estimated sprite VRAM.
