@@ -105,21 +105,37 @@ export function mapSize(s: CanvasImageSource | RawMap): { w: number; h: number }
  * within ±1 at partial alphas (sprites are hard-alpha, so partials are edge-rare).
  * Used for ALBEDO and EMISSIVE only — normal/material must stay un-premultiplied.
  */
+/** 256×256 premultiply LUT: `PREMUL_LUT[a << 8 | x] = round(x·a/255)` (round-half-up),
+ *  built once. Turns the partial-alpha premultiply into a single table read per
+ *  channel — no divide — so front-loading premultiply into rehydration costs about
+ *  a memcpy rather than an arithmetic loop. 64 KB, negligible + shared. */
+let PREMUL_LUT: Uint8Array | null = null;
+function premulLut(): Uint8Array {
+  if (PREMUL_LUT) return PREMUL_LUT;
+  const t = new Uint8Array(256 * 256);
+  for (let a = 0; a < 256; a++) {
+    const base = a << 8;
+    for (let x = 0; x < 256; x++) t[base | x] = (x * a + 127) / 255 | 0;
+  }
+  PREMUL_LUT = t;
+  return t;
+}
+
 export function premultiplyRgba(src: Uint8ClampedArray, w: number, h: number): RawMap {
   const out = new Uint8ClampedArray(w * h * 4);
+  const lut = premulLut();
   for (let i = 0; i < out.length; i += 4) {
     const a = src[i + 3];
-    if (a === 0) { out[i + 3] = 0; continue; }          // RGB already 0 from the fill
+    if (a === 0) continue;                              // RGB already 0 from the fill
     if (a === 255) {
       out[i] = src[i]; out[i + 1] = src[i + 1]; out[i + 2] = src[i + 2]; out[i + 3] = 255;
       continue;
     }
-    // Round-half-up integer premultiply (branchless, no Math.round call): the
-    // fast path (hard-alpha) covers the vast majority of a sprite's pixels; only
-    // anti-aliased edge texels take this partial-alpha branch.
-    out[i] = (src[i] * a + 127) / 255 | 0;
-    out[i + 1] = (src[i + 1] * a + 127) / 255 | 0;
-    out[i + 2] = (src[i + 2] * a + 127) / 255 | 0;
+    // Partial alpha (anti-aliased edge texels): one LUT read per channel, no divide.
+    const base = a << 8;
+    out[i] = lut[base | src[i]];
+    out[i + 1] = lut[base | src[i + 1]];
+    out[i + 2] = lut[base | src[i + 2]];
     out[i + 3] = a;
   }
   return { data: out, w, h };
