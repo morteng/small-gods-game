@@ -29,6 +29,7 @@
 // zlib version), so diffs are honest.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { planWorldLayout } from '@/world/poi-layout';
 import { generateWithNoise } from '@/map/map-generator';
 import { blueprintOf } from '@/blueprint/entity';
@@ -127,8 +128,8 @@ async function collectWorldJobs(seedPath: string, genSeed: number, jobs: Map<str
  * variant-0 (seed 0) for most species NOR any higher variant, so ~189 plant packs
  * missed at runtime and cold-composed. Kept as a pure descriptor list so the Node
  * and Chromium key passes enumerate identically. */
-interface PlantSlot { kind: string; seed: number; bare: boolean; label: string }
-function plantSlots(): PlantSlot[] {
+export interface PlantSlot { kind: string; seed: number; bare: boolean; label: string }
+export function plantSlots(): PlantSlot[] {
   const slots: PlantSlot[] = [];
   for (const kind of plantPresetNames()) {
     for (let v = 0; v < FLORA_VARIANTS; v++) {
@@ -141,7 +142,7 @@ function plantSlots(): PlantSlot[] {
 }
 
 /** Resolve one plant slot to its compose spec (bare mutation mirrors the runtime). */
-function plantSpecForSlot(slot: PlantSlot): StructureSpec | null {
+export function plantSpecForSlot(slot: PlantSlot): StructureSpec | null {
   const rb = synthesizeBlueprint(slot.kind, [], slot.seed);
   if (!rb) return null;
   if (slot.bare) {
@@ -193,10 +194,13 @@ async function collectPlantJobsViaChromium(jobs: Map<string, Job>, baseUrl: stri
     const page = await browser.newPage();
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
     const specs = await page.evaluate(async () => {
-      const presets = await import('/src/blueprint/presets/index.ts');
-      const geo = await import('/src/blueprint/compile/to-geometry.ts');
-      const art = await import('/src/render/generated-art-cache.ts');
-      const fv = await import('/src/render/flora-variant.ts');
+      // Browser-context, dev-server-resolved module specifiers (NOT Node/TS paths);
+      // widened to `string` so tsc treats them as dynamic (Promise<any>) and does not
+      // try to resolve them when this file is pulled into the program by a test.
+      const presets = await import('/src/blueprint/presets/index.ts' as string);
+      const geo = await import('/src/blueprint/compile/to-geometry.ts' as string);
+      const art = await import('/src/render/generated-art-cache.ts' as string);
+      const fv = await import('/src/render/flora-variant.ts' as string);
       const out: Array<{ label: string; specJson: string }> = [];
       // Enumerate EXACTLY the runtime plant variant set (v0..V-1 + bare), keyed in
       // Chromium (plant crown transcendentals differ Node↔Chromium). Mirror of
@@ -350,4 +354,8 @@ async function main(): Promise<void> {
   console.log(`\nwrote ${outDir}: ${encoded.length} packs, ${shards.length} shards, ${mb(totalBytes)} MB blobs (+ manifest ${mb(Buffer.byteLength(JSON.stringify(manifest)))} MB)`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only run the seeder when executed directly — the pure enumeration helpers
+// (plantSlots/plantSpecForSlot) are importable for tests without side effects.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
