@@ -553,11 +553,12 @@ export function deriveSettlementRing(args: {
   isRoad: (x: number, y: number) => boolean;
   /** A building structure cell — the ring opens (gates) rather than running through it. */
   isBuilding?: (x: number, y: number) => boolean;
-  /** The settlement's HOME-BANK cells (`"x,y"`). When supplied, "off the home bank"
-   *  (water OR the far bank) is the authoritative wall boundary — the ring opens
-   *  wherever it fronts anything that isn't our own land, instead of ray-sampling for
-   *  water. Absent ⇒ fall back to the water heuristic (byte-identical). */
-  parcel?: Set<string>;
+  /** The FAR-BANK cells (`"x,y"`) — the union of the parcel graph's ADJACENT land components,
+   *  i.e. ground across the water. When supplied, "water OR the far bank" is the authoritative
+   *  wall boundary — the ring opens wherever it fronts land that provably isn't ours. Dry cells
+   *  in NO parcel (beyond the flood-fill reach box) count as home ground and keep their wall;
+   *  treating them as foreign carved whole rings away. Absent ⇒ the water heuristic alone. */
+  farBank?: Set<string>;
   /** Unit rays toward each connected POI (from `computeConnectedDirections`). GATES are
    *  COMMITTED here — one per distinct inbound direction, on the landward ring point nearest the
    *  ray — BEFORE any approach road is carved, so roads terminate at gates by construction (the
@@ -622,12 +623,14 @@ export function deriveSettlementRing(args: {
   const path = traced?.path ?? rectRingEvenOut(minX, minY, maxX, maxY);
   const centroid: Pt = traced?.centroid ?? [(minX + maxX) / 2, (minY + maxY) / 2];
 
-  // The authoritative "beyond our bank" test: with a home-parcel mask, a cell is off-bank
-  // if it isn't one of our land cells (water OR the far bank) — the wall stays on the home
-  // bank by construction. Without a mask, fall back to the water test. Either way the
-  // 1-tile water dilation applies: home-bank cells right at the waterline are still banks.
-  const offBank = args.parcel
-    ? (x: number, y: number): boolean => !args.parcel!.has(`${x},${y}`) || nearWater(x, y)
+  // The authoritative "beyond our bank" test: a cell is off-bank when it is water (with the
+  // 1-tile dilation) or belongs to a FAR parcel — a land component across the water. Dry ground
+  // merely absent from the home mask is STILL our bank: the parcel flood-fill is bounded to a
+  // reach box and the terrain-seeking ring deliberately walks outside it, so `!home.has(cell)`
+  // carved the curtain over plain open fields (a river town's ring rendered ~5% wall, the rest
+  // "gaps" — the wall-decimation bug). Only genuinely-far land opens the line.
+  const offBank = args.farBank
+    ? (x: number, y: number): boolean => nearWater(x, y) || args.farBank!.has(`${x},${y}`)
     : nearWater;
 
   // Walk the ring at slab midpoints (same as the croft rings — keeps the renderer in lockstep).
@@ -687,8 +690,10 @@ export function deriveSettlementRing(args: {
   // literally stands off-bank — "no wall in the water", enforced against the true footprint. A ring
   // with no wet blocking cells (the common case) is left byte-identical.
   sealWetBlocking(run, offBank, gateW);
-  // A crenellated masonry town wall carries timber hoardings — the wartime defensive galleries.
-  if (run.crenellated && (run.material === 'stone' || run.material === 'brick')) run.hoarded = true;
+  // Hoardings (wartime timber galleries) are NOT the peacetime default: cantilevered over the
+  // outer face they hide most of the curtain at the game's iso angle — every "stone" town wall
+  // read as a wooden plank cliff (user report). The geometry stays available via an explicit
+  // `run.hoarded` for a future threat/siege state; the standing look is clean crenellated stone.
   // GATE HALF-EDGE REPAIR (Watabou, synthesis 2.1): verify each committed real gate owns BOTH
   // half-edges — an interior corridor that can reach a REAL street, and a routable approach cell
   // outside — and slide a failing gate along the ring NOW, in the same commit step, so the
@@ -803,20 +808,24 @@ export function placeCoverageTowers(run: BarrierRun): TowerPlacement[] {
   const masonry = masonryRung(run);
 
   // Anchor towers carry a path-distance `t` for fill spacing + dedup; the emitted placement keeps x/y.
-  interface Anchor { x: number; y: number; role: TowerPlacement['role']; t: number }
+  interface Anchor { x: number; y: number; role: TowerPlacement['role']; t: number; gate?: number }
   const circ = (a: number, b: number): number => { const dd = Math.abs(a - b); return Math.min(dd, total - dd); };
 
-  // 1. Gate FLANKERS — a pair just outside each real gate's leaf span (both rungs). ALWAYS kept: the
-  //    pair straddles the gate, so its two towers are intentionally closer than TOWER_MIN_SEP and must
-  //    survive dedup (gate pair is the highest priority).
+  // 1. Gate FLANKERS — a pair just outside each real gate's leaf span (both rungs). A gate's OWN
+  //    pair always survives (it straddles the gate by construction), but flankers from DIFFERENT
+  //    gates dedup against each other: two gates a few piece-slots apart otherwise plant two
+  //    towers ~1 tile apart in the stretch between them — one mural tower covers both approaches.
   const kept: Anchor[] = [];
+  let gi = 0;
   for (const g of run.gates) {
     if (g.kind === 'gap') continue;                          // a plain gap (water/building) gets no gatehouse
+    gi++;
     const off = g.width / 2 + GATE_FLANK_MARGIN;
     for (const s of [-1, 1] as const) {
       const t = ((g.t + s * off) % total + total) % total;
+      if (kept.some((k) => k.role === 'gate' && k.gate !== gi && circ(k.t, t) < TOWER_MIN_SEP)) continue;
       const { p } = frameOnPath(run.path, t);
-      kept.push({ x: p[0], y: p[1], role: 'gate', t });
+      kept.push({ x: p[0], y: p[1], role: 'gate', t, gate: gi });
     }
   }
 

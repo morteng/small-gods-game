@@ -1116,7 +1116,11 @@ export function placeSettlement(
         // planned around the lot either way.
         isRoad: isStreet,
         isBuilding,
-        parcel: homeParcel ?? undefined,
+        // The wall's "not our land" boundary = the ADJACENT parcels across the water (never the
+        // mere complement of the home mask — see deriveSettlementRing.farBank).
+        farBank: parcels && parcels.adjacent.length
+          ? parcels.adjacent.reduce((acc, p) => { for (const c of p.cells) acc.add(c); return acc; }, new Set<string>())
+          : undefined,
         // GATES-FIRST: commit gates in the direction of each inbound connection, before any road is
         // carved, so the approach road threads THROUGH the committed gate rather than deriving it.
         connections: connectedDirections,
