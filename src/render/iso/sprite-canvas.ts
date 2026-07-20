@@ -74,6 +74,11 @@ export interface BarrierPiece {
   refX: number; refY: number;        // world tile point the sprite anchors on (z=0)
   anchorNX: number; anchorNY: number; // normalised (0..1 of the crop) position of (refX,refY)
   sortX: number; sortY: number;       // y-sort anchor tile (the chunk's midpoint)
+  /** Optional terrain-lift sample point (world tiles) when it must differ from the anchor:
+   *  every element of a GATE (arch fragments, leaf, jambs, flanker towers) foots at the SAME
+   *  opening vertex so the assembly rises as one — sampled at their own anchors, a stepped
+   *  footing put the door and its arch on different terraces (the floating-leaf bug). */
+  footX?: number; footY?: number;
 }
 
 /** Discriminate a {@link RawMap} from a `CanvasImageSource` — the raw form carries

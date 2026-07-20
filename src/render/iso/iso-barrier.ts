@@ -32,14 +32,19 @@ export function barrierPieceItem(o: { originX: number; originY: number }, piece:
   const src = packAlbedoSource(pack);
   const { w, h } = mapSize(src);
   const s = worldToScreen(piece.refX, piece.refY, 0, o.originX, o.originY);
+  // Terrain foot-z: sample at the piece's true grade anchor (a wall has no footprint diamond, so
+  // the building `dw/4` convention samples an off-anchor tile and splits seams on slopes). D6.
+  // A piece may carry an EXPLICIT foot point distinct from its anchor: every element of a gate
+  // assembly foots at the same opening vertex so leaf, arch and towers ride one terrace.
+  const f = piece.footX !== undefined && piece.footY !== undefined
+    ? worldToScreen(piece.footX, piece.footY, 0, o.originX, o.originY)
+    : s;
   const item: DrawItem = {
     t: 'image', src,
     dx: Math.round(s.sx - piece.anchorNX * w),
     dy: Math.round(s.sy - piece.anchorNY * h),
     dw: w, dh: h,
-    // Terrain foot-z: sample at the piece's true grade anchor (a wall has no footprint diamond, so
-    // the building `dw/4` convention samples an off-anchor tile and splits seams on slopes). D6.
-    foot: { sx: s.sx, sy: s.sy },
+    foot: { sx: f.sx, sy: f.sy },
   };
   if (pack.normal || pack.normalData || pack.material || pack.materialData || pack.emissive || pack.emissiveData) {
     item.maps = {

@@ -27,7 +27,7 @@ import { towerSpec } from '@/assetgen/geometry/tower-spec';
 import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
 import { postSpec } from '@/assetgen/geometry/post-spec';
 import { stairSpec } from '@/assetgen/geometry/stair-spec';
-import { masonryWork } from '@/assetgen/geometry/linear';
+import { masonryWork, gateIsArched } from '@/assetgen/geometry/linear';
 import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
 import type { BarrierKind } from '@/world/barrier';
@@ -56,6 +56,9 @@ interface Element {
   anchor: (r: { anchors: StructureAnchors }) => NormAnchor | undefined;
   refX: number; refY: number;    // world point the anchor maps onto
   sortX: number; sortY: number;  // y-sort tile
+  /** Optional terrain-lift sample point when it must differ from the anchor — gate assemblies
+   *  foot every element at the same opening vertex (see BarrierPiece.footX). */
+  footX?: number; footY?: number;
 }
 
 const wallEndAnchor = (r: { anchors: StructureAnchors }): NormAnchor | undefined => r.anchors.wallEnds?.[0];
@@ -98,6 +101,44 @@ function cornerVertices(path: Pt[]): Pt[] {
   return out;
 }
 
+/**
+ * The opening the curtain cutter ACTUALLY cuts for a real gate: centre `t` (global path distance)
+ * + width, snapped to the carrying edge's piece grid — the same math `chunkBarrierRun` applies.
+ * Gate furniture (leaf, jamb frame, flanker towers, stair) must place against THIS opening:
+ * anchored at the raw `g.t` it drifts up to a full piece off the cut passage, and the leaf hangs
+ * beside its own arch (the floating-door bug — reproduced in `place-gate-towers`, whose t=6 w=2.5
+ * gate cuts an opening [6,8] while the leaf drew centred on 6). Non-canonical edges cut
+ * continuously, so the raw gate comes back unchanged.
+ */
+export function snappedGateOpening(run: BarrierRun, g: BarrierGate): { t: number; width: number } {
+  const path = run.path;
+  let cum = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L <= 1e-6) continue;
+    // Same HALF-OPEN ownership as chunkBarrierRun: a vertex-centred gate belongs to the edge
+    // starting there (except the final edge, which keeps its end so an open-path gate resolves).
+    const carries = g.t >= cum - 1e-6 && (g.t < cum + L - 1e-6 || i === path.length - 1);
+    if (carries) {
+      const ec = classifyEdge(b[0] - a[0], b[1] - a[1]);
+      if (!ec.canonical) return { t: g.t, width: g.width };
+      const tc = g.t - cum;
+      const gw = Math.max(1, Math.min(2, Math.round((g.width || ec.slotLen) / ec.slotLen)));
+      const W = gw * ec.slotLen;
+      if (W <= L + 1e-6) {
+        const nPO = Math.max(1, Math.round(W / ec.cutLen));
+        const nPiecesEdge = Math.max(1, Math.round(L / ec.cutLen));
+        const startIdx = Math.max(0, Math.min(nPiecesEdge - nPO, Math.round((tc - W / 2) / ec.cutLen)));
+        return { t: cum + startIdx * ec.cutLen + W / 2, width: W };
+      }
+      return { t: g.t, width: W };
+    }
+    cum += L;
+  }
+  return { t: g.t, width: g.width };
+}
+
 /** World point + along-unit direction at path distance `t`. */
 function frameAt(path: Pt[], t: number): { p: Pt; dir: Pt } {
   let acc = 0;
@@ -116,6 +157,9 @@ function frameAt(path: Pt[], t: number): { p: Pt; dir: Pt } {
 export interface BarrierChunk {
   key: string; localRun: BarrierRun;
   refX: number; refY: number; sortX: number; sortY: number;
+  /** Gate fragments only: the opening's start vertex — the shared terrain-lift foot point of
+   *  the whole gate assembly (fragments + leaf + jambs + flankers ride one terrace). */
+  footX?: number; footY?: number;
 }
 
 // ── Canonical piece grid (WP-W2) ───────────────────────────────────────────────────────────
@@ -307,7 +351,13 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
       // Without the span-covers case those fragments re-cut as curtain and the key round-trip
       // (the W3 enumeration invariant) breaks.
       const spanCovers = g.t - g.width / 2 < cum + 1e-6 && g.t + g.width / 2 > cum + L - 1e-6;
-      if ((g.t < cum - 1e-6 || g.t > cum + L + 1e-6) && !spanCovers) continue;
+      // HALF-OPEN centre ownership [cum, cum+L): a gate centred exactly on a shared VERTEX
+      // belongs to the edge STARTING there — the closed test let both edges claim it, cutting
+      // TWO openings (one per edge) around the corner: a double-width breach with an orphan leaf.
+      // The final edge keeps its end so an open-path gate at t=total still resolves (mirrors
+      // snappedGateOpening).
+      const ownsCentre = g.t >= cum - 1e-6 && (g.t < cum + L - 1e-6 || i === path.length - 1);
+      if (!ownsCentre && !spanCovers) continue;
       const tc = g.t - cum;
       const gw = Math.max(1, Math.min(2, Math.round((g.width || ec.slotLen) / ec.slotLen))) as 1 | 2;
       const W = gw * ec.slotLen;
@@ -335,6 +385,7 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
       if (gapSpans.some(([g0, g1]) => gMid > g0 + 1e-6 && gMid < g1 - 1e-6)) { s += along; continue; }
       // Gate fragment? (only full pieces sit inside a whole-slot opening)
       let gate: { gw: 1 | 2; gi: 0 | 1 | 2 | 3; t: number; width: number } | undefined;
+      let gateFoot: Pt | undefined;
       if (!isRem) {
         const pm = s + along / 2;
         for (const op of openings) {
@@ -343,6 +394,10 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
             const gi = (ec.reversed ? op.nPO - 1 - giEdge : giEdge) as 0 | 1 | 2 | 3;
             const W = op.gw * ec.slotLen;
             gate = { gw: op.gw, gi, t: r3(W / 2 - gi * ec.cutLen), width: r3(W) };
+            // Shared gate-assembly foot: the opening's start vertex (a piece boundary), so every
+            // fragment of this opening — and the leaf/jambs/towers placed by snappedGateOpening —
+            // lifts by ONE terrain sample instead of each riding its own terrace.
+            gateFoot = [a[0] + ec.worldUnit[0] * op.openStart, a[1] + ec.worldUnit[1] * op.openStart];
             break;
           }
         }
@@ -374,6 +429,7 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
         key: pieceKeyStr(pk), localRun: pieceRunFromKey(pk),
         refX: ec.reversed ? we[0] : ws[0], refY: ec.reversed ? we[1] : ws[1],
         sortX: wm[0], sortY: wm[1],
+        ...(gateFoot ? { footX: gateFoot[0], footY: gateFoot[1] } : {}),
       });
       s += along;
     }
@@ -390,7 +446,17 @@ function chunkElements(run: BarrierRun): Element[] {
     spec: () => ({ parts: [{ prim: 'linear', run: c.localRun }] }),
     anchor: wallEndAnchor,
     refX: c.refX, refY: c.refY, sortX: c.sortX, sortY: c.sortY,
+    ...(c.footX !== undefined ? { footX: c.footX, footY: c.footY } : {}),
   }));
+}
+
+/** The gate assembly's shared placement: snapped opening centre/width + frame + the opening-start
+ *  foot vertex every element of the assembly lifts from. */
+function gateFrameOf(run: BarrierRun, g: BarrierGate): { p: Pt; dir: Pt; width: number; foot: Pt } {
+  const o = snappedGateOpening(run, g);
+  const { p, dir } = frameAt(run.path, o.t);
+  const { p: foot } = frameAt(run.path, o.t - o.width / 2);
+  return { p, dir, width: o.width, foot };
 }
 
 /** Tower elements: a ROUND drum at each ring corner + twin SQUARE gatehouse towers at each gate
@@ -451,16 +517,19 @@ function towerElements(run: BarrierRun): Element[] {
   for (const [x, y] of cornerVertices(run.path)) out.push(drumAt(x, y));
   for (const g of run.gates) {
     if (!isRealGate(g)) continue;                            // a gap opening gets no gatehouse
-    const { p, dir } = frameAt(run.path, g.t);
+    const { p, dir, width, foot } = gateFrameOf(run, g);     // the SNAPPED opening, not the raw t
     const inward = inwardAt(p[0], p[1]);
     const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
     const gateSpec = (): StructureSpec => ({ parts: gate.parts, mountAnchors: gate.mountAnchors });
     // FRAME the opening: seat each tower fully OUTSIDE the clear passage (its inner face clears the
     // gate edge by a jamb gap) instead of piling onto it. `side*0.45 < side/2` used to overlap the
-    // opening; `g.width/2 + side/2 + gap` puts the inner face a jamb's width beyond the passage.
-    const off = g.width / 2 + gate.side / 2 + mToTiles(0.6);
-    out.push(mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] - dir[0] * off, p[1] - dir[1] * off));
-    out.push(mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] + dir[0] * off, p[1] + dir[1] * off));
+    // opening; `width/2 + side/2 + gap` puts the inner face a jamb's width beyond the passage.
+    const off = width / 2 + gate.side / 2 + mToTiles(0.6);
+    for (const s of [-1, 1] as const) {
+      const el = mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] + s * dir[0] * off, p[1] + s * dir[1] * off);
+      el.footX = foot[0]; el.footY = foot[1];                // ride the gate assembly's terrace
+      out.push(el);
+    }
   }
   return out;
 }
@@ -493,12 +562,13 @@ function gateFrameElements(run: BarrierRun): Element[] {
   const out: Element[] = [];
   for (const g of run.gates) {
     if (g.width <= 0 || !isRealGate(g)) continue;
-    const { p, dir } = frameAt(run.path, g.t);
-    const frame = gateFrameSpec({ gateWidth: g.width, curtainHeight: run.height, dir });
+    const { p, dir, width, foot } = gateFrameOf(run, g);
+    const frame = gateFrameSpec({ gateWidth: width, curtainHeight: run.height, dir });
     out.push({
-      key: `gateframe:${tag}:${r3(g.width)}:${r3(dir[0])},${r3(dir[1])}`,
+      key: `gateframe:${tag}:${r3(width)}:${r3(dir[0])},${r3(dir[1])}`,
       spec: () => ({ parts: frame.parts, mountAnchors: frame.mountAnchors }),
       anchor: tagAnchor, refX: p[0], refY: p[1], sortX: p[0], sortY: p[1],
+      footX: foot[0], footY: foot[1],
     });
   }
   return out;
@@ -513,14 +583,16 @@ function gateElements(run: BarrierRun): Element[] {
   if (!GATE_LEAF_KINDS.has(run.kind)) return [];
   const tag = `${r3(run.height)}:${r3(run.thickness)}`;
   const out: Element[] = [];
+  const arch = gateIsArched(run);
   for (const g of run.gates) {
     if (g.width <= 0 || !isRealGate(g)) continue;           // a plain gap gets no closing leaf
-    const { p, dir } = frameAt(run.path, g.t);
-    const leaf = gateLeafSpec({ gateWidth: g.width, curtainHeight: run.height, dir });
+    const { p, dir, width, foot } = gateFrameOf(run, g);    // fill the CUT passage, not the raw span
+    const leaf = gateLeafSpec({ gateWidth: width, curtainHeight: run.height, dir, arch });
     out.push({
-      key: `gate:${tag}:${r3(g.width)}:${r3(dir[0])},${r3(dir[1])}`,
+      key: `gate:${tag}:${r3(width)}:${r3(dir[0])},${r3(dir[1])}${arch ? ':arch' : ''}`,
       spec: () => ({ parts: leaf.parts, mountAnchors: leaf.mountAnchors }),
       anchor: tagAnchor, refX: p[0], refY: p[1], sortX: p[0], sortY: p[1],
+      footX: foot[0], footY: foot[1],
     });
   }
   return out;
@@ -547,8 +619,8 @@ function stairElements(run: BarrierRun): Element[] {
   const work = masonryWork(run);                            // course to MATCH the curtain
   const tag = `${r3(H)}:${r3(run.thickness)}:${mat}:${work}`;
 
-  const { p, dir } = frameAt(run.path, gate.t);
-  const off = gate.width / 2 + mToTiles(2.4);               // sit clear of the passage + gatehouse
+  const { p, dir, width } = gateFrameOf(run, gate);
+  const off = width / 2 + mToTiles(2.4);                    // sit clear of the passage + gatehouse
   const sp: Pt = [p[0] - dir[0] * off, p[1] - dir[1] * off];
   const inx = c[0] - sp[0], iny = c[1] - sp[1], m = Math.hypot(inx, iny) || 1;
   const inward: Pt = [inx / m, iny / m];
@@ -619,7 +691,11 @@ export class ParametricBarrierSource {
       const c = this.cache.get(el.key);
       if (c === undefined) { anyPending = true; continue; }
       if (c === null) continue;
-      pieces.push({ pack: c.pack, refX: el.refX, refY: el.refY, anchorNX: c.ax, anchorNY: c.ay, sortX: el.sortX, sortY: el.sortY });
+      pieces.push({
+        pack: c.pack, refX: el.refX, refY: el.refY, anchorNX: c.ax, anchorNY: c.ay,
+        sortX: el.sortX, sortY: el.sortY,
+        ...(el.footX !== undefined ? { footX: el.footX, footY: el.footY } : {}),
+      });
     }
     // While anything is still pending, draw the flat-quad fallback for the WHOLE run (mixing lit
     // pieces with flat slabs would double-draw). Once all settle, show the lit pieces.

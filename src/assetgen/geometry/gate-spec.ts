@@ -11,6 +11,7 @@ import type { Part } from '@/assetgen/compose';
 import type { Mat } from '@/assetgen/types';
 import { mToTiles } from '@/render/scale-contract';
 import type { Anchor } from '@/world/anchors';
+import { gateArchProfile } from './linear';
 
 export interface GateSpec {
   parts: Part[];
@@ -28,6 +29,10 @@ export interface GateOpts {
   dir: [number, number];
   /** Door timber. */
   material?: Mat;
+  /** The cut is an ARCHED masonry passage (`gateIsArched(run)`) — the leaf fills the arch head
+   *  (round-topped door, per the gatehouse TTI reference) instead of stopping flat at a
+   *  proportion height and leaving a void under the crown. */
+  arch?: boolean;
 }
 
 /** A timber GATE FRAME for a palisade/timber ring — two heavy jamb posts flanking the opening
@@ -62,9 +67,10 @@ export function gateLeafSpec(opts: GateOpts, cx = 0, cy = 0): GateSpec {
   const yaw = (Math.atan2(dy, dx) * 180) / Math.PI;     // box yaw is about its own centre
   const t = mToTiles(0.32);                              // leaf thickness (passage depth)
   const reveal = mToTiles(0.14);                         // central gap where the leaves meet
-  // The leaf rises to the arch spring: a doorway proportion (~1.6×width) but never above the
-  // curtain it sits in. Reads as a gate set UNDER the masonry span, not a flush panel.
-  const clearH = Math.min(opts.curtainHeight * 0.74, opts.gateWidth * 1.6);
+  // The leaf rises to the arch SPRING of the actual cut when the passage is arched (shared
+  // profile — cut and door can never disagree), else a doorway proportion under the curtain.
+  const prof = opts.arch ? gateArchProfile(opts.curtainHeight, opts.gateWidth) : null;
+  const clearH = prof ? prof.springZ : Math.min(opts.curtainHeight * 0.74, opts.gateWidth * 1.6);
   const leafW = Math.max(mToTiles(0.4), (opts.gateWidth - reveal) / 2);
   // Centre offset of each leaf ALONG the wall (world space): half a leaf out from the reveal.
   const off = leafW / 2 + reveal / 2;
@@ -89,6 +95,28 @@ export function gateLeafSpec(opts: GateOpts, cx = 0, cy = 0): GateSpec {
   };
   leaf(-1);
   leaf(+1);
+
+  // ARCH HEAD FILL: the door follows the arch (the reference's round-topped leaves) — stacked
+  // boards tapering on the cut's own circle, spanning both leaves, from the spring to the crown.
+  // Without this the leaf stopped flat at the spring and the arch head gaped as a void.
+  if (prof) {
+    const { springZ, rise, archR, centreZ } = prof;
+    const steps = Math.max(3, Math.ceil(rise / mToTiles(0.28)));
+    for (let i = 0; i < steps; i++) {
+      const z0 = springZ + (i / steps) * rise;
+      const z1 = springZ + ((i + 1) / steps) * rise;
+      // Half-width of the arch circle at the TOP of this course (the narrower end) — inset a
+      // hair so the boards tuck behind the voussoir ring instead of z-fighting it.
+      const dz = z1 - centreZ;
+      const hw = Math.max(mToTiles(0.15), Math.sqrt(Math.max(0, archR * archR - dz * dz)) - mToTiles(0.03));
+      parts.push({
+        prim: 'box',
+        at: [cx - hw, cy - t / 2, z0],
+        size: [hw * 2, t, (z1 - z0) * 1.04],
+        material: mat, yaw, work: 'plank_v',
+      });
+    }
+  }
 
   return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }] };
 }

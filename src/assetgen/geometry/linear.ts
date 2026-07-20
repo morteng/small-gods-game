@@ -380,15 +380,36 @@ function hedgeSeg(M: ManifoldNS, run: BarrierRun, s: Seg, segIdx: number): Manif
 // wall-walk so masonry (and the parapet/merlons placed along the segment) span over the gate:
 // the curtain reads as a real arched gateway, not a wall sliced to the ground. For a humble
 // barrier (fence/hedge/low bank) with no spanning mass to keep, it degrades to a clean slot.
+/** The arched-passage profile `gateCut` punches through a masonry curtain: clear jamb height to
+ *  the springing line, arc rise, and the circle through jamb-tops + crown. EXPORTED so the gate
+ *  LEAF (gate-spec.ts) fills exactly this opening — an arch-topped door, per the gatehouse TTI
+ *  reference — and cut and door can never disagree. Heights in tile/cube units (run.height space). */
+export function gateArchProfile(height: number, width: number): {
+  springZ: number; rise: number; archR: number; centreZ: number;
+} {
+  const H = Math.max(mToTiles(1.0), height);
+  const halfW = width / 2;
+  const maxCrown = H * 0.74;
+  const springZ = Math.min(mToTiles(2.0), maxCrown - mToTiles(0.5));   // clear height to springing
+  const rise = Math.max(mToTiles(0.5), Math.min(halfW, maxCrown - springZ));
+  const archR = (halfW * halfW + rise * rise) / (2 * rise);            // circle through jamb-tops + crown
+  return { springZ, rise, archR, centreZ: springZ + rise - archR };    // centre below spring ⇒ segmental
+}
+
+/** Does this run's gate cut as an ARCHED masonry passage (vs a plain full-height slot)? The gate
+ *  leaf reads this to pick its silhouette (arch-topped vs flat-topped). */
+export function gateIsArched(run: BarrierRun): boolean {
+  return familyOf(run) === 'masonry' && Math.max(mToTiles(1.0), run.height) >= mToTiles(2.4);
+}
+
 function gateCut(M: ManifoldNS, run: BarrierRun, t: number, width: number): ManifoldT {
   const { p, angleDeg } = pointAt(run.path, t);
   const H = Math.max(mToTiles(1.0), run.height);
   const th = run.thickness + mToTiles(1.0);          // overshoot both faces for a clean punch
   const base = mToTiles(0.6);                          // start the void just below grade
-  const family = familyOf(run);
 
   // Low/insubstantial barriers can't carry an arch — punch a plain full-height slot.
-  if (family !== 'masonry' || H < mToTiles(2.4)) {
+  if (!gateIsArched(run)) {
     return M.cube([width, th, H + base + mToTiles(1.2)])
       .translate([-width / 2, -th / 2, -base])
       .rotate([0, 0, angleDeg])
@@ -399,18 +420,36 @@ function gateCut(M: ManifoldNS, run: BarrierRun, t: number, width: number): Mani
   // (placed along the segment) bridge over the gate. A narrow gate gets a full semicircular head;
   // a wide one a flatter SEGMENTAL arch (rise < half-span) — both meet the jambs exactly at the
   // springing line, so the opening reads as one clean arch of the right span.
-  const halfW = width / 2;
-  const maxCrown = H * 0.74;
-  const passageH = Math.min(mToTiles(2.0), maxCrown - mToTiles(0.5));   // clear height to springing
-  const rise = Math.max(mToTiles(0.5), Math.min(halfW, maxCrown - passageH));
-  const archR = (halfW * halfW + rise * rise) / (2 * rise);            // circle through jamb-tops + crown
-  const centreZ = passageH + rise - archR;                            // arc centre (below springing for segmental)
-  const rect = M.cube([width, th, passageH + base]).translate([-width / 2, -th / 2, -base]);
+  const { springZ, archR, centreZ } = gateArchProfile(run.height, width);
+  const rect = M.cube([width, th, springZ + base]).translate([-width / 2, -th / 2, -base]);
   const arch = M.cylinder(th, archR, archR, 48)       // z-axis barrel of the arc radius
     .translate([0, 0, -th / 2])                        // centre on its own axis…
     .rotate([90, 0, 0])                                // …then lay it through the wall thickness (axis → y)
     .translate([0, 0, centreZ]);                       // arc centre on the wall centreline
   return rect.add(arch)
+    .rotate([0, 0, angleDeg])
+    .translate([p[0], p[1], 0]);
+}
+
+/** A proud VOUSSOIR RING around an arched gate (the gatehouse TTI reference draws a raised
+ *  wedge-stone band + keystone around every arch; ours read flush) — an annulus of radial depth
+ *  ~0.35, standing slightly proud of BOTH wall faces, clipped to start just below the springing
+ *  (springer stones). Built in the gate frame, world-placed like the cut. */
+function gateRing(M: ManifoldNS, run: BarrierRun, t: number, width: number): ManifoldT {
+  const { p, angleDeg } = pointAt(run.path, t);
+  const { springZ, archR, centreZ } = gateArchProfile(run.height, width);
+  const proud = mToTiles(0.12), radial = mToTiles(0.35);
+  const th = run.thickness + proud * 2;
+  const annulus = M.cylinder(th, archR + radial, archR + radial, 48)
+    .subtract(M.cylinder(th + mToTiles(0.2), archR, archR, 48).translate([0, 0, -mToTiles(0.1)]))
+    .translate([0, 0, -th / 2])
+    .rotate([90, 0, 0])
+    .translate([0, 0, centreZ]);
+  // Keep only the visible arc: from a hand's breadth below the springing up over the crown.
+  const clipZ0 = springZ - mToTiles(0.4);
+  const span = archR + radial + mToTiles(1.0);
+  const clip = M.cube([span * 2, th, span]).translate([-span, -th / 2, clipZ0]);
+  return annulus.intersect(clip)
     .rotate([0, 0, angleDeg])
     .translate([p[0], p[1], 0]);
 }
@@ -483,6 +522,17 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
     for (const cut of cuts) solid = solid.subtract(cut);
     facets.push(...manifoldToFacets(solid.getMesh(), g.mat, g.work));
     volume += solid.volume();
+  }
+  // Proud voussoir ring + springers around each ARCHED gate (added after the cuts so the band
+  // survives; the passage stays clear — the annulus starts at the arch's own radius). Dressed
+  // ashlar regardless of the curtain's coursing, as a real gate surround is.
+  if (gateIsArched(run) && run.gates.length) {
+    for (const g of run.gates) {
+      let ring = gateRing(M, run, g.t, g.width);
+      for (const cut of cuts) ring = ring.subtract(cut);
+      facets.push(...manifoldToFacets(ring.getMesh(), baseMat, 'ashlar'));
+      volume += ring.volume();
+    }
   }
 
   const first = run.path[0], last = run.path[run.path.length - 1];
