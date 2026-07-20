@@ -67,7 +67,7 @@ import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
-import { zoomBand, type ZoomBand } from '@/game/affordance/zoom-band';
+import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM } from '@/game/affordance/zoom-band';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { ChronicleService } from '@/game/chronicle-service';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
@@ -79,10 +79,6 @@ import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
-
-/** P5 semantic zoom: the in-band zoom a zoomed-out alert-pin click flies to —
- *  the 1/2 rung, the outermost rung that still reads as per-NPC chrome. */
-const ALERT_FLY_ZOOM = 0.5;
 
 /** How long the per-frame HUD sim-read memo (belief/powers/inbox) stays fresh.
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
@@ -160,9 +156,9 @@ export class Game {
   /** Cinematic-camera state carried from onFrame → onRender (the cinematic camera owns the
    *  view while active, so the normal follow-camera is skipped that frame). */
   private lastCinematic = false;
-  /** P5 semantic-zoom: the last committed attention band (in/out), carried across
-   *  frames so `zoomBand`'s hysteresis can't flicker at the boundary rung. */
-  private zoomBandState: ZoomBand = 'in';
+  /** UI v2 W0/D1: the last committed attention band (world/settlement/soul), carried
+   *  across frames so `zoomBand`'s per-boundary hysteresis can't flicker at a rung. */
+  private zoomBandState: ZoomBand = 'soul';
   /** Rendered-frame FPS meter (always sampling; cheap). Read via `__perf.fps()`. The
    *  on-screen FPS pill is drawn on the canvas in gpu-render-frame (dev-only); there
    *  is no DOM HUD on the game surface. */
@@ -920,8 +916,9 @@ export class Game {
    */
   private hoverAffordances(): { chips: ReturnType<typeof hoverChips> } | null {
     if (this.interaction.targeting) return null;
-    // P5: no per-NPC chrome in the zoomed-out band — the alert pins own that altitude.
-    if (this.currentBand() === 'out') { this.hoverFrozen = null; return null; }
+    // UI v2 W0/D1: no per-NPC chrome outside the `soul` band — the alert pins own
+    // `settlement`/`world` for now (v1 `out` behavior applies to BOTH; W2 differentiates).
+    if (this.currentBand() !== 'soul') { this.hoverFrozen = null; return null; }
     const world = this.state.world;
     const tile = this.interaction.hoverTile;
     if (!world || !tile) { this.hoverFrozen = null; return null; }
@@ -996,11 +993,12 @@ export class Game {
   /** The inspector payload for the current selection (spec §8, P3.8) — an NPC, else
    *  the settlement a selected building belongs to. Null when nothing is selected
    *  (a causal site has its own card). Freezes the target so CAST routes correctly.
-   *  P5: the inspector is a zoomed-IN surface — it collapses in the out-band WITHOUT
+   *  UI v2 W0/D1: the inspector is a `soul`-band surface — it collapses outside
+   *  `soul` (both `settlement` and `world`, for now — W2 differentiates) WITHOUT
    *  clearing the selection (its subject renders as a distinct alert pin instead, and
    *  zooming back in restores the panel). */
   private inspectorView(): InspectorView | null {
-    if (this.currentBand() === 'out') return null;
+    if (this.currentBand() !== 'soul') return null;
     const target = this.inspectorTarget();
     if (!target) { this.inspectorFrozen = null; return null; }
     this.inspectorFrozen = target;
@@ -1062,9 +1060,10 @@ export class Game {
     return best;
   }
 
-  // ── P5 semantic zoom: two attention bands on the zoom ladder ────────────────
-  /** The current attention band, updated with hysteresis so the boundary rung
-   *  can't oscillate. Zoomed-in = per-NPC chrome; zoomed-out = alert pins. */
+  // ── UI v2 W0/D1: three attention bands on the zoom ladder ────────────────────
+  /** The current attention band, updated with per-boundary hysteresis so a
+   *  boundary rung can't oscillate. `soul` = per-NPC chrome; `settlement`/`world`
+   *  both fall back to alert pins for now (W2 differentiates `settlement`). */
   private currentBand(): ZoomBand {
     this.zoomBandState = zoomBand(this.state.camera.zoom, this.zoomBandState);
     return this.zoomBandState;
@@ -1115,7 +1114,7 @@ export class Game {
       console.warn(`[camera] flyTo dropped invalid target (${String(tx)}, ${String(tyv)})`);
       return;
     }
-    const zoom = this.currentBand() === 'in' ? this.state.camera.zoom : ALERT_FLY_ZOOM;
+    const zoom = this.currentBand() === 'soul' ? this.state.camera.zoom : SOUL_FLY_ZOOM;
     this.state.cameraFly = { tx, ty: tyv, zoom };
   }
 

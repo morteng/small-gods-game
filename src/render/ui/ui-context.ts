@@ -13,7 +13,7 @@ import { UiBatcher, UiSpace } from '@/render/ui/ui-batcher';
 import { UI_PALETTE, type UiPalette } from '@/render/ui/ui-palette';
 import type { FontMetrics } from '@/render/ui/text/font';
 import { BuiltinPixelFont } from '@/render/ui/text/pixel-font';
-import type { Rgba } from '@/render/ui/ui-color';
+import { withAlpha, type Rgba } from '@/render/ui/ui-color';
 
 /** Per-frame input snapshot. S1: all-zero/false. S2 fills this from PointerEvents. */
 export interface UiInput {
@@ -29,6 +29,18 @@ export const EMPTY_INPUT: UiInput = { px: 0, py: 0, down: false, released: false
 
 /** A hit-testable region a widget claimed this frame — handed to S2's router. */
 export interface UiHit {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A `scrollList` region claimed this frame — handed to `UiRuntime`'s capture-phase
+ *  wheel listener so a wheel tick over the list steps its rows instead of the world
+ *  camera zoom. Same shape as `UiHit`; kept distinct because wheel routing and click
+ *  routing are separate DOM event families. */
+export interface UiScrollRegion {
   id: string;
   x: number;
   y: number;
@@ -55,16 +67,27 @@ export class UiContext {
   /** The widget under the pointer this frame (last one wins = topmost drawn). */
   private hotId: string | null = null;
 
+  /** D2 row-granular scroll: regions claimed THIS frame (reset in `begin()`, like
+   *  `hits`) — read by `UiRuntime`'s wheel router after each frame. */
+  private scrollRegions: UiScrollRegion[] = [];
+  /** D2: per-list row offset, keyed by `scrollList` id. Transient runtime state that
+   *  survives across frames (never reset in `begin()` — the same durability class as
+   *  `UiRuntime`'s hover-popover state) and is never serialized. `scrollBy` mutates it
+   *  directly from a wheel tick; `scrollList` clamps + consumes it on the next draw. */
+  private scrollOffsets = new Map<string, number>();
+
   constructor(opts: { batcher?: UiBatcher; palette?: UiPalette; font?: FontMetrics } = {}) {
     this.batcher = opts.batcher ?? new UiBatcher();
     this.palette = opts.palette ?? UI_PALETTE;
     this.font = opts.font ?? new BuiltinPixelFont();
   }
 
-  /** Start a frame: reset geometry + hit list, capture the input snapshot. */
+  /** Start a frame: reset geometry + hit list, capture the input snapshot. Scroll
+   *  OFFSETS are deliberately NOT reset here — they are durable per-id state (D2). */
   begin(input: UiInput = EMPTY_INPUT): void {
     this.batcher.reset();
     this.hits = [];
+    this.scrollRegions = [];
     this.hotId = null;
     this.input = input;
   }
@@ -159,8 +182,66 @@ export class UiContext {
     return '…';
   }
 
-  /** End the frame; returns the hit regions claimed (for the input router). */
-  end(): { hits: readonly UiHit[] } {
-    return { hits: this.hits };
+  /**
+   * D2 row-granular scroll list: draws only rows that FULLY fit `rect.h` at `rowH`
+   * (no clipping needed — a row is either wholly drawn or not drawn), starting at
+   * this id's current offset (clamped to `[0, max(0, rowCount - visibleRows)]`).
+   * When the list overflows, draws `+`/`-` more-indicators (top-right / bottom-right
+   * corners; only the existing pixel-font glyphs are used) and a thin position track
+   * on the right edge. Registers the region so `UiRuntime`'s wheel router can find it.
+   * The offset itself is mutated by `scrollBy` (a wheel tick), not by this method —
+   * this method only clamps + consumes + draws.
+   */
+  scrollList(
+    id: string,
+    rect: { x: number; y: number; w: number; h: number },
+    rowH: number,
+    rowCount: number,
+    drawRow: (i: number, rowY: number) => void,
+  ): void {
+    const { x, y, w, h } = rect;
+    const visibleRows = rowH > 0 ? Math.max(0, Math.floor(h / rowH)) : 0;
+    const maxOffset = Math.max(0, rowCount - visibleRows);
+    const offset = Math.min(Math.max(this.scrollOffsets.get(id) ?? 0, 0), maxOffset);
+    this.scrollOffsets.set(id, offset);
+    this.scrollRegions.push({ id, x, y, w, h });
+
+    const last = Math.min(rowCount, offset + visibleRows);
+    for (let i = offset; i < last; i++) drawRow(i, y + (i - offset) * rowH);
+
+    if (rowCount <= visibleRows) return; // nothing to indicate — the whole list fits
+
+    // more-indicators: a small dim glyph tucked in the region's right corners.
+    const fs = 2; // fixed — independent of the caller's row/text scale
+    const gw = this.font.measure('+', fs);
+    const gh = this.font.lineHeight(fs);
+    const pad = 4;
+    if (offset > 0) {
+      this.label('-', x + w - gw - pad, y + pad, fs, this.palette.textDim);
+    }
+    if (offset + visibleRows < rowCount) {
+      this.label('+', x + w - gw - pad, y + h - gh - pad, fs, this.palette.textDim);
+    }
+
+    // thin position track on the right edge: dim rail + an accent thumb sized to
+    // the visible fraction, positioned to the current offset's fraction of travel.
+    const trackW = 2;
+    const trackX = x + w - trackW;
+    this.rect(trackX, y, trackW, h, withAlpha(this.palette.textDim, 0.35));
+    const thumbH = Math.max(4, Math.round((h * visibleRows) / rowCount));
+    const thumbY = maxOffset > 0 ? y + Math.round(((h - thumbH) * offset) / maxOffset) : y;
+    this.rect(trackX, thumbY, trackW, thumbH, this.palette.accent);
+  }
+
+  /** D2: bump a `scrollList` id's row offset by `deltaRows` (the wheel router calls
+   *  this with ±3 per notch). Unclamped here — `scrollList` clamps on its next draw,
+   *  so an overshoot from a shrinking list self-corrects the following frame. */
+  scrollBy(id: string, deltaRows: number): void {
+    this.scrollOffsets.set(id, (this.scrollOffsets.get(id) ?? 0) + deltaRows);
+  }
+
+  /** End the frame; returns the hit + scroll regions claimed (for the input router). */
+  end(): { hits: readonly UiHit[]; scrollRegions: readonly UiScrollRegion[] } {
+    return { hits: this.hits, scrollRegions: this.scrollRegions };
   }
 }

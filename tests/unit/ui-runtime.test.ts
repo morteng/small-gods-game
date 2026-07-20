@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { UiRuntime, type AlertPinView, type TimeStatus, type TimeCommand } from '@/render/ui/ui-runtime';
 import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
 import type { UiSpec, UiSpecChoice } from '@/story/uispec';
+import type { BeliefPowerView, InboxItem } from '@/game/game-query';
 
 const W = 1280, H = 720, DPR = 2;
 
@@ -18,6 +19,20 @@ function click(rt: UiRuntime, x: number, y: number): UiDrawGroup[] {
   rt.frame(W, H, DPR);
   rt.pointerUp(x, y);
   return rt.frame(W, H, DPR);
+}
+
+/** A mounted canvas whose `getBoundingClientRect` reports its own device px 1:1
+ *  (jsdom does no layout, so the real rect is all-zero by default) — needed for
+ *  D2/D3 tests that dispatch REAL DOM pointer/wheel events through `attach()`'s
+ *  `toDevice` conversion and must land at a known device-px coordinate. */
+function mountedCanvasForInput(w = W, h = H): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, right: w, bottom: h, width: w, height: h, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+  document.body.appendChild(canvas);
+  return canvas;
 }
 
 describe('UiRuntime — HUD + pause menu', () => {
@@ -798,5 +813,217 @@ describe('UiRuntime — time landing card (Round 9 WP-B)', () => {
     rt.frame(W, H, DPR);
     click(rt, 8, 8); // outside the centred card
     expect(rt.hasCard()).toBe(false);
+  });
+});
+
+// ── UI v2 W0/D2: row-granular scroll adopted by the powers + inbox panels ───
+function power(i: number): BeliefPowerView {
+  return {
+    domain: `d${i}`, label: `Power ${i}`, blurb: '', verb: `v${i}`,
+    conviction: 1, threshold: 0, unlocked: true, reach: 1, believers: 1,
+  };
+}
+function tiding(i: number): InboxItem {
+  return {
+    id: `t${i}`, kind: 'tiding', title: `Tiding ${i}`, detail: 'detail',
+    salience: 0.1, surfaced: false, target: { kind: 'none' },
+  };
+}
+/** Open the powers or inbox panel via a real click on its toggle button. */
+function openPanel(rt: UiRuntime, toggleId: 'ui.powers' | 'ui.inbox'): void {
+  rt.frame(W, H, DPR);
+  const btn = rt.hitRegions().find((h) => h.id === toggleId)!;
+  click(rt, ...center(btn));
+}
+
+describe('UiRuntime — scrollList adoption (D2): powers + inbox panels', () => {
+  it('the powers panel windows to only the fully-fitting rows when it overflows', () => {
+    const rt = new UiRuntime();
+    const powers = Array.from({ length: 20 }, (_, i) => power(i));
+    rt.configure({ getBeliefPowers: () => powers });
+    openPanel(rt, 'ui.powers');
+    const ids = rt.hitRegions().filter((h) => h.id.startsWith('power.cast.')).map((h) => h.id);
+    expect(ids).toEqual(['power.cast.v0']); // only the first row fits at this panel height
+  });
+
+  it('a list that fits within the visible rows (no overflow) still renders every row, unchanged from pre-D2 behaviour', () => {
+    const rt = new UiRuntime();
+    const powers = [power(0)]; // rowCount(1) === visibleRows(1) at this panel size — no overflow
+    rt.configure({ getBeliefPowers: () => powers });
+    openPanel(rt, 'ui.powers');
+    const ids = rt.hitRegions().filter((h) => h.id.startsWith('power.cast.')).map((h) => h.id);
+    expect(ids).toEqual(['power.cast.v0']);
+  });
+
+  it('a wheel tick over the powers list steps exactly 3 rows, and a second tick steps 3 more', () => {
+    const rt = new UiRuntime();
+    const powers = Array.from({ length: 20 }, (_, i) => power(i));
+    rt.configure({ getBeliefPowers: () => powers });
+    openPanel(rt, 'ui.powers');
+    const region = rt.scrollRegions().find((r) => r.id === 'ui.powers.list')!;
+    const cx = region.x + region.w / 2, cy = region.y + region.h / 2;
+
+    expect(rt.wheel(cx, cy, 100)).toBe(true); // deltaY > 0 ⇒ scroll forward, consumed
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().find((h) => h.id.startsWith('power.cast.'))!.id).toBe('power.cast.v3');
+
+    rt.wheel(cx, cy, 100);
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().find((h) => h.id.startsWith('power.cast.'))!.id).toBe('power.cast.v6');
+  });
+
+  it('offset is clamped: scrolling far past the end holds the last valid row, and scrolling back up returns to row 0', () => {
+    const rt = new UiRuntime();
+    const powers = Array.from({ length: 20 }, (_, i) => power(i));
+    rt.configure({ getBeliefPowers: () => powers });
+    openPanel(rt, 'ui.powers');
+    const region = rt.scrollRegions().find((r) => r.id === 'ui.powers.list')!;
+    const cx = region.x + region.w / 2, cy = region.y + region.h / 2;
+
+    for (let i = 0; i < 20; i++) rt.wheel(cx, cy, 100); // wildly overshoot
+    rt.frame(W, H, DPR);
+    const overshotId = rt.hitRegions().find((h) => h.id.startsWith('power.cast.'))!.id;
+    expect(overshotId).toBe('power.cast.v19'); // clamped to the last row — never crashes/overshoots
+
+    for (let i = 0; i < 20; i++) rt.wheel(cx, cy, -100);
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().find((h) => h.id.startsWith('power.cast.'))!.id).toBe('power.cast.v0');
+  });
+
+  it('a wheel over the inbox panel scrolls its list independently of the powers list', () => {
+    const rt = new UiRuntime();
+    const items = Array.from({ length: 20 }, (_, i) => tiding(i));
+    rt.configure({ getInbox: () => items });
+    openPanel(rt, 'ui.inbox');
+    const region = rt.scrollRegions().find((r) => r.id === 'ui.inbox.list')!;
+    const cx = region.x + region.w / 2, cy = region.y + region.h / 2;
+    const before = rt.hitRegions().filter((h) => h.id.startsWith('inbox.look.')).map((h) => h.id);
+    expect(before.length).toBeGreaterThan(0);
+    expect(before).not.toContain('inbox.look.t19'); // the tail is scrolled off initially
+
+    rt.wheel(cx, cy, 100);
+    rt.frame(W, H, DPR);
+    const after = rt.hitRegions().filter((h) => h.id.startsWith('inbox.look.')).map((h) => h.id);
+    expect(after).not.toEqual(before); // the wheel actually moved the window
+  });
+
+  it('a wheel outside any registered scroll region is left alone (returns false, offset unchanged)', () => {
+    const rt = new UiRuntime();
+    const powers = Array.from({ length: 20 }, (_, i) => power(i));
+    rt.configure({ getBeliefPowers: () => powers });
+    openPanel(rt, 'ui.powers');
+    const before = rt.hitRegions().filter((h) => h.id.startsWith('power.cast.')).map((h) => h.id);
+    expect(rt.wheel(4, 4, 100)).toBe(false); // top-left corner — outside the panel
+    rt.frame(W, H, DPR);
+    const after = rt.hitRegions().filter((h) => h.id.startsWith('power.cast.')).map((h) => h.id);
+    expect(after).toEqual(before);
+  });
+
+  it('no panel open ⇒ no scroll regions and every wheel is a no-op', () => {
+    const rt = new UiRuntime();
+    rt.frame(W, H, DPR);
+    expect(rt.scrollRegions()).toEqual([]);
+    expect(rt.wheel(W / 2, H / 2, 100)).toBe(false);
+  });
+});
+
+// ── UI v2 W0/D2 + D3: real DOM event routing through `attach()` ─────────────
+describe('UiRuntime — attach(): wheel routing + D3 preventDefault on consumed pointers', () => {
+  it('a real wheel event over a registered scroll region is consumed (preventDefault + stopPropagation)', () => {
+    const canvas = mountedCanvasForInput();
+    const rt = new UiRuntime();
+    const powers = Array.from({ length: 20 }, (_, i) => power(i));
+    rt.configure({ getBeliefPowers: () => powers });
+    const teardown = rt.attach(canvas);
+    openPanel(rt, 'ui.powers');
+    const region = rt.scrollRegions().find((r) => r.id === 'ui.powers.list')!;
+    const cx = region.x + region.w / 2, cy = region.y + region.h / 2;
+
+    const ev = new WheelEvent('wheel', { clientX: cx, clientY: cy, deltaY: 100, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(ev, 'preventDefault');
+    const stopPropagation = vi.spyOn(ev, 'stopPropagation');
+    canvas.dispatchEvent(ev);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(stopPropagation).toHaveBeenCalled();
+
+    // and the scroll actually happened (end-to-end, not just the flags)
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().find((h) => h.id.startsWith('power.cast.'))!.id).toBe('power.cast.v3');
+    teardown();
+  });
+
+  it('a real wheel event away from any scroll region is left alone — world zoom keeps working', () => {
+    const canvas = mountedCanvasForInput();
+    const rt = new UiRuntime();
+    const powers = Array.from({ length: 20 }, (_, i) => power(i));
+    rt.configure({ getBeliefPowers: () => powers });
+    const teardown = rt.attach(canvas);
+    openPanel(rt, 'ui.powers'); // panel is open, but the wheel below lands OUTSIDE it
+
+    const ev = new WheelEvent('wheel', { clientX: W - 4, clientY: H - 4, deltaY: 100, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(ev, 'preventDefault');
+    canvas.dispatchEvent(ev);
+    expect(preventDefault).not.toHaveBeenCalled(); // never touched — controls.ts's own listener still sees it
+
+    teardown();
+  });
+
+  it('no UI open at all ⇒ every wheel falls through untouched', () => {
+    const canvas = mountedCanvasForInput();
+    const rt = new UiRuntime();
+    const teardown = rt.attach(canvas);
+    rt.frame(W, H, DPR);
+
+    const ev = new WheelEvent('wheel', { clientX: W / 2, clientY: H / 2, deltaY: 100, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(ev, 'preventDefault');
+    canvas.dispatchEvent(ev);
+    expect(preventDefault).not.toHaveBeenCalled();
+    teardown();
+  });
+
+  it('D3: a pointerdown the UI consumes (over a widget) gets preventDefault, suppressing the compat mousedown', () => {
+    const canvas = mountedCanvasForInput();
+    const rt = new UiRuntime();
+    const teardown = rt.attach(canvas);
+    rt.frame(W, H, DPR);
+    const orb = rt.hitRegions().find((h) => h.id === 'ui.orb')!;
+    const [x, y] = center(orb);
+
+    const ev = new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(ev, 'preventDefault');
+    const stopPropagation = vi.spyOn(ev, 'stopPropagation');
+    canvas.dispatchEvent(ev);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(stopPropagation).toHaveBeenCalled();
+    teardown();
+  });
+
+  it('D3: a pointerup the UI consumes (modal menu open — eats everything) gets preventDefault', () => {
+    const canvas = mountedCanvasForInput();
+    const rt = new UiRuntime();
+    const teardown = rt.attach(canvas);
+    rt.toggleMenu();
+    rt.frame(W, H, DPR);
+
+    const ev = new PointerEvent('pointerup', { clientX: 5, clientY: 5, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(ev, 'preventDefault');
+    canvas.dispatchEvent(ev);
+    expect(preventDefault).toHaveBeenCalled();
+    teardown();
+  });
+
+  it('D3 (control): a pointerdown over the empty world (nothing consumed) is NOT prevented — world click/pan still works', () => {
+    const canvas = mountedCanvasForInput();
+    const rt = new UiRuntime();
+    const teardown = rt.attach(canvas);
+    rt.frame(W, H, DPR); // no panel, no menu — HUD only claims its own widgets
+
+    const ev = new PointerEvent('pointerdown', { clientX: W / 2, clientY: H / 2, bubbles: true, cancelable: true });
+    const preventDefault = vi.spyOn(ev, 'preventDefault');
+    const stopPropagation = vi.spyOn(ev, 'stopPropagation');
+    canvas.dispatchEvent(ev);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(stopPropagation).not.toHaveBeenCalled();
+    teardown();
   });
 });

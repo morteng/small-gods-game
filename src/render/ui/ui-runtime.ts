@@ -13,7 +13,7 @@
 // boot to wire input + state hooks. Pure-ish: geometry build is CPU/Node-testable
 // (`frame()`), only `attach()` touches the DOM.
 
-import { UiContext, type UiInput, type UiHit } from '@/render/ui/ui-context';
+import { UiContext, type UiInput, type UiHit, type UiScrollRegion } from '@/render/ui/ui-context';
 import { uiScaleFor } from '@/render/ui/ui-layer';
 import { UI_PALETTE } from '@/render/ui/ui-palette';
 import { shade, withAlpha } from '@/render/ui/ui-color';
@@ -183,6 +183,9 @@ export interface AlertPinView {
 const HOVER_DWELL_MS = 120;
 const HOVER_GRACE_PX = 24;
 
+/** D2: rows a `scrollList` steps per wheel notch. */
+const SCROLL_ROWS_PER_NOTCH = 3;
+
 /** Injectable timer seam (real timers in the app; a manual clock in tests). */
 export interface UiTimers {
   set: (fn: () => void, ms: number) => number;
@@ -227,6 +230,10 @@ export class UiRuntime {
   /** Hit regions claimed by the LAST built frame — used by capture-phase input to
    *  decide whether a pointer-down belongs to the UI (consume) or the world. */
   private lastHits: readonly UiHit[] = [];
+  /** D2: `scrollList` regions claimed by the LAST built frame — used by the
+   *  capture-phase wheel listener to decide whether a wheel tick steps a list's
+   *  rows (consume) or falls through to the world camera zoom. */
+  private lastScrollRegions: readonly UiScrollRegion[] = [];
 
   /** DOM input island (provider/model/key). Its target region is returned by
    *  drawMenu each frame (a local — avoids `this`-field narrowing pitfalls). */
@@ -359,6 +366,34 @@ export class UiRuntime {
     return this.lastHits;
   }
 
+  /** D2: `scrollList` regions claimed by the last built frame (for tests). */
+  scrollRegions(): readonly UiScrollRegion[] {
+    return this.lastScrollRegions;
+  }
+
+  /** D2: the id of the `scrollList` region at (px,py device), or null. Exposed for
+   *  the wheel router (below) and for tests. */
+  scrollRegionAt(px: number, py: number): string | null {
+    const r = this.lastScrollRegions.find((rr) => px >= rr.x && px < rr.x + rr.w && py >= rr.y && py < rr.y + rr.h);
+    return r ? r.id : null;
+  }
+
+  /**
+   * D2 wheel routing: if (px,py) sits over a `scrollList` region registered last
+   * frame, step that list `SCROLL_ROWS_PER_NOTCH` rows (signed by `deltaY`) and
+   * return true — the caller (a capture-phase DOM listener, see `attach`) must then
+   * suppress the event so it never reaches the world camera's own wheel zoom.
+   * Returns false (no-op) when the pointer isn't over any scroll region, letting
+   * the event fall through to world zoom untouched.
+   */
+  wheel(px: number, py: number, deltaY: number): boolean {
+    const id = this.scrollRegionAt(px, py);
+    if (id == null || deltaY === 0) return false;
+    this.ctx.scrollBy(id, Math.sign(deltaY) * SCROLL_ROWS_PER_NOTCH);
+    this.hooks.requestRender?.();
+    return true;
+  }
+
   // ── input edges (called by the canvas listeners in attach, and by tests) ──
   pointerMove(px: number, py: number): void {
     this.ptr.x = px;
@@ -435,10 +470,15 @@ export class UiRuntime {
   }
 
   /**
-   * Attach to the live canvas: capture-phase pointer + Esc key listeners. Capture
-   * phase + `stopPropagation()` when the UI owns the event means `attachControls`
-   * (pan/zoom/divine clicks) never sees taps that belong to the menu or HUD.
-   * Returns a teardown fn.
+   * Attach to the live canvas: capture-phase pointer + Esc key listeners, plus a
+   * capture-phase WHEEL listener on `window` (D2 — see below). Capture phase +
+   * `stopPropagation()` alone stops the pointer event ITSELF from reaching
+   * `attachControls` (pan/zoom/divine clicks), but the browser still separately
+   * synthesizes compat `mousedown`/`mouseup`/`mousemove` events afterward unless
+   * `preventDefault()` is ALSO called — `controls.ts` listens to those compat
+   * events, not `pointerdown`/`pointerup`, so without `preventDefault()` a UI click
+   * used to fall through as a world click/pan underneath the panel (D3 fix: both
+   * calls now fire together whenever `consumesPointer` is true). Returns a teardown fn.
    */
   attach(canvas: HTMLCanvasElement): () => void {
     // The DOM input island lives in the canvas's positioned container so its
@@ -450,7 +490,7 @@ export class UiRuntime {
     if (container && !this.whisperIsland) {
       this.whisperIsland = new WhisperInputIsland(container, (text) => this.hooks.onCardFreeText?.(text));
     }
-    const toDevice = (e: PointerEvent): [number, number] => {
+    const toDevice = (e: { clientX: number; clientY: number }): [number, number] => {
       const r = canvas.getBoundingClientRect();
       const sx = ((e.clientX - r.left) / Math.max(1, r.width)) * canvas.width;
       const sy = ((e.clientY - r.top) / Math.max(1, r.height)) * canvas.height;
@@ -463,14 +503,14 @@ export class UiRuntime {
     };
     const down = (e: PointerEvent) => {
       const [x, y] = toDevice(e);
-      if (this.consumesPointer(x, y)) e.stopPropagation();
+      if (this.consumesPointer(x, y)) { e.stopPropagation(); e.preventDefault(); }
       this.pointerDown(x, y);
     };
     const up = (e: PointerEvent) => {
       const [x, y] = toDevice(e);
       const consume = this.consumesPointer(x, y);
       this.pointerUp(x, y);
-      if (consume) e.stopPropagation();
+      if (consume) { e.stopPropagation(); e.preventDefault(); }
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -480,16 +520,29 @@ export class UiRuntime {
         e.preventDefault();
       }
     };
+    // D2: a scroll-region wheel tick must beat `attachControls`' own `wheel`
+    // listener on this SAME canvas — but same-element listeners fire in
+    // REGISTRATION order regardless of the capture flag (capture only outranks
+    // listeners on ANCESTORS). So this listens on `window`, capture:true: the
+    // window's capturing phase always runs before the event reaches the canvas
+    // target, letting `stopPropagation()` here keep it from ever arriving.
+    // Off-canvas / off-region wheels are untouched (`wheel()` returns false).
+    const onWheel = (e: WheelEvent) => {
+      const [x, y] = toDevice(e);
+      if (this.wheel(x, y, e.deltaY)) { e.preventDefault(); e.stopPropagation(); }
+    };
     // capture phase so we run before attachControls' bubble-phase handlers
     canvas.addEventListener('pointermove', move, true);
     canvas.addEventListener('pointerdown', down, true);
     canvas.addEventListener('pointerup', up, true);
     window.addEventListener('keydown', key, true);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: false });
     return () => {
       canvas.removeEventListener('pointermove', move, true);
       canvas.removeEventListener('pointerdown', down, true);
       canvas.removeEventListener('pointerup', up, true);
       window.removeEventListener('keydown', key, true);
+      window.removeEventListener('wheel', onWheel, true);
       this.island?.destroy();
       this.island = null;
       this.whisperIsland?.destroy();
@@ -524,8 +577,9 @@ export class UiRuntime {
       this.drawHud(c, wDev, hDev, s);
     }
 
-    const { hits } = c.end();
+    const { hits, scrollRegions } = c.end();
     this.lastHits = hits;
+    this.lastScrollRegions = scrollRegions;
 
     // Position/show the DOM input islands over their GPU targets (device→css px):
     // the provider form over the settings panel, the free-text field over the
@@ -864,10 +918,13 @@ export class UiRuntime {
     }
 
     const rowH = 86 * s;
-    for (const p of powers) {
+    // D2: row-granular scroll replaces the old budget-clamp `break` — the list
+    // now scrolls instead of silently truncating past the panel bottom.
+    c.scrollList('ui.powers.list', { x: px, y, w: pw, h: bottom - y }, rowH, powers.length, (i, rowY) => {
+      const p = powers[i];
       const accent = p.unlocked ? UI_PALETTE.accent : UI_PALETTE.textDim;
-      c.label(p.label.toUpperCase(), innerX, y, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
-      let ry = y + c.lineHeight(FS_BODY * s) + 6 * s;
+      c.label(p.label.toUpperCase(), innerX, rowY, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
+      let ry = rowY + c.lineHeight(FS_BODY * s) + 6 * s;
 
       // progress bar: conviction vs threshold
       const barW = innerW;
@@ -892,9 +949,7 @@ export class UiRuntime {
       } else {
         c.label(`not yet believed — ${pct}% of ${need}% needed`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
       }
-      y += rowH;
-      if (y > bottom - rowH) break;
-    }
+    });
   }
 
   // ── divine inbox: triageable prayers / opportunities / threats / tidings ───
@@ -918,12 +973,15 @@ export class UiRuntime {
     }
 
     const rowH = 92 * s;
-    for (const it of items) {
+    // D2: row-granular scroll replaces the old budget-clamp `break` — the list
+    // now scrolls instead of silently truncating past the panel bottom.
+    c.scrollList('ui.inbox.list', { x: px, y, w: pw, h: bottom - y }, rowH, items.length, (i, rowY) => {
+      const it = items[i];
       const tag = it.surfaced ? UI_PALETTE.accent : kindColor(it.kind);
       // kind dot + title
-      c.rect(innerX, y + 4 * s, 8 * s, 8 * s, tag);
-      c.label(it.title, innerX + 16 * s, y, FS_BODY * s, UI_PALETTE.text);
-      let ry = y + c.lineHeight(FS_BODY * s) + 4 * s;
+      c.rect(innerX, rowY + 4 * s, 8 * s, 8 * s, tag);
+      c.label(it.title, innerX + 16 * s, rowY, FS_BODY * s, UI_PALETTE.text);
+      let ry = rowY + c.lineHeight(FS_BODY * s) + 4 * s;
       c.label(it.detail.length > 44 ? it.detail.slice(0, 43) + '…' : it.detail,
         innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
       ry += c.lineHeight(FS_BODY * s) + 8 * s;
@@ -943,9 +1001,7 @@ export class UiRuntime {
         this.ignoredInbox.add(it.id);
         this.hooks.requestRender?.();
       }
-      y += rowH;
-      if (y > bottom - rowH) break;
-    }
+    });
   }
 
   // ── story card: a modal narrative beat (line / choice) over a dim backdrop ──

@@ -151,3 +151,111 @@ describe('button label ellipsis-clip', () => {
     expect(textA).toEqual(textB);
   });
 });
+
+// D2: row-granular scroll (UI v2 W0). rowH=25, rect.h=100 ⇒ 4 rows fully fit.
+describe('UiContext.scrollList (D2)', () => {
+  const RECT = { x: 0, y: 0, w: 200, h: 100 };
+  const ROW_H = 25;
+
+  it('windows: only fully-fitting rows are drawn, starting at offset 0', () => {
+    const c = ctx();
+    c.begin();
+    const drawn: number[] = [];
+    c.scrollList('list', RECT, ROW_H, 10, (i) => drawn.push(i));
+    c.end();
+    expect(drawn).toEqual([0, 1, 2, 3]);
+  });
+
+  it('a list that fits entirely draws every row and no partial row', () => {
+    const c = ctx();
+    c.begin();
+    const drawn: number[] = [];
+    c.scrollList('list', RECT, ROW_H, 3, (i) => drawn.push(i)); // 3 < visibleRows(4)
+    c.end();
+    expect(drawn).toEqual([0, 1, 2]);
+  });
+
+  it('scrollBy steps the offset and the next draw windows around it', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollBy('list', 3); // one notch worth of rows
+    const drawn: number[] = [];
+    c.scrollList('list', RECT, ROW_H, 10, (i) => drawn.push(i));
+    c.end();
+    expect(drawn).toEqual([3, 4, 5, 6]);
+  });
+
+  it('clamps the offset to [0, rowCount - visibleRows] on the high end', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollBy('list', 999); // wildly past the end
+    const drawn: number[] = [];
+    c.scrollList('list', RECT, ROW_H, 10, (i) => drawn.push(i));
+    c.end();
+    expect(drawn).toEqual([6, 7, 8, 9]); // maxOffset = 10 - 4
+  });
+
+  it('clamps the offset to 0 on the low end (never negative)', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollBy('list', -999);
+    const drawn: number[] = [];
+    c.scrollList('list', RECT, ROW_H, 10, (i) => drawn.push(i));
+    c.end();
+    expect(drawn).toEqual([0, 1, 2, 3]);
+  });
+
+  it('keeps offsets isolated per id', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollBy('a', 5);
+    const drawnA: number[] = [];
+    const drawnB: number[] = [];
+    c.scrollList('a', RECT, ROW_H, 10, (i) => drawnA.push(i));
+    c.scrollList('b', RECT, ROW_H, 10, (i) => drawnB.push(i));
+    c.end();
+    expect(drawnA).toEqual([5, 6, 7, 8]);
+    expect(drawnB).toEqual([0, 1, 2, 3]); // untouched by 'a's scroll
+  });
+
+  it('registers a scroll region matching the rect, for the wheel router', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollList('list', RECT, ROW_H, 10, () => {});
+    const { scrollRegions } = c.end();
+    expect(scrollRegions).toEqual([{ id: 'list', ...RECT }]);
+  });
+
+  it('draws no overflow chrome (indicators/track) when the whole list fits', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollList('list', RECT, ROW_H, 4, () => {}); // rowCount === visibleRows
+    c.end();
+    expect(c.batcher.flush()).toEqual([]); // drawRow is a no-op ⇒ nothing else drawn
+  });
+
+  it('draws overflow chrome (indicators/track) only when overflowing', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollList('list', RECT, ROW_H, 10, () => {}); // rowCount > visibleRows
+    c.end();
+    const groups = c.batcher.flush();
+    expect(groups.length).toBeGreaterThan(0);
+    const total = groups.reduce((s, g) => s + g.vertexCount, 0);
+    expect(total).toBeGreaterThan(0);
+  });
+
+  it('offset survives across frames (begin() does not reset it)', () => {
+    const c = ctx();
+    c.begin();
+    c.scrollBy('list', 3);
+    c.scrollList('list', RECT, ROW_H, 10, () => {});
+    c.end();
+    // a fresh frame — no scrollBy this time — must still read the same offset
+    c.begin();
+    const drawn: number[] = [];
+    c.scrollList('list', RECT, ROW_H, 10, (i) => drawn.push(i));
+    c.end();
+    expect(drawn).toEqual([3, 4, 5, 6]);
+  });
+});
