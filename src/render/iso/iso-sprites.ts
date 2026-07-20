@@ -163,7 +163,12 @@ export function plantSpriteItemFromPack(
     // `scallop` of the drawn height along a wavy line so the ground banks over the
     // base unevenly, like soil actually does. Amplitude scales with the bury depth
     // (a deeply lodged boulder gets a taller, rougher ground line than a cobble).
-    item.scallop = Math.min(0.22, Math.max(2, buryPx * 0.6) / Math.max(1, visH));
+    // Amplitude floors at 4 px and tracks ~90 % of the buried depth: the old 2 px floor
+    // (0.6·bury) left shallow-buried rocks with a visually STRAIGHT cut — a two-pixel
+    // wave reads as a razor line at gameplay zoom (user report, dusty scree slopes where
+    // no thick snow contact band hides the edge). Cap matches the 0.24 packing limit in
+    // instance-batch.ts.
+    item.scallop = Math.min(0.24, Math.max(4, buryPx * 0.9) / Math.max(1, visH));
   }
   if (pack.shadow) {
     item.shadowSprite = { src: pack.shadow.canvas, dx: pack.shadow.dx, dy: pack.shadow.dy };

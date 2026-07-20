@@ -32,6 +32,7 @@ import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { siteMetrics } from '@/terrain/terrain-generator';
 import { COVER_SLOPE } from '@/world/brushes/vegetation-placer';
+import { dustAt } from '@/render/dust-mask';
 
 /** Open-ground tile types that read as bare when unplanted — the grass sward. Matches
  *  the grassland brush's `tileType`; forest/scrub/wetland carry their own undergrowth. */
@@ -144,8 +145,12 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
       if (occupied) continue;
 
       // Clumped Bernoulli roll: patches of tufts, gaps between — never a flat carpet.
+      // The dust term fades the fill off cells the shader paints as bare dust/pebbles
+      // (dust-mask mirror) — this pass runs LAST and, like the slope gate above, used to
+      // re-sow flowers onto exactly the cells the paint had declared bare.
       const clump = smoothNoise(x, y, seed + 71, FILL_CLUMP_SCALE) * 2;
-      const prob = Math.min(1, FILL_BASE_PROB * floraDensity * clump) * slopeKeep(x, y);
+      const prob = Math.min(1, FILL_BASE_PROB * floraDensity * clump) * slopeKeep(x, y)
+        * (1 - (map.flatHeight ? 0 : dustAt(map, x, y)));
       const s = (seed ^ 0x51ed) + 0;
       if (hash01(x, y, s) >= prob) continue;
 

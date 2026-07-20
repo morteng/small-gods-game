@@ -32,6 +32,15 @@ const GRASSLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
     ...slopeBandAll(undergrowthOf('grassland'), COVER_SLOPE),
     'field-stone': STONE_SLOPE,
   },
+  // BARE GROUND: meadow flowers/tufts fade off cells the shader paints as dust/pebbles
+  // (the dust-mask mirror) — lush cover sprouting from painted scree was the giveaway
+  // that placement never saw the paint. The field-stone stays: scree is its habitat.
+  dust: Object.fromEntries(
+    [...canopyOf('grassland'), ...undergrowthOf('grassland')]
+      .map(([k]) => k)
+      .filter((k) => k !== 'field-stone')
+      .map((k) => [k, 1]),
+  ),
 };
 
 /** Scatter grassland ground cover over the grass/meadow/glen tiles of `region`.

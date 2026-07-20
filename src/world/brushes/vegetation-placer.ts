@@ -5,6 +5,8 @@ import { siteMetrics } from '@/terrain/terrain-generator';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
+import { getClimateFields } from '@/world/heightfield';
+import { dust01 } from '@/render/dust-mask';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
 /** A species' altitude ceiling (metres above sea) with a smooth thinning band —
@@ -124,6 +126,16 @@ export interface VegetationParams {
    * treeline uses, so placement stays pure.
    */
   slope?: Record<string, SlopeBand>;
+  /**
+   * Per-kind BARE-GROUND cull strength in [0,1] (see `render/dust-mask.ts`): the shader
+   * paints dry, patchy cells as bare dust/pebbles from moisture + its own noise — a signal
+   * the slope gate never sees — so lush cover used to sprout from painted scree. A kind
+   * listed here survives a cell with probability `1 − strength·dust01`; strength 1 means
+   * fully faded out wherever the ground paints bare. Leave rocks unlisted (scree is
+   * exactly where loose stone belongs), and leave arid-biome flora (cactus, scrub)
+   * unlisted — dust is their home ground.
+   */
+  dust?: Record<string, number>;
 }
 
 /** Smooth acceptance in [0,1]: 1 below the band, ramping linearly to 0 at `max`. */
@@ -211,6 +223,11 @@ export function placeVegetation(
   // one would be a second chance to disagree about what "steep" is.
   const slopeMAt = (x: number, y: number): number =>
     heightField ? siteMetrics(heightField, x, y, m.width, m.height, ELEVATION_SEA_LEVEL, reliefM).slopeM : 0;
+  // BARE-GROUND GATE: the CPU mirror of the shader's dust/pebble splat weight. Climate
+  // fields fetched ONCE (memoised; flat studio ground reads as never-bare).
+  const dustFields = params.dust && !m.flatHeight ? getClimateFields(m) : null;
+  const dustWAt = (x: number, y: number): number =>
+    dustFields ? dust01(dustFields.moisture[y * m.width + x] ?? 0.5, x + 0.5, y + 0.5) : 0;
 
   for (let y = region.y; y < yEnd; y++) {
     for (let x = region.x; x < xEnd; x++) {
@@ -246,6 +263,12 @@ export function placeVegetation(
           const accept = slopeAccept(slopeMAt(x, y), sBand);
           if (accept < 1 && hash01(x, y, s + 9) >= accept) continue;
         }
+        // Bare ground: lush cover fades out where the shader paints dust/pebbles.
+        const dStr = params.dust?.[kind];
+        if (dStr) {
+          const cull = dStr * dustWAt(x, y);
+          if (cull > 0 && hash01(x, y, s + 11) < cull) continue;
+        }
         placedPrimary = true;
 
         const fx = cellFrac(hash01(x, y, s + 3), params.offsetRange[0]);
@@ -274,6 +297,12 @@ export function placeVegetation(
           if (ugSlope) {
             const accept = slopeAccept(slopeMAt(x, y), ugSlope);
             if (accept < 1 && hash01(x, y, seed + 23) >= accept) continue;
+          }
+          // Bare ground: same dust fade as the canopy — flowers off the painted scree.
+          const ugDust = params.dust?.[ugKind];
+          if (ugDust) {
+            const cull = ugDust * dustWAt(x, y);
+            if (cull > 0 && hash01(x, y, seed + 24) < cull) continue;
           }
           if (ugRng < ugDensity * ugScale) {
             const ugKindPicked = pickWeighted(ugRng, [[ugKind, ugWeight]]);

@@ -37,8 +37,11 @@ function latticeHash(ix: number, iy: number, seed: number): number {
 }
 
 /** Smooth (Hermite-interpolated) value noise with a WRAPPING lattice of the given
- *  integer period — the periodicity is what makes the baked texture tile. */
-function periodicVnoise(x: number, y: number, period: number, seed: number): number {
+ *  integer period — the periodicity is what makes the baked texture tile.
+ *  Exported: `dust-mask.ts` mirrors the terrain shader's `vnoise` (the R channel of
+ *  this atlas, seed 101) CPU-side, so placement can read the same bare-ground field
+ *  the shader paints. */
+export function periodicVnoise(x: number, y: number, period: number, seed: number): number {
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
   const ux = fx * fx * (3 - 2 * fx);
