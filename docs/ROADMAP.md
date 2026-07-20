@@ -136,11 +136,17 @@ Live `RivalSystem` (0.5 Hz) decides from real per-settlement follower data
 `PRAYER_CLAIM_WINDOW_TICKS`** (120 ticks = half a sim-day, `src/sim/rival-claims.ts`)
 via the shared `answer_prayer` command path (defection — VISION §3/§4); contested
 + lost pleas surface as inbox threats → alert pins. Fate coaches rival stances
-(`set_rival_stance`, anti-snowball). Remaining:
+(`set_rival_stance`, anti-snowball). **Power-economics + contention round shipped
+2026-07-20** (spec `docs/superpowers/specs/2026-07-20-rival-power-economics-contention.md`):
+spend/save policy (wealth pressure + save-for-miracle war chest), idle-poor sweep
+guard, other-rival awareness in `RivalSituation`, undermine/expand target the
+strongest/weakest opposition god OVERALL (player or rival), and rival-vs-rival
+strikes surface as coalesced `rival_dispute` inbox tidings. Remaining:
 
-- Rival power-economics tuning.
-- Rival-vs-rival contention depth (inter-faction conflict, proselytizing,
-  disputes, eventually holy wars).
+- Economy tuning pass against live playtest numbers (regen vs claim pressure
+  over a real day).
+- Rival-vs-rival escalation beyond disputes (inter-faction conflict, eventually
+  holy wars).
 - Spirit↔player intersection → LLM-narrated rival encounters (a rival speaks
   through a devoted follower).
 
