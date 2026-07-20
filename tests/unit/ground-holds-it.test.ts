@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { generateWithNoise } from '@/map/map-generator';
 import { planWorldLayout } from '@/world/poi-layout';
-import { getRenderWaterMask } from '@/world/render-water';
+import { getRenderWaterDist, getRenderWaterMask } from '@/world/render-water';
 import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
@@ -17,7 +17,7 @@ import { siteMetrics } from '@/terrain/terrain-generator';
 import { worldStyleOf } from '@/core/world-style';
 import { isRockKind } from '@/world/entity-kinds';
 import { STONE_SLOPE } from '@/world/brushes/vegetation-placer';
-import { isEmergentSpecies, waterHabitatOf } from '@/world/water-habitat';
+import { isEmergentSpecies, waterHabitatOf, EMERGENT_BAND_TILES } from '@/world/water-habitat';
 import { collectRockPads, ROCK_PAD_STRIDE } from '@/world/rock-deformation';
 import type { GameMap, WorldSeed, Entity } from '@/core/types';
 import type { World } from '@/world/world';
@@ -68,34 +68,39 @@ describe.each(SEEDS)('ground-holds-it — seed %i', (seed) => {
   });
 
   it('NO land species stands in the water the player sees', () => {
+    // The DRAWN water at the entity's CONTINUOUS foot (getRenderWaterDist) — not the cell
+    // mask: streams draw narrower than a cell, so the mask both misses feet standing
+    // mid-channel on dry-centred cells AND flags feet on the drawn-dry margin of stamped
+    // cells. The picture is the contract.
     const { map, world } = worlds.get(seed)!;
-    const isWater = getRenderWaterMask(map);
+    const dist = getRenderWaterDist(map);
     const offenders = nature(world)
       .filter((e) => waterHabitatOf(e.kind, e.tags ?? []) === 'land')
-      .filter((e) => isWater(Math.floor(e.x), Math.floor(e.y)));
+      .filter((e) => dist(e.x, e.y) < 0);
     expect(offenders.map((e) => e.kind)).toEqual([]);
   });
 
   it('a BRUSH rock in a mountain tarn is not deliberate either — only the riparian pass puts stone in water', () => {
     const { map, world } = worlds.get(seed)!;
-    const isWater = getRenderWaterMask(map);
+    const dist = getRenderWaterDist(map);
     const wetBrushRocks = world.registry.all()
       .filter((e) => e.id.startsWith('hills-') && isRockKind(e.kind))
-      .filter((e) => isWater(Math.floor(e.x), Math.floor(e.y)));
+      .filter((e) => dist(e.x, e.y) < 0);
     expect(wetBrushRocks.map((e) => e.kind)).toEqual([]);
   });
 
   it('emergent species (reed/bulrush/sedge) stand only at a shallow MARGIN, never in open water', () => {
     const { map, world } = worlds.get(seed)!;
-    const isWater = getRenderWaterMask(map);
+    const dist = getRenderWaterDist(map);
     const emergents = nature(world).filter((e) => isEmergentSpecies(e.kind));
     expect(emergents.length).toBeGreaterThan(0);   // the reedbeds survive the gate
     for (const e of emergents) {
+      const d = dist(e.x, e.y);
+      if (d >= 0) continue;                        // on the dry bank: always fine
       const x = Math.floor(e.x), y = Math.floor(e.y);
-      if (!isWater(x, y)) continue;                // on the dry bank: always fine
       expect(DEEP.has(map.tiles[y][x].type)).toBe(false);   // never open/deep water
-      const atMargin = !isWater(x - 1, y) || !isWater(x + 1, y) || !isWater(x, y - 1) || !isWater(x, y + 1);
-      expect(atMargin).toBe(true);                 // a reed bed rings the water, it doesn't raft
+      // A reed wades the fringe, it doesn't raft: its feet stay within the band of the bank.
+      expect(d).toBeGreaterThan(-EMERGENT_BAND_TILES);
     }
   });
 
@@ -108,12 +113,12 @@ describe.each(SEEDS)('ground-holds-it — seed %i', (seed) => {
     expect(riffle.length).toBeGreaterThan(20);
   });
 
-  it('riparian TREES sit on dry bank cells only — never in the channel', () => {
+  it('riparian TREES root on the drawn bank only — never in the channel', () => {
     const { map, world } = worlds.get(seed)!;
-    const isWater = getRenderWaterMask(map);
+    const dist = getRenderWaterDist(map);
     const wetTrees = world.registry.all()
       .filter((e) => e.id.startsWith('riparian-') && (e.tags?.includes('tree') ?? false))
-      .filter((e) => isWater(Math.floor(e.x), Math.floor(e.y)));
+      .filter((e) => dist(e.x, e.y) < 0);
     expect(wetTrees.map((e) => e.kind)).toEqual([]);
   });
 

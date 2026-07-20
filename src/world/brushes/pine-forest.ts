@@ -1,4 +1,4 @@
-import { placeVegetation, slopeBandAll, CONIFER_SLOPE, COVER_SLOPE } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, CONIFER_SLOPE, COVER_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -30,6 +30,9 @@ const PINE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     ...slopeBandAll(canopyOf('pine_forest'), CONIFER_SLOPE),
     ...slopeBandAll(undergrowthOf('pine_forest'), COVER_SLOPE),
   },
+  // BARE GROUND: species-moisture derived (dustBandAll) — the dry heath/juniper floor
+  // survives painted scree, the mesic pines fade off it.
+  dust: dustBandAll([...canopyOf('pine_forest'), ...undergrowthOf('pine_forest')]),
 };
 
 export function pineForestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

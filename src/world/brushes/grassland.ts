@@ -6,7 +6,7 @@
 // inside almost every biome's tile mix (forest 15%, scrubland 30%, beach 20%, …),
 // and brushes run one-per-biome-region: each vegetation brush calls this for the
 // grass tiles in ITS region, so meadows bloom wherever the tiles actually are.
-import { placeVegetation, slopeBandAll, COVER_SLOPE, STONE_SLOPE } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, COVER_SLOPE, STONE_SLOPE } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -34,13 +34,9 @@ const GRASSLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
   },
   // BARE GROUND: meadow flowers/tufts fade off cells the shader paints as dust/pebbles
   // (the dust-mask mirror) — lush cover sprouting from painted scree was the giveaway
-  // that placement never saw the paint. The field-stone stays: scree is its habitat.
-  dust: Object.fromEntries(
-    [...canopyOf('grassland'), ...undergrowthOf('grassland')]
-      .map(([k]) => k)
-      .filter((k) => k !== 'field-stone')
-      .map((k) => [k, 1]),
-  ),
+  // that placement never saw the paint. Strengths derive from each species' moisture
+  // ecology (dustBandAll): dry species and the field-stone stay — scree is their habitat.
+  dust: dustBandAll([...canopyOf('grassland'), ...undergrowthOf('grassland')]),
 };
 
 /** Scatter grassland ground cover over the grass/meadow/glen tiles of `region`.

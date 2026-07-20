@@ -7,6 +7,7 @@ import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 import { getClimateFields } from '@/world/heightfield';
 import { dust01 } from '@/render/dust-mask';
+import { getFloraSpecies } from '@/flora/flora-registry';
 import type { Entity, Region, BrushContext } from '@/core/types';
 
 /** A species' altitude ceiling (metres above sea) with a smooth thinning band —
@@ -64,6 +65,30 @@ export function slopeBandAll(
   kinds: ReadonlyArray<readonly [string, ...unknown[]]>, band: SlopeBand,
 ): Record<string, SlopeBand> {
   return Object.fromEntries(kinds.map(([k]) => [k, band]));
+}
+
+/** Dust cull strength per moisture ecology: wet species never root in painted dust,
+ *  mesic ones nearly never (a little tolerance keeps dust edges from looking sterile),
+ *  dry species are AT HOME on it and are left unlisted. */
+const DUST_STRENGTH_BY_MOISTURE: Record<string, number> = { wet: 1, mesic: 0.9 };
+
+/**
+ * Derive the per-kind bare-ground (`dust`) cull strengths for a kind list FROM THE
+ * FLORA DB's moisture ecology — the unified rule, not a per-brush hand list. A dry
+ * species (gorse, juniper, cactus) is omitted: painted dust/scree is its habitat.
+ * Non-flora kinds (field-stone, boulders, debris) have no species entry and are
+ * omitted the same way — loose stone belongs on scree.
+ */
+export function dustBandAll(
+  kinds: ReadonlyArray<readonly [string, ...unknown[]]>,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k] of kinds) {
+    const sp = getFloraSpecies(k);
+    const strength = sp?.ecology.moisture ? DUST_STRENGTH_BY_MOISTURE[sp.ecology.moisture] : undefined;
+    if (strength !== undefined) out[k] = strength;
+  }
+  return out;
 }
 
 export interface VegetationParams {

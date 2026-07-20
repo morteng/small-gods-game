@@ -1,4 +1,4 @@
-import { placeVegetation, slopeBandAll, COVER_SLOPE, STONE_SLOPE } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, COVER_SLOPE, STONE_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -24,6 +24,9 @@ const SCRUBLAND_PARAMS: import('./vegetation-placer').VegetationParams = {
     ...slopeBandAll(undergrowthOf('scrubland'), COVER_SLOPE),
     'field-stone': STONE_SLOPE,
   },
+  // BARE GROUND: species-moisture derived — gorse/broom (dry) hold the scree,
+  // the mesic heath flowers fade off it; the field-stone has no species and stays.
+  dust: dustBandAll([...canopyOf('scrubland'), ...undergrowthOf('scrubland')]),
 };
 
 export function scrublandBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

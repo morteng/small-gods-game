@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v36');
   });
 
-  it('declares the current world content version (111: flora off the painted scree — dust-mask placement gate)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(111);
+  it('declares the current world content version (112: the picture is the contract — continuous render-water distance + unified species-derived dust gate)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(112);
   });
 });

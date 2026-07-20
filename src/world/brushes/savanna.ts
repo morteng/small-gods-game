@@ -3,7 +3,7 @@
 // gorse) look. The warm grasslands used to route through the scrubland brush and read
 // as temperate heath; this gives them dry tussock + esparto with the odd lone thorn
 // tree. Runs over the grass/scrubland/dirt tiles that make up a savanna region.
-import { placeVegetation, slopeBandAll, COVER_SLOPE, type VegetationParams } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, COVER_SLOPE, type VegetationParams } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -28,6 +28,9 @@ const SAVANNA_PARAMS: VegetationParams = {
     ...slopeBandAll(canopyOf('savanna'), COVER_SLOPE),
     ...slopeBandAll(undergrowthOf('savanna'), COVER_SLOPE),
   },
+  // BARE GROUND: species-moisture derived — the dry savanna pool mostly rides
+  // over dust by nature; only its mesic stragglers fade.
+  dust: dustBandAll([...canopyOf('savanna'), ...undergrowthOf('savanna')]),
 };
 
 export function savannaBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

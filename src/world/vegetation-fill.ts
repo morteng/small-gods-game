@@ -18,12 +18,12 @@
  * ctx.rng) and occupancy-aware: it skips roads/rivers, drawn water, buildings, cells
  * that already hold any nature entity, and non–open-ground tile types.
  */
-import type { GameMap, Entity } from '@/core/types';
+import type { GameMap } from '@/core/types';
 import type { World } from '@/world/world';
 import { defaultEntity } from '@/world/brush-helpers';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { isBuilding } from '@/world/building-collision';
-import { getRenderWaterMask } from '@/world/render-water';
+import { getRenderWaterDist } from '@/world/render-water';
 import { isRoadOrRiver } from '@/world/vegetation-clear';
 import { worldStyleOf } from '@/core/world-style';
 import { smoothNoise } from '@/core/noise';
@@ -31,7 +31,7 @@ import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { siteMetrics } from '@/terrain/terrain-generator';
-import { COVER_SLOPE } from '@/world/brushes/vegetation-placer';
+import { COVER_SLOPE, dustBandAll } from '@/world/brushes/vegetation-placer';
 import { dustAt } from '@/render/dust-mask';
 
 /** Open-ground tile types that read as bare when unplanted — the grass sward. Matches
@@ -56,6 +56,10 @@ const FILL_POOL: [string, number][] = [
   ['common-hawthorn', 0.06], // the occasional free-standing shrub
   ['gorse', 0.06],
 ];
+
+/** Per-kind bare-ground cull strengths, species-moisture derived (the SAME rule every
+ *  biome brush uses) — so a dry gorse may dot a dust patch the daisies fade off. */
+const FILL_DUST = dustBandAll(FILL_POOL);
 
 /** Base probability a bare open-ground cell receives an accent (before clump + style).
  *  Sparse by design — accents dot the shader sward, they do not carpet it. */
@@ -104,7 +108,7 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
   const tiles = map.tiles;
   const height = map.height;
   const width = map.width;
-  const isWater = getRenderWaterMask(map);
+  const waterDist = getRenderWaterDist(map);
   const style = worldStyleOf(map.worldSeed);
   // Denser worlds (simulator 1.2) fill fuller; sparser (storybook 0.85) fill lighter —
   // the fill tracks the same dial as every brush so one lever moves the whole look.
@@ -133,7 +137,7 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
       const tile = row[x];
       if (!tile || !FILL_GROUND.has(tile.type)) continue;
       if (isRoadOrRiver(tile.type)) continue;              // (redundant with the set, but explicit)
-      if (isWater(x, y)) continue;                         // drawn water, incl. unstamped lake beds
+      if (waterDist(x + 0.5, y + 0.5) < -0.5) continue;    // cell centre well under drawn water
 
       // Bare? Skip the cell if it holds any building or existing nature entity.
       let occupied = false;
@@ -145,18 +149,24 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
       if (occupied) continue;
 
       // Clumped Bernoulli roll: patches of tufts, gaps between — never a flat carpet.
-      // The dust term fades the fill off cells the shader paints as bare dust/pebbles
-      // (dust-mask mirror) — this pass runs LAST and, like the slope gate above, used to
-      // re-sow flowers onto exactly the cells the paint had declared bare.
       const clump = smoothNoise(x, y, seed + 71, FILL_CLUMP_SCALE) * 2;
-      const prob = Math.min(1, FILL_BASE_PROB * floraDensity * clump) * slopeKeep(x, y)
-        * (1 - (map.flatHeight ? 0 : dustAt(map, x, y)));
+      const prob = Math.min(1, FILL_BASE_PROB * floraDensity * clump) * slopeKeep(x, y);
       const s = (seed ^ 0x51ed) + 0;
       if (hash01(x, y, s) >= prob) continue;
 
       const kind = pickWeighted(hash01(x, y, s + 1), FILL_POOL);
       const fx = cellFrac(hash01(x, y, s + 2));
       const fy = cellFrac(hash01(x, y, s + 3));
+      // The DRAWN water check at the tuft's actual foot — streams are narrower than a
+      // cell, so the cell-centre early-out above cannot rule on the rolled point.
+      if (waterDist(x + fx, y + fy) < 0) continue;
+      // BARE GROUND, per species (dust-mask mirror): this pass runs LAST and used to
+      // re-sow flowers onto exactly the cells the paint had declared bare. The cull is
+      // per-KIND (the shared species-moisture rule) so a dry gorse may dot a dust patch
+      // the daisies fade off — not a blanket fade that sterilizes the patch edges.
+      const dustStrength = FILL_DUST[kind] ?? 0;
+      if (dustStrength > 0 && !map.flatHeight &&
+          hash01(x, y, s + 5) < dustStrength * dustAt(map, x, y)) continue;
       const scale = 0.6 + hash01(x, y, s + 4) * 0.4;       // small ground cover, 0.6–1.0
       world.addEntity(defaultEntity(FILL_BRUSH, kind, x + fx, y + fy, {
         offsetX: fx,

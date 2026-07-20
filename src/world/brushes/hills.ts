@@ -8,7 +8,7 @@
 // The primary pool mixes the alpine ROCK vocabulary (rocks aren't flora-DB species,
 // so they live here, not in biome-flora) with dense tussock and the odd hardy dwarf
 // shrub; the `alpine` biome-flora pool carries the heather/juniper undergrowth layer.
-import { placeVegetation, STONE_SLOPE, COVER_SLOPE, type VegetationParams, type SlopeBand } from './vegetation-placer';
+import { placeVegetation, dustBandAll, STONE_SLOPE, COVER_SLOPE, type VegetationParams, type SlopeBand } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import { undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -30,20 +30,22 @@ const ROCK_SLOPE: SlopeBand = STONE_SLOPE;
 // (`rock_small` has a blueprint preset but NO entity-kind def, and adding one would
 // need a matching `NATURE_HEIGHT_M` entry in render/scale-contract — owned elsewhere
 // this round, so it stays out of the pool rather than being forced in.)
+const ALPINE_KINDS: [string, number][] = [
+  ['tussock-grass', 0.66],
+  ['rock_pile', 0.12],
+  ['boulder', 0.07],
+  ['pebbles', 0.05],
+  ['heather', 0.04],
+  ['common-juniper', 0.03],
+  ['gorse', 0.02],
+  ['rock_outcrop', 0.012],
+  ['standing_stone', 0.01],
+];
+
 export const ALPINE_PARAMS: VegetationParams = {
   brush: BRUSH,
   tileType: ['hills', 'mountain', 'peak', 'rocky'],
-  kinds: [
-    ['tussock-grass', 0.66],
-    ['rock_pile', 0.12],
-    ['boulder', 0.07],
-    ['pebbles', 0.05],
-    ['heather', 0.04],
-    ['common-juniper', 0.03],
-    ['gorse', 0.02],
-    ['rock_outcrop', 0.012],
-    ['standing_stone', 0.01],
-  ],
+  kinds: ALPINE_KINDS,
   density: 1.0,             // ~7× the old effective rate; sized to keep whole worlds < ~37k entities
   maxPerTile: 3,            // several small plants/stones scatter across one cell
   clumpScale: 3,            // tight bouldery outcrops + tussock drifts, not an even sprinkle
@@ -60,6 +62,9 @@ export const ALPINE_PARAMS: VegetationParams = {
     'tussock-grass': COVER_SLOPE, heather: COVER_SLOPE, 'common-juniper': COVER_SLOPE, gorse: COVER_SLOPE,
     ...Object.fromEntries(undergrowthOf('alpine').map(([k]) => [k, COVER_SLOPE])),
   },
+  // BARE GROUND: species-moisture derived — the rocks (no species) and the dry heath
+  // shrubs (juniper/gorse) hold the painted scree; mesic tussock fades off it.
+  dust: dustBandAll([...ALPINE_KINDS, ...undergrowthOf('alpine')]),
 };
 
 export function hillsBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

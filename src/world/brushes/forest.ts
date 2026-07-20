@@ -1,4 +1,4 @@
-import { placeVegetation, slopeBandAll, TREE_SLOPE, COVER_SLOPE } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, TREE_SLOPE, COVER_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -39,6 +39,10 @@ const FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     ...slopeBandAll(canopyOf('forest'), TREE_SLOPE),
     ...slopeBandAll(undergrowthOf('forest'), COVER_SLOPE),
   },
+  // BARE GROUND: the forest floor obeys the painted dust the same way the meadow does
+  // (species-moisture derived) — a fern rooted in painted scree was the residual the
+  // grassland-only gate left open.
+  dust: dustBandAll([...canopyOf('forest'), ...undergrowthOf('forest')]),
 };
 
 export function forestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

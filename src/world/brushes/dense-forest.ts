@@ -1,4 +1,4 @@
-import { placeVegetation, slopeBandAll, TREE_SLOPE, COVER_SLOPE } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, TREE_SLOPE, COVER_SLOPE } from './vegetation-placer';
 import { placeGrassCover } from './grassland';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
@@ -29,6 +29,8 @@ const DENSE_FOREST_PARAMS: import('./vegetation-placer').VegetationParams = {
     ...slopeBandAll(canopyOf('dense_forest'), TREE_SLOPE),
     ...slopeBandAll(undergrowthOf('dense_forest'), COVER_SLOPE),
   },
+  // BARE GROUND: species-moisture derived (dustBandAll), same rule as every brush.
+  dust: dustBandAll([...canopyOf('dense_forest'), ...undergrowthOf('dense_forest')]),
 };
 
 export function denseForestBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

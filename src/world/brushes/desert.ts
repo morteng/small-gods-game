@@ -5,7 +5,7 @@
 // deserts are defined by their emptiness. Previously desert biomes mapped to the
 // scrubland brush, dressing their scrubland tiles with temperate hedgerow thorns
 // and leaving the sand majority barren; this gives arid ground its own ecology.
-import { placeVegetation, slopeBandAll, COVER_SLOPE, type VegetationParams } from './vegetation-placer';
+import { placeVegetation, slopeBandAll, dustBandAll, COVER_SLOPE, type VegetationParams } from './vegetation-placer';
 import { registerBrush } from '@/world/brushes';
 import { canopyOf, undergrowthOf } from '@/flora/biome-flora';
 import type { Entity, Region, BrushContext } from '@/core/types';
@@ -30,6 +30,9 @@ const DESERT_PARAMS: VegetationParams = {
     ...slopeBandAll(canopyOf('desert'), COVER_SLOPE),
     ...slopeBandAll(undergrowthOf('desert'), COVER_SLOPE),
   },
+  // BARE GROUND: uniform rule; the desert pool is dry-ecology so this is (rightly)
+  // near-empty — cactus and wormwood live on painted dust.
+  dust: dustBandAll([...canopyOf('desert'), ...undergrowthOf('desert')]),
 };
 
 export function desertBrush(region: Region, seed: number, ctx: BrushContext): Entity[] {

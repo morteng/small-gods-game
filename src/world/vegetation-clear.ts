@@ -34,8 +34,8 @@ import type { RoadGraph } from '@/world/road-graph';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
 import { isBuilding } from '@/world/building-collision';
 import { elevationAt } from '@/world/heightfield';
-import { getRenderWaterMask } from '@/world/render-water';
-import { canStandAt } from '@/world/water-habitat';
+import { getRenderWaterDist } from '@/world/render-water';
+import { canStandAtPoint } from '@/world/water-habitat';
 
 /**
  * Treeline: normalised elevation above which no TREE grows — the high ground carries
@@ -179,8 +179,10 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
   // the channel, and the drawn ribbon meanders off the raster line), so a brush gating
   // on `tile.type` can still seed land flora into visible water. Lakes stamp into the
   // raster since WCV 103, which removes the worst case, but this is the one sweep that
-  // reads what is actually drawn, so it is where the rule is enforced.
-  const isWater = getRenderWaterMask(map);
+  // reads what is actually drawn, so it is where the rule is enforced — at the entity's
+  // CONTINUOUS foot: streams draw narrower than a cell, so the cell mask cannot see a
+  // tuft standing mid-channel on a dry-centred cell (38 of them on seed 777).
+  const waterDist = getRenderWaterDist(map);
 
   for (const e of world.query({})) {
     const def = tryGetEntityKindDef(e.kind);
@@ -212,7 +214,7 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     // exempts only a ROCK the riparian pass MEANT to put in the channel (habitat
     // 'in-water'); a riparian BANK tree carries the same tag and a willow belongs on the
     // bank, and a hills-brush boulder in a mountain tarn was never deliberate at all.
-    const inWater = !canStandAt(map, e.kind, e.tags ?? [], tx, ty, isWater);
+    const inWater = !canStandAtPoint(map, e.kind, e.tags ?? [], e.x, e.y, waterDist);
 
     if (inCorridor || onBuilding || aboveTreeline || inWater) toRemove.push(e.id);
   }

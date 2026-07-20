@@ -33,7 +33,7 @@
 import type { GameMap } from '@/core/types';
 import { getFloraSpecies } from '@/flora/flora-registry';
 import { isRockKind } from '@/world/entity-kinds';
-import type { WaterPredicate } from '@/world/render-water';
+import type { WaterDistance, WaterPredicate } from '@/world/render-water';
 
 /** Habitats the world can offer a nature entity, relative to the DRAWN water. */
 export type WaterHabitat = 'land' | 'emergent' | 'in-water';
@@ -80,9 +80,19 @@ export function waterHabitatOf(kind: string, tags: readonly string[] = []): Wate
   return isEmergentSpecies(kind) ? 'emergent' : 'land';
 }
 
+/** How far (tiles) past the drawn water's edge an EMERGENT species may wade. The old
+ *  rule was "a render-dry cell is 4-adjacent" ≈ within a tile of the bank; this is the
+ *  continuous restatement of the same fringe. */
+export const EMERGENT_BAND_TILES = 0.9;
+
 /**
  * May this thing stand at (tx,ty)? `isWater` is the RENDER-water predicate (the drawn
  * channel + lakes + ocean), NOT the tile raster. Pure; safe to call per placement roll.
+ *
+ * CELL-granular view — right for per-cell work. Anything with a continuous position
+ * (an entity's actual foot) must use {@link canStandAtPoint}: streams are narrower than
+ * a cell, so this predicate cannot see a foot standing in the drawn channel of a
+ * dry-CENTRED cell.
  */
 export function canStandAt(
   map: GameMap, kind: string, tags: readonly string[], tx: number, ty: number, isWater: WaterPredicate,
@@ -96,4 +106,22 @@ export function canStandAt(
   if (DEEP_TILES.has(map.tiles[ty]?.[tx]?.type ?? '')) return false;
   return !isWater(tx - 1, ty) || !isWater(tx + 1, ty) ||
          !isWater(tx, ty - 1) || !isWater(tx, ty + 1);
+}
+
+/**
+ * May this thing stand at CONTINUOUS point (x,y)? The sub-tile habitat check —
+ * `waterDist` is the signed render-water distance ({@link getRenderWaterDist}), the
+ * same drawn-water truth as the mask at the resolution entity feet actually have.
+ */
+export function canStandAtPoint(
+  map: GameMap, kind: string, tags: readonly string[], x: number, y: number, waterDist: WaterDistance,
+): boolean {
+  const d = waterDist(x, y);
+  if (d >= 0) return true;                       // dry ground holds anything
+  const habitat = waterHabitatOf(kind, tags);
+  if (habitat === 'in-water') return true;       // riffle boulders: deliberate
+  if (habitat === 'land') return false;
+  // EMERGENT: the shallow fringe — feet wet, bank within reach, never open water.
+  if (DEEP_TILES.has(map.tiles[Math.floor(y)]?.[Math.floor(x)]?.type ?? '')) return false;
+  return d > -EMERGENT_BAND_TILES;
 }
