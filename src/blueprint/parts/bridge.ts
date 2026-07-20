@@ -372,6 +372,10 @@ export const abutmentPartType: PartType = {
     depthM: { kind: 'number', min: 0.3, max: 8, default: 1.5 },   // along the span (into the bank)
     /** Foot flare, 0 = straight, 0.3 = foot 30% wider than the top. */
     batter: { kind: 'number', min: 0, max: 0.6, default: 0.15 },
+    // Pad base height above the part datum (m). Unset ⇒ 0 (the bed) — the classic full-height
+    // block. A humble SEAT PAD sets baseZM = deckUnderside − heightM so the pad hangs under the
+    // deck end and settles into the bank instead of towering up from the bed.
+    baseZM: { kind: 'any', doc: 'base height above the part datum (m); unset ⇒ 0' },
     dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
     // TRUE span bearing °, CCW from +x; overrides `dir`. `any` so an unset caller keeps the dir bearing.
     yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
@@ -394,6 +398,7 @@ export const abutmentPartType: PartType = {
       ? Number(p.params.yawDeg)
       : (((p.params.dir as Dir) ?? 'ew') === 'ns' ? 90 : 0);
     const cx = p.at.x + (p.size?.w ?? dep) / 2, cy = p.at.y + (p.size?.h ?? wid) / 2;
+    const z0 = mToTiles(Number(p.params.baseZM ?? 0));
     const steps = Math.max(2, Math.min(6, Math.ceil(heightM / ABUT_STEP_M)));
     const stepH = h / steps;
     const out: Prim[] = [];
@@ -401,7 +406,7 @@ export const abutmentPartType: PartType = {
       const f = i / (steps - 1);             // 0 at the foot … 1 at the top
       const flare = 1 + batter * (1 - f);    // foot (1+batter) tapering to 1 at the top (deck width)
       // The stack centres on (cx,cy); a straight (unyawed) block leaves yaw 0 so it stays a plain box.
-      out.push(yawedBox(cx, cy, dep * flare, wid * flare, i * stepH, stepH * 1.02, yaw, mat));
+      out.push(yawedBox(cx, cy, dep * flare, wid * flare, z0 + i * stepH, stepH * 1.02, yaw, mat));
     }
     return out;
   },

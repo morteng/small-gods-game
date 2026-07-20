@@ -7,6 +7,6 @@ describe('content-version constants', () => {
   });
 
   it('declares the current world content version (108: rock outcrops join the alpine pool + size-keyed rock snow burial)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(108);
+    expect(WORLD_CONTENT_VERSION).toBe(109);
   });
 });

@@ -215,20 +215,28 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
     };
   }
 
-  // Abutments — a battered masonry end-block at each bank grounds the span (P1 TTI finding: without
-  // them the deck ends flush at the footprint edge and reads as a floating slab). They sit at the
-  // clear-span ends, in the +1-tile footprint margin, from the bed up to the deck underside.
-  const abutWidthM = widthT * METRES_PER_TILE + 1.0;   // wider than the deck, as masonry abutments are
-  const abutDepthT = 0.75, abutWidthT = abutWidthM / METRES_PER_TILE;
+  // Abutments — end grounding at each bank, sized to the CLASS (the TTI references are unanimous:
+  // only dressed masonry earns the grand battered end-block; every wooden reference lands on humble
+  // knee-high stone seat pads — the full-height blocks under a timber bridge were the "stone
+  // foundations on a log bridge" bug). Stone: bed → deck underside, wider than the deck. Wood: a
+  // low pad hung just under the deck end (baseZM), settling ~0.1–0.3 m into the bank surface
+  // (which sits 0.6 m below the deck underside by the clearance formula above).
+  const seatHM = stone ? clearZM : arched ? 0.9 : 0.7;
+  const abutWidthM = widthT * METRES_PER_TILE + (stone ? 1.0 : 0.4);
+  const abutDepthT = stone ? 0.75 : 0.35, abutWidthT = abutWidthM / METRES_PER_TILE;
   for (const e of [-1, 1] as const) {
     const ex = cxL + e * (spanLen / 2) * cs, ey = cyL + e * (spanLen / 2) * sn;
     const boxW = Math.max(1, Math.ceil(abutDepthT * ac + abutWidthT * as));
     const boxH = Math.max(1, Math.ceil(abutDepthT * as + abutWidthT * ac));
     parts[`abut${e < 0 ? 0 : 1}`] = {
-      // Footings are ALWAYS dressed stone — even a timber bridge lands on masonry blocks (they
-      // take the water and the deck load; bare timber would rot). On a stone bridge this is a no-op.
+      // Seats stay stone on every class (a pad in the splash zone; bare timber would rot — and
+      // both wooden TTI refs draw small fieldstone pads), but only stone bridges get the mass.
       type: 'abutment', material: 'stone', at: { x: ex - boxW / 2, y: ey - boxH / 2 }, size: { w: boxW, h: boxH },
-      params: { heightM: clearZM, widthM: abutWidthM, depthM: abutDepthT * METRES_PER_TILE, batter: 0.2, yawDeg },
+      params: {
+        heightM: seatHM, widthM: abutWidthM, depthM: abutDepthT * METRES_PER_TILE,
+        batter: stone ? 0.2 : 0.12, yawDeg,
+        ...(stone ? {} : { baseZM: clearZM - seatHM }),
+      },
     };
   }
 
