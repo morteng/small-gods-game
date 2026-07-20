@@ -251,6 +251,73 @@ export function depositBuildingWear(
   return stats;
 }
 
+// ── Wall-base wear (the ground a wall was BUILT on) ─────────────────────────────
+
+/** On the wall line itself: seeded past PROMOTE_HI so gen realises packed construction
+ *  ground under the curtain — grass never runs untouched into a masonry footing. */
+const WALL_BASE_CORE = 150;
+/** One tile out on both flanks: the berm/patrol strip. Primed around the promote
+ *  threshold (±jitter) so the wall base reads as a worn band with an organic edge. */
+const WALL_BASE_FLANK = 96;
+
+/** Substantial barriers whose construction wears the ground (mirrors the foundation
+ *  gate in barrier-deformation.ts). A hedge or paling fence disturbs nothing. */
+const WALL_WEAR_KINDS = new Set(['wall', 'palisade', 'rampart']);
+
+/**
+ * Deposit wear along every substantial barrier run: the wall line seeds promoted
+ * (packed bare ground under the curtain), the two flank strips seed primed with a
+ * noise-jittered edge. Water and explicit surfaces are excluded by the grid's own
+ * eligibility gate (a road through a gate keeps its surface). Pure deposit — the
+ * caller's `grid.settle()` realises the dirt.
+ */
+export function depositBarrierWear(grid: TrampleGrid, map: GameMap, seed: number): number {
+  const runs = map.barrierRuns ?? [];
+  const core = new Set<string>();
+  for (const { run } of runs) {
+    if (!WALL_WEAR_KINDS.has(run.kind) || run.path.length < 2) continue;
+    for (let i = 1; i < run.path.length; i++) {
+      const [ax, ay] = run.path[i - 1], [bx, by] = run.path[i];
+      const L = Math.hypot(bx - ax, by - ay);
+      if (L <= 1e-6) continue;
+      const n = Math.max(1, Math.ceil(L * 2));           // ~half-tile sampling
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        core.add(`${Math.round(ax + (bx - ax) * t)},${Math.round(ay + (by - ay) * t)}`);
+      }
+    }
+  }
+  if (core.size === 0) return 0;
+  const wet = (x: number, y: number): boolean => {
+    const t = map.tiles[y]?.[x];
+    return !t || WATER_TYPES.has(t.type);
+  };
+  // Flank strip as a SET first, so a tile beside two core tiles still deposits once.
+  const flank = new Set<string>();
+  for (const key of core) {
+    const [x, y] = key.split(',').map(Number);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const fkey = `${x + dx},${y + dy}`;
+      if (!core.has(fkey)) flank.add(fkey);
+    }
+  }
+  let touched = 0;
+  for (const key of core) {
+    const [x, y] = key.split(',').map(Number);
+    if (wet(x, y)) continue;
+    grid.deposit(x, y, WALL_BASE_CORE);
+    touched++;
+  }
+  for (const key of flank) {
+    const [x, y] = key.split(',').map(Number);
+    if (wet(x, y)) continue;
+    const jitter = (noise(x, y, seed + 977) - 0.5) * 0.5;       // ±25% organic edge
+    grid.deposit(x, y, Math.max(1, Math.round(WALL_BASE_FLANK * (1 + jitter))));
+    touched++;
+  }
+  return touched;
+}
+
 /**
  * Prewarm every settlement plan into the grid, then realise the initial dirt
  * lanes. Returns the number of tiles promoted to dirt at gen (for the gen report).
@@ -263,6 +330,7 @@ export function prewarmAllSettlementWear(
   seed: number,
 ): number {
   for (const plan of plans) prewarmSettlementWear(grid, plan, map.tiles, world, seed);
+  depositBarrierWear(grid, map, seed);                    // walls settle into worn ground, not grass
   const before = countDirt(map);
   grid.settle(map);
   return countDirt(map) - before;

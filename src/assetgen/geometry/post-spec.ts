@@ -30,8 +30,11 @@ export interface PostSpec {
 /** Build a corner post centred at world (cx,cy), base at z=0. */
 export function postSpec(opts: PostOpts, cx = 0, cy = 0): PostSpec {
   const mat: Mat = opts.material ?? 'timber';
-  // Wide enough to cover the corner joint of two ~th-thick stake runs meeting square.
-  const side = Math.max(mToTiles(1.2), opts.curtainThickness + mToTiles(0.7));
+  // Wide enough to cover the corner joint of the STAKE LINES meeting square — the stakes sit on
+  // the run centreline (~0.4 m wide), so the post scales off a fraction of the nominal run
+  // thickness, not the whole tile-wide massing (a full `th + 0.7 m` post came out 2.7 m square
+  // — a smooth silo dwarfing the stakes it capped).
+  const side = Math.max(mToTiles(0.9), opts.curtainThickness * 0.35 + mToTiles(0.35));
   const r = side / 2;
   const bankH = mToTiles(0.6);                                   // seats on the rampart bank
   const rise = mToTiles(1.4);                                    // stands proud as a lookout
@@ -42,9 +45,10 @@ export function postSpec(opts: PostOpts, cx = 0, cy = 0): PostSpec {
   // Earthen foot the post is driven into (matches the palisade's bank).
   parts.push({ prim: 'box', at: [cx - r - mToTiles(0.25), cy - r - mToTiles(0.25), 0],
     size: [side + mToTiles(0.5), side + mToTiles(0.5), bankH], material: 'earth' });
-  // Squared timber shaft.
+  // Squared timber shaft — upright hewn grain (`plank_v`), so it reads as dark worked timber
+  // beside the stave curtain instead of a smooth pale monolith.
   parts.push({ prim: 'column', center: [cx, cy], baseZ: bankH * 0.6, shape: 'square',
-    radius: r, height: shaftH, material: mat});
+    radius: r, height: shaftH, material: mat, work: 'plank_v' });
   // A pair of lashing collars where the wall rails tie in (proud bands, like the palisade rails).
   const collarT = mToTiles(0.16);
   for (const fz of [0.4, 0.78]) {
@@ -54,7 +58,7 @@ export function postSpec(opts: PostOpts, cx = 0, cy = 0): PostSpec {
   }
   // Pyramidal cap (a squared spike, echoing the stakes' pointed tops).
   parts.push({ prim: 'column', center: [cx, cy], baseZ: bankH * 0.6 + shaftH, shape: 'square',
-    radius: r * 0.98, topRadius: 0, height: capH, material: mat});
+    radius: r * 0.98, topRadius: 0, height: capH, material: mat, work: 'plank_v' });
 
   return { parts, mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side };
 }

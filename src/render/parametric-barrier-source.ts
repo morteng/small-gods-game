@@ -394,10 +394,15 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
             const gi = (ec.reversed ? op.nPO - 1 - giEdge : giEdge) as 0 | 1 | 2 | 3;
             const W = op.gw * ec.slotLen;
             gate = { gw: op.gw, gi, t: r3(W / 2 - gi * ec.cutLen), width: r3(W) };
-            // Shared gate-assembly foot: the opening's start vertex (a piece boundary), so every
-            // fragment of this opening — and the leaf/jambs/towers placed by snappedGateOpening —
-            // lifts by ONE terrain sample instead of each riding its own terrace.
-            gateFoot = [a[0] + ec.worldUnit[0] * op.openStart, a[1] + ec.worldUnit[1] * op.openStart];
+            // Shared gate-assembly foot: half a tile INSIDE the opening from its start vertex, so
+            // every fragment of this opening — and the leaf/jambs/towers placed by
+            // snappedGateOpening — lifts by ONE terrain sample instead of each riding its own
+            // terrace. Half a tile in (not the vertex itself): the terraced footing benches the
+            // ground per piece slot and a bench BOUNDARY tile takes its uphill neighbour's height
+            // (ramp-tuck, barrier-deformation.ts) — sampling exactly on the boundary could lift
+            // the whole assembly onto the neighbouring curtain's bench.
+            const footS = op.openStart + 0.55;
+            gateFoot = [a[0] + ec.worldUnit[0] * footS, a[1] + ec.worldUnit[1] * footS];
             break;
           }
         }
@@ -429,7 +434,11 @@ export function chunkBarrierRun(run: BarrierRun): BarrierChunk[] {
         key: pieceKeyStr(pk), localRun: pieceRunFromKey(pk),
         refX: ec.reversed ? we[0] : ws[0], refY: ec.reversed ? we[1] : ws[1],
         sortX: wm[0], sortY: wm[1],
-        ...(gateFoot ? { footX: gateFoot[0], footY: gateFoot[1] } : {}),
+        // Curtain pieces foot at their MIDPOINT — the interior of their own footing bench.
+        // The end vertices sit exactly on bench boundaries, where the ramp-tuck rule hands
+        // the tile to the uphill neighbour — a piece sampling there would float above the
+        // bench it actually spans.
+        footX: gateFoot ? gateFoot[0] : wm[0], footY: gateFoot ? gateFoot[1] : wm[1],
       });
       s += along;
     }
@@ -455,7 +464,9 @@ function chunkElements(run: BarrierRun): Element[] {
 function gateFrameOf(run: BarrierRun, g: BarrierGate): { p: Pt; dir: Pt; width: number; foot: Pt } {
   const o = snappedGateOpening(run, g);
   const { p, dir } = frameAt(run.path, o.t);
-  const { p: foot } = frameAt(run.path, o.t - o.width / 2);
+  // Half a tile INSIDE the opening — the same shared foot the gate fragments carry
+  // (chunkBarrierRun's `footS`), clear of the bench-boundary ramp-tuck tile.
+  const { p: foot } = frameAt(run.path, o.t - o.width / 2 + 0.55);
   return { p, dir, width: o.width, foot };
 }
 
@@ -492,12 +503,16 @@ function towerElements(run: BarrierRun): Element[] {
     const [ux, uy] = CANONICAL_DIRS[octOf(v)]; const m = Math.hypot(ux, uy) || 1; return [ux / m, uy / m];
   };
   const q = (v?: [number, number]): string => v ? `o${octOf(v)}` : 'solid';
-  const mk = (key: string, spec: () => StructureSpec, x: number, y: number): Element =>
-    ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x, sortY: y });
+  // Towers y-sort at their CAMERA-NEAR face, not their centre: a tower projects `side/2`
+  // proud of the wall line both ways, so a curtain piece whose midpoint sits a touch nearer
+  // used to draw over the drum and slice it. +0.35·side on both axes ≈ the near surface
+  // (√2/2·side of iso depth) — the tower now caps its joint instead of being cut by it.
+  const mk = (key: string, spec: () => StructureSpec, x: number, y: number, side = 0): Element =>
+    ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x + side * 0.35, sortY: y + side * 0.35 });
   const drumAt = (x: number, y: number): Element => {
     const inward = inwardAt(x, y);
     const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined });
-    return mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y);
+    return mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y, drum.side);
   };
 
   const out: Element[] = [];
@@ -508,7 +523,7 @@ function towerElements(run: BarrierRun): Element[] {
       const inward = inwardAt(t.x, t.y);
       if (t.role === 'gate') {
         const gate = towerSpec({ ...base, tall: true, inward: inward ? octUnit(inward) : undefined });   // square, taller — frames the gate
-        out.push(mk(`tower:gate:${tag}:${q(inward)}`, () => ({ parts: gate.parts, mountAnchors: gate.mountAnchors }), t.x, t.y));
+        out.push(mk(`tower:gate:${tag}:${q(inward)}`, () => ({ parts: gate.parts, mountAnchors: gate.mountAnchors }), t.x, t.y, gate.side));
       } else {
         out.push(drumAt(t.x, t.y));
       }
@@ -537,7 +552,7 @@ function towerElements(run: BarrierRun): Element[] {
     // opening; `width/2 + side/2 + gap` puts the inner face a jamb's width beyond the passage.
     const off = width / 2 + gate.side / 2 + mToTiles(0.6);
     for (const s of [-1, 1] as const) {
-      const el = mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] + s * dir[0] * off, p[1] + s * dir[1] * off);
+      const el = mk(`tower:gate:${tag}:${q(inward)}`, gateSpec, p[0] + s * dir[0] * off, p[1] + s * dir[1] * off, gate.side);
       el.footX = foot[0]; el.footY = foot[1];                // ride the gate assembly's terrace
       out.push(el);
     }
@@ -601,10 +616,19 @@ function gateElements(run: BarrierRun): Element[] {
     if (gateSwallowedByGap(run, g)) continue;               // opening swallowed by a gap — no door in a void
     const { p, dir, width, foot } = gateFrameOf(run, g);    // fill the CUT passage, not the raw span
     const leaf = gateLeafSpec({ gateWidth: width, curtainHeight: run.height, dir, arch });
+    // The leaf y-sorts just BEHIND every fragment of its own opening: the fragments carry the
+    // cut passage as transparent pixels, so a leaf drawn first shows exactly through the arch
+    // and is occluded by the masonry around it from EITHER side of the wall (drawn at the same
+    // depth it used to paste over the whole inner wall face when seen from inside town). Bias
+    // = the iso-depth of the farthest fragment midpoint from the opening centre, plus margin.
+    const isDiag = Math.abs(dir[0]) > 1e-6 && Math.abs(dir[1]) > 1e-6;
+    const cutLen = isDiag ? Math.SQRT2 : 2;
+    const depthRate = Math.abs(dir[0] + dir[1]);
+    const bias = Math.max(0, ((width - cutLen) / 2) * depthRate) + 0.5;
     out.push({
       key: `gate:${tag}:${r3(width)}:${r3(dir[0])},${r3(dir[1])}${arch ? ':arch' : ''}`,
       spec: () => ({ parts: leaf.parts, mountAnchors: leaf.mountAnchors }),
-      anchor: tagAnchor, refX: p[0], refY: p[1], sortX: p[0], sortY: p[1],
+      anchor: tagAnchor, refX: p[0], refY: p[1], sortX: p[0] - bias / 2, sortY: p[1] - bias / 2,
       footX: foot[0], footY: foot[1],
     });
   }

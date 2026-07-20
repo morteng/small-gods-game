@@ -218,3 +218,37 @@ describe('runElements — mural stairs (one clean flight, not rubble stubs)', ()
     expect(runElements(noCentroid).some((e) => e.key.startsWith('stair:'))).toBe(false);
   });
 });
+
+describe('runElements — assembly y-sort ordering (residual render-order fixes)', () => {
+  const depth = (e: { sortX: number; sortY: number }): number => e.sortX + e.sortY;
+
+  it('the gate LEAF sorts behind EVERY fragment of its own opening (door shows through the arch, never over the wall face)', () => {
+    // Gate on the NORTH edge (y=0, runs +x) — an iso-depth-changing cardinal edge.
+    const els = runElements(crenStoneRing([{ t: 7, width: 3 }]));
+    const leaf = els.find((e) => e.key.startsWith('gate:'))!;
+    const fragments = els.filter((e) => e.key.startsWith('piece:') && e.key.includes(':gate'));
+    expect(leaf).toBeDefined();
+    expect(fragments.length).toBeGreaterThan(0);
+    for (const f of fragments) expect(depth(leaf)).toBeLessThan(depth(f));
+  });
+
+  it('the leaf bias also clears a DIAGONAL opening (fragments spread across iso depth)', () => {
+    const run = wall([[0, 8], [8, 0]], [{ t: 4 * Math.SQRT2, width: 2 * Math.SQRT2 }]);
+    (run as { height: number }).height = 3; (run as { material: string }).material = 'stone';
+    const els = runElements(run);
+    const leaf = els.find((e) => e.key.startsWith('gate:'))!;
+    const fragments = els.filter((e) => e.key.startsWith('piece:') && e.key.includes(':gate'));
+    expect(fragments.length).toBeGreaterThan(1);
+    for (const f of fragments) expect(depth(leaf)).toBeLessThan(depth(f));
+  });
+
+  it('towers sort at their camera-NEAR face — strictly deeper than their placement anchor', () => {
+    const els = runElements(crenStoneRing([{ t: 7, width: 3 }]));
+    const towers = els.filter((e) => e.key.startsWith('tower:'));
+    expect(towers.length).toBeGreaterThan(0);
+    for (const t of towers) {
+      expect(t.sortX).toBeGreaterThan(t.refX);
+      expect(t.sortY).toBeGreaterThan(t.refY);
+    }
+  });
+});

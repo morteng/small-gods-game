@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Tile, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import type { SettlementPlan } from '@/world/settlement-plan';
-import { depositBuildingWear } from '@/world/settlement-wear';
+import { depositBuildingWear, depositBarrierWear } from '@/world/settlement-wear';
 import { TrampleGrid, TRAMPLE } from '@/sim/trample';
 
 /** All-grass tile grid (soft, trample-eligible ground). */
@@ -100,5 +100,36 @@ describe('settlement-wear — building doorstep + perimeter deposits', () => {
     const g1 = new TrampleGrid(40, 40); depositBuildingWear(g1, plan, tiles, fakeWorld([a, b]), new Set());
     const g2 = new TrampleGrid(40, 40); depositBuildingWear(g2, plan, tiles, fakeWorld([b, a]), new Set());
     expect(g1.serialize().cells.sort()).toEqual(g2.serialize().cells.sort());
+  });
+});
+
+describe('settlement-wear — wall-base wear (depositBarrierWear)', () => {
+  const mapWith = (tiles: Tile[][], runs: { id: string; run: unknown }[]): Parameters<typeof depositBarrierWear>[1] =>
+    ({ tiles, barrierRuns: runs } as unknown as Parameters<typeof depositBarrierWear>[1]);
+  const wallRun = (path: [number, number][], kind = 'wall') =>
+    ({ id: 'w1', run: { kind, path, height: 3, thickness: 0.8, material: 'stone', gates: [] } });
+
+  it('the wall line seeds PAST promote; the flanks prime around it with a jittered edge', () => {
+    const tiles = grass(40, 40);
+    const grid = new TrampleGrid(40, 40);
+    const n = depositBarrierWear(grid, mapWith(tiles, [wallRun([[8, 10], [20, 10]])]), 7);
+    expect(n).toBeGreaterThan(0);
+    // On the line: promoted-strength wear along the whole run.
+    for (const x of [8, 12, 16, 20]) expect(grid.wearAt(x, 10)).toBeGreaterThan(TRAMPLE.PROMOTE_HI);
+    // One tile off: primed, below the core.
+    expect(grid.wearAt(12, 11)).toBeGreaterThan(0);
+    expect(grid.wearAt(12, 11)).toBeLessThan(grid.wearAt(12, 10));
+    // Two tiles off: untouched.
+    expect(grid.wearAt(12, 13)).toBe(0);
+  });
+
+  it('hedges/fences wear nothing; water tiles are skipped', () => {
+    const tiles = grass(40, 40);
+    (tiles[10][14] as { type: string }).type = 'water';
+    const grid = new TrampleGrid(40, 40);
+    expect(depositBarrierWear(grid, mapWith(tiles, [wallRun([[8, 10], [20, 10]], 'hedge')]), 7)).toBe(0);
+    depositBarrierWear(grid, mapWith(tiles, [wallRun([[8, 10], [20, 10]])]), 7);
+    expect(grid.wearAt(14, 10)).toBe(0);   // the water tile got no deposit
+    expect(grid.wearAt(13, 10)).toBeGreaterThan(0);
   });
 });

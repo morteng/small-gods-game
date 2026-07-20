@@ -156,6 +156,9 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
 
   // Battered plinth (talus): two offset courses flaring the foot out — the defining
   // silhouette of a fortified base. A 1 m course wider by ~0.7 m, then a half-step.
+  // NO below-grade skirt: sprites paint over terrain, so buried geometry isn't hidden —
+  // it hangs over the ground in front. Ground fit is the terraced footing's job
+  // (barrier-deformation.ts benches the ground per piece, ramps tucked under piece ends).
   const plinthH = Math.min(mToTiles(1.2), H * 0.32);
   const flare = mToTiles(0.55);
   out.push(place(locBox(M, 0, s.len, th + 2 * flare, 0, plinthH * 0.55), s));            // wide foot course
@@ -297,23 +300,36 @@ function palisadeSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { staves: Manifold
   const rails: ManifoldT[] = [];
   const earth: ManifoldT[] = [];
 
-  // Low earthen bank the stakes are driven into (the rampart crest).
-  const bankH = mToTiles(0.7), bankW = th + mToTiles(0.9);
+  // Low earthen bank the stakes are driven into (the rampart crest). Width caps well under
+  // the run's nominal tile-wide thickness: a `th + 0.9 m` bank came out 2.9 m wide, and on a
+  // depth-axis diagonal edge its flat pale top dominated the whole view as two featureless
+  // ribbons flanking the stake line.
+  const bankH = mToTiles(0.7), bankW = Math.min(th, mToTiles(0.7)) + mToTiles(0.6);
   earth.push(place(locBox(M, 0, s.len, bankW, 0, bankH), s));
 
-  // Stakes: square posts standing on the bank, each tapering to a sharpened point.
+  // Stakes: a close-set main row + a sparse offset BACK row, with ±8 % height jitter. The
+  // single centred row collapsed to ONE stake column when the run heads along the iso depth
+  // axis (a diagonal ring edge seen end-on) — the piece read as a bare pale bank slab with a
+  // lone post. The back row keeps a second stake column visible from every bearing while the
+  // dense main row preserves the close-set stockade front.
   const pitch = mToTiles(0.5);
   const pw = mToTiles(0.42);
   const capH = mToTiles(0.6);
   const shaftH = H - capH;
+  const rowOff = mToTiles(0.1);
   const n = Math.max(1, Math.round(s.len / pitch));
   const step = s.len / n;
-  for (let i = 0; i <= n; i++) {
-    const d = Math.min(s.len, i * step);
-    staves.push(place(locBox(M, d - pw / 2, pw, pw, bankH * 0.6, shaftH), s));          // shaft
+  const stake = (d: number, off: number, hj: number): void => {
+    staves.push(place(locBox(M, d - pw / 2, pw, pw, bankH * 0.6, shaftH * hj, off), s));   // shaft
     // Pointed cap: a 4-sided cone (pyramid) from the shaft width to a point.
-    const cap = M.cylinder(capH, pw * 0.62, 0.0, 4).rotate([0, 0, 45]).translate([d, 0, bankH * 0.6 + shaftH]);
+    const cap = M.cylinder(capH, pw * 0.62, 0.0, 4).rotate([0, 0, 45]).translate([d, off, bankH * 0.6 + shaftH * hj]);
     staves.push(place(cap, s));
+  };
+  for (let i = 0; i <= n; i++) {
+    stake(Math.min(s.len, i * step), -rowOff, 1 + (hash01(i * 17 + 3) - 0.5) * 0.16);
+  }
+  for (let i = 0; i < n; i += 2) {
+    stake(Math.min(s.len, (i + 0.5) * step), rowOff + mToTiles(0.06), 1 + (hash01(i * 29 + 11) - 0.5) * 0.16);
   }
   // Two horizontal lashing rails tying the stakes together.
   const railT = mToTiles(0.14);
