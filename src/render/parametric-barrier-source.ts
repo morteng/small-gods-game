@@ -459,6 +459,16 @@ function gateFrameOf(run: BarrierRun, g: BarrierGate): { p: Pt; dir: Pt; width: 
   return { p, dir, width: o.width, foot };
 }
 
+/** A real gate whose opening is swallowed by a GAP span has no curtain to hang furniture on —
+ *  the pieces there were dropped (water/building opening overlapping the committed gate), so a
+ *  leaf/frame/tower placed anyway floats in the void (the door-over-the-river bug). Skip it. */
+function gateSwallowedByGap(run: BarrierRun, g: BarrierGate): boolean {
+  const o = snappedGateOpening(run, g);
+  return run.gates.some((other) =>
+    other !== g && other.kind === 'gap'
+    && o.t > other.t - other.width / 2 - 1e-6 && o.t < other.t + other.width / 2 + 1e-6);
+}
+
 /** Tower elements: a ROUND drum at each ring corner + twin SQUARE gatehouse towers at each gate
  *  (the authentic medieval pairing). Each kind shares one cached compose (same geometry); only
  *  the placement differs per element. */
@@ -517,6 +527,7 @@ function towerElements(run: BarrierRun): Element[] {
   for (const [x, y] of cornerVertices(run.path)) out.push(drumAt(x, y));
   for (const g of run.gates) {
     if (!isRealGate(g)) continue;                            // a gap opening gets no gatehouse
+    if (gateSwallowedByGap(run, g)) continue;                // no curtain there — nothing to flank
     const { p, dir, width, foot } = gateFrameOf(run, g);     // the SNAPPED opening, not the raw t
     const inward = inwardAt(p[0], p[1]);
     const gate = towerSpec({ ...base, tall: true, inward });   // square, taller — frames the gate
@@ -562,6 +573,7 @@ function gateFrameElements(run: BarrierRun): Element[] {
   const out: Element[] = [];
   for (const g of run.gates) {
     if (g.width <= 0 || !isRealGate(g)) continue;
+    if (gateSwallowedByGap(run, g)) continue;                // no curtain — no jambs to frame
     const { p, dir, width, foot } = gateFrameOf(run, g);
     const frame = gateFrameSpec({ gateWidth: width, curtainHeight: run.height, dir });
     out.push({
@@ -586,6 +598,7 @@ function gateElements(run: BarrierRun): Element[] {
   const arch = gateIsArched(run);
   for (const g of run.gates) {
     if (g.width <= 0 || !isRealGate(g)) continue;           // a plain gap gets no closing leaf
+    if (gateSwallowedByGap(run, g)) continue;               // opening swallowed by a gap — no door in a void
     const { p, dir, width, foot } = gateFrameOf(run, g);    // fill the CUT passage, not the raw span
     const leaf = gateLeafSpec({ gateWidth: width, curtainHeight: run.height, dir, arch });
     out.push({
@@ -609,7 +622,7 @@ function stairsEnabled(run: BarrierRun): boolean {
  *  a single readable flight at the gate the player enters by.) */
 function stairElements(run: BarrierRun): Element[] {
   if (!stairsEnabled(run)) return [];
-  const gate = run.gates.find(isRealGate);                  // the main (first real) gate
+  const gate = run.gates.find((g) => isRealGate(g) && !gateSwallowedByGap(run, g));   // the main (first real) gate
   if (!gate) return [];
   const c = run.centroid!;
   const H = run.height;
