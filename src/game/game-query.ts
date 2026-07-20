@@ -185,6 +185,11 @@ const PORTENT_KIND_TEXT: Record<string, string> = {
   sign:   'Small wrongnesses accumulate — signs, for those who read them.',
 };
 
+// ── D7 (rival power-economics + contention): dispute events as inbox tidings ────
+/** How long a `rival_dispute` (D6) stays news — one day, same fiction intent as
+ *  the crossings/portents above. Auto-expires by falling out of this window. */
+export const RIVAL_DISPUTE_NOTICE_HORIZON_TICKS = TICKS_PER_DAY;
+
 /** One triageable item in the divine inbox. Deterministic id so the UI can carry
  *  ignore/surface state across frames. The target routes the "Act" verb. */
 export interface InboxItem {
@@ -620,6 +625,39 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
             surfaced,
             target: npc ? { kind: 'npc', npcId: ev.npcId } : { kind: 'none' },
             ...(npc ? { anchor: { x: npc.x, y: npc.y } } : {}),
+          });
+        }
+      }
+
+      // ── rival contention: gods dispute over the same congregation (D7) ──
+      // `rival_dispute` (D6) fires when one non-player rival's action targets
+      // another non-player rival. Coalesced per settlement — one item regardless
+      // of how many disputes land there in the window — so simultaneous rival
+      // friction reads as one piece of news. Same event-log-windowed, auto-
+      // expiring pattern as the claim notices above (no stored inbox state).
+      const disputeEvents = state.eventLog.range(now - RIVAL_DISPUTE_NOTICE_HORIZON_TICKS, now + 1)
+        .flatMap(a => (a.event.type === 'rival_dispute' ? [a.event] : []));
+      if (disputeEvents.length > 0) {
+        const disputesByPoi = new Map<string, number>();
+        for (const ev of disputeEvents) {
+          disputesByPoi.set(ev.data.poiId, (disputesByPoi.get(ev.data.poiId) ?? 0) + 1);
+        }
+        for (const [poiId, count] of disputesByPoi) {
+          const poi = state.worldSeed?.pois.find(pp => pp.id === poiId);
+          const name = poi?.name ?? poiId;
+          const id = `dispute:${poiId}`;
+          const surfaced = surfacedSet.has(id);
+          items.push({
+            id,
+            kind: 'tiding',
+            title: `Spirits contend over ${name}`,
+            detail: count > 1
+              ? `${count} disputes among rival gods have flared there.`
+              : 'Rival gods vie there for the same souls.',
+            salience: scoreAffordance({ kind: 'tiding', count, surfaced }),
+            surfaced,
+            target: { kind: 'settlement', poiId },
+            ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
           });
         }
       }

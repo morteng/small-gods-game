@@ -34,6 +34,8 @@ function situation(patch: Partial<RivalSituation> = {}): RivalSituation {
     rivalFollowersInSettlement: {},
     rivalFollowerDelta: {},
     prayerPressureInSettlement: {},
+    opposingFollowersInSettlement: {},
+    otherRivals: [],
     npcBeliefs: new Map(),
     ...patch,
   };

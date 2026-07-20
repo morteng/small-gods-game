@@ -93,6 +93,12 @@ export type SimEvent =
   | { type: 'place_receded';      poiId: string; name: string }
   | { type: 'site_born';          siteId: string; kind: string; name: string; x: number; y: number; depthM: number; cells: number }
   | { type: 'site_faded';         siteId: string; name: string }
+  // Rival power-economics/contention spec, D6: RivalSystem logs this when an
+  // emitted rival action's `targetSpiritId` names another NON-PLAYER spirit
+  // (undermine striking a rival, not the player). `spiritId` is the ACTOR
+  // rival; `data.otherRivalId` the one being contested; `data.poiId` the
+  // contested settlement. Consumed by the divine-inbox tiding generator (D7).
+  | { type: 'rival_dispute';      spiritId: SpiritId; data: { otherRivalId: SpiritId; poiId: string } }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

@@ -11,6 +11,7 @@ import {
   undermineStrategy,
   coexistStrategy,
   strategyForPersonality,
+  AMBITION_BANK,
   type RivalSpirit,
   type RivalPersonality,
 } from '@/sim/rival-spirit';
@@ -37,6 +38,8 @@ function situation(patch: Partial<RivalSituation> = {}): RivalSituation {
     rivalFollowersInSettlement: {},
     rivalFollowerDelta: {},
     prayerPressureInSettlement: {},
+    opposingFollowersInSettlement: {},
+    otherRivals: [],
     npcBeliefs: new Map(),
     ...patch,
   };
@@ -121,15 +124,36 @@ function tally(rival: RivalSpirit, sit: RivalSituation, seed: number, n = 100): 
 
 // ── 1. situations drive decisions ────────────────────────────────────────────
 describe('strategies consume the RivalSituation', () => {
-  it('expand presses the settlement where the player is WEAKEST (same rng, different situation ⇒ different target)', () => {
+  it('expand presses the settlement where the OPPOSITION is WEAKEST (same rng, different situation ⇒ different target)', () => {
+    // D5: expand now reads `opposingFollowersInSettlement` (all opposition),
+    // not `playerFollowersInSettlement` alone — a real `buildRivalSituation`
+    // keeps both in sync (the player's count folds into the opposing total).
     const rival = rivalView({ aggression: 0.9 });
-    const weakInB = situation({ playerFollowersInSettlement: { 'poi-a': 8, 'poi-b': 1 } });
-    const weakInA = situation({ playerFollowersInSettlement: { 'poi-a': 1, 'poi-b': 8 } });
+    const weakInB = situation({
+      playerFollowersInSettlement: { 'poi-a': 8, 'poi-b': 1 },
+      opposingFollowersInSettlement: { 'poi-a': 8, 'poi-b': 1 },
+    });
+    const weakInA = situation({
+      playerFollowersInSettlement: { 'poi-a': 1, 'poi-b': 8 },
+      opposingFollowersInSettlement: { 'poi-a': 1, 'poi-b': 8 },
+    });
 
     const a = expandStrategy(rival, weakInB, () => 0.1);
     const b = expandStrategy(rival, weakInA, () => 0.1);
     expect(a!.targetSettlementId).toBe('poi-b');
     expect(b!.targetSettlementId).toBe('poi-a');
+  });
+
+  it('expand counts ALL opposition, not just the player — a rival-only stronghold is pressed too', () => {
+    // No player presence anywhere; a same-side rival dominates poi-z. The
+    // known-empty poi-a should be preferred over poi-z (opposing count 0 < 9).
+    const sit = situation({
+      opposingFollowersInSettlement: { 'poi-z': 9 },
+      otherRivals: [{ id: 'rival-2' as SpiritId, power: 5, followerTotal: 9, followersInSettlement: { 'poi-z': 9 } }],
+    });
+    const rivalWithTurf = rivalView({ aggression: 0.9 }, { settlements: ['poi-a', 'poi-z'] });
+    const a = expandStrategy(rivalWithTurf, sit, () => 0.1);
+    expect(a!.targetSettlementId).toBe('poi-a');
   });
 
   it('defend consolidates where it is LOSING ground, before any other concern', () => {
@@ -163,6 +187,46 @@ describe('strategies consume the RivalSituation', () => {
     expect(undermineStrategy(rival, situation(), () => 0.1)).toBeNull();
   });
 
+  it('D5: undermine strikes the DOMINANT OTHER rival, not the player, when it dwarfs the player', () => {
+    const rival = rivalView({ aggression: 0.6, subtlety: 0.2, jealousy: 0.9 });
+    const sit = situation({
+      playerFollowersInSettlement: { 'poi-a': 2 },
+      otherRivals: [
+        { id: 'rival-2' as SpiritId, power: 15, followerTotal: 20, followersInSettlement: { 'poi-x': 12, 'poi-y': 8 } },
+      ],
+    });
+    const a = undermineStrategy(rival, sit, () => 0.1);
+    expect(a!.type).toBe('discredit');
+    expect(a!.targetSpiritId).toBe('rival-2');
+    expect(a!.targetSettlementId).toBe('poi-x');   // rival-2's OWN strongest settlement
+  });
+
+  it('D5: a tie between the player and another rival keeps the player as victim (deterministic tie-break)', () => {
+    const rival = rivalView({ aggression: 0.6, subtlety: 0.2, jealousy: 0.9 });
+    const sit = situation({
+      playerFollowersInSettlement: { 'poi-a': 10 },
+      otherRivals: [
+        { id: 'rival-2' as SpiritId, power: 15, followerTotal: 10, followersInSettlement: { 'poi-x': 10 } },
+      ],
+    });
+    const a = undermineStrategy(rival, sit, () => 0.1);
+    expect(a!.targetSpiritId).toBe('player');
+    expect(a!.targetSettlementId).toBe('poi-a');
+  });
+
+  it('D5: picks the strongest of SEVERAL other rivals, id-sorted tie-break preserved', () => {
+    const rival = rivalView({ aggression: 0.6, subtlety: 0.2, jealousy: 0.9 });
+    const sit = situation({
+      otherRivals: [
+        { id: 'rival-2' as SpiritId, power: 5, followerTotal: 4, followersInSettlement: { 'poi-p': 4 } },
+        { id: 'rival-3' as SpiritId, power: 5, followerTotal: 9, followersInSettlement: { 'poi-q': 9 } },
+      ],
+    });
+    const a = undermineStrategy(rival, sit, () => 0.1);
+    expect(a!.targetSpiritId).toBe('rival-3');
+    expect(a!.targetSettlementId).toBe('poi-q');
+  });
+
   it('coexist ministers where unanswered-prayer pressure is highest on its own turf', () => {
     const rival = rivalView({ aggression: 0.2, territoriality: 0.3 });
     const pressed = situation({ prayerPressureInSettlement: { 'poi-b': 4, 'poi-a': 1, 'poi-z': 9 } });
@@ -174,10 +238,64 @@ describe('strategies consume the RivalSituation', () => {
     expect(coexistStrategy(rival, situation(), () => 0.2)).toBeNull();
   });
 
+  it('D3: wealth pressure raises the miracle chance ONLY above the ambition bank', () => {
+    // Same personality, same target, same constant rng — the ONLY variable is
+    // banked power. At the bank exactly, wealth pressure is 0 (0.2+0.5·0.5=0.45
+    // < 0.5 ⇒ whisper). Well above it, the pressure term pushes past 0.5 ⇒ miracle.
+    const sit = situation({ opposingFollowersInSettlement: { 'poi-a': 5 } });
+    const rng = () => 0.5;
+    const atBank = rivalView({ aggression: 0.5, assertiveness: 0.5 }, { power: AMBITION_BANK, settlements: ['poi-a'] });
+    const wellAboveBank = rivalView({ aggression: 0.5, assertiveness: 0.5 }, { power: AMBITION_BANK * 2, settlements: ['poi-a'] });
+    expect(expandStrategy(atBank, sit, rng)!.type).toBe('whisper');
+    expect(expandStrategy(wellAboveBank, sit, rng)!.type).toBe('miracle');
+  });
+
+  it('D3: save-for-miracle holds the whisper ONLY when aggressive, half-to-full bank, AND the target is contested', () => {
+    const contested = situation({
+      opposingFollowersInSettlement: { 'poi-a': 5 },
+      rivalFollowersInSettlement: { 'poi-a': 1 },   // opposition (5) > own (1) ⇒ contested
+    });
+    const notContested = situation({
+      opposingFollowersInSettlement: { 'poi-a': 1 },
+      rivalFollowersInSettlement: { 'poi-a': 5 },   // own (5) ≥ opposition (1) ⇒ not contested
+    });
+    const inBandPower = AMBITION_BANK / 2; // [bank/2, bank) — inside the save band
+
+    // All conditions true + a losing coin flip ⇒ hold (null).
+    const aggressive = rivalView({ aggression: 0.7 }, { power: inBandPower, settlements: ['poi-a'] });
+    expect(expandStrategy(aggressive, contested, () => 0.4)).toBeNull();
+
+    // Same setup, winning coin flip ⇒ falls through to a real action. The coin
+    // flip is the FIRST rng() draw (high ⇒ doesn't hold); a low draw after that
+    // still needs to clear the (unaffordable-miracle-so-)whisper roll.
+    let calls = 0;
+    const winThenAct = () => (calls++ === 0 ? 0.9 : 0.1);
+    expect(expandStrategy(aggressive, contested, winThenAct)).not.toBeNull();
+
+    // Not aggressive enough (≤ 0.6) ⇒ never holds.
+    const mild = rivalView({ aggression: 0.5 }, { power: inBandPower, settlements: ['poi-a'] });
+    expect(expandStrategy(mild, contested, () => 0.1)).not.toBeNull();
+
+    // Not contested ⇒ never holds.
+    expect(expandStrategy(aggressive, notContested, () => 0.1)).not.toBeNull();
+
+    // Power outside [bank/2, bank) — just under, and exactly at the bank ⇒ never holds.
+    const tooPoor = rivalView({ aggression: 0.7 }, { power: inBandPower - 1, settlements: ['poi-a'] });
+    expect(expandStrategy(tooPoor, contested, () => 0.1)).not.toBeNull();
+    const atBankExactly = rivalView({ aggression: 0.7 }, { power: AMBITION_BANK, settlements: ['poi-a'] });
+    expect(expandStrategy(atBankExactly, contested, () => 0.1)).not.toBeNull();
+  });
+
   it('two materially different situations produce different decisions from the SAME rng seed', () => {
     const rival = rivalView({ aggression: 0.9 }, { power: 20 });
-    const sitA = situation({ playerFollowersInSettlement: { 'poi-a': 9, 'poi-b': 0 } });
-    const sitB = situation({ playerFollowersInSettlement: { 'poi-a': 0, 'poi-b': 9 } });
+    const sitA = situation({
+      playerFollowersInSettlement: { 'poi-a': 9, 'poi-b': 0 },
+      opposingFollowersInSettlement: { 'poi-a': 9, 'poi-b': 0 },
+    });
+    const sitB = situation({
+      playerFollowersInSettlement: { 'poi-a': 0, 'poi-b': 9 },
+      opposingFollowersInSettlement: { 'poi-a': 0, 'poi-b': 9 },
+    });
     const seedRng = () => {
       const rng = createRng(4242);
       return () => rng.next();

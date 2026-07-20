@@ -81,6 +81,22 @@ export interface RivalSituation {
   /** Standing pleas old enough to be at risk (age ≥ PRAYER_CLAIM_WARNING_TICKS),
    *  per home POI — the "unanswered-prayer pressure" opportunists read. */
   prayerPressureInSettlement: Record<string, number>;
+  /** D4 — the player's plus every OTHER non-player spirit's practising believers,
+   *  summed per home POI: the TRUE opposition field (not player-only). Built in
+   *  the same NPC pass as `playerFollowersInSettlement`/`rivalFollowersInSettlement`
+   *  and folds the P1 statistical cohort tier too. */
+  opposingFollowersInSettlement: Record<string, number>;
+  /** D4 — every other non-player spirit (≠ self) carrying an `ai.personality`
+   *  (the same "is this a real rival" predicate `RivalSystem` uses to enumerate
+   *  actors), in deterministic id-sorted order. `followerTotal` sums
+   *  `followersInSettlement`, both counting the named tier AND the P1
+   *  statistical cohort tier (see `buildRivalSituation`). */
+  otherRivals: {
+    id: SpiritId;
+    power: number;
+    followerTotal: number;
+    followersInSettlement: Record<string, number>;
+  }[];
   /** The rival's own belief record for every NPC that holds one — what the rival
    *  "knows" about each soul it has any purchase on. */
   npcBeliefs: Map<string, SpiritBelief>;
@@ -115,13 +131,27 @@ export function buildRivalSituation(
   const playerFollowersInSettlement: Record<string, number> = {};
   const rivalFollowersInSettlement: Record<string, number> = {};
   const prayerPressureInSettlement: Record<string, number> = {};
+  const opposingFollowersInSettlement: Record<string, number> = {};
   const npcBeliefs = new Map<string, SpiritBelief>();
+
+  // D4 — every OTHER non-player spirit with a behavioural profile: the same
+  // "is this a real rival" predicate `RivalSystem` uses to enumerate actors
+  // (`spirit.isPlayer || !spirit.ai?.personality` ⇒ skip). Computed ONCE, not
+  // per-NPC — the roster is a handful of rivals, so checking each NPC's belief
+  // record against it keeps this a single sweep, not an extra world scan.
+  const otherRivalIds = [...spirits.keys()]
+    .filter(id => id !== rivalId)
+    .filter(id => { const s = spirits.get(id); return !!s && !s.isPlayer && !!s.ai?.personality; })
+    .sort();
+  const otherFollowers = new Map<SpiritId, Record<string, number>>(otherRivalIds.map(id => [id, {}]));
+
   forEachNpc(world, (e) => {
     const p = npcProps(e);
     const poi = p.homePoiId ?? '';
     const pb = p.beliefs[playerId];
     if (pb && pb.faith >= BELIEVER_THRESHOLD) {
       playerFollowersInSettlement[poi] = (playerFollowersInSettlement[poi] ?? 0) + 1;
+      opposingFollowersInSettlement[poi] = (opposingFollowersInSettlement[poi] ?? 0) + 1;
     }
     const rb = p.beliefs[rivalId];
     if (rb) {
@@ -130,19 +160,42 @@ export function buildRivalSituation(
         rivalFollowersInSettlement[poi] = (rivalFollowersInSettlement[poi] ?? 0) + 1;
       }
     }
+    for (const otherId of otherRivalIds) {
+      const ob = p.beliefs[otherId];
+      if (ob && ob.faith >= BELIEVER_THRESHOLD) {
+        opposingFollowersInSettlement[poi] = (opposingFollowersInSettlement[poi] ?? 0) + 1;
+        const rec = otherFollowers.get(otherId)!;
+        rec[poi] = (rec[poi] ?? 0) + 1;
+      }
+    }
     if (p.prayerSince !== undefined && prayerAge(p, now) >= PRAYER_CLAIM_WARNING_TICKS) {
       prayerPressureInSettlement[poi] = (prayerPressureInSettlement[poi] ?? 0) + 1;
     }
   });
   // Statistical tier (P1): each settlement's aggregate believers join the same
   // per-POI counts the named pass built (sorted fold — replay-stable).
+  // `cohortBelievers` is an O(bands) — i.e. effectively O(1) — lookup per
+  // (POI, spirit), so folding it in for every other-rival id too costs exactly
+  // as much as the existing player/self fold-in: the D4 fields are NOT
+  // NPC-tier-only, the cohort fold-in generalizes cleanly.
   if (opts.cohorts) {
     for (const poiId of [...opts.cohorts.keys()].sort()) {
       const sc = opts.cohorts.get(poiId)!;
       const pn = cohortBelievers(sc, playerId);
-      if (pn > 0) playerFollowersInSettlement[poiId] = (playerFollowersInSettlement[poiId] ?? 0) + pn;
+      if (pn > 0) {
+        playerFollowersInSettlement[poiId] = (playerFollowersInSettlement[poiId] ?? 0) + pn;
+        opposingFollowersInSettlement[poiId] = (opposingFollowersInSettlement[poiId] ?? 0) + pn;
+      }
       const rn = cohortBelievers(sc, rivalId);
       if (rn > 0) rivalFollowersInSettlement[poiId] = (rivalFollowersInSettlement[poiId] ?? 0) + rn;
+      for (const otherId of otherRivalIds) {
+        const on = cohortBelievers(sc, otherId);
+        if (on > 0) {
+          opposingFollowersInSettlement[poiId] = (opposingFollowersInSettlement[poiId] ?? 0) + on;
+          const rec = otherFollowers.get(otherId)!;
+          rec[poiId] = (rec[poiId] ?? 0) + on;
+        }
+      }
     }
   }
   const rivalFollowerDelta: Record<string, number> = {};
@@ -153,12 +206,19 @@ export function buildRivalSituation(
       if (d !== 0) rivalFollowerDelta[k] = d;
     }
   }
+  const otherRivals = otherRivalIds.map(id => {
+    const followersInSettlement = otherFollowers.get(id)!;
+    const followerTotal = Object.values(followersInSettlement).reduce((a, b) => a + b, 0);
+    return { id, power: spirits.get(id)?.power ?? 0, followerTotal, followersInSettlement };
+  });
   return {
     playerPower: spirits.get(playerId)?.power ?? 0,
     playerFollowersInSettlement,
     rivalFollowersInSettlement,
     rivalFollowerDelta,
     prayerPressureInSettlement,
+    opposingFollowersInSettlement,
+    otherRivals,
     npcBeliefs,
   };
 }

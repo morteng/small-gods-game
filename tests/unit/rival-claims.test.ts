@@ -15,6 +15,7 @@ import {
 import type { Entity, GameMap, NpcNeeds, NpcProperties } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import type { SystemContext } from '@/core/scheduler';
+import { emptySettlementCohorts } from '@/sim/cohorts';
 
 // ── scaffolding ──────────────────────────────────────────────────────────────
 function tinyMap(): GameMap {
@@ -92,6 +93,63 @@ describe('buildRivalSituation', () => {
     });
     expect(sit.rivalFollowerDelta).toEqual({ poi1: -2 });   // zero-delta poi2 omitted
     expect(sit.prayerPressureInSettlement).toEqual({ poi1: 1 }); // c's plea is only 10 ticks old
+  });
+
+  // ── D4: other-rival awareness ────────────────────────────────────────────
+  it('D4: opposingFollowersInSettlement sums player + every OTHER rival, and otherRivals is id-sorted', () => {
+    const world = new World(tinyMap());
+    world.addEntity(npc('a', 'poi1', { beliefs: { player: { faith: 0.8, understanding: 0, devotion: 0 } } }));
+    world.addEntity(npc('b', 'poi1', { beliefs: { 'rival-2': { faith: 0.6, understanding: 0, devotion: 0 } } }));
+    world.addEntity(npc('c', 'poi2', { beliefs: { 'rival-3': { faith: 0.9, understanding: 0, devotion: 0 } } }));
+    // Registered LAST (insertion order) but must sort BEFORE rival-3 in the output.
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player(3)],
+      ['rival-1', rival('rival-1', 10, ['poi1'])],
+      ['rival-3', rival('rival-3', 4, ['poi2'])],
+      ['rival-2', rival('rival-2', 7, ['poi1'])],
+    ]);
+
+    const sit = buildRivalSituation(world, spirits, 'rival-1');
+    // 'a' (player) + 'b' (rival-2) both live in poi1; 'c' (rival-3) in poi2.
+    expect(sit.opposingFollowersInSettlement).toEqual({ poi1: 2, poi2: 1 });
+    expect(sit.otherRivals.map(r => r.id)).toEqual(['rival-2', 'rival-3']); // sorted, not insertion order
+    const r2 = sit.otherRivals.find(r => r.id === 'rival-2')!;
+    expect(r2.power).toBe(7);
+    expect(r2.followerTotal).toBe(1);
+    expect(r2.followersInSettlement).toEqual({ poi1: 1 });
+    const r3 = sit.otherRivals.find(r => r.id === 'rival-3')!;
+    expect(r3.followerTotal).toBe(1);
+    expect(r3.followersInSettlement).toEqual({ poi2: 1 });
+  });
+
+  it('D4: excludes the player, and a spirit with no ai.personality is not an "other rival"', () => {
+    const world = new World(tinyMap());
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 10, ['poi1'])],
+      // No `ai` at all — e.g. a decorative/legacy spirit record.
+      ['ghost' as SpiritId, { id: 'ghost', name: 'Nothing', sigil: '?', color: '#000', isPlayer: false, power: 5, manifestation: null }],
+    ]);
+    const sit = buildRivalSituation(world, spirits, 'rival-1');
+    expect(sit.otherRivals.map(r => r.id)).toEqual([]);
+  });
+
+  it('D4: folds the P1 statistical cohort tier into otherRivals too (cohortBelievers is O(1) per spirit, same as player/self)', () => {
+    const world = new World(tinyMap());
+    const spirits = new Map<SpiritId, Spirit>([
+      ['player', player()],
+      ['rival-1', rival('rival-1', 10, ['poi1'])],
+      ['rival-2', rival('rival-2', 5, ['poi1'])],
+    ]);
+    const sc = emptySettlementCohorts('poi1');
+    sc.bands[2].count = 10;
+    sc.bands[2].belief['rival-2'] = { sumFaith: 3, sumU: 0, sumD: 0, sumContribution: 3, believerCount: 3, durableCount: 0 };
+    const cohorts = new Map([['poi1', sc]]);
+
+    const sit = buildRivalSituation(world, spirits, 'rival-1', { cohorts });
+    expect(sit.otherRivals.find(r => r.id === 'rival-2')!.followersInSettlement).toEqual({ poi1: 3 });
+    expect(sit.otherRivals.find(r => r.id === 'rival-2')!.followerTotal).toBe(3);
+    expect(sit.opposingFollowersInSettlement).toEqual({ poi1: 3 });
   });
 });
 

@@ -11,6 +11,15 @@ import { WHISPER_COST, OMEN_COST, MIRACLE_COST } from '@/sim/divine-actions';
  *  shuffles deterministically. Mirrors `NpcNeeds`' field order. */
 const NEED_DOMAINS: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'community', 'meaning'];
 
+/** D3 (power-economics spec) — the "ambition bank": a war chest worth exactly
+ *  one miracle. Spend/save policy (wealth pressure + save-for-miracle) is
+ *  always expressed as a multiple of this, never a raw literal. */
+export const AMBITION_BANK = MIRACLE_COST;
+
+/** D3 — how hard power banked ABOVE the ambition bank pushes `expandStrategy`
+ *  toward spending it on a miracle instead of a whisper. Zero below the bank. */
+export const WEALTH_PRESSURE = 0.25;
+
 export type RivalStrategy = 'expand' | 'defend' | 'undermine' | 'coexist';
 
 export interface RivalPersonality {
@@ -195,13 +204,14 @@ function pickSettlement(candidates: Iterable<string>, score: (id: string) => num
   return best;
 }
 
-/** Every settlement this rival can see: its holdings plus anywhere either god
- *  has counted believers. */
+/** Every settlement this rival can see: its holdings plus anywhere any god
+ *  (itself or ANY opposition, D4/D5) has counted believers. */
 function knownSettlements(rival: RivalSpirit, sit: RivalSituation): Set<string> {
   return new Set([
     ...rival.settlements,
     ...Object.keys(sit.playerFollowersInSettlement),
     ...Object.keys(sit.rivalFollowersInSettlement),
+    ...Object.keys(sit.opposingFollowersInSettlement),
   ]);
 }
 
@@ -228,11 +238,17 @@ export function decideRivalAction(
   }
 }
 
-/** EXPAND (aggressive growth) — press where the player is WEAKEST: target the
- *  known settlement with the fewest player believers. Big spends (miracle) scale
- *  with aggression; the cheap whisper fallback scales with assertiveness.
- *  Power gates use the CANONICAL verb costs so a rival never wastes its cooldown
- *  proposing a command the executor will reject as unaffordable. */
+/** EXPAND (aggressive growth) — press where the OPPOSITION is WEAKEST overall
+ *  (D5: `opposingFollowersInSettlement` — player AND every other rival, not
+ *  player-only). Big spends (miracle) scale with aggression AND banked wealth
+ *  (D3: `WEALTH_PRESSURE`, zero below `AMBITION_BANK`); the cheap whisper
+ *  fallback scales with assertiveness. Power gates use the CANONICAL verb
+ *  costs so a rival never wastes its cooldown proposing a command the executor
+ *  will reject as unaffordable.
+ *
+ *  D3 save-for-miracle: an aggressive rival sitting on HALF a miracle chest
+ *  eyeing a genuinely contested settlement will sometimes hold the whisper
+ *  entirely instead of dribbling it out — a war chest, not a dribble. */
 export function expandStrategy(
   rival: RivalSpirit,
   situation: RivalSituation,
@@ -240,11 +256,29 @@ export function expandStrategy(
 ): RivalAction | null {
   const target = pickSettlement(
     knownSettlements(rival, situation),
-    id => -(situation.playerFollowersInSettlement[id] ?? 0),
+    id => -(situation.opposingFollowersInSettlement[id] ?? 0),
   );
   if (!target) return null;
   const p = rival.personality;
-  if (rival.power >= MIRACLE_COST && rng() < 0.2 + 0.5 * p.aggression) {
+
+  const contested = (situation.opposingFollowersInSettlement[target] ?? 0)
+    > (situation.rivalFollowersInSettlement[target] ?? 0);
+  if (
+    p.aggression > 0.6
+    && rival.power >= AMBITION_BANK / 2 && rival.power < AMBITION_BANK
+    && contested
+    && rng() < 0.5
+  ) {
+    return null; // hold the whisper, bank for the big play
+  }
+
+  // Wealth pressure is 0 below the bank; above it, banked power flows back out
+  // as a rising lean toward the miracle instead of the cheap whisper.
+  const wealthTerm = rival.power > AMBITION_BANK
+    ? WEALTH_PRESSURE * Math.min(1, (rival.power - AMBITION_BANK) / AMBITION_BANK)
+    : 0;
+  const miracleChance = Math.min(0.95, 0.2 + 0.5 * p.aggression + wealthTerm);
+  if (rival.power >= MIRACLE_COST && rng() < miracleChance) {
     return { type: 'miracle', rivalId: rival.id, targetSettlementId: target, powerCost: MIRACLE_COST, effect: { faithModifier: 0.1 }, description: `${rival.name} performs a minor miracle`, tick: 0 };
   }
   if (rival.power >= WHISPER_COST && rng() < 0.4 + 0.4 * p.assertiveness) {
@@ -281,28 +315,43 @@ export function defendStrategy(
   return null;
 }
 
-/** UNDERMINE (jealous sabotage) — strike where the PLAYER is STRONGEST: discredit
- *  (jealousy-scaled) or curse (aggression-scaled) the player's biggest
- *  congregation. Nothing of the player's anywhere ⇒ nothing worth undermining. */
+/** UNDERMINE (jealous sabotage) — strike the STRONGEST opponent god OVERALL
+ *  (D5: player or another rival, by total follower count — jealousy is about
+ *  the biggest god, not specifically the player) at their strongest
+ *  settlement: discredit (jealousy-scaled) or curse (aggression-scaled).
+ *  Nothing of anyone's anywhere ⇒ nothing worth undermining. Ties go to the
+ *  player (the strict `>` below never displaces the starting victim). */
 export function undermineStrategy(
   rival: RivalSpirit,
   situation: RivalSituation,
   rng: () => number,
 ): RivalAction | null {
+  let victimId: SpiritId = PLAYER_SPIRIT_ID;
+  let victimTotal = Object.values(situation.playerFollowersInSettlement).reduce((a, b) => a + b, 0);
+  let victimFollowers = situation.playerFollowersInSettlement;
+  for (const other of situation.otherRivals) {   // id-sorted ⇒ deterministic tie-break
+    if (other.followerTotal > victimTotal) {
+      victimId = other.id;
+      victimTotal = other.followerTotal;
+      victimFollowers = other.followersInSettlement;
+    }
+  }
+  if (victimTotal <= 0) return null;
+
   const stronghold = pickSettlement(
-    Object.keys(situation.playerFollowersInSettlement),
+    Object.keys(victimFollowers),
     id => {
-      const n = situation.playerFollowersInSettlement[id];
+      const n = victimFollowers[id];
       return n > 0 ? n : Number.NEGATIVE_INFINITY;
     },
   );
   if (!stronghold || rival.power < OMEN_COST) return null;
   const p = rival.personality;
   if (rng() < 0.2 + 0.5 * p.jealousy) {
-    return { type: 'discredit', rivalId: rival.id, targetSpiritId: PLAYER_SPIRIT_ID, targetSettlementId: stronghold, powerCost: OMEN_COST, effect: { faithModifier: -0.08 }, description: `${rival.name} spreads doubt`, tick: 0 };
+    return { type: 'discredit', rivalId: rival.id, targetSpiritId: victimId, targetSettlementId: stronghold, powerCost: OMEN_COST, effect: { faithModifier: -0.08 }, description: `${rival.name} spreads doubt`, tick: 0 };
   }
   if (rng() < 0.3 + 0.3 * p.aggression) {
-    return { type: 'curse', rivalId: rival.id, targetSettlementId: stronghold, powerCost: OMEN_COST, effect: { moodModifier: -0.1 }, description: `${rival.name} sends a blight`, tick: 0 };
+    return { type: 'curse', rivalId: rival.id, targetSpiritId: victimId, targetSettlementId: stronghold, powerCost: OMEN_COST, effect: { moodModifier: -0.1 }, description: `${rival.name} sends a blight`, tick: 0 };
   }
   return null;
 }

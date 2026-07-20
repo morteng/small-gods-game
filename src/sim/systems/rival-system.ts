@@ -19,6 +19,8 @@ import { queryNpcs, npcProps } from '@/world/npc-helpers';
 import {
   buildRivalSituation, updatePrayerLedger, findClaimablePrayers,
 } from '@/sim/rival-claims';
+import { WHISPER_COST } from '@/sim/divine-actions';
+import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import type { Rng } from '@/core/rng';
 import type { World } from '@/world/world';
 import type { SettlementCohorts } from '@/sim/cohorts';
@@ -112,6 +114,10 @@ export class RivalSystem implements System {
       // tick must not cost an NPC pass.
       if (ctx.now - (ai.lastActionTick ?? 0) < (ai.actionCooldown ?? 0)) continue;
 
+      // D2 — idle-poor guard: a rival that can't afford even the cheapest verb
+      // skips the situation build entirely (the sweep is the expensive part).
+      if (spirit.power < WHISPER_COST) continue;
+
       const view = spiritToRivalView(spirit);
       if (!view) continue;
 
@@ -136,6 +142,16 @@ export class RivalSystem implements System {
 
       this.queue.emit({ verb, source: spirit.id, target });
       ai.lastActionTick = ctx.now;
+
+      // D6 — a dispute is logged only when the contested god is another
+      // NON-PLAYER spirit (undermine striking a rival, not the player).
+      if (action.targetSpiritId && action.targetSpiritId !== PLAYER_SPIRIT_ID) {
+        ctx.log.append({
+          type: 'rival_dispute',
+          spiritId: spirit.id,
+          data: { otherRivalId: action.targetSpiritId, poiId: action.targetSettlementId ?? '' },
+        });
+      }
     }
   }
 }
