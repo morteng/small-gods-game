@@ -223,6 +223,20 @@ const HOVER_GRACE_PX = 24;
 /** D2: rows a `scrollList` steps per wheel notch. */
 const SCROLL_ROWS_PER_NOTCH = 3;
 
+// ── D10: quiet chrome + band-change label fade (polish wave) ────────────────
+// Two distinct treatments, per the spec: the time/camera clusters RECEDE (an
+// alpha dim, not a layout collapse — see `drawTimeCluster`/`drawCameraCluster`
+// for why a true collapse-on-hover was rejected) while non-primary; world
+// labels FADE across a band change (an actual alpha ramp over time, since a
+// snap on/off reads as a glitch when the whole map's typography flips).
+
+/** D10: paint alpha for a cluster's non-primary controls while the pointer
+ *  isn't over the cluster's own footprint (1 = full strength, hovered). */
+const CHROME_DIM_ALPHA = 0.35;
+
+/** D10: how long the world-label band-change fade ramps, in ms. */
+const LABEL_FADE_MS = 150;
+
 /** Injectable timer seam (real timers in the app; a manual clock in tests). */
 export interface UiTimers {
   set: (fn: () => void, ms: number) => number;
@@ -287,6 +301,27 @@ export class UiRuntime {
   /** Pending dwell timer id (armed on move, fires the popover), or null. */
   private dwellId: number | null = null;
   private readonly timers: UiTimers;
+
+  /** D10: a monotonic frame clock — `frame()`'s `nowMs` when the caller supplies
+   *  one (the live game always does, threading the render frame's own
+   *  `performance.now()`; see `gpu-render-frame.ts`), else a synthetic ~60fps
+   *  tick so tests that never pass a timestamp still get a well-defined, if
+   *  fake, elapsed time for the label fade below. Never serialized. */
+  private clockMs = 0;
+
+  /** D10: world-label band-change fade. `wasWorldLabelsVisible` is the last
+   *  frame's visibility (the flip trigger); `frozenWorldLabels` is a snapshot
+   *  kept fresh WHILE visible so a fade-OUT still has something to paint for
+   *  its whole ~150ms (the hook itself goes null/empty the INSTANT the band
+   *  leaves, so it can't supply positions for the ramp's later frames —
+   *  overwriting the snapshot with that null every frame would truncate the
+   *  fade to one frame). `labelFadeDir`/`labelFadeStartMs` track the in-flight
+   *  ramp. All transient, never serialized (same durability class as `hover` /
+   *  scroll offsets above). */
+  private wasWorldLabelsVisible = false;
+  private frozenWorldLabels: WorldLabelView[] | null = null;
+  private labelFadeDir: 'in' | 'out' = 'in';
+  private labelFadeStartMs: number | null = null;
 
   constructor(timers: UiTimers = REAL_TIMERS) {
     this.timers = timers;
@@ -589,8 +624,14 @@ export class UiRuntime {
     };
   }
 
-  /** Build this frame's UI draw groups (device px, integer DPR scale). */
-  frame(wDev: number, hDev: number, dpr: number): UiDrawGroup[] {
+  /** Build this frame's UI draw groups (device px, integer DPR scale). `nowMs`
+   *  is the render frame's own clock (D10: the label fade's elapsed-time base)
+   *  — the live game threads `performance.now()` through from
+   *  `gpu-render-frame.ts`; omitted (tests that don't care about fade timing)
+   *  it falls back to a synthetic ~60fps tick so `frame()` stays callable with
+   *  its original 3-arg shape. */
+  frame(wDev: number, hDev: number, dpr: number, nowMs?: number): UiDrawGroup[] {
+    this.clockMs = nowMs ?? this.clockMs + 16.7;
     const c = this.ctx;
     const input: UiInput = {
       px: this.ptr.x,
@@ -613,7 +654,7 @@ export class UiRuntime {
     } else if (this.story) {
       this.drawStory(c, wDev, hDev, s);
     } else {
-      this.drawHud(c, wDev, hDev, s);
+      this.drawHud(c, wDev, hDev, s, this.clockMs);
     }
 
     const { hits, scrollRegions } = c.end();
@@ -643,11 +684,11 @@ export class UiRuntime {
   }
 
   // ── barebones HUD: a single presence orb that also opens the menu ─────────
-  private drawHud(c: UiContext, w: number, h: number, s: number): void {
+  private drawHud(c: UiContext, w: number, h: number, s: number, nowMs: number): void {
     // UI v2 W1/D4: World-band settlement labels are map typography, drawn FIRST
     // so every other HUD surface below wins any overlap (same rule the parked
     // alert pins followed) — the World band IS the map.
-    this.drawWorldLabels(c, w, h, s);
+    this.drawWorldLabels(c, w, h, s, nowMs);
 
     const pad = 16 * s;
     const orb = 30 * s;
@@ -782,13 +823,40 @@ export class UiRuntime {
   // The parked-pins ruling holds ("no floating icons over the world") — this is
   // text pinned to places, drawn in `UiSpace.World` (same idiom `drawAlertPins`
   // used). Null ⇒ outside the world band, nothing drawn.
-  private drawWorldLabels(c: UiContext, w: number, h: number, s: number): void {
+  private drawWorldLabels(c: UiContext, w: number, h: number, s: number, nowMs: number): void {
     // W5: while a left-side panel is open you're in a menu context, not reading
     // the map — suppress the labels so their bright text doesn't bleed through the
     // translucent panel (the panel bg is 82% opaque). They return on close.
     if (this.panel !== null) return;
-    const labels = this.hooks.getWorldLabels?.() ?? null;
+    const hookLabels = this.hooks.getWorldLabels?.() ?? null;
+
+    // D10: band-change fade. The hook's null/non-null-ness IS the band gate
+    // (spec §D4), so a flip in that boolean is exactly "the band changed" —
+    // (re)arm a ~150ms alpha ramp from here. Fading OUT has to paint the LAST
+    // frame's labels (the hook already reports null the instant the band
+    // leaves, so there's nothing current to fade); fading IN (or steady)
+    // paints the current ones.
+    const visibleNow = !!hookLabels && hookLabels.length > 0;
+    if (visibleNow !== this.wasWorldLabelsVisible) {
+      this.labelFadeDir = visibleNow ? 'in' : 'out';
+      this.labelFadeStartMs = nowMs;
+    }
+    this.wasWorldLabelsVisible = visibleNow;
+    if (visibleNow) this.frozenWorldLabels = hookLabels; // keep the snapshot fresh while visible
+    const fadingOut = this.labelFadeDir === 'out';
+    const labels = visibleNow ? hookLabels : fadingOut ? this.frozenWorldLabels : null;
     if (!labels || labels.length === 0) return;
+
+    const elapsed = this.labelFadeStartMs != null ? nowMs - this.labelFadeStartMs : LABEL_FADE_MS;
+    const t = clamp01(elapsed / LABEL_FADE_MS);
+    const fadeAlpha = fadingOut ? 1 - t : t;
+    // A fade-OUT that's run its course is steady-invisible — nothing left to
+    // paint or click. A fade-IN's t=0 frame is deliberately NOT skipped even
+    // though its paint alpha is 0: the label is logically in-band from the
+    // instant the band engages (hit-testing/clickability track the BAND, not
+    // the cosmetic ramp), only its paint eases up over the next ~150ms.
+    if (fadingOut && fadeAlpha <= 0) return;
+
     const fs = FS_BODY * s;
     const fsSub = fs * 0.75; // contested-by: a smaller second line
     const pad = 6 * s;
@@ -809,19 +877,22 @@ export class UiRuntime {
       const by = Math.round(lb.y - boxH); // the label floats ABOVE its map anchor
       if (bx + boxW < 0 || by + boxH < 0 || bx > w || by > h) continue; // off-screen cull
 
-      // subtle dark backing so the name reads over any terrain (spec: alpha ~0.35).
-      c.rect(bx, by, boxW, boxH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.35), UiSpace.World);
-      const nameColor = lb.focused ? UI_PALETTE.accent : UI_PALETTE.text;
+      // subtle dark backing so the name reads over any terrain (spec: alpha ~0.35),
+      // ramped by the band-change fade on top.
+      c.rect(bx, by, boxW, boxH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.35 * fadeAlpha), UiSpace.World);
+      const nameColor = withAlpha(lb.focused ? UI_PALETTE.accent : UI_PALETTE.text, fadeAlpha);
       const tx = Math.round(lb.x - lineW / 2);
       const ty = by + pad;
       c.label(name, tx, ty, fs, nameColor, UiSpace.World);
-      if (badgeText) c.label(badgeText, Math.round(tx + nameW), ty, fs, UI_PALETTE.textDim, UiSpace.World);
+      if (badgeText) c.label(badgeText, Math.round(tx + nameW), ty, fs, withAlpha(UI_PALETTE.textDim, fadeAlpha), UiSpace.World);
       if (contested) {
         const sx = Math.round(lb.x - subW / 2);
-        c.label(contested, sx, ty + lh, fsSub, UI_PALETTE.textDim, UiSpace.World);
+        c.label(contested, sx, ty + lh, fsSub, withAlpha(UI_PALETTE.textDim, fadeAlpha), UiSpace.World);
       }
-      // click target in screen coords (== the label's own backing rect).
-      if (c.hotspot(`wlabel.${lb.poiId}`, bx, by, boxW, boxH)) clicked = lb.poiId;
+      // click target in screen coords (== the label's own backing rect). Only
+      // live while genuinely in-band — a fading-OUT ghost is display-only (the
+      // band already left, so a click on it shouldn't refocus/fly).
+      if (!fadingOut && c.hotspot(`wlabel.${lb.poiId}`, bx, by, boxW, boxH)) clicked = lb.poiId;
     }
     if (clicked) {
       this.hooks.onWorldLabel?.(clicked);
@@ -1494,6 +1565,13 @@ export class UiRuntime {
     this.hooks.requestRender?.();
   }
 
+  /** D10 quiet chrome: the clock chip always draws at full strength (the
+   *  at-a-glance readout); the pause/ladder/skip (or cancel) row dims to
+   *  `CHROME_DIM_ALPHA` until the pointer sits anywhere over the cluster's own
+   *  footprint. Same "paint-only, never geometry" rule as the camera cluster
+   *  (see its comment) — every control keeps its position + hit region on
+   *  every frame. The footprint's width is measured (pure, no geometry) BEFORE
+   *  any drawing so the hover test doesn't need a second layout pass. */
   private drawTimeCluster(c: UiContext, w: number, _h: number, s: number, rightInset = 0): void {
     const status = this.hooks.timeStatus?.();
     if (!status) return;
@@ -1503,23 +1581,43 @@ export class UiRuntime {
     const rowH = 26 * s;
     const gap = 6 * s;
     const right = w - pad - rightInset;
-    let y = pad;
 
-    // clock chip: calendar/solar label + an effective-rate badge (⏸ paused, or
-    // ≈N× when the CPU can't sustain the requested rate).
     const badge = timeRateBadge(status);
     const clockText = badge ? `${status.clockLabel}   ${badge}` : status.clockLabel;
     const chipW = Math.ceil(c.measure(clockText, fs)) + 20 * s;
+    const pauseLabel = status.paused ? '▶ RESUME' : '⏸ PAUSE';
+    const pauseW = Math.ceil(c.measure(pauseLabel, fs)) + 20 * s;
+    let transportW: number;
+    if (status.seeking) {
+      const cancelLabel = '✕ CANCEL';
+      const cancelW = Math.ceil(c.measure(cancelLabel, fs)) + 20 * s;
+      const elapsed = `⏳ ${formatElapsedTicks(status.seeking.elapsedTicks)}`;
+      const elapsedW = Math.ceil(c.measure(elapsed, fs));
+      transportW = cancelW + 10 * s + elapsedW;
+    } else {
+      const skipLabel = '⏭';
+      let ladderW = Math.ceil(c.measure(skipLabel, fs)) + 20 * s;
+      for (const rate of status.ladder) ladderW += gap + Math.ceil(c.measure(`${rate}×`, fs)) + 16 * s;
+      transportW = ladderW;
+    }
+    const footprintW = Math.max(chipW, pauseW, transportW);
+    const totalH = rowH * 3 + gap * 2;
+    const hovered = inRect({ x: this.ptr.x, y: this.ptr.y }, { x: right - footprintW, y: pad, w: footprintW, h: totalH });
+    const dim = hovered ? 1 : CHROME_DIM_ALPHA;
+
+    let y = pad;
+
+    // clock chip: calendar/solar label + an effective-rate badge (⏸ paused, or
+    // ≈N× when the CPU can't sustain the requested rate). Always full strength.
     c.panel(right - chipW, y, chipW, rowH);
     c.label(clockText, right - chipW + 10 * s, y + (rowH - c.lineHeight(fs)) / 2, fs,
       status.paused ? UI_PALETTE.accent : UI_PALETTE.text);
     y += rowH + gap;
 
     // soft-pause toggle — always live (cancels an active seek first, per the
-    // dispatch rule above), so it stays a reliable "stop" even mid-seek.
-    const pauseLabel = status.paused ? '▶ RESUME' : '⏸ PAUSE';
-    const pauseW = Math.ceil(c.measure(pauseLabel, fs)) + 20 * s;
-    if (c.button('ui.time.pause', pauseLabel, right - pauseW, y, pauseW, rowH, { scale: fs })) {
+    // dispatch rule above), so it stays a reliable "stop" even mid-seek; dims
+    // with the rest of the transport row when not hovered.
+    if (c.button('ui.time.pause', pauseLabel, right - pauseW, y, pauseW, rowH, { scale: fs, alpha: dim })) {
       this.dispatchTimeCommand({ kind: 'toggle_pause' }, seeking);
     }
     y += rowH + gap;
@@ -1528,18 +1626,18 @@ export class UiRuntime {
       // seeking: the ladder is replaced by a progress line + cancel.
       const cancelLabel = '✕ CANCEL';
       const cancelW = Math.ceil(c.measure(cancelLabel, fs)) + 20 * s;
-      if (c.button('ui.time.cancel', cancelLabel, right - cancelW, y, cancelW, rowH, { scale: fs })) {
+      if (c.button('ui.time.cancel', cancelLabel, right - cancelW, y, cancelW, rowH, { scale: fs, alpha: dim })) {
         this.dispatchTimeCommand({ kind: 'cancel_seek' }, false);
       }
       const elapsed = `⏳ ${formatElapsedTicks(status.seeking.elapsedTicks)}`;
       const elapsedW = Math.ceil(c.measure(elapsed, fs));
-      c.label(elapsed, right - cancelW - 10 * s - elapsedW, y + (rowH - c.lineHeight(fs)) / 2, fs, UI_PALETTE.textDim);
+      c.label(elapsed, right - cancelW - 10 * s - elapsedW, y + (rowH - c.lineHeight(fs)) / 2, fs, withAlpha(UI_PALETTE.textDim, dim));
     } else {
       // rate ladder (rendered FROM the hook — never hardcoded) + ⏭ next-event.
       const skipLabel = '⏭';
       const skipW = Math.ceil(c.measure(skipLabel, fs)) + 20 * s;
       let x = right - skipW;
-      if (c.button('ui.time.skip', skipLabel, x, y, skipW, rowH, { scale: fs })) {
+      if (c.button('ui.time.skip', skipLabel, x, y, skipW, rowH, { scale: fs, alpha: dim })) {
         this.dispatchTimeCommand({ kind: 'skip_to_next_event' }, false);
       }
       x -= gap;
@@ -1549,17 +1647,28 @@ export class UiRuntime {
         const bw = Math.ceil(c.measure(label, fs)) + 16 * s;
         x -= bw;
         const active = rate === status.requestedRate;
-        if (c.button(`ui.time.rate.${rate}`, label, x, y, bw, rowH, { scale: fs })) {
+        if (c.button(`ui.time.rate.${rate}`, label, x, y, bw, rowH, { scale: fs, alpha: dim })) {
           this.dispatchTimeCommand({ kind: 'set_rate', rate }, false);
         }
-        if (active) c.batcher.border(x, y, bw, rowH, Math.max(1, Math.round(2 * s)), UI_PALETTE.accent);
+        if (active) c.batcher.border(x, y, bw, rowH, Math.max(1, Math.round(2 * s)), withAlpha(UI_PALETTE.accent, dim));
         x -= gap;
       }
     }
   }
 
   /** Right-edge zoom controls (in/out/fit/1:1) — the GPU port of the legacy DOM
-   *  `cameraControls`. Drawn only when the camera hooks are wired. */
+   *  `cameraControls`. Drawn only when the camera hooks are wired.
+   *
+   *  D10 quiet chrome: `+`/`-` (the at-a-glance zoom affordance) stay at full
+   *  strength always; FIT/1:1 recede to `CHROME_DIM_ALPHA` until the pointer
+   *  sits anywhere over the cluster's own footprint, then brighten back up.
+   *  This is a dim, NOT a structural collapse-to-two-buttons: every button
+   *  keeps its exact position + hit region on every frame, so a click never
+   *  depends on a prior hover frame having already expanded the cluster (a
+   *  true collapse would make FIT/1:1 unclickable from a cold pointerdown
+   *  with no preceding pointermove — fine for a real mouse, which always
+   *  moves before it clicks, but it silently breaks headless/single-shot
+   *  interaction wherever a test or driver clicks without hovering first). */
   private drawCameraCluster(c: UiContext, w: number, h: number, s: number, rightInset = 0): void {
     const { onZoomIn, onZoomOut, onFitView, onZoomActual } = this.hooks;
     if (!onZoomIn || !onZoomOut || !onFitView || !onZoomActual) return;
@@ -1576,12 +1685,16 @@ export class UiRuntime {
       ['cam.one', '1:1', onZoomActual],
     ];
     const bx = w - bw - pad - rightInset;
+    const totalH = bh * rows.length + gap * (rows.length - 1);
     // vertically centred cluster on the right edge
-    let by = Math.round((h - (bh * rows.length + gap * (rows.length - 1))) / 2);
-    for (const [id, label, fn] of rows) {
-      if (c.button(id, label, bx, by, bw, bh, { scale: fs })) fn();
+    let by = Math.round((h - totalH) / 2);
+    const hovered = inRect({ x: this.ptr.x, y: this.ptr.y }, { x: bx, y: by, w: bw, h: totalH });
+    rows.forEach(([id, label, fn], i) => {
+      const secondary = i >= 2; // FIT / 1:1
+      const alpha = secondary && !hovered ? CHROME_DIM_ALPHA : 1;
+      if (c.button(id, label, bx, by, bw, bh, { scale: fs, alpha })) fn();
       by += bh + gap;
-    }
+    });
   }
 
   // ── Esc pause menu: dim backdrop + left nav + settings panel ──────────────

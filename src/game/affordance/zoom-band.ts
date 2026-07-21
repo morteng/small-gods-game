@@ -25,6 +25,9 @@
 
 export type ZoomBand = 'world' | 'settlement' | 'soul';
 
+// D10: thresholds pending empirical retune on live grabs (headless CI can't
+// judge readability at a given zoom — this needs eyes on an actual running
+// game). Do not hand-tune these without a live grab session.
 /** At or above this zoom the band is always `soul` (per-NPC chrome). */
 export const SOUL_IN_ABOVE = 0.45;
 /** At or below this zoom the band drops out of `soul`. */

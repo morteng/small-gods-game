@@ -51,6 +51,10 @@ export interface UiScrollRegion {
 export interface ButtonOpts {
   disabled?: boolean;
   scale?: number;
+  /** D10 quiet chrome: multiplies bg/border/label alpha (default 1 = full
+   *  strength). Hit-testing and click behavior are UNCHANGED — a dimmed button
+   *  stays exactly as clickable as a full-strength one; only its paint recedes. */
+  alpha?: number;
 }
 
 function pointIn(px: number, py: number, x: number, y: number, w: number, h: number): boolean {
@@ -121,6 +125,7 @@ export class UiContext {
   button(id: string, label: string, x: number, y: number, w: number, h: number, opts: ButtonOpts = {}): boolean {
     const scale = opts.scale ?? 1;
     const disabled = !!opts.disabled;
+    const alpha = opts.alpha ?? 1;
     const hot = !disabled && pointIn(this.input.px, this.input.py, x, y, w, h);
     if (hot) this.hotId = id;
     const active = hot && this.input.down;
@@ -128,16 +133,21 @@ export class UiContext {
     const p = this.palette;
     const bg = disabled ? p.disabledBg : active ? p.buttonActiveBg : hot ? p.buttonHotBg : p.buttonBg;
     const fg = disabled ? p.disabledText : p.buttonText;
+    // D10: dim the paint only — geometry/hit-testing above is untouched, so a
+    // dimmed ("quiet") button is exactly as clickable as a full-strength one.
+    const bgA = alpha < 1 ? withAlpha(bg, bg[3] * alpha) : bg;
+    const fgA = alpha < 1 ? withAlpha(fg, fg[3] * alpha) : fg;
+    const borderA = alpha < 1 ? withAlpha(p.buttonBorder, p.buttonBorder[3] * alpha) : p.buttonBorder;
 
-    this.batcher.rect(x, y, w, h, bg);
-    this.batcher.border(x, y, w, h, 1, p.buttonBorder);
+    this.batcher.rect(x, y, w, h, bgA);
+    this.batcher.border(x, y, w, h, 1, borderA);
 
     // centre the label within the button; clip to the inner width first
     const padX = Math.ceil(4 * scale); // breathing room inside the 1px border
     const text = this.ellipsize(label, scale, w - 2 * padX);
     const tw = this.font.measure(text, scale);
     const th = this.font.lineHeight(scale);
-    this.label(text, Math.round(x + Math.max(padX, (w - tw) / 2)), Math.round(y + (h - th) / 2), scale, fg);
+    this.label(text, Math.round(x + Math.max(padX, (w - tw) / 2)), Math.round(y + (h - th) / 2), scale, fgA);
 
     this.hits.push({ id, x, y, w, h });
     return hot && !disabled && this.input.released;
