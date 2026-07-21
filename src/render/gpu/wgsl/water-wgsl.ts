@@ -377,9 +377,18 @@ fn vsMain(@builtin(vertex_index) vid : u32) -> VSOut {
   // half-width + margin) so the analytic silhouette can extend past the old per-cell
   // mask — this is what un-staircases the river. Quads that are neither collapse to a
   // off-clip degenerate triangle (no fragments), so far-from-water cells cost nothing.
+  //
+  // The cell-center channel lookup below ONLY feeds inBand, which the gate ONLY reads
+  // when typ==0u (dry). Ocean/lake (1/2) always draw regardless of it, and a classified
+  // river cell (3) always draws too — so gate it behind typ==0u. The un-gated version
+  // ran this bucketed channel-segment lookup on EVERY vertex, including the ocean/lake
+  // majority of a wide water-view frame, for a result that was never read there.
   let typ = wtype[ci];
-  let cc = channelAt(f32(cellX) + f32(sub) * 0.5, f32(cellY) + f32(sub) * 0.5);
-  let inBand = cc.hit && cc.sd < (f32(sub) + 2.0);
+  var inBand = false;
+  if (typ == 0u) {
+    let cc = channelAt(f32(cellX) + f32(sub) * 0.5, f32(cellY) + f32(sub) * 0.5);
+    inBand = cc.hit && cc.sd < (f32(sub) + 2.0);
+  }
   if (typ == 0u && !inBand) {
     var deg : VSOut;
     deg.pos = vec4<f32>(2.0, 2.0, 2.0, 1.0);   // outside clip → culled, zero area
