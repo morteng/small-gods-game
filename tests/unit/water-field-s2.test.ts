@@ -90,6 +90,25 @@ describe('Water S2 — water field builder', () => {
       expect(culled.vertexCount).toBeGreaterThan(0);
     });
 
+    it('lift margin keeps a lake quad that clears the bottom edge only once lifted up on screen', () => {
+      // A view whose bottom edge cuts RIGHT AT the quad's z=0 bottom: tile (5,5) sub=1 has
+      // syMin=(5+5)*32=320. Put viewH just above it so the z=0 quad is below the bottom edge.
+      const d = { originX: 0, originY: 0, viewW: 800, viewH: 300 };
+      // z=0: syMin 320 > viewH 300 → culled without a lift margin.
+      expect(quadVisibleInDiamond(5, 5, 1, d, 0)).toBe(false);
+      // The shader lifts a lake surface UP by liftPx; a 40px lift pulls syMin to 280 ≤ 300,
+      // so the quad IS on screen and must be kept.
+      expect(quadVisibleInDiamond(5, 5, 1, d, 40)).toBe(true);
+    });
+
+    it('lift margin only slackens the BOTTOM edge — a quad off the top/side stays culled', () => {
+      const d = { originX: 0, originY: 0, viewW: 800, viewH: 600 };
+      // Off the top (syMax < 0): lift moves it even further up, so a big margin never rescues it.
+      expect(quadVisibleInDiamond(0, 0, 1, { ...d, originY: -400 }, 500)).toBe(false);
+      // Off the left side: lift is purely vertical, so the side cull is unaffected.
+      expect(quadVisibleInDiamond(0, 60, 1, d, 500)).toBe(false);
+    });
+
     it('an unrestricted diamond (covers every corner) is byte-identical to no diamond at all', async () => {
       clearHydrologyCache();
       const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);

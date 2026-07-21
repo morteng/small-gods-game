@@ -407,10 +407,19 @@ const DIAMOND_MARGIN_PX = 1;
  * under the iso projection, z=0) against the view rect `[0,viewW]×[0,viewH]` — exported
  * standalone so a corner-of-the-circumscribing-AABB cell (culled) and a genuinely
  * on-screen cell (kept) are both unit-testable without a full `buildWaterField` call.
+ *
+ * `liftPx` (≥0) is the maximum screen-px the water shader lifts a quad UP off the flat
+ * z=0 plane (lake surfaces sit above sea level; `water-wgsl.ts` draws each vertex at
+ * `sy − liftPx(surface)`). A lifted quad renders HIGHER on screen than this z=0 AABB, so
+ * it can clear the BOTTOM edge while its z=0 projection sits below it — the bottom test is
+ * slackened by `liftPx` so those quads aren't wrongly culled. Lift only moves quads toward
+ * the top, so the other three edges need no margin (a z=0 AABB already off the top is even
+ * further off once lifted; keeping it costs nothing). Default 0 ⇒ byte-identical prior behavior.
  */
 export function quadVisibleInDiamond(
   cx: number, cy: number, sub: number,
   d: { originX: number; originY: number; viewW: number; viewH: number },
+  liftPx = 0,
 ): boolean {
   const hw = ISO_TILE_W / 2, hh = ISO_TILE_H / 2;
   // The 4 tile-space corners' screen sx/sy extremes (worldToScreen, z=0): sx is
@@ -422,7 +431,7 @@ export function quadVisibleInDiamond(
   const syMin = (cx + cy) * hh + d.originY;
   const syMax = ((cx + sub) + (cy + sub)) * hh + d.originY;
   return sxMax >= -DIAMOND_MARGIN_PX && sxMin <= d.viewW + DIAMOND_MARGIN_PX
-      && syMax >= -DIAMOND_MARGIN_PX && syMin <= d.viewH + DIAMOND_MARGIN_PX;
+      && syMax >= -DIAMOND_MARGIN_PX && syMin - liftPx <= d.viewH + DIAMOND_MARGIN_PX;
 }
 
 /** Connected lake bodies over the RENDER lake mask (Lake cells INCLUDING the
@@ -515,6 +524,12 @@ interface WaterStatic {
    *  `buildWaterField` emits a quad only for masked lattice cells, skipping the dry
    *  interior entirely. The shader's draw-gate still trims the river dilation exactly. */
   meshMask: Uint8Array;
+  /** Highest water-surface height in the field (normalised render elev). Lake surfaces
+   *  sit ABOVE sea level and the water shader LIFTS each vertex by `liftPx(surface)`
+   *  (`water-wgsl.ts`), drawing a lake quad higher on screen than its z=0 position. The
+   *  diamond cull projects at z=0, so without this it wrongly culls lifted lake quads that
+   *  clear the bottom edge — this bounds that lift so the bottom-edge test stays honest. */
+  maxSurfaceW: number;
   // ── memoised packed wet-cell list ────────────────────────────────────────────────
   // The pack depends only on the coarsened window (origin, quad counts, subsample),
   // the flood dense-grid fallback flag, and the per-static meshMask (constant). A
@@ -715,6 +730,11 @@ function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterSta
   const lakeCellArr: number[] = [];
   for (let i = 0; i < lakeBodies.bodyId.length; i++) if (lakeBodies.bodyId[i] >= 0) lakeCellArr.push(i);
 
+  // Highest water surface in the field — bounds the diamond cull's lift margin (lakes
+  // sit above sea level and the shader lifts their quads up on screen).
+  let maxSurfaceW = ELEVATION_SEA_LEVEL;
+  for (let i = 0; i < cells; i++) if (surfaceW[i] > maxSurfaceW) maxSurfaceW = surfaceW[i];
+
   // Default freshwater colours for the flood layer — a still sheet on land reads as a
   // lake. Resolved once from the world climate (same source the lake cells use).
   const lakeBiome = biomeFor(WaterType.Lake);
@@ -731,6 +751,7 @@ function waterStatic(map: GameMap, override?: ConnectomeWaterOverride): WaterSta
     dynToggle: false,
     wetCount: wet,
     meshMask: buildMeshMask(map.width, map.height, waterType),
+    maxSurfaceW,
     dry: wet === 0,
   };
   if (!override) {
@@ -1078,8 +1099,16 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   // the per-frame writeBuffer. The diamond params ride the signature too — they change
   // every frame while panning (same as window), but hold byte-identical while idle.
   const diamond = opts.diamond;
+  // Max screen-px the shader lifts a water quad UP off z=0 (lake surfaces are above sea
+  // level; the diamond cull otherwise wrongly culls lifted lake quads at the bottom edge).
+  // Bound = tallest surface (static max ⊕ global drought/flood level ⊕ max per-body lake
+  // offset) mapped through the shader's `liftPx` (`(e−seaLevel)·reliefM·zPxPerM`, unzoomed
+  // screen space — the same space the diamond math works in). Conservative (never under-culls).
+  let liftSurf = stat.maxSurfaceW + Math.max(0, waterLevelNorm(map, opts.waterLevelM ?? 0));
+  if (lo) { let mx = 0; for (const v of lo) if (v > mx) mx = v; liftSurf += mx / worldStyleOf(map.worldSeed).mountainRelief; }
+  const maxLiftPx = diamond ? Math.max(0, (liftSurf - tg.seaLevel) * tg.reliefM * tg.zPxPerM) : 0;
   const packSig = `${winX0},${winY0},${quadsX},${quadsY},${sub},${floodActive ? 1 : 0}`
-    + (diamond ? `|${diamond.originX},${diamond.originY},${diamond.viewW},${diamond.viewH}` : '');
+    + (diamond ? `|${diamond.originX},${diamond.originY},${diamond.viewW},${diamond.viewH}|${maxLiftPx.toFixed(1)}` : '');
   let wetPacked = stat.packOut;
   if (!wetPacked || stat.packSig !== packSig) {
     const cap = quadsX * quadsY;
@@ -1091,7 +1120,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
         const cy = Math.min(winY0 + qy * sub, H - 1);
         for (let qx = 0; qx < quadsX; qx++) {
           const cx = Math.min(winX0 + qx * sub, W - 1);
-          if (diamond && !quadVisibleInDiamond(cx, cy, sub, diamond)) continue;
+          if (diamond && !quadVisibleInDiamond(cx, cy, sub, diamond, maxLiftPx)) continue;
           wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
         }
       }
@@ -1103,7 +1132,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
         for (let qx = 0; qx < quadsX; qx++) {
           const cx = Math.min(winX0 + qx * sub, W - 1);
           if (!mask[row + cx]) continue;
-          if (diamond && !quadVisibleInDiamond(cx, cy, sub, diamond)) continue;
+          if (diamond && !quadVisibleInDiamond(cx, cy, sub, diamond, maxLiftPx)) continue;
           wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
         }
       }
