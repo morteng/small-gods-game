@@ -15,7 +15,7 @@
 //
 // No GPU/DOM here; everything is unit-testable.
 
-import type { GameMap, DevModeState, ConnectomeWaterOverride } from '@/core/types';
+import type { GameMap, DevModeState, ConnectomeWaterOverride, FloraTintField } from '@/core/types';
 import { WaterType } from '@/core/types';
 import { TILE_COLORS, WATER_TYPES } from '@/core/constants';
 import { buildRenderWaterType } from '@/render/gpu/render-water-mask';
@@ -199,9 +199,51 @@ function darkenAbgr(abgr: number, f: number): number {
  * (the lake basin can't be told from the ocean by `tile.type` alone). Ocean stays
  * blue — it's the fixed datum that never recedes.
  */
+/**
+ * T4 (flora-into-ground): how far the accumulated flora wash (`map.floraTint`,
+ * see its doc + `vegetation-placer.ts accumulateFloraTint`) can push a cell's
+ * biome colour, at full saturation. Deliberately small — the ground is still
+ * ground; biome stays the dominant hue authority, this is a subtle wash, not
+ * a repaint.
+ */
+const FLORA_TINT_MAX_BLEND = 0.32;
+/**
+ * Accumulated placement weight (scale-summed) at which a cell's blend reaches
+ * `FLORA_TINT_MAX_BLEND` — below it the blend scales down linearly, so a cell
+ * that only caught a single small tuft (little placed cover) washes faintly
+ * while a thickly-flowered/foliaged cell reaches the cap. A cell with NO
+ * placed cover (`weight===0`, e.g. dust/scree the species-dust gate already
+ * kept flora off) never enters the blend at all (see `packColorField`) — so
+ * "dry cells take less tint" falls out of the placement density itself
+ * rather than a second aridity read here.
+ */
+const FLORA_TINT_SATURATE_WEIGHT = 0.9;
+
+/**
+ * Blend one cell's accumulated flora wash into its resolved biome hex colour,
+ * packing straight to the ABGR the shader expects (same convention as
+ * {@link hexToAbgr}). Only called when `tint.weight[idx] > 0` — i.e. some
+ * flora actually landed on this cell — so a floraless/dry cell takes the
+ * ordinary `hexToAbgr(hex)` path untouched.
+ */
+function blendFloraTintAbgr(hex: string, tint: FloraTintField, idx: number): number {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return 0xff444444;
+  const n = parseInt(m[1], 16);
+  const br = (n >> 16) & 0xff, bg = (n >> 8) & 0xff, bb = n & 0xff;
+  const w = tint.weight[idx];
+  const avgR = tint.sumR[idx] / w, avgG = tint.sumG[idx] / w, avgB = tint.sumB[idx] / w;
+  const blend = FLORA_TINT_MAX_BLEND * Math.min(1, w / FLORA_TINT_SATURATE_WEIGHT);
+  const r = Math.round(br + (avgR - br) * blend);
+  const g = Math.round(bg + (avgG - bg) * blend);
+  const b = Math.round(bb + (avgB - bb) * blend);
+  return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
+}
+
 export function packColorField(map: GameMap, devMode?: DevModeState, waterType?: Uint8Array): Uint32Array {
   const { width, height, tiles } = map;
   const out = new Uint32Array(width * height);
+  const tint = map.floraTint;
   for (let ty = 0; ty < height; ty++) {
     const row = tiles[ty];
     for (let tx = 0; tx < width; tx++) {
@@ -221,7 +263,11 @@ export function packColorField(map: GameMap, devMode?: DevModeState, waterType?:
       const colorType = tile ? (tile.baseType ?? tile.type) : undefined;
       let hex = colorType ? (TILE_COLORS[effectiveTileType(colorType, devMode)] ?? '#444') : '#1a1a24';
       if (tile?.irrigated && tile.type === 'farm_field') hex = IRRIGATED_FIELD_COLOR;
-      out[idx] = hexToAbgr(hex);
+      // T4: bake the accumulated flora wash into the biome hue (only where
+      // flora actually landed — `weight>0`); absent/zero-weight cells take the
+      // ORIGINAL path byte-identically, so a world/save without the field (or
+      // a dry/dust cell the species-dust gate kept bare) is unchanged.
+      out[idx] = (tint && tint.weight[idx] > 0) ? blendFloraTintAbgr(hex, tint, idx) : hexToAbgr(hex);
     }
   }
   return out;
@@ -242,7 +288,12 @@ let colorMemo: { map: GameMap; key: string; colors: Uint32Array } | null = null;
 export function packColorFieldMemo(map: GameMap, devMode?: DevModeState, renderWaterType?: Uint8Array, waterVersion = 0): Uint32Array {
   const key = `${map.width}x${map.height}|` +
     RENDER_LAYERS.map((l) => (devMode?.[layerFlag(l)] === false ? '0' : '1')).join('') +
-    `|w${renderWaterType ? waterVersion : 'base'}|t${map.tilesRev ?? 0}`;
+    `|w${renderWaterType ? waterVersion : 'base'}|t${map.tilesRev ?? 0}` +
+    // T4: fold flora-tint PRESENCE into the key (never mutated after gen, so a
+    // presence flag suffices — no separate version counter needed) so a world
+    // that gains the field (or is generated with it from the start) doesn't
+    // serve a stale pre-T4 cache entry keyed identically otherwise.
+    `|f${map.floraTint ? 1 : 0}`;
   if (colorMemo && colorMemo.map === map && colorMemo.key === key) return colorMemo.colors;
   // The RENDER waterType (ocean + lakes from hydrology, rivers re-stamped along the
   // smooth connectome centrelines) lets us paint LAKE basins + bendy river beds as
