@@ -127,6 +127,37 @@ export interface GameMap {
    *  "maps DECLARE derived identity" precedent). Absent ⇒ no weirs ⇒ base hydrology, byte-identical
    *  to pre-P2. Persisted verbatim via SaveFile.map. */
   beaverDams?: DamRecord[];
+  /** T4 (flora-into-ground): per-cell flora coloration wash, accumulated during
+   *  vegetation placement (`vegetation-placer.ts`/`vegetation-fill.ts`) from each
+   *  placed species' colour (authored `petalTint` when set, else a habit/leaf
+   *  fallback), weighted by the entity's `scale` so density tracks actual placed
+   *  cover. Blended into `packColorField`'s biome hue (see terrain-field.ts) so a
+   *  meadow's flower/foliage colour survives once grass billboards/analytic detail
+   *  recede at zoom-out or a lower-res `px` tier — the colour field is immune to
+   *  the screen-space `fwidth` fade that thins those layers. Deterministic (built
+   *  from the same seeded placement passes, no `Math.random`); absent on a
+   *  peopleless/floraless world or a save made before T4 — `packColorField` then
+   *  behaves EXACTLY as before (no blend). Rides `SaveFile.map` verbatim like
+   *  `rockPads`/`beaverDams` (plain optional GameMap field over structuredClone);
+   *  not required by any schema — no WORLD_CONTENT_VERSION/SAVE_VERSION bump. */
+  floraTint?: FloraTintField;
+}
+
+/**
+ * Backing store for {@link GameMap.floraTint} — weighted colour-channel sums
+ * (0..255 scale) + accumulated placement weight, row-major `width*height`
+ * (index = `y*width+x`). Average colour per cell = `sum/weight` (meaningful
+ * only where `weight>0`); `packColorField` reads it directly — no separate
+ * "finalize" pass, so the field stays correct after either placement pass runs
+ * (or both, in either order).
+ */
+export interface FloraTintField {
+  width: number;
+  height: number;
+  sumR: Float32Array;
+  sumG: Float32Array;
+  sumB: Float32Array;
+  weight: Float32Array;
 }
 
 /**

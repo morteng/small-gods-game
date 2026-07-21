@@ -7,8 +7,8 @@ import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';
 import { getClimateFields } from '@/world/heightfield';
 import { dust01 } from '@/render/dust-mask';
-import { getFloraSpecies } from '@/flora/flora-registry';
-import type { Entity, Region, BrushContext } from '@/core/types';
+import { getFloraSpecies, floraGenParams } from '@/flora/flora-registry';
+import type { Entity, Region, BrushContext, GameMap, FloraTintField } from '@/core/types';
 
 /** A species' altitude ceiling (metres above sea) with a smooth thinning band —
  *  the TREELINE lever. Acceptance is 1 below `maxHeightM - bandM`, fades linearly
@@ -89,6 +89,81 @@ export function dustBandAll(
     if (strength !== undefined) out[k] = strength;
   }
   return out;
+}
+
+/**
+ * T4 (flora-into-ground): habit/leaf-derived fallback tint (0xRRGGBB) for a
+ * species with no authored `petalTint` — so the ground wash differentiates a
+ * dark conifer, a paler deciduous broadleaf, an olive shrub and a pale-green
+ * sward instead of flattening every non-flower to one green. Calibrated by eye
+ * against the botanical facts already on each DB entry (`leafType`/
+ * `leafPhenology`), not a new fact source. Rocks (habit `'rock'`) return
+ * `undefined` — loose stone contributes no living-cover coloration.
+ */
+function habitFallbackTint(species: NonNullable<ReturnType<typeof getFloraSpecies>>): number | undefined {
+  const b = species.botanical;
+  switch (b.habit) {
+    case 'tree':
+      if (b.leafType === 'needle' || b.leafType === 'scale') return 0x2e4a30; // dark conifer needle
+      return b.leafPhenology === 'evergreen' ? 0x3b5d34 : 0x7fa85a;           // deep evergreen vs paler deciduous leaf
+    case 'shrub': return 0x6b7f45;   // olive shrub foliage
+    case 'grass': return 0x9ebe6b;   // pale yellow-green sward
+    case 'fern': return 0x3f6b3a;    // deep fern green
+    case 'herb': return 0x8fae5e;    // pale foliage green (pre-/non-bloom herb)
+    case 'rock': return undefined;
+    default: return undefined;
+  }
+}
+
+/**
+ * T4: the ground-tint colour a placed species contributes, 0xRRGGBB → RGB
+ * triple. An authored `petalTint` (flowers/herbs — see `flora-species.ts`)
+ * wins outright since it IS the real bloom colour; otherwise
+ * {@link habitFallbackTint}. Unknown ids (non-flora entity kinds — debris,
+ * rubble) and rocks return `null`: they contribute no flora coloration.
+ */
+export function speciesTintRgb(kind: string): [number, number, number] | null {
+  const species = getFloraSpecies(kind);
+  if (!species) return null;
+  const petal = floraGenParams(kind)?.petalTint;
+  const hex = petal && petal > 0 ? petal : habitFallbackTint(species);
+  if (hex === undefined) return null;
+  return [(hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff];
+}
+
+/**
+ * T4: fold one placed plant's colour into `map.floraTint` (see
+ * `GameMap.floraTint` doc), weighted by `weight` (the entity's `scale` — a
+ * bigger tuft/tree covers more of the cell) so the eventual blend in
+ * `packColorField` tracks actual placed cover density, not just presence.
+ * Lazily allocates the field on first real contribution — a kind with no
+ * derivable tint (rocks, unknown ids) never creates it, so a floraless/
+ * rock-only cell leaves `map.floraTint` untouched (possibly still `undefined`
+ * for the whole map, matching the "no-op on a floraless world" contract).
+ * Out-of-bounds cells are ignored defensively (placement always emits
+ * in-bounds; the check is guard-rail, not load-bearing).
+ */
+export function accumulateFloraTint(map: GameMap, x: number, y: number, kind: string, weight: number): void {
+  if (!(weight > 0)) return;
+  const rgb = speciesTintRgb(kind);
+  if (!rgb) return;
+  const tx = Math.floor(x), ty = Math.floor(y);
+  if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return;
+  const idx = ty * map.width + tx;
+  let field: FloraTintField | undefined = map.floraTint;
+  if (!field) {
+    const n = map.width * map.height;
+    field = {
+      width: map.width, height: map.height,
+      sumR: new Float32Array(n), sumG: new Float32Array(n), sumB: new Float32Array(n),
+      weight: new Float32Array(n),
+    };
+    map.floraTint = field;
+  }
+  field.sumR[idx] += rgb[0] * weight;
+  field.sumG[idx] += rgb[1] * weight;
+  field.sumB[idx] += rgb[2] * weight;
+  field.weight[idx] += weight;
 }
 
 export interface VegetationParams {
@@ -307,6 +382,10 @@ export function placeVegetation(
           scale,
           rotation,
         }));
+        // T4: bake this plant's colour into the ground wash (scale-weighted —
+        // see `accumulateFloraTint`), so the cell's coloration survives once
+        // the billboard itself culls at zoom-out/low px.
+        accumulateFloraTint(m, x + fx, y + fy, kind, scale);
       }
 
       // Undergrowth: at most one per cell. Historically canopy-gated; the
@@ -333,11 +412,14 @@ export function placeVegetation(
             const ugKindPicked = pickWeighted(ugRng, [[ugKind, ugWeight]]);
             const ugFx = cellFrac(hash01(x, y, seed + 20), 0.35);
             const ugFy = cellFrac(hash01(x, y, seed + 21), 0.35);
+            const ugScaleVal = 0.6 + hash01(x, y, seed + 22) * 0.4; // Smaller scale: 0.6-1.0
             out.push(defaultEntity(params.brush, ugKindPicked, x + ugFx, y + ugFy, {
               offsetX: ugFx,
               offsetY: ugFy,
-              scale: 0.6 + hash01(x, y, seed + 22) * 0.4, // Smaller scale: 0.6-1.0
+              scale: ugScaleVal,
             }));
+            // T4: undergrowth (ferns/flowers/heather) contributes its colour too.
+            accumulateFloraTint(m, x + ugFx, y + ugFy, ugKindPicked, ugScaleVal);
           }
         }
       }

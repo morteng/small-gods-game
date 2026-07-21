@@ -31,7 +31,7 @@ import { getHeightfield, ELEVATION_SEA_LEVEL } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec } from '@/terrain/terrain-shape';
 import { siteMetrics } from '@/terrain/terrain-generator';
-import { COVER_SLOPE, dustBandAll } from '@/world/brushes/vegetation-placer';
+import { COVER_SLOPE, dustBandAll, accumulateFloraTint } from '@/world/brushes/vegetation-placer';
 import { dustAt } from '@/render/dust-mask';
 
 /** Open-ground tile types that read as bare when unplanted — the grass sward. Matches
@@ -173,6 +173,9 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
         offsetY: fy,
         scale,
       }));
+      // T4: bake this tuft's colour into the ground wash — see
+      // `accumulateFloraTint` (the same seam the grassland brush uses).
+      accumulateFloraTint(map, x + fx, y + fy, kind, scale);
       placed++;
     }
   }
