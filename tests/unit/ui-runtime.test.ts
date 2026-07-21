@@ -1437,3 +1437,161 @@ describe('UiRuntime — inbox TIDINGS/ANNALS toggle (UI v2 W4/D9)', () => {
     expect(rt.hasCard()).toBe(false);
   });
 });
+
+// ── D10 polish wave: quiet chrome (dim-until-hover) + band-change label fade ──
+// `vertexAlphaAt` probes a widget's PAINT alpha independent of its hit-region
+// geometry (alpha is opaque to `hitRegions()` — it's a colour channel baked
+// into the vertex data). Same stride convention as `maxScreenX` above.
+function vertexAlphaAt(groups: UiDrawGroup[], space: UiSpace, atX: number, atY: number): number | undefined {
+  for (const g of groups) {
+    if (g.space !== space) continue;
+    for (let i = 0; i < g.vertexCount * 8; i += 8) {
+      if (Math.abs(g.vertices[i] - atX) < 0.01 && Math.abs(g.vertices[i + 1] - atY) < 0.01) {
+        return g.vertices[i + 7];
+      }
+    }
+  }
+  return undefined;
+}
+
+describe('UiRuntime — D10 quiet chrome: camera cluster dims until hovered', () => {
+  const CAM = { onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {} };
+
+  it('FIT/1:1 paint dim when the pointer is off the cluster, full-strength once anywhere over it', () => {
+    const rt = new UiRuntime();
+    rt.configure(CAM);
+    const cold = rt.frame(W, H, DPR); // pointer starts at (-1,-1) — off every cluster
+    const fitCold = rt.hitRegions().find((h) => h.id === 'cam.fit')!;
+    const coldAlpha = vertexAlphaAt(cold, UiSpace.Screen, fitCold.x, fitCold.y)!;
+
+    rt.pointerMove(...center(fitCold)); // anywhere in the cluster's footprint counts
+    const hot = rt.frame(W, H, DPR);
+    const fitHot = rt.hitRegions().find((h) => h.id === 'cam.fit')!;
+    const hotAlpha = vertexAlphaAt(hot, UiSpace.Screen, fitHot.x, fitHot.y)!;
+
+    expect(coldAlpha).toBeLessThan(hotAlpha);
+    // no layout jump: the button's own rect never moves between the two states.
+    expect(fitHot).toEqual(fitCold);
+  });
+
+  it('+/- (the at-a-glance zoom affordance) never dim, even off-hover', () => {
+    const rt = new UiRuntime();
+    rt.configure(CAM);
+    const cold = rt.frame(W, H, DPR);
+    const zoomIn = rt.hitRegions().find((h) => h.id === 'cam.in')!;
+    const zoomOut = rt.hitRegions().find((h) => h.id === 'cam.out')!;
+    const fit = rt.hitRegions().find((h) => h.id === 'cam.fit')!;
+    const inAlpha = vertexAlphaAt(cold, UiSpace.Screen, zoomIn.x, zoomIn.y)!;
+    const outAlpha = vertexAlphaAt(cold, UiSpace.Screen, zoomOut.x, zoomOut.y)!;
+    const fitAlpha = vertexAlphaAt(cold, UiSpace.Screen, fit.x, fit.y)!;
+    expect(inAlpha).toBeGreaterThan(fitAlpha);
+    expect(outAlpha).toBeGreaterThan(fitAlpha);
+  });
+
+  it('a cold click on FIT still fires its hook (dim ≠ disabled)', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ ...CAM, onFitView: () => fired.push('fit') });
+    rt.frame(W, H, DPR);
+    const fit = rt.hitRegions().find((h) => h.id === 'cam.fit')!;
+    click(rt, ...center(fit));
+    expect(fired).toEqual(['fit']);
+  });
+});
+
+describe('UiRuntime — D10 quiet chrome: time transport cluster dims until hovered', () => {
+  it('the rate ladder + pause dim off-hover, brighten once the pointer is over the cluster', () => {
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus() });
+    const cold = rt.frame(W, H, DPR);
+    const pauseCold = rt.hitRegions().find((h) => h.id === 'ui.time.pause')!;
+    const coldAlpha = vertexAlphaAt(cold, UiSpace.Screen, pauseCold.x, pauseCold.y)!;
+
+    rt.pointerMove(...center(pauseCold));
+    const hot = rt.frame(W, H, DPR);
+    const pauseHot = rt.hitRegions().find((h) => h.id === 'ui.time.pause')!;
+    const hotAlpha = vertexAlphaAt(hot, UiSpace.Screen, pauseHot.x, pauseHot.y)!;
+
+    expect(coldAlpha).toBeLessThan(hotAlpha);
+    expect(pauseHot).toEqual(pauseCold); // no layout jump
+  });
+
+  it('a cold click on the pause toggle still dispatches toggle_pause (dim ≠ disabled)', () => {
+    const sent: TimeCommand[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ timeStatus: () => baseTimeStatus(), onTimeCommand: (cmd) => sent.push(cmd) });
+    rt.frame(W, H, DPR);
+    const pause = rt.hitRegions().find((h) => h.id === 'ui.time.pause')!;
+    click(rt, ...center(pause));
+    expect(sent).toEqual([{ kind: 'toggle_pause' }]);
+  });
+});
+
+describe('UiRuntime — D10 band-change label fade (world labels)', () => {
+  it('fades IN over ~150ms when the world band newly engages (no hit-region loss mid-fade)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+
+    const atStart = rt.frame(W, H, DPR, 0); // band just engaged this instant
+    const valeStart = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    expect(valeStart).toBeTruthy(); // clickable from frame 1 — the ramp is paint-only
+    const a0 = vertexAlphaAt(atStart, UiSpace.World, valeStart.x, valeStart.y)!;
+
+    const atHalf = rt.frame(W, H, DPR, 75); // halfway through the 150ms ramp
+    const valeHalf = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    const aHalf = vertexAlphaAt(atHalf, UiSpace.World, valeHalf.x, valeHalf.y)!;
+
+    const atDone = rt.frame(W, H, DPR, 300); // well past the ramp
+    const valeDone = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    const aDone = vertexAlphaAt(atDone, UiSpace.World, valeDone.x, valeDone.y)!;
+
+    expect(a0).toBeCloseTo(0, 5);
+    expect(aHalf).toBeGreaterThan(a0);
+    expect(aDone).toBeGreaterThan(aHalf);
+    expect(valeStart).toEqual(valeHalf); // no layout animation — only alpha moves
+    expect(valeHalf).toEqual(valeDone);
+  });
+
+  it('fades OUT over ~150ms when the band leaves, then stops drawing (and stops registering clicks)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+    rt.frame(W, H, DPR, 0);
+    rt.frame(W, H, DPR, 300); // settle at steady full-strength
+    const valeSteady = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+
+    // the band leaves — the hook goes null the instant it does (D4's existing
+    // contract); the fade must still have something to paint, so it plays
+    // from the LAST known label positions (frozen — `valeSteady`'s x/y).
+    rt.configure({ getWorldLabels: () => null });
+    const outStart = rt.frame(W, H, DPR, 300);
+    const aOutStart = vertexAlphaAt(outStart, UiSpace.World, valeSteady.x, valeSteady.y)!;
+    // fading OUT is display-only — no click target for a ghost of a place
+    // the camera has already left.
+    expect(rt.hitRegions().some((h) => h.id.startsWith('wlabel.'))).toBe(false);
+
+    const outHalf = rt.frame(W, H, DPR, 375); // halfway through the OUT ramp
+    const aOutHalf = vertexAlphaAt(outHalf, UiSpace.World, valeSteady.x, valeSteady.y)!;
+
+    const outDone = rt.frame(W, H, DPR, 500); // past the ramp — steady invisible
+    const aOutDone = vertexAlphaAt(outDone, UiSpace.World, valeSteady.x, valeSteady.y);
+
+    expect(aOutHalf).toBeLessThan(aOutStart);
+    expect(aOutDone).toBeUndefined(); // nothing left to paint — the ramp is over
+  });
+
+  it('steady world-band visibility (no flip) never re-triggers a fade', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+    rt.frame(W, H, DPR, 0);
+    rt.frame(W, H, DPR, 300); // fully faded in
+    const steady1 = rt.frame(W, H, DPR, 5000); // long after — still the same band
+    const vale1 = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    const a1 = vertexAlphaAt(steady1, UiSpace.World, vale1.x, vale1.y)!;
+
+    const steady2 = rt.frame(W, H, DPR, 20000); // even later, nothing changed
+    const vale2 = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    const a2 = vertexAlphaAt(steady2, UiSpace.World, vale2.x, vale2.y)!;
+
+    expect(a1).toBeCloseTo(a2, 5); // steady full-strength both times, no re-ramp
+  });
+});

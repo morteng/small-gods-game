@@ -300,7 +300,10 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     if (water && !studio) dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
 
     const chrome = !studio;
-    const uiGroups = chrome ? ui.frame(target.width, target.height, dpr) : [];
+    // D10: thread this frame's own clock through so the UI runtime's
+    // world-label band-change fade (`drawWorldLabels`) has a real elapsed-time
+    // base — never a fresh `Date.now()`/`performance.now()` call of its own.
+    const uiGroups = chrome ? ui.frame(target.width, target.height, dpr, nowMs) : [];
     const tFields = performance.now();
 
     scene.renderFrame({
