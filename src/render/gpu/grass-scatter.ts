@@ -64,6 +64,14 @@ function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
 
+/** Standard GLSL-style smoothstep — same shape the terrain shader uses for its
+ *  splat/scree thresholds, so the ARIDITY driver below reads the landform the same
+ *  way terrain-wgsl.ts does. */
+function smoothstep(a: number, b: number, x: number): number {
+  const t = clamp01((x - a) / (b - a));
+  return t * t * (3 - 2 * t);
+}
+
 /** Low-frequency value noise in [0,1] for clumping fields (bilinear over a hash lattice). */
 function vnoise(x: number, y: number): number {
   const x0 = Math.floor(x), y0 = Math.floor(y);
@@ -283,6 +291,16 @@ export function buildGrassInstances(
         const rr = hash2(fx * 1.7, fy * 2.3);
         const sJit = hash2(fx * 2.9 + 1.1, fy * 3.7 + 6.2);
 
+        // ── ARIDITY (T2): the SAME slope/elevation/moisture driver the terrain shader's
+        //    ground splat uses (terrain-wgsl.ts wDust/wScree — see aboveM/slope, this
+        //    file's own render-space measures). Sharing it here is what makes strewn
+        //    pebbles, outcrop density and boulder frequency agree with the painted
+        //    dust/scree instead of reading as an independent random layer — dry, steep,
+        //    high ground gets MORE stone and LESS soft cover, one coherent story.
+        const slopeDry = smoothstep(0.06, 0.26, slope);
+        const elevDry = smoothstep(9.0, 27.0, aboveM);
+        const aridity = clamp01((1 - moist) * 0.62 + slopeDry * 0.22 + elevDry * 0.22);
+
         // SOFT-COVER VIABILITY (grass/flower/reed) — mirrors the terrain splat's own
         // ramps so soft vegetation never stands on ground the shader paints as rock
         // or snow:
@@ -375,12 +393,19 @@ export function buildGrassInstances(
         let cat: ClutterCat;
         let boulder = false, pebble = false;
         const pebbleField = vnoise(fx / 3.5 + 5.5, fy / 3.5 + 88.1);                   // dusty-ground pebble clumps
+        // Outcrop threshold SHIFTS DOWN with aridity — a dry, upland shoulder exposes
+        // rock outcrops at gentler slopes than a lush lowland does (mirrors the terrain
+        // shader's aridity-shifted wScree band, terrain-wgsl.ts screeLo/screeHi), so the
+        // analytic scree apron and this billboard outcrop band creep in together.
+        const outcropLo = 0.28 - 0.12 * aridity;
         if (slope > 0.48) continue;                                                    // steep: rock paint owns the face — a scree
                                                                                        // billboard pasted on it floats (user report)
-        else if (slope > 0.28 && rockField > 0.50) { cat = 'rock'; boulder = rockField > 0.70; } // outcrop, big at core
-        else if (boulderField > 0.80 && rr > 0.55) { cat = 'rock'; boulder = true; }   // boulder cluster on flat grass
+        else if (slope > outcropLo && rockField > 0.50) { cat = 'rock'; boulder = rockField > 0.70; } // outcrop, big at core
+        // Boulder clusters on FLAT ground grow more common with elevation (talus/moraine
+        // feel on a high shoulder) — the threshold eases from 0.80 toward 0.64 as elevDry saturates.
+        else if (boulderField > (0.80 - 0.16 * elevDry) && rr > 0.55) { cat = 'rock'; boulder = true; }
         else if (nearWater && moist > 0.48 && reedField > 0.50) { if (softDrop) continue; cat = 'reed'; } // tall stiff reeds at the water's edge
-        else if (moist < 0.55 && pebbleField > 0.68 && rr > 0.72) { cat = 'rock'; pebble = true; } // tiny strewn pebbles on drier/worn ground
+        else if (aridity > 0.28 && pebbleField > 0.68 && rr > 0.72) { cat = 'rock'; pebble = true; } // tiny strewn pebbles on drier/steeper/higher ground
         else if (moist > 0.30 && !vergeNoFlower && flowerField > 0.56) {
           if (softDrop) continue;
           // FLOWER DRIFTS, not confetti: a drift core (field high) is DENSER than its

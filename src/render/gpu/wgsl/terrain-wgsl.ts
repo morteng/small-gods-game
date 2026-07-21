@@ -611,6 +611,27 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   let temp = sampleScalarBi(bc, &temperature);
   let jit = vnoise(in.vGrid * 0.35) - 0.5;       // [-0.5,0.5] threshold wander
 
+  // Absolute elevation in METRES above sea — hoisted here (was only computed later,
+  // by the snow-altitude weight) so the ground splat below can use it too: a real
+  // physical quantity, not the [0,1] relief fraction, so it means the same thing at
+  // any world relief setting (a low-relief world never reads as "upland" from the
+  // fraction alone).
+  let metresAS = aboveSea * G.uZParams.z;
+
+  // ── ARIDITY: the coherent macro driver the dry/dust splat below is retethered to.
+  // Real landform signals — NOT a free-floating noise field — decide where ground
+  // reads dry: climate dryness (moisture), CONVEX/STEEP ground shedding water
+  // (slopeDry), and dry rocky UPLANDS (elevDry). Both new terms fade in well below
+  // where the rock/scree bands themselves kick in (wRock/wScree start at slope 0.30;
+  // wSnowAlt's altitude cap starts at 22.5 m) — so this is a genuinely different,
+  // EARLIER band: the drying shoulder before the scree, the parched plateau before
+  // the peak. Noise (bareField/jit, below) only breaks up this field's edges now —
+  // it no longer manufactures dry blotches out of nothing on lush, flat, wet ground.
+  let dry       = 1.0 - moist;
+  let slopeDry  = smoothstep(0.06, 0.26, slope);
+  let elevDry   = smoothstep(9.0, 27.0, metresAS);
+  let aridity   = clamp(dry * 0.62 + slopeDry * 0.22 + elevDry * 0.22, 0.0, 1.0);
+
   // ── Road surface as a CONTEXT BLEND of the ground layer ──────────────────────
   // The carved carriageway replaces grass with its material albedo (packed earth →
   // cobble), ramped by pavedness. This is folded into the GROUND layer BEFORE the
@@ -679,23 +700,31 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   if (G.uFlags.x > 0.5) {
     if (texFade > 0.0) {
       // GROUND-PATCH SPLAT under the billboards: four real harvested swatches — lush grass,
-      // dry parched grass, bare dust, pebble gravel — blended terrain-aware by WETNESS + a
-      // low-freq bare-patch field. Wet/vegetated → lush grass; drying → parched grass; driest &
-      // patchiest → bare dust; worn clumps → pebbles speckled over. The earthy patches keep
-      // their REAL colour so drying ground genuinely turns dusty/pebbly, not a tint of the green.
-      let dry   = 1.0 - moist;
+      // dry parched grass, bare dust, pebble gravel — blended terrain-AWARE, retethered to
+      // the ARIDITY driver above (climate + slope + elevation) rather than a free-floating
+      // noise field. Wet/vegetated/hollow → lush grass; drying shoulder → parched grass;
+      // driest & steepest/highest → bare dust; worn clumps → pebbles speckled over. The
+      // earthy patches keep their REAL colour so drying ground genuinely turns dusty/pebbly,
+      // not a tint of the green.
       let gvar  = vnoise(in.vGrid * 0.09 + vec2<f32>(5.0, 2.0));
-      let bareField = vnoise(in.vGrid * 0.06 + vec2<f32>(17.0, 4.0));   // low-freq bare-earth field
+      // bareField is now a PATCHINESS modulator, not an independent driver: its
+      // contribution SCALES WITH aridity (patchy below), so it can only redistribute
+      // dry mass that the landform already put there — it can no longer conjure a
+      // bare patch out of nothing on lush, flat, wet ground (the old blotchy read).
+      let bareField = vnoise(in.vGrid * 0.06 + vec2<f32>(17.0, 4.0));
       // MACRO SWARD DRIFT: a ~45-tile field sweeping the meadow through deep cool
       // green, fresh mid-green and warm straw — the large-scale tonal patchiness a
       // real sward has (grazing, soil, drainage) and the single biggest thing that
       // separates a painted meadow from a flat green fill. It also nudges the
       // parched-grass threshold so the straw drifts genuinely DRY at their hearts.
       let sward = vnoise(in.vGrid * 0.022 + vec2<f32>(9.0, 23.0));
+      let patchy = bareField * (0.20 + 0.60 * aridity);
 
-      // Splat weights (jittered thresholds so borders wander off the tile grid).
-      let wDust  = smoothstep(0.58, 0.86, dry * 0.65 + bareField * 0.55 + jit * 0.10);   // bare earth
-      let wDry   = smoothstep(0.40, 0.68, dry + jit * 0.12 + (sward - 0.5) * 0.22) * (1.0 - wDust);  // parched grass
+      // Splat weights (jittered thresholds so borders wander off the tile grid). Mirrored
+      // EXACTLY (this wDust formula only) by the CPU dust01() in render/dust-mask.ts, which
+      // vegetation placement gates against — keep the two in lockstep.
+      let wDust  = smoothstep(0.48, 0.82, aridity * 0.62 + patchy + jit * 0.14);       // bare earth
+      let wDry   = smoothstep(0.30, 0.62, aridity + jit * 0.12 + (sward - 0.5) * 0.20) * (1.0 - wDust);  // parched grass
       let wGrass = max(1.0 - wDust - wDry, 0.0);                                     // lush default
 
       // Lush grass: mean-normalised so the BIOME stays the hue authority; a patchy olive↔fresh
@@ -817,7 +846,14 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // the transition ring under every rock face, so vegetation does not butt straight
   // against painted stone. Hands over to rock as wRock saturates (the 1-wRock term);
   // never a standalone field on gentle ground (band starts above the cover slopes).
-  let wScree = smoothstep(0.30, 0.48, slope + jit * 0.18) * (1.0 - wRock);
+  // The band ITSELF now shares the ARIDITY driver: a dry, upland shoulder sheds scree
+  // at gentler slopes than a lush lowland does (a real dry plateau/alpine tableland
+  // gravels over well short of a true cliff) — ties the loose-stone apron to the SAME
+  // climate+slope+elevation story as the dust/dry ground splat above, instead of scree
+  // being a pure-geometry band indifferent to what kind of country it's in.
+  let screeLo = mix(0.30, 0.16, aridity);
+  let screeHi = mix(0.48, 0.34, aridity);
+  let wScree = smoothstep(screeLo, screeHi, slope + jit * 0.18) * (1.0 - wRock);
   // Snow: cold ground (latitude/lapse) OR a permanent high-altitude cap. The
   // elevation snowline gives every great peak a white crown regardless of climate
   // (aboveSea ≈ 0.47 ≈ elev 0.82 = upper mountain, full by ≈ 0.58 = the summit);
@@ -830,7 +866,10 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // Keyed on ABSOLUTE metres above sea (aboveSea·reliefM), NOT the [0,1] fraction — so a
   // low-relief world never snow-caps a 7 m bump (the fraction crossed the line; metres don't).
   // Calibrated to the old fraction at default relief 48 m (0.47→22.6 m, 0.58→27.8 m).
-  let metresAS  = aboveSea * G.uZParams.z;
+  // (metresAS is hoisted above, alongside aridity — the same physical quantity the
+  // ground splat's elevDry term reads, so a hot-country summit that stays snow-free via
+  // wSnowCold/wSnowAlt's temperature gate still reads dry/rocky via aridity instead of
+  // flat green — no more bare green volcano tips.)
   let wSnowAlt  = smoothstep(22.5, 28.0, metresAS + jit * 1.5)
                 * smoothstep(0.45, 0.33, temp + jit * 0.04);
   let wSnow = max(wSnowCold, wSnowAlt) * smoothstep(0.42, 0.70, n.y);
