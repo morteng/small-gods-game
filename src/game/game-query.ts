@@ -33,6 +33,7 @@ import {
   PRAYER_CLAIM_WARNING_TICKS, PRAYER_CLAIM_WINDOW_TICKS, CLAIM_NOTICE_HORIZON_TICKS,
 } from '@/sim/rival-claims';
 import { housingCapacityByPoi } from '@/sim/systems/settlement-growth-system';
+import { cohortPopulation } from '@/sim/cohorts';
 import { peaceActive } from '@/sim/lord';
 import { blueprintOf } from '@/blueprint/entity';
 import { catalogue, loadDefaultPacks } from '@/catalogue';
@@ -499,7 +500,12 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       if (target.kind === 'settlement') {
         const poi = state.worldSeed?.pois.find(pp => pp.id === target.poiId);
         if (!poi) return null;
-        const souls = world.query({ kind: 'npc' }).filter(n => npcProps(n).homePoiId === target.poiId).length;
+        // Two-tier population (same fold every other read uses): named NPCs + the
+        // P1 statistical cohort tier — a walled town whose people are all
+        // cohort-tier must never read "0 souls".
+        const named = world.query({ kind: 'npc' }).filter(n => npcProps(n).homePoiId === target.poiId).length;
+        const sc = state.cohorts.get(target.poiId);
+        const souls = named + (sc ? cohortPopulation(sc) : 0);
         // W2 (D5): wards from the same source `settlement()` uses.
         const village = state.map?.villages.find(v => v.name && v.name === poi.name);
         const now = state.clock.now();
