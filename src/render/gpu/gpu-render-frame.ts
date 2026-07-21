@@ -74,7 +74,7 @@ export function groundTexDisabled(): boolean {
  * P-E — fixed art-pixel-size override (CSS px per art texel). `?px=N` PINS the
  * resolution (disables adaptation, for A/B and preference); absent ⇒ null, i.e.
  * the adaptive controller drives it — striving for 1:1 and only coarsening while
- * the rate sags below 30 fps, refining back as soon as there's ≥40 fps headroom.
+ * the rate sags below 22 fps, refining back once there's ≥28 fps headroom.
  */
 function artPixelOverride(): number | null {
   try {
@@ -173,7 +173,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // integer for crisp nearest upscaling), then blit up to the device. The
     // world→target transform is divided by `S`; offsets are snapped to the art
     // texel grid in low-res space so pixels stay stable under pan/zoom.
-    const { lowW, lowH, xform } = computeView(px, camera, dpr, target.width, target.height);
+    const { lowW, lowH, xform, pxScale } = computeView(px, camera, dpr, target.width, target.height);
 
     // ZOOM-LOD (Slice 2): one mesh subdivision for BOTH terrain + water this frame, so
     // their shared grid keeps waterlines aligned. Zoomed in → finer mesh (smooth banks),
@@ -213,7 +213,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           xform, lighting, devMode: rc.devMode,
           terrainMode: rc.devMode?.terrainMode,
           superSample: superSampleEff, maxQuads: meshMaxQuads, window: terrainWindow,
-          groundTex,
+          groundTex, pxScale,
           // DIR-A: author-placed lakes paint their beds damp too (studio editing).
           connectomeWater: rc.connectomeWater,
         });

@@ -45,6 +45,10 @@ export function computeView(
   lowW: number; lowH: number;
   xform: { sx: number; sy: number; ox: number; oy: number };
   out: { w: number; h: number };
+  /** `S/dpr` — the dynamic-resolution px factor (~= `px`), so a terrain-shader
+   *  consumer can normalize its screen-space derivative footprint and read
+   *  px-invariant LOD/detail (px1..px4 agree at a fixed camera). */
+  pxScale: number;
 } {
   const z = camera.zoom;
   const S = Math.max(1, Math.round(px * dpr));
@@ -59,6 +63,7 @@ export function computeView(
       oy: Math.round(-camera.y * z * dpr / S),
     },
     out: { w: targetW, h: targetH },
+    pxScale: S / dpr,
   };
 }
 
@@ -115,7 +120,7 @@ async function runMatrix(
   const lighting = rc.lighting ?? DEFAULT_LIGHTING;
 
   const build = (px: number, passes?: PassToggles): Parameters<GpuScene['renderFrame']>[0] => {
-    const { lowW, lowH, xform, out } = computeView(px, camera, dpr, targetW, targetH);
+    const { lowW, lowH, xform, out, pxScale } = computeView(px, camera, dpr, targetW, targetH);
     // Mirror the live frame's zoom-LOD so the bench measures the REAL mesh (the live
     // loop coarsens terrain + water when zoomed out — without this the bench always
     // rebuilt the full subsample-1 grid and over-reported the water pass).
@@ -140,7 +145,7 @@ async function runMatrix(
     catch { /* no window (tests) — default on, like the live frame */ }
     const terrain = isLayerHidden('terrain', rc.devMode)
       ? null
-      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads, window, groundTex });
+      : buildTerrainField(map, { viewport: [lowW, lowH], xform, lighting, devMode: rc.devMode, superSample, maxQuads, window, groundTex, pxScale });
     const water = (terrain && !isLayerHidden('rivers', rc.devMode))
       ? buildWaterField(map, { viewport: [lowW, lowH], xform, lighting, timeSec: 0, superSample, maxQuads, window })
       : null;
