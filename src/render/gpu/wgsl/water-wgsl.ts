@@ -27,14 +27,15 @@
 // with depth (premultiplied-alpha blend; see the fragment tail).
 
 export const WATER_WGSL = /* wgsl */ `
-// CHEAP TIER (pipeline-overridable constant, folded at pipeline creation — the cheap
-// pipeline compiles the gated blocks OUT, it doesn't branch at runtime). 1 = the
-// low-cost water for fill-bound GPUs: every field samples BILINEAR (never the 16-tap
-// bicubic waterline), the ocean's coastal gradient fields (exposure/shoal central
-// differences) stay at their mid value, and glints + caustics are dropped. The
-// waterline is then C0 (kinks at tile seams) instead of C1, and surf/rapids lose
-// their per-coast variation — accepted while the pass is the frame's fill bill.
-override CHEAP_WATER : u32 = 0u;
+// SINGLE TIER. This is the low-cost water that ships to everyone: every field samples
+// BILINEAR (no 16-tap bicubic waterline), the ocean's coastal gradient fields
+// (exposure/shoal) hold their mid value, and glints + caustics are dropped. The
+// waterline is C0 (kinks at tile seams) rather than C1, and surf/rapids lose their
+// per-coast variation — accepted because the pass is the frame's dominant fill bill on
+// integrated GPUs. (A richer bicubic/gradient/glint tier once lived behind a
+// CHEAP_WATER pipeline-override + ?water=rich; it never shipped and was removed along
+// with the lake-lift regression it harboured — the extra storage reads bought detail
+// fill-bound machines can't afford.)
 
 struct WGlobals {
   uViewport : vec2<f32>,
@@ -80,19 +81,13 @@ fn unpackRgb(rgba : u32) -> vec3<f32> {
 // BAKED tiling noise atlas (noise-texture.ts) — one bilinear tap replaces the old
 // hash+sin lattice fbm (~8 transcendental chains per call, 3-6 calls per fragment on
 // the fill-bound water pass). Channels: R vnoise, G 2-octave fbm, B 3-octave fbm,
-// A independent-seed 2-octave fbm (decorrelated — caustics/glitter). All channels are
-// normalised to [0,1]; the old in-shader fbm topped out at 0.75, which silently
-// dead-zoned every smoothstep(0.82,…) glint threshold tuned against it.
+// A independent-seed 2-octave fbm (decorrelated — was caustics/glitter, now unused).
+// All channels are normalised to [0,1].
 @group(0) @binding(10) var noiseTex : texture_2d<f32>;
 @group(0) @binding(11) var noiseSmp : sampler;
 const NOISE_INV_TILE = 1.0 / 64.0;   // 1 / NOISE_TILE_UNITS — keep in step with noise-texture.ts
 fn fbm(p : vec2<f32>) -> f32 {
   return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).g;
-}
-// The independent-seed channel — use for effects layered OVER fbm-warped motion so
-// sparkle/caustics don't correlate with the swell warp.
-fn fbm2b(p : vec2<f32>) -> f32 {
-  return textureSampleLevel(noiseTex, noiseSmp, p * NOISE_INV_TILE, 0.0).a;
 }
 fn rot2(v : vec2<f32>, a : f32) -> vec2<f32> {
   let c = cos(a); let s = sin(a);
@@ -163,7 +158,7 @@ fn sampleSurfaceW(gx : f32, gy : f32) -> f32 {
 // mesh a single triangle spans many cells and takes its whole colour from the provoking
 // vertex's cell — if that vertex sat on a dry (deep == 0) cell the entire triangle
 // rendered solid BLACK, and as the LOD flipped which vertex provoked, river banks
-// blinked. Depth is already evaluated per-fragment (sampleSurfaceW/cubicTerrainH), so a
+// blinked. Depth is already evaluated per-fragment (sampleSurfaceW/sampleTerrainH), so a
 // fragment can be wet (depth > 0) while its triangle's flat colour cell is dry. Sampling
 // colour per-fragment from the fine buffer — and treating a 0 (dry) tap as a non-zero
 // sibling so we never blend toward black — makes the colour LOD-independent and kills
@@ -224,54 +219,9 @@ fn sampleWaterCol(gx : f32, gy : f32) -> WaterCol {
   return out;
 }
 
-// ── BICUBIC (Catmull-Rom) sampling for a PIXEL-PERFECT waterline ──────────────────
-// Bilinear over a 1-value-per-tile field is only C0: the surface−bed zero-crossing
-// kinks at every tile boundary, which reads as a faceted/jaggy waterline at zoom.
-// Catmull-Rom interpolation is C1 — the crossing is a smooth curve across tile seams,
-// so streams/rivers/lakes get a clean contour with no extra geometry. 16 taps, water
-// fragments only. The DRY fallback (surfaceW < 0 → bed) is applied per-tap so the
-// surface plane still ramps to the ground at the bank.
-fn crSpline(p0 : f32, p1 : f32, p2 : f32, p3 : f32, t : f32) -> f32 {
-  return 0.5 * ((2.0 * p1)
-    + (-p0 + p2) * t
-    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t
-    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t);
-}
-fn terrTap(ix : i32, iy : i32) -> f32 {
-  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
-  let cx = clamp(ix, 0, W - 1); let cy = clamp(iy, 0, H - 1);
-  return terrainH[u32(cy) * u32(W) + u32(cx)];
-}
-fn surfTap(ix : i32, iy : i32) -> f32 {
-  let W = i32(G.uGrid.x); let H = i32(G.uGrid.y);
-  let cx = clamp(ix, 0, W - 1); let cy = clamp(iy, 0, H - 1);
-  let i = u32(cy) * u32(W) + u32(cx);
-  let s = surfaceW[i];
-  if (s < 0.0) { return terrainH[i]; }   // dry tap → bed, so the plane meets the bank
-  return s;
-}
-fn cubicTerrainH(gx : f32, gy : f32) -> f32 {
-  let x = floor(gx); let y = floor(gy);
-  let tx = gx - x; let ty = gy - y;
-  let ix = i32(x); let iy = i32(y);
-  var col : array<f32, 4>;
-  for (var r : i32 = 0; r < 4; r = r + 1) {
-    let yy = iy - 1 + r;
-    col[r] = crSpline(terrTap(ix - 1, yy), terrTap(ix, yy), terrTap(ix + 1, yy), terrTap(ix + 2, yy), tx);
-  }
-  return crSpline(col[0], col[1], col[2], col[3], ty);
-}
-fn cubicSurfaceW(gx : f32, gy : f32) -> f32 {
-  let x = floor(gx); let y = floor(gy);
-  let tx = gx - x; let ty = gy - y;
-  let ix = i32(x); let iy = i32(y);
-  var col : array<f32, 4>;
-  for (var r : i32 = 0; r < 4; r = r + 1) {
-    let yy = iy - 1 + r;
-    col[r] = crSpline(surfTap(ix - 1, yy), surfTap(ix, yy), surfTap(ix + 1, yy), surfTap(ix + 2, yy), tx);
-  }
-  return crSpline(col[0], col[1], col[2], col[3], ty);
-}
+// (The bicubic Catmull-Rom waterline sampler that once gave a C1 sub-cell contour near
+// the bank lived here; it was rich-tier only — the shipping shader reads BILINEAR
+// everywhere — so it was removed with the rest of the rich tier.)
 
 // ── ANALYTIC RIVER CHANNEL — distance to the connectome centreline ────────────────
 // The CPU mirror is channelAt() in river-channel-geometry.ts (kept byte-for-byte in
@@ -442,18 +392,6 @@ const WAVE_DIR = vec2<f32>(0.80, 0.60);
 // Lake ripple direction (unit, deliberately not the ocean's) — lakes get a faint
 // uniform breeze-ripple, never the shoreward swell rings.
 const LAKE_DIR = vec2<f32>(0.60, -0.80);
-// WP-M overview fill perf: shore distance (tiles) inside which ocean/lake fragments keep
-// the BICUBIC pixel-perfect waterline clip; deeper water reads BILINEAR (a quarter of the
-// storage bandwidth) since its large-positive depth never clips. Generous enough to cover
-// the whole waterline band even under the zoom-coarsened mesh (flat cell index can trail
-// the fragment by up to the subsample stride, ≤4), so the water/land boundary is untouched.
-const SHORE_CUBIC_TILES = 6.0;
-// T1.2 fill perf: shore distance (tiles) beyond which the ocean's per-fragment
-// gradient fields (coast normal → exposure, bed slope → shoal) stop being sampled
-// and blend to their mid value — see the coastal-gated block in the ocean branch.
-// Larger than every gradient consumer's reach (breakLine 3, swash ≤5.6, chop ~e^-shore/7.7).
-const COASTAL_GRAD_TILES = 14.0;
-
 // ── RIVER MOTION + FOAM (R6 render polish) ────────────────────────────────────────
 // Foam tone for river whitewater, bank rim and waterline lip (one colour → one read).
 const RIVER_FOAM = vec3<f32>(0.92, 0.96, 0.98);
@@ -485,32 +423,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   var flowV : vec2<f32> = vec2<f32>(0.0, 0.0);
   var reachSlopeM : f32 = 0.0;              // rivers: water-surface fall (m) per tile along the reach
 
-  // SHORE-GATED SAMPLING (WP-M — overview fill perf). The pixel-perfect waterline is a
-  // BICUBIC (16-tap ×2 = 32 storage reads) clip of surface − bed at the sub-cell zero
-  // crossing — but that crossing only exists within a few tiles of the bank. A DEEP-water
-  // ocean/lake fragment (shore distance ≥ SHORE_CUBIC_TILES) has a large-positive depth
-  // that never clips, so the exact contour there is irrelevant; a BILINEAR read (4-tap ×2
-  // = 8 reads) gives a visually identical depth/tint at a quarter of the bandwidth. This
-  // is the open-sea bulk of a watery overview — the fill-bound regime the water pass is
-  // bandwidth-limited in (~80 storage reads/frag; round-3 found the pass memory-bound on
-  // exactly these reads). shoreD reads 0 on land AND on the dry shore-dilation overhang
-  // cells, so the ENTIRE waterline band stays bicubic → zero visible change at the
-  // water/land boundary. Rivers (narrow, always near a bank) always keep bicubic.
-  let shoreCell = shoreD[ci];
-  // CHEAP tier: EVERY ocean/lake fragment takes the bilinear "deep" path — the
-  // bicubic waterline is the pass's single largest read bill (~48 taps/frag).
-  let deepWater = (cellTyp == 1u || cellTyp == 2u)
-               && (CHEAP_WATER == 1u || shoreCell >= SHORE_CUBIC_TILES);
-
+  // WATERLINE. surface − bed crosses zero where the terrain contour meets the water
+  // plane; the one-ring shore dilation gives near-bank dry cells a water plane so BOTH
+  // sides of the line are covered. All fields read BILINEAR (the rich tier's bicubic
+  // sub-cell contour was dropped) — the pass is memory-bound (~80 storage reads/frag;
+  // round-3 measured it), so a quarter of the waterline bandwidth is the difference
+  // between fill-bound and not. The line is then C0 (kinks at tile seams), accepted.
   if (cellTyp == 1u || cellTyp == 2u) {
-    // PIXEL-PERFECT WATERLINE. The bed (terrainH) is bicubic, the surface bicubic, so
-    // surface − bed crosses zero exactly where the terrain contour meets the water
-    // plane — a C1 contour across tile seams. The one-ring shore dilation gives near-
-    // bank dry cells a water plane so BOTH sides of the line are covered. Lakes ride the
-    // drought/flood-shifted surface; ocean stays at its datum. Deep water skips to the
-    // cheap bilinear surface (identical where nothing clips).
-    if (deepWater) { surfLvl = sampleSurfaceW(in.vGrid.x, in.vGrid.y); }
-    else { surfLvl = cubicSurfaceW(in.vGrid.x, in.vGrid.y); }
+    // Lakes ride the drought/flood-shifted surface plane; ocean stays at its datum.
+    surfLvl = sampleSurfaceW(in.vGrid.x, in.vGrid.y);
     if (cellTyp == 2u) { surfLvl = surfLvl + G.uWater.w; }
   } else {
     // RIVER / dry-band → analytic channel. The signed distance is a smooth (cell-grid-
@@ -525,12 +446,9 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     reachSlopeM = cg.slopeM;
   }
 
-  // Bed: bicubic near the bank (the waterline clip needs it), bilinear in deep water.
-  // CHEAP tier reads bilinear everywhere (rivers included — their silhouette is the
-  // analytic SDF, so the bed only tints depth).
-  var bedN : f32;
-  if (deepWater || CHEAP_WATER == 1u) { bedN = sampleTerrainH(in.vGrid.x, in.vGrid.y); }
-  else { bedN = cubicTerrainH(in.vGrid.x, in.vGrid.y); }
+  // Bed (bilinear everywhere — rivers' silhouette is the analytic SDF, so the bed here
+  // only tints depth; ocean/lake read the same smooth bed the surface does).
+  let bedN = sampleTerrainH(in.vGrid.x, in.vGrid.y);
   let rawDepthN = surfLvl - bedN;
   if (rawDepthN <= 0.0) { discard; }
   let depthM = rawDepthN * G.uZParams.z;
@@ -605,46 +523,15 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(wcol.shallow, wcol.deep, max(tDeep, vec3<f32>(shoreDeep)))
           * (G.uAmbient.xyz + vec3<f32>(day * 0.85));
 
-    // COASTAL-GATED GRADIENT FIELDS (T1.2 overview fill perf). exposure (coast normal
-    // vs the swell) and shoal (seabed slope) each need a central-difference over a
-    // bilinear field — 4 sampleShore + 4 sampleTerrainH = 32 extra storage reads per
-    // fragment on a pass that round-3 measured MEMORY-bound. But every consumer is
-    // shore-local: breakLine dies by 3 tiles, the swash sheet by ~5.6, shore chop
-    // rides nearShore, and only the crest-amp modulation reaches further (mildly).
-    // So the open-sea bulk — most of a watery overview — pays those reads for a
-    // near-constant answer. Blend both to their mid value across a 4-tile band ending
-    // at COASTAL_GRAD_TILES and skip the 8 gradient taps entirely on deep fragments
-    // (storage reads carry no derivative requirement, so the non-uniform branch is
-    // legal). The mix() to the SAME constant the deep path uses keeps the seam C0.
-    // CHEAP tier holds both gradient fields at their open-sea mid value everywhere —
-    // exactly the constant the deep path already blends to, so the surf still runs,
-    // it just stops varying per-coast (windward/shelf reads flatten out).
-    var exposure = 0.5;
-    var shoal = 0.5;
-    let coastal = smoothstep(COASTAL_GRAD_TILES, COASTAL_GRAD_TILES - 4.0, shore);
-    if (CHEAP_WATER == 0u && coastal > 0.0) {
-      // Coast normal (offshore) from the shore-distance gradient — windward coasts
-      // (facing the swell) get rougher water + harder breakers than lee shores.
-      let sgx = sampleShore(g.x + 1.0, g.y) - sampleShore(g.x - 1.0, g.y);
-      let sgy = sampleShore(g.x, g.y + 1.0) - sampleShore(g.x, g.y - 1.0);
-      let coastN = normalize(vec2<f32>(sgx, sgy) + vec2<f32>(1e-4, 0.0));
-      let exposureF = clamp(-dot(coastN, WAVE_DIR), 0.0, 1.0);
-
-      // BATHYMETRY: read the seabed slope from the terrain-height gradient. A GENTLE
-      // (flat) bed = a long shallow shelf → waves shoal: they grow taller, slow down,
-      // and break into more foam over a wider band. A steep drop-off stays calmer.
-      // This varies naturally around the island, so some shores get big majestic surf
-      // and others stay quiet. PER-FRAGMENT via the smooth bilinear sampler — the old
-      // central diff at ci (the FLAT provoking-vertex cell) made shoal constant per
-      // TRIANGLE, and everything keyed off it (the swash run-line especially) stepped
-      // in giant pale triangles whenever the drag-LOD mesh coarsened.
-      let bgx = sampleTerrainH(g.x + 1.0, g.y) - sampleTerrainH(g.x - 1.0, g.y);
-      let bgy = sampleTerrainH(g.x, g.y + 1.0) - sampleTerrainH(g.x, g.y - 1.0);
-      let bedSlope = length(vec2<f32>(bgx, bgy)) * G.uZParams.z;   // ~m drop over 2 tiles
-      let shoalF = exp(-bedSlope * 2.2);                // 1 on a flat shelf → 0 steep
-      exposure = mix(0.5, exposureF, coastal);
-      shoal = mix(0.5, shoalF, coastal);
-    }
+    // COASTAL GRADIENT FIELDS (dropped). exposure (coast normal vs the swell) and shoal
+    // (seabed slope) once varied the surf per-coast via a central-difference over the
+    // bilinear shore/terrain fields — 8 extra storage taps per fragment on a pass that
+    // round-3 measured MEMORY-bound. That was rich-tier only; the shipping shader holds
+    // both at their open-sea mid value everywhere, so the surf still runs, it just
+    // doesn't vary windward/lee or with the shelf. Kept as consts so the swell/foam
+    // maths below reads unchanged.
+    let exposure = 0.5;
+    let shoal = 0.5;
 
     // Per-location wobbled swell direction: a slow large-scale fbm bends WAVE_DIR by
     // up to ~±0.35 rad → directional SPREAD, not a single global vector.
@@ -674,16 +561,8 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     let amp = mix(0.45, 1.0, exposure) * (0.7 + 0.6 * shoal);
     color += vec3<f32>(smoothstep(0.6, 0.97, crest) * (0.05 + 0.05 * nearShore) * amp);
 
-    // Sun-glitter: thresholded sparkle drifting along the swell. One decorrelated
-    // atlas tap (the old ALU version was cut for cost — and its 0.82 threshold was
-    // dead against the 0.75-max fbm anyway, so this is its first real appearance).
-    // Warm-white, day-gated, and stronger toward open water so shallows stay soft.
-    // (Dropped on the CHEAP tier along with the lake glints + caustics.)
-    if (CHEAP_WATER == 0u) {
-      let gl = fbm2b(g * 0.7 - dir * (t * 0.5));
-      color += vec3<f32>(1.0, 0.97, 0.86)
-             * (smoothstep(0.88, 0.97, gl) * day * mix(0.06, 0.16, shoreDeep));
-    }
+    // (Sun-glitter was rich-tier only — a decorrelated atlas tap sparkle drifting along
+    // the swell; dropped with the lake glints + caustics.)
 
     // Faint sky sheen on the open sea — the ortho stand-in for the Fresnel-bright
     // far water: deep ocean leans a few percent toward the sky tone, which reads as
@@ -726,10 +605,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
                     + (fbm(g * 0.18 + vec2<f32>(t * 0.04, 0.0)) - 0.5) * 2.0;
     let ripple = sin(ripplePhase) * 0.5 + 0.5;
     color += vec3<f32>(smoothstep(0.6, 1.0, ripple) * 0.04);
-    if (CHEAP_WATER == 0u) {
-      let lakeGl = fbm2b(g * 0.55 + vec2<f32>(t * 0.05, -t * 0.04));
-      color += vec3<f32>(smoothstep(0.84, 0.97, lakeGl) * 0.05 * day);
-    }
+    // (Rich-tier lake glints — a decorrelated noise sparkle — dropped.)
 
     // Shore foam: a soft lapping band right at the bank (slow "breathing" so the edge
     // feels alive) plus the thin waterline lip. Much quieter than ocean surf.
@@ -797,19 +673,9 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     color = mix(color, RIVER_FOAM, clamp(foam, 0.0, 1.0));
   }
 
-  // CAUSTICS — shared by all three body types. Two decorrelated scrolling noise
-  // sheets, min()-sharpened: the minima of two phase-shifted fields form thin bright
-  // filaments (the classic cheap caustic), drifting against each other so the net
-  // never reads static. Only in shallow, reasonably clear, day-lit water — exactly
-  // where the bed shows through the depth-keyed alpha, so the light appears to dance
-  // on the bed itself.
-  let cShallow = smoothstep(2.4, 0.3, depthM) * mix(0.3, 1.0, clar) * day;
-  if (CHEAP_WATER == 0u && cShallow > 0.004) {
-    let c1 = fbm2b(g * 0.85 + vec2<f32>(t * 0.11, -t * 0.09));
-    let c2 = fbm2b(g * 0.85 + vec2<f32>(29.0, 47.0) - vec2<f32>(t * 0.08, -t * 0.13));
-    let fil = smoothstep(0.50, 0.80, min(c1, c2) * 1.5);
-    color += vec3<f32>(0.10, 0.13, 0.12) * (fil * cShallow);
-  }
+  // (CAUSTICS were rich-tier only — two decorrelated scrolling noise sheets,
+  // min()-sharpened into drifting bright filaments over shallow clear day-lit water;
+  // dropped with the glints. The bed still shows through via the depth-keyed alpha.)
 
   // Depth-keyed TRANSPARENCY so the bed shows through shallow water — riverbeds,
   // lake margins, sandy sea shallows. The pipeline blends premultiplied alpha

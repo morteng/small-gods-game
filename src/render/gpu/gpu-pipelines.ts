@@ -178,24 +178,16 @@ export function createGrassPipeline(
   });
 }
 
-/** The water fragment tier. Default = CHEAP (bilinear-only fields, mid-value coastal
- *  gradients, no glints/caustics — see CHEAP_WATER in water-wgsl.ts): the water
- *  pass is the frame's dominant fill bill on integrated GPUs, and the rich shader's
- *  extra storage reads buy detail those machines can't afford. `?water=rich` opts
- *  back into the full-cost fragment (A/B + capable hardware). */
-export function cheapWaterEnabled(): boolean {
-  try { return new URLSearchParams(window.location.search).get('water') !== 'rich'; }
-  catch { return true; }
-}
-
 /** Water pipeline (S2): GPU-generated per-cell quads (no vertex buffers), lifted to
  *  the water surface + blended over the terrain. Shares the terrain depth buffer
  *  (greater-equal, NO depth write) so nearer terrain occludes water but water never
  *  writes into the entity depth scheme. Premultiplied alpha out, like the sprites.
- *  `cheap` folds the CHEAP_WATER pipeline constant in at compile time (default —
- *  see {@link cheapWaterEnabled}); the gated blocks are compiled out, not branched. */
+ *  Single tier: bilinear-only fields, mid-value coastal gradients, no glints/caustics —
+ *  the water pass is the frame's dominant fill bill on integrated GPUs, and the richer
+ *  bicubic/gradient/glint shader that once sat behind a CHEAP_WATER override (?water=rich)
+ *  bought detail those machines can't afford, so it was removed. */
 export function createWaterPipeline(
-  device: GPUDevice, format: GPUTextureFormat, cheap: boolean = cheapWaterEnabled(),
+  device: GPUDevice, format: GPUTextureFormat,
 ): GPURenderPipeline {
   const module = device.createShaderModule({ code: WATER_WGSL });
   return device.createRenderPipeline({
@@ -203,7 +195,6 @@ export function createWaterPipeline(
     vertex: { module, entryPoint: 'vsMain' },
     fragment: {
       module, entryPoint: 'fsMain', targets: [{ format, blend: PREMULT_BLEND }],
-      constants: { CHEAP_WATER: cheap ? 1 : 0 },
     },
     primitive: { topology: 'triangle-list' },
     depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'greater-equal' },
