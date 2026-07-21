@@ -41,7 +41,12 @@ export type Situation =
   | { kind: 'tiding'; count: number; surfaced?: boolean }
   // M1: the chronicler's daily annal. Pure atmosphere, never a call to act — fixed
   // floor BELOW even an ordinary tiding, so it can never outrank real news.
-  | { kind: 'chronicle'; surfaced?: boolean };
+  | { kind: 'chronicle'; surfaced?: boolean }
+  // W4 (D8): lifecycle/road/growth tidings — ordinary "life goes on" news, coalesced
+  // per settlement. Deliberately scored BELOW every other `tiding` (which starts at
+  // 0.1) so these dead-end-closing items never crowd out contention (`rival_dispute`)
+  // or faith/mood crossings; still above the pure-atmosphere `chronicle` floor.
+  | { kind: 'lifecycle_tiding'; count: number; surfaced?: boolean };
 
 /**
  * Score how salient acting on a situation is right now (higher = more urgent).
@@ -62,6 +67,9 @@ export function scoreAffordance(sit: Situation): number {
     case 'tiding':           base = 0.1 + Math.min(0.25, 0.05 * sit.count); break;
     // Below even the tiding floor — atmosphere, not news.
     case 'chronicle':        base = 0.05; break;
+    // 0.06 floor, +0.01 per coalesced event, capped at 0.09 — always below the
+    // ordinary tiding floor (0.1) and well below a dispute's minimum (0.15).
+    case 'lifecycle_tiding': base = 0.06 + Math.min(0.03, 0.01 * sit.count); break;
   }
   return sit.surfaced ? base + FATE_SURFACE_BOOST : base;
 }

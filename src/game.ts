@@ -764,6 +764,27 @@ export class Game {
           this.requestRender();
         }
       },
+      // ── W4 (D9): the chronicle browser (inbox panel's ANNALS mode) — plain
+      // reads off the chronicler's ring, newest first (the runtime browses,
+      // never mutates). `dayIndex` doubles as the row's display `day`.
+      getAnnals: () => this.chronicleService.entries()
+        .slice()
+        .reverse()
+        .map((e) => ({ day: e.dayIndex, title: `Y${e.year} ${e.season}, day ${e.dayOfYear}`, body: e.text })),
+      // ── W4 (D7): the pantheon panel (rivals finally visible) — pure read +
+      // focus, no new commands. A rival click flies to + selects its strongest
+      // settlement, the exact idiom `onWorldLabel` already uses.
+      getPantheon: () => this.query.pantheon(),
+      onPantheonRow: (id) => {
+        const row = this.query.pantheon().find((r) => r.id === id);
+        if (!row || row.isPlayer || !row.strongestPoiId) return;
+        this.state.selectedPoiId = row.strongestPoiId;
+        this.state.selectedNpcId = null;
+        this.state.selectedBuildingId = null;
+        const poi = this.state.worldSeed?.pois.find((p) => p.id === row.strongestPoiId);
+        if (poi?.position) this.flyTo(poi.position, undefined, SETTLEMENT_FLY_ZOOM);
+        this.requestRender();
+      },
       // P5 alert pins are PARKED (user: no floating icons over the world) — the
       // projection (`affordance/alert-pins.ts`) and the ui-runtime renderer stay,
       // but nothing feeds them. Re-enable by restoring the getAlertPins hook here.

@@ -33,10 +33,11 @@ import {
   PRAYER_CLAIM_WARNING_TICKS, PRAYER_CLAIM_WINDOW_TICKS, CLAIM_NOTICE_HORIZON_TICKS,
 } from '@/sim/rival-claims';
 import { housingCapacityByPoi } from '@/sim/systems/settlement-growth-system';
-import { cohortPopulation } from '@/sim/cohorts';
+import { cohortPopulation, cohortBelievers, totalCohortBelievers } from '@/sim/cohorts';
 import { peaceActive } from '@/sim/lord';
 import { blueprintOf } from '@/blueprint/entity';
 import { catalogue, loadDefaultPacks } from '@/catalogue';
+import { strategyForPersonality, type RivalStrategy } from '@/sim/rival-spirit';
 
 const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 
@@ -185,6 +186,27 @@ export interface SpiritView {
   believers: number;
 }
 
+/** W4 (D7): one row in the pantheon panel — the rival roster finally made
+ *  visible. `followers` folds BOTH population tiers (the two-tier convention:
+ *  named durable believers + the P1 statistical cohort tier's believer count),
+ *  same fold every other cross-settlement read uses. `stance` is a one-word
+ *  label derived LIVE from `strategyForPersonality` — empty for the player (no
+ *  AI personality) and for a legacy rival with no stored personality. */
+export interface PantheonRow {
+  id: SpiritId;
+  name: string;
+  isPlayer: boolean;
+  sigil: string;
+  color: string;
+  power: number;
+  /** Durable believers, named + statistical-cohort tiers folded. */
+  followers: number;
+  stance: RivalStrategy | '';
+  /** The settlement where this spirit holds the most believers (both tiers),
+   *  or null when it has none anywhere. Drives the pantheon's click-to-fly. */
+  strongestPoiId: string | null;
+}
+
 /** One belief-granted power, projected for the skill panel + MCP. The panel reads
  *  ONLY this — it is the single legibility payload (locked/unlocked + why + how far). */
 export interface BeliefPowerView {
@@ -239,6 +261,14 @@ const PORTENT_KIND_TEXT: Record<string, string> = {
  *  the crossings/portents above. Auto-expires by falling out of this window. */
 export const RIVAL_DISPUTE_NOTICE_HORIZON_TICKS = TICKS_PER_DAY;
 
+// ── W4 (D8): lifecycle tidings — closing the "no tidings" dead ends the W0
+// scouting report flagged (births/deaths/growth/road events had NO inbox
+// surface). Same event-log-windowed, auto-expiring, coalesced-per-settlement
+// pattern as the rival-dispute tidings just above — one shared "last day"
+// horizon for all three generators (births+deaths, road adoption/promotion,
+// settlement growth), named separately per the file's own convention. */
+export const LIFECYCLE_TIDING_HORIZON_TICKS = TICKS_PER_DAY;
+
 /** One triageable item in the divine inbox. Deterministic id so the UI can carry
  *  ignore/surface state across frames. The target routes the "Act" verb. */
 export interface InboxItem {
@@ -277,6 +307,9 @@ export interface GameQuery {
   events(sinceId?: number): AppendedEvent[];
   timeline(): TimelineView;
   spirits(): SpiritView[];
+  /** W4 (D7): the pantheon panel's roster — player first, then rivals sorted by
+   *  follower count desc (stable id tiebreak). */
+  pantheon(): PantheonRow[];
   /** Canvas as a PNG data URL (browser only; '' headless). */
   screenshot(): string;
   /** The connectome linter: structured diagnostics (rule breaks / smells / pressure
@@ -325,6 +358,35 @@ function durableBelieverCount(state: GameState, spiritId: SpiritId): number {
     if (isDurable(npcProps(e).beliefs[spiritId])) n++;
   }
   return n;
+}
+
+/** W4 (D7): the settlement where a spirit holds the most believers, folding
+ *  BOTH tiers per-settlement (named durable + the statistical cohort's
+ *  believer count — the same two definitions `pantheon()`'s total uses).
+ *  Deterministic tie-break: lowest poiId wins. Null when the spirit has no
+ *  believers anywhere. */
+function strongestSettlementFor(state: GameState, spiritId: SpiritId): string | null {
+  const tally = new Map<string, number>();
+  const bump = (poiId: string, n: number): void => {
+    if (n <= 0) return;
+    tally.set(poiId, (tally.get(poiId) ?? 0) + n);
+  };
+  if (state.world) {
+    for (const e of state.world.query({ kind: 'npc' })) {
+      const p = npcProps(e);
+      if (p.homePoiId && isDurable(p.beliefs[spiritId])) bump(p.homePoiId, 1);
+    }
+  }
+  for (const poiId of [...state.cohorts.keys()].sort()) {
+    bump(poiId, cohortBelievers(state.cohorts.get(poiId)!, spiritId));
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const poiId of [...tally.keys()].sort()) {
+    const n = tally.get(poiId)!;
+    if (n > bestN) { best = poiId; bestN = n; }
+  }
+  return best;
 }
 
 // ── W2 (D5): settlement inspector v2 helpers ─────────────────────────────────
@@ -639,6 +701,32 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       }));
     },
 
+    pantheon(): PantheonRow[] {
+      const rows: PantheonRow[] = [...state.spirits.values()].map((s) => {
+        const followers = durableBelieverCount(state, s.id) + totalCohortBelievers(state.cohorts, s.id);
+        const stance: RivalStrategy | '' = !s.isPlayer && s.ai?.personality
+          ? strategyForPersonality(s.ai.personality)
+          : '';
+        return {
+          id: s.id,
+          name: s.name,
+          isPlayer: s.isPlayer,
+          sigil: s.sigil,
+          color: s.color,
+          power: s.power,
+          followers,
+          stance,
+          strongestPoiId: strongestSettlementFor(state, s.id),
+        };
+      });
+      // Player first; rivals by follower count desc, id asc as a stable tiebreak.
+      rows.sort((a, b) => {
+        if (a.isPlayer !== b.isPlayer) return a.isPlayer ? -1 : 1;
+        return (b.followers - a.followers) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      });
+      return rows;
+    },
+
     beliefPowers(spiritId: SpiritId = PLAYER_SPIRIT_ID): BeliefPowerView[] {
       const world = state.world;
       return ALL_DOMAINS.map((domain) => {
@@ -827,6 +915,122 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
             target: { kind: 'settlement', poiId },
             ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
           });
+        }
+      }
+
+      // ── W4 (D8): lifecycle tidings — births/deaths per settlement over the
+      // last fiction day, "N souls born, M passed in X". Same homePoiId
+      // resolution `recentStripFor` uses (a dead NPC's entity is never
+      // deleted — only its `activity`/state change — so `homePoiId` still
+      // resolves after death). Unresolvable (no home) souls are silently
+      // uncounted — there is no settlement to hang the news on.
+      {
+        const lifecycleEvents = state.eventLog.range(now - LIFECYCLE_TIDING_HORIZON_TICKS, now + 1)
+          .flatMap(a => (a.event.type === 'npc_birth' || a.event.type === 'npc_death') ? [a.event] : []);
+        if (lifecycleEvents.length > 0) {
+          const npcs = new Map(world.query({ kind: 'npc' }).map(n => [n.id, n]));
+          const homeOf = (npcId: EntityId): string | undefined => {
+            const e = npcs.get(npcId);
+            return e ? npcProps(e).homePoiId : undefined;
+          };
+          const buckets = new Map<string, { born: number; passed: number }>();
+          for (const ev of lifecycleEvents) {
+            const poiId = homeOf(ev.npcId);
+            if (!poiId) continue;
+            let b = buckets.get(poiId);
+            if (!b) { b = { born: 0, passed: 0 }; buckets.set(poiId, b); }
+            if (ev.type === 'npc_birth') b.born++; else b.passed++;
+          }
+          for (const [poiId, b] of [...buckets].sort(([a], [c]) => (a < c ? -1 : a > c ? 1 : 0))) {
+            const poi = state.worldSeed?.pois.find(pp => pp.id === poiId);
+            const poiName = poi?.name ?? poiId;
+            const parts: string[] = [];
+            if (b.born > 0) parts.push(`${b.born} soul${b.born === 1 ? '' : 's'} born`);
+            if (b.passed > 0) parts.push(`${b.passed} passed`);
+            const text = `${parts.join(', ')} in ${poiName}`;
+            const id = `lifecycle:${poiId}`;
+            const surfaced = surfacedSet.has(id);
+            items.push({
+              id,
+              kind: 'tiding',
+              title: text,
+              detail: `The rolls of ${poiName} shift with the turning day.`,
+              salience: scoreAffordance({ kind: 'lifecycle_tiding', count: b.born + b.passed, surfaced }),
+              surfaced,
+              target: { kind: 'settlement', poiId },
+              ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+            });
+          }
+        }
+      }
+
+      // ── W4 (D8): road tidings — a promoted/adopted road reaches the player
+      // as news at EACH settlement it touches (coalesced per endpoint), naming
+      // the other end when every event in the bucket agrees on it.
+      {
+        const roadEvents = state.eventLog.range(now - LIFECYCLE_TIDING_HORIZON_TICKS, now + 1)
+          .flatMap(a => (a.event.type === 'road_promoted' || a.event.type === 'road_adopted') ? [a.event] : []);
+        if (roadEvents.length > 0) {
+          const buckets = new Map<string, { count: number; other: string | undefined; sameOther: boolean }>();
+          const bump = (poiId: string, otherPoiId: string | undefined): void => {
+            let b = buckets.get(poiId);
+            if (!b) { b = { count: 0, other: otherPoiId, sameOther: true }; buckets.set(poiId, b); }
+            else if (b.other !== otherPoiId) b.sameOther = false;
+            b.count++;
+          };
+          for (const ev of roadEvents) {
+            if (ev.fromPoiId) bump(ev.fromPoiId, ev.toPoiId);
+            if (ev.toPoiId) bump(ev.toPoiId, ev.fromPoiId);
+          }
+          for (const [poiId, b] of [...buckets].sort(([a], [c]) => (a < c ? -1 : a > c ? 1 : 0))) {
+            const poi = state.worldSeed?.pois.find(pp => pp.id === poiId);
+            const poiName = poi?.name ?? poiId;
+            const otherPoi = b.other ? state.worldSeed?.pois.find(pp => pp.id === b.other) : undefined;
+            const otherName = otherPoi?.name ?? (b.other ? b.other : undefined);
+            const title = (b.sameOther && otherName)
+              ? `The path to ${otherName} has become a road`
+              : `Roads take shape near ${poiName}`;
+            const id = `roads:${poiId}`;
+            const surfaced = surfacedSet.has(id);
+            items.push({
+              id,
+              kind: 'tiding',
+              title,
+              detail: b.count > 1
+                ? `${b.count} well-worn paths near ${poiName} have become roads.`
+                : `A well-worn path near ${poiName} has become a road.`,
+              salience: scoreAffordance({ kind: 'lifecycle_tiding', count: b.count, surfaced }),
+              surfaced,
+              target: { kind: 'settlement', poiId },
+              ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+            });
+          }
+        }
+      }
+
+      // ── W4 (D8): settlement growth tidings — "X raises new roofs". ──
+      {
+        const growthEvents = state.eventLog.range(now - LIFECYCLE_TIDING_HORIZON_TICKS, now + 1)
+          .flatMap(a => (a.event.type === 'settlement_grown' || a.event.type === 'settlement_upgraded') ? [a.event] : []);
+        if (growthEvents.length > 0) {
+          const counts = new Map<string, number>();
+          for (const ev of growthEvents) counts.set(ev.poiId, (counts.get(ev.poiId) ?? 0) + 1);
+          for (const [poiId, count] of [...counts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+            const poi = state.worldSeed?.pois.find(pp => pp.id === poiId);
+            const poiName = poi?.name ?? poiId;
+            const id = `growth:${poiId}`;
+            const surfaced = surfacedSet.has(id);
+            items.push({
+              id,
+              kind: 'tiding',
+              title: `${poiName} raises new roofs`,
+              detail: count > 1 ? `${count} new roofs raised there.` : 'A new roof rises there.',
+              salience: scoreAffordance({ kind: 'lifecycle_tiding', count, surfaced }),
+              surfaced,
+              target: { kind: 'settlement', poiId },
+              ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+            });
+          }
         }
       }
 

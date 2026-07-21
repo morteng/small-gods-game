@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { UiRuntime, type AlertPinView, type TimeStatus, type TimeCommand } from '@/render/ui/ui-runtime';
+import { UiRuntime, type AlertPinView, type TimeStatus, type TimeCommand, type AnnalRow } from '@/render/ui/ui-runtime';
 import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
 import type { UiSpec, UiSpecChoice } from '@/story/uispec';
-import type { BeliefPowerView, InboxItem } from '@/game/game-query';
+import type { BeliefPowerView, InboxItem, PantheonRow } from '@/game/game-query';
 import type { WorldLabelView } from '@/game/affordance/world-labels';
 
 const W = 1280, H = 720, DPR = 2;
@@ -1040,8 +1040,8 @@ function tiding(i: number): InboxItem {
     salience: 0.1, surfaced: false, target: { kind: 'none' },
   };
 }
-/** Open the powers or inbox panel via a real click on its toggle button. */
-function openPanel(rt: UiRuntime, toggleId: 'ui.powers' | 'ui.inbox'): void {
+/** Open the powers/inbox/pantheon panel via a real click on its toggle button. */
+function openPanel(rt: UiRuntime, toggleId: 'ui.powers' | 'ui.inbox' | 'ui.pantheon'): void {
   rt.frame(W, H, DPR);
   const btn = rt.hitRegions().find((h) => h.id === toggleId)!;
   click(rt, ...center(btn));
@@ -1236,5 +1236,158 @@ describe('UiRuntime — attach(): wheel routing + D3 preventDefault on consumed 
     expect(preventDefault).not.toHaveBeenCalled();
     expect(stopPropagation).not.toHaveBeenCalled();
     teardown();
+  });
+});
+
+// ── W4 (D7): the pantheon panel — the rival roster finally visible ──────────
+function pantheonRow(overrides: Partial<PantheonRow> = {}): PantheonRow {
+  return {
+    id: 'rival1', name: 'Sablethorn', isPlayer: false, sigil: '◆', color: '#f00',
+    power: 10, followers: 3, stance: 'expand', strongestPoiId: 'vale',
+    ...overrides,
+  };
+}
+const PLAYER_ROW: PantheonRow = {
+  id: 'player', name: 'You', isPlayer: true, sigil: '⊙', color: '#0af',
+  power: 12, followers: 5, stance: '', strongestPoiId: null,
+};
+
+describe('UiRuntime — pantheon panel (UI v2 W4/D7)', () => {
+  it('the SPIRITS pill shows the roster count and is absent from the panel when closed', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getPantheon: () => [PLAYER_ROW, pantheonRow()] });
+    rt.frame(W, H, DPR);
+    const pill = rt.hitRegions().find((h) => h.id === 'ui.pantheon');
+    expect(pill).toBeDefined();
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.pantheon.list')).toBe(false);
+  });
+
+  it('clicking the pill opens the panel and registers a scrollList', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getPantheon: () => [PLAYER_ROW, pantheonRow()] });
+    openPanel(rt, 'ui.pantheon');
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.pantheon.list')).toBe(true);
+  });
+
+  it('is mutually exclusive with the powers and inbox panels', () => {
+    const rt = new UiRuntime();
+    rt.configure({
+      getPantheon: () => [PLAYER_ROW, pantheonRow()],
+      getBeliefPowers: () => [power(0)],
+    });
+    openPanel(rt, 'ui.pantheon');
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.pantheon.list')).toBe(true);
+
+    openPanel(rt, 'ui.powers');
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.pantheon.list')).toBe(false);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.powers.list')).toBe(true);
+  });
+
+  it('clicking a rival row (with a resolvable strongest settlement) fires onPantheonRow with its id', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      getPantheon: () => [PLAYER_ROW, pantheonRow({ id: 'rival1' })],
+      onPantheonRow: (id) => fired.push(id),
+    });
+    openPanel(rt, 'ui.pantheon');
+    const hit = rt.hitRegions().find((h) => h.id === 'pantheon.row.rival1')!;
+    click(rt, ...center(hit));
+    expect(fired).toEqual(['rival1']);
+  });
+
+  it('the player row is never clickable (no hotspot, onPantheonRow never fires)', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({
+      getPantheon: () => [PLAYER_ROW, pantheonRow({ id: 'rival1' })],
+      onPantheonRow: (id) => fired.push(id),
+    });
+    openPanel(rt, 'ui.pantheon');
+    expect(rt.hitRegions().some((h) => h.id === 'pantheon.row.player')).toBe(false);
+  });
+
+  it('a rival with no resolvable strongest settlement is not clickable either', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getPantheon: () => [PLAYER_ROW, pantheonRow({ id: 'rival1', strongestPoiId: null })] });
+    openPanel(rt, 'ui.pantheon');
+    expect(rt.hitRegions().some((h) => h.id === 'pantheon.row.rival1')).toBe(false);
+  });
+
+  it('an empty pantheon renders no scroll list (no rows to browse)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getPantheon: () => [] });
+    openPanel(rt, 'ui.pantheon');
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.pantheon.list')).toBe(false);
+  });
+});
+
+// ── W4 (D9): the chronicle browser — the inbox panel's TIDINGS/ANNALS toggle ─
+function annal(i: number): AnnalRow {
+  return { day: i, title: `Y1 spring, day ${i}`, body: `Entry number ${i} happened, at length.` };
+}
+
+describe('UiRuntime — inbox TIDINGS/ANNALS toggle (UI v2 W4/D9)', () => {
+  it('defaults to TIDINGS — the toggle row + the existing item list both render', () => {
+    const rt = new UiRuntime();
+    const items = [tiding(0)];
+    rt.configure({ getInbox: () => items, getAnnals: () => [annal(0)] });
+    openPanel(rt, 'ui.inbox');
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inbox.tab.tidings')).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inbox.tab.annals')).toBe(true);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.inbox.list')).toBe(true);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.annals.list')).toBe(false);
+  });
+
+  it('clicking ANNALS switches the panel to the chronicle browser', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInbox: () => [tiding(0)], getAnnals: () => [annal(0), annal(1)] });
+    openPanel(rt, 'ui.inbox');
+    const annalsTab = rt.hitRegions().find((h) => h.id === 'ui.inbox.tab.annals')!;
+    click(rt, ...center(annalsTab));
+
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.annals.list')).toBe(true);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.inbox.list')).toBe(false);
+  });
+
+  it('clicking TIDINGS after ANNALS switches back', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInbox: () => [tiding(0)], getAnnals: () => [annal(0)] });
+    openPanel(rt, 'ui.inbox');
+    click(rt, ...center(rt.hitRegions().find((h) => h.id === 'ui.inbox.tab.annals')!));
+    rt.frame(W, H, DPR);
+    click(rt, ...center(rt.hitRegions().find((h) => h.id === 'ui.inbox.tab.tidings')!));
+
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.inbox.list')).toBe(true);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.annals.list')).toBe(false);
+  });
+
+  it('an empty chronicle renders a dim "NO ANNALS YET" row instead of a scroll list', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInbox: () => [], getAnnals: () => [] });
+    openPanel(rt, 'ui.inbox');
+    click(rt, ...center(rt.hitRegions().find((h) => h.id === 'ui.inbox.tab.annals')!));
+    const groups = rt.frame(W, H, DPR);
+
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.annals.list')).toBe(false);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('annal.row.'))).toBe(false);
+    expect(totalVerts(groups)).toBeGreaterThan(0); // the "NO ANNALS YET" label still drew something
+  });
+
+  it('clicking an annal row presents its full text as a one-shot UiSpec card', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInbox: () => [], getAnnals: () => [annal(0)] });
+    openPanel(rt, 'ui.inbox');
+    click(rt, ...center(rt.hitRegions().find((h) => h.id === 'ui.inbox.tab.annals')!));
+    rt.frame(W, H, DPR);
+    const row = rt.hitRegions().find((h) => h.id === 'annal.row.0')!;
+    click(rt, ...center(row));
+    rt.frame(W, H, DPR); // the card takes over the NEXT frame's top-level dispatch
+
+    expect(rt.hasCard()).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.body')).toBe(true);
+    const dismiss = rt.hitRegions().find((h) => h.id === 'card.choice.0')!;
+    click(rt, ...center(dismiss));
+    expect(rt.hasCard()).toBe(false);
   });
 });
