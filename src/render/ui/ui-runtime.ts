@@ -783,6 +783,10 @@ export class UiRuntime {
   // text pinned to places, drawn in `UiSpace.World` (same idiom `drawAlertPins`
   // used). Null ⇒ outside the world band, nothing drawn.
   private drawWorldLabels(c: UiContext, w: number, h: number, s: number): void {
+    // W5: while a left-side panel is open you're in a menu context, not reading
+    // the map — suppress the labels so their bright text doesn't bleed through the
+    // translucent panel (the panel bg is 82% opaque). They return on close.
+    if (this.panel !== null) return;
     const labels = this.hooks.getWorldLabels?.() ?? null;
     if (!labels || labels.length === 0) return;
     const fs = FS_BODY * s;
@@ -942,7 +946,7 @@ export class UiRuntime {
       this.hooks.onCloseInspector?.();
     }
     y += c.lineHeight(fsName) + 4 * s;
-    c.label(view.subtitle, innerX, y, fsBody, UI_PALETTE.textDim);
+    c.label(c.ellipsize(view.subtitle, fsBody, innerW), innerX, y, fsBody, UI_PALETTE.textDim);
     y += lh + 10 * s;
 
     // W3 (D6): the status-hint prose line sits fixed under the subtitle (same
@@ -960,11 +964,11 @@ export class UiRuntime {
     if (view.kind === 'settlement') {
       if (view.population !== undefined) {
         const housed = view.housing !== undefined ? ` · ${view.housing} housed` : '';
-        c.label(`${view.population} souls${housed}`, innerX, y, fsBody, UI_PALETTE.textDim);
+        c.label(c.ellipsize(`${view.population} souls${housed}`, fsBody, innerW), innerX, y, fsBody, UI_PALETTE.textDim);
         y += rowH;
       }
       if (view.peace) {
-        c.label(peaceLine(view.peace), innerX, y, fsBody, UI_PALETTE.textDim);
+        c.label(c.ellipsize(peaceLine(view.peace), fsBody, innerW), innerX, y, fsBody, UI_PALETTE.textDim);
         y += rowH;
       }
       y += 4 * s;
@@ -1033,7 +1037,7 @@ export class UiRuntime {
     c.scrollList('ui.powers.list', { x: px, y, w: pw, h: bottom - y }, rowH, powers.length, (i, rowY) => {
       const p = powers[i];
       const accent = p.unlocked ? UI_PALETTE.accent : UI_PALETTE.textDim;
-      c.label(p.label.toUpperCase(), innerX, rowY, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
+      c.label(c.ellipsize(p.label.toUpperCase(), FS_BODY * s, innerW), innerX, rowY, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
       let ry = rowY + c.lineHeight(FS_BODY * s) + 6 * s;
 
       // progress bar: conviction vs threshold
@@ -1050,14 +1054,14 @@ export class UiRuntime {
       const pct = Math.round(p.conviction * 100);
       const need = Math.round(p.threshold * 100);
       if (p.unlocked) {
-        c.label(`believed by ${p.reach} — ${pct}%`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
         const bw = 110 * s;
         const bh = 26 * s;
+        c.label(c.ellipsize(`believed by ${p.reach} — ${pct}%`, FS_BODY * s, innerW - bw - 8 * s), innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
         if (c.button(`power.cast.${p.verb}`, 'CAST ⚡', innerX + innerW - bw, ry - 4 * s, bw, bh, { scale: FS_BODY * s })) {
           this.hooks.onCastPower?.(p.verb);
         }
       } else {
-        c.label(`not yet believed — ${pct}% of ${need}% needed`, innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+        c.label(c.ellipsize(`not yet believed — ${pct}% of ${need}% needed`, FS_BODY * s, innerW), innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
       }
     });
   }
@@ -1121,10 +1125,9 @@ export class UiRuntime {
       const tag = it.surfaced ? UI_PALETTE.accent : kindColor(it.kind);
       // kind dot + title
       c.rect(innerX, rowY + 4 * s, 8 * s, 8 * s, tag);
-      c.label(it.title, innerX + 16 * s, rowY, FS_BODY * s, UI_PALETTE.text);
+      c.label(c.ellipsize(it.title, FS_BODY * s, innerW - 16 * s), innerX + 16 * s, rowY, FS_BODY * s, UI_PALETTE.text);
       let ry = rowY + c.lineHeight(FS_BODY * s) + 4 * s;
-      c.label(it.detail.length > 44 ? it.detail.slice(0, 43) + '…' : it.detail,
-        innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+      c.label(c.ellipsize(it.detail, FS_BODY * s, innerW), innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
       ry += c.lineHeight(FS_BODY * s) + 8 * s;
 
       // triage row: ACT · LOOK · IGNORE
@@ -1164,10 +1167,9 @@ export class UiRuntime {
     c.scrollList('ui.annals.list', { x: px, y, w: pw, h: bottom - y }, rowH, annals.length, (i, rowY) => {
       const a = annals[i];
       if (c.hotspot(`annal.row.${i}`, px, rowY, pw, rowH)) clickedIdx = i;
-      c.label(a.title, innerX, rowY, fsBody, UI_PALETTE.text);
+      c.label(c.ellipsize(a.title, fsBody, innerW), innerX, rowY, fsBody, UI_PALETTE.text);
       const firstLine = a.body.split('\n')[0] ?? '';
-      const clipped = firstLine.length > 46 ? firstLine.slice(0, 45) + '…' : firstLine;
-      c.label(clipped, innerX, rowY + c.lineHeight(fsBody) + 4 * s, fsBody, UI_PALETTE.textDim);
+      c.label(c.ellipsize(firstLine, fsBody, innerW), innerX, rowY + c.lineHeight(fsBody) + 4 * s, fsBody, UI_PALETTE.textDim);
     });
 
     if (clickedIdx >= 0) {
@@ -1220,19 +1222,26 @@ export class UiRuntime {
 
       const nameX = innerX + Math.max(gw, c.measure('M', fsBody)) + 10 * s;
       const name = row.isPlayer ? `${row.name.toUpperCase()} (YOU)` : row.name.toUpperCase();
-      c.label(name, nameX, rowY, fsBody, UI_PALETTE.text);
+      // Stance sits right-aligned on the name row (its own room) so the
+      // followers count below never has to share a line with it — that pairing
+      // was what ran off the panel edge.
+      const stance = row.isPlayer ? '' : (row.stance ? row.stance.toUpperCase() : '');
+      const stanceW = stance ? c.measure(stance, fsBody) : 0;
+      const nameMaxW = innerW - (nameX - innerX) - (stanceW ? stanceW + 12 * s : 0);
+      c.label(c.ellipsize(name, fsBody, Math.max(0, nameMaxW)), nameX, rowY, fsBody, UI_PALETTE.text);
+      if (stance) c.label(stance, innerX + innerW - stanceW, rowY, fsBody, UI_PALETTE.textDim);
 
       let ry = rowY + c.lineHeight(fsBody) + 6 * s;
-      const barW = innerW * 0.55;
       const barH = 8 * s;
+      // Reserve room after the bar for the followers count so the bar can't push
+      // it off-panel; the count is short ("N FOLLOWERS"), the bar takes the rest.
+      const followers = `${row.followers} follower${row.followers === 1 ? '' : 's'}`.toUpperCase();
+      const followW = c.measure(followers, fsBody);
+      const barW = Math.max(40 * s, innerW - followW - 12 * s);
       c.rect(innerX, ry, barW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
       const powerFrac = Math.max(0, Math.min(1, row.power / 20));
       if (powerFrac > 0) c.rect(innerX, ry, Math.round(barW * powerFrac), barH, row.isPlayer ? UI_PALETTE.accent : UI_PALETTE.textDim);
-
-      const meta = row.stance
-        ? `${row.followers} follower${row.followers === 1 ? '' : 's'} · ${row.stance.toUpperCase()}`
-        : `${row.followers} follower${row.followers === 1 ? '' : 's'}`;
-      c.label(meta, innerX + barW + 10 * s, ry - 2 * s, fsBody, UI_PALETTE.textDim);
+      c.label(followers, innerX + innerW - followW, ry - 2 * s, fsBody, UI_PALETTE.textDim);
     });
 
     if (clickedId) this.hooks.onPantheonRow?.(clickedId);
@@ -1758,14 +1767,14 @@ function drawInspectorRow(
 ): void {
   switch (row.t) {
     case 'header':
-      c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.accent);
+      c.label(c.ellipsize(row.label, fsBody, innerW), innerX, rowY, fsBody, UI_PALETTE.accent);
       return;
     case 'building':
       c.rect(innerX - 6, rowY - 2, innerW + 12, lh + 4, withAlpha(UI_PALETTE.accent, 0.16));
-      c.label(row.label.toUpperCase(), innerX, rowY, fsBody, UI_PALETTE.text);
+      c.label(c.ellipsize(row.label.toUpperCase(), fsBody, innerW), innerX, rowY, fsBody, UI_PALETTE.text);
       return;
     case 'text':
-      c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.textDim);
+      c.label(c.ellipsize(row.label, fsBody, innerW), innerX, rowY, fsBody, UI_PALETTE.textDim);
       return;
     case 'bar': {
       const trackW = innerW * 0.42;

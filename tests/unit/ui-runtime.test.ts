@@ -11,6 +11,23 @@ const W = 1280, H = 720, DPR = 2;
 function totalVerts(groups: UiDrawGroup[]): number {
   return groups.reduce((s, g) => s + g.vertexCount, 0);
 }
+/** Max x of any screen-space vertex on `page`, within the x-window [lo, hi].
+ *  Vertex stride is 8 floats (x,y,u,v,r,g,b,a); x at offset 0. The window lets a
+ *  test isolate one side of the HUD (e.g. a left panel from the top-right time
+ *  cluster). Used to assert text glyphs stay inside their panel's own edge —
+ *  W5's text-clamp guard, robust to panel geometry (both edges are read from the
+ *  actual rendered quads, not hardcoded). */
+function maxScreenX(groups: UiDrawGroup[], page: UiPage, lo = -Infinity, hi = Infinity): number {
+  let mx = -Infinity;
+  for (const g of groups) {
+    if (g.space !== UiSpace.Screen || g.page !== page) continue;
+    for (let i = 0; i < g.vertexCount * 8; i += 8) {
+      const x = g.vertices[i];
+      if (x >= lo && x <= hi) mx = Math.max(mx, x);
+    }
+  }
+  return mx;
+}
 function center(h: UiHit): [number, number] {
   return [h.x + h.w / 2, h.y + h.h / 2];
 }
@@ -391,6 +408,21 @@ describe('UiRuntime — settlement inspector v2 (UI v2 W2/D5)', () => {
     const actsAfter = rt.hitRegions().find((h) => h.id === 'inspector.cast.omen')!;
     expect(actsAfter.y).toBe(actsBefore.y);
     expect(actsAfter.x).toBe(actsBefore.x);
+  });
+
+  it('clamps a very long ward row inside the inspector (W5 — text never runs past the panel edge)', () => {
+    const rt = new UiRuntime();
+    // a ward name long enough that, UNCLAMPED, it would run well past the panel's
+    // right edge — the ellipsis clip must keep every glyph inside the panel bg.
+    rt.configure({ getInspector: () => ({
+      ...SETTLEMENT_INSPECTOR,
+      wards: [{ name: 'NORTHWESTFISHERQUARTEROFTHEDROWNEDSENTINELSBESIDETHESUNKENSHRINE', type: 'harbour' }],
+    }) });
+    const groups = rt.frame(W, H, DPR);
+    // the inspector lives on the RIGHT — window out the left pills / tucked clusters.
+    const glyphRight = maxScreenX(groups, UiPage.Bitmap, 400);
+    const panelRight = maxScreenX(groups, UiPage.Solid, 400);
+    expect(glyphRight).toBeLessThanOrEqual(panelRight);
   });
 
   it('a bare settlement (no wards/recent/domains/building) registers no scroll list', () => {
@@ -1305,6 +1337,20 @@ describe('UiRuntime — pantheon panel (UI v2 W4/D7)', () => {
     });
     openPanel(rt, 'ui.pantheon');
     expect(rt.hitRegions().some((h) => h.id === 'pantheon.row.player')).toBe(false);
+  });
+
+  it('clamps a long spirit name + stance inside the panel (W5 — no glyph past the panel edge)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getPantheon: () => [
+      PLAYER_ROW,
+      pantheonRow({ id: 'r', name: 'SABLETHORNTHEUNRELENTINGDEVOUREROFALLMORTALHOPE', stance: 'undermine', followers: 999 }),
+    ] });
+    openPanel(rt, 'ui.pantheon');
+    const groups = rt.frame(W, H, DPR);
+    // the pantheon panel lives on the LEFT — window out the top-right time cluster.
+    const glyphRight = maxScreenX(groups, UiPage.Bitmap, -Infinity, 800);
+    const panelRight = maxScreenX(groups, UiPage.Solid, -Infinity, 800);
+    expect(glyphRight).toBeLessThanOrEqual(panelRight); // text stays within the panel bg
   });
 
   it('a rival with no resolvable strongest settlement is not clickable either', () => {
