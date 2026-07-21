@@ -348,6 +348,71 @@ describe('UiRuntime — inspector', () => {
   });
 });
 
+// ── UI v2 W2 (D5): settlement inspector v2 — the variable middle (building-row +
+// wards + recent + domains) rides ONE scrollList; ACTS stays bottom-reserved and
+// FIXED (its position must not move when the list above it is scrolled). ──
+const SETTLEMENT_INSPECTOR = {
+  kind: 'settlement' as const,
+  title: 'Hollow',
+  subtitle: 'village · high · 12 souls',
+  state: [],
+  domains: [{ label: 'Storm & Lightning', value: 0.2 }],
+  affordances: [{ verb: 'omen', label: 'omen', cost: 2, unlocked: true, affordable: true }],
+  wards: Array.from({ length: 20 }, (_, i) => ({ name: `Ward ${i}`, type: 'craft' })),
+  population: 12,
+  housing: 15,
+  peace: { lordName: 'Cwen', oath: 'sworn' as const, expiryDays: 3 },
+  recent: [{ label: 'BORN', count: 2 }],
+  buildingRow: { name: 'a one-room peasant cottage', type: 'residential' },
+};
+
+describe('UiRuntime — settlement inspector v2 (UI v2 W2/D5)', () => {
+  it('registers ONE scrollList for the variable middle (building-row + wards + recent + domains)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => SETTLEMENT_INSPECTOR });
+    rt.frame(W, H, DPR);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.inspector.list')).toBe(true);
+    // The panel + close + ACTS row still render alongside the new list.
+    expect(rt.hitRegions().some((h) => h.id === 'ui.inspector')).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'inspector.cast.omen')).toBe(true);
+  });
+
+  it('a wheel over the list scrolls it, but the ACTS row never moves (bottom-reserved, fixed)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => SETTLEMENT_INSPECTOR });
+    rt.frame(W, H, DPR);
+    const actsBefore = rt.hitRegions().find((h) => h.id === 'inspector.cast.omen')!;
+    const region = rt.scrollRegions().find((r) => r.id === 'ui.inspector.list')!;
+    const cx = region.x + region.w / 2, cy = region.y + region.h / 2;
+
+    expect(rt.wheel(cx, cy, 100)).toBe(true); // consumed — a registered scroll region
+    rt.frame(W, H, DPR);
+    const actsAfter = rt.hitRegions().find((h) => h.id === 'inspector.cast.omen')!;
+    expect(actsAfter.y).toBe(actsBefore.y);
+    expect(actsAfter.x).toBe(actsBefore.x);
+  });
+
+  it('a bare settlement (no wards/recent/domains/building) registers no scroll list', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => ({
+      kind: 'settlement' as const, title: 'Bare', subtitle: 'hamlet',
+      state: [], domains: [], affordances: [],
+    }) });
+    rt.frame(W, H, DPR);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.inspector.list')).toBe(false);
+  });
+
+  it('the npc variant still scrolls its state+domain middle (no new npc content — W3 owns that)', () => {
+    const bigNpc = { ...INSPECTOR, state: Array.from({ length: 15 }, (_, i) => ({ label: `Stat ${i}`, value: 0.5 })) };
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => bigNpc });
+    rt.frame(W, H, DPR);
+    expect(rt.scrollRegions().some((r) => r.id === 'ui.inspector.list')).toBe(true);
+    const casts = rt.hitRegions().filter((h) => h.id.startsWith('inspector.cast.')).map((h) => h.id).sort();
+    expect(casts).toEqual(['inspector.cast.smite', 'inspector.cast.whisper']); // buttons unchanged
+  });
+});
+
 // ── P4: the declarative UiSpec card (whisper card) ──
 const CARD_SPEC: UiSpec = {
   title: 'Whisper to Ada',

@@ -24,7 +24,7 @@ import { WhisperInputIsland } from '@/render/ui/ui-whisper-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
-import type { BeliefPowerView, InboxItem, InboxKind, InspectorView } from '@/game/game-query';
+import type { BeliefPowerView, InboxItem, InboxKind, InspectorView, SettlementPeace } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 import type { Command } from '@/sim/command/types';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
@@ -809,6 +809,12 @@ export class UiRuntime {
   // complete divine vocabulary here — locked/unaffordable verbs greyed, castable
   // ones fire on the selection. The WebGPU heir to legacy `npc-attention-panel.ts`.
   // Returns the panel width (device px) so the camera cluster can tuck beside it.
+  //
+  // UI v2 W2 (D5): the variable-length middle (npc: state+domains; settlement:
+  // building-row + wards + recent + domains) is now ONE `scrollList` — no more
+  // budget-clamp `break`. ACTS stays FIXED at the bottom-reserved position (never
+  // scrolled, position invariant to the list's scroll offset — that's what "fixed"
+  // means once the middle can scroll at all).
   private drawInspector(c: UiContext, w: number, h: number, s: number, view: InspectorView): number {
     const pad = 16 * s;
     const pw = 340 * s;
@@ -834,52 +840,44 @@ export class UiRuntime {
     }
     y += c.lineHeight(fsName) + 4 * s;
     c.label(view.subtitle, innerX, y, fsBody, UI_PALETTE.textDim);
-    y += lh + 14 * s;
+    y += lh + 10 * s;
 
-    // The affordance block is the actionable payload, so reserve its height at the
-    // bottom first: state + domains then flow top-down into the remaining space and
-    // break before they'd collide with it (no scroll yet → content budgets, spec §11).
+    const rowH = lh + 8 * s;
+    // W2 (D5): population/housing + peace/oath are single settlement-scale FACTS,
+    // not a list — they sit fixed under the subtitle, never inside the scroll list.
+    if (view.kind === 'settlement') {
+      if (view.population !== undefined) {
+        const housed = view.housing !== undefined ? ` · ${view.housing} housed` : '';
+        c.label(`${view.population} souls${housed}`, innerX, y, fsBody, UI_PALETTE.textDim);
+        y += rowH;
+      }
+      if (view.peace) {
+        c.label(peaceLine(view.peace), innerX, y, fsBody, UI_PALETTE.textDim);
+        y += rowH;
+      }
+      y += 4 * s;
+    }
+
+    // The affordance block is the actionable payload, so it reserves its height at
+    // the bottom FIRST — the scroll list fills exactly the remaining space above it.
     const bh = 30 * s;
     const rowGap = 8 * s;
     const acts = view.affordances;
     const actsH = acts.length ? (10 * s + lh + 8 * s) + acts.length * (bh + rowGap) : 0;
     const contentLimit = bottom - actsH;
 
-    // A compact single-line bar: label left, a fill track on the right of the row.
     const barH = 7 * s;
-    const rowH = lh + 8 * s;
-    const bar = (label: string, value: number, accent: readonly [number, number, number, number]): void => {
-      c.label(label, innerX, y, fsBody, UI_PALETTE.textDim);
-      const trackW = innerW * 0.42;
-      const trackX = innerX + innerW - trackW;
-      const trackY = y + Math.round((lh - barH) / 2);
-      c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
-      const fillW = Math.round(trackW * clamp01(value));
-      if (fillW > 0) c.rect(trackX, trackY, fillW, barH, accent);
-      y += rowH;
-    };
-
-    for (const b of view.state) {
-      if (y + rowH > contentLimit) break;
-      bar(b.label, b.value, UI_PALETTE.accent);
+    const rows = inspectorRows(view);
+    if (rows.length) {
+      c.scrollList('ui.inspector.list', { x: px, y, w: pw, h: Math.max(0, contentLimit - y) }, rowH, rows.length,
+        (i, rowY) => drawInspectorRow(c, rows[i], innerX, innerW, rowY, fsBody, lh, barH));
     }
 
-    // what the target believes YOU command — the belief-loop feedback
-    if (view.domains.length && y + rowH * 2 <= contentLimit) {
-      y += 6 * s;
-      c.label('THEY BELIEVE YOU COMMAND', innerX, y, fsBody, UI_PALETTE.accent);
-      y += rowH;
-      for (const d of view.domains) {
-        if (y + rowH > contentLimit) break;
-        bar(d.label, d.value, [0.55, 0.7, 0.9, 1]); // storm-sky (a belief you hold over them)
-      }
-    }
-
-    // the full divine vocabulary — flows right after the state (reserved above so it
-    // always fits). Target-first: the panel IS the subject, so a button needs only
+    // the full divine vocabulary — FIXED at the reserved bottom position (never
+    // scrolled). Target-first: the panel IS the subject, so a button needs only
     // the verb (the full `describe()` "whisper to <id>" would overflow the panel).
     if (acts.length) {
-      let ay = y + 10 * s;
+      let ay = contentLimit + 10 * s;
       c.label('ACTS', innerX, ay, fsBody, UI_PALETTE.textDim);
       ay += lh + 8 * s;
       for (const a of acts) {
@@ -1429,6 +1427,92 @@ function formatElapsedTicks(ticks: number): string {
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ── UI v2 W2 (D5): the inspector's scrollList rows ───────────────────────────
+// The variable-length middle (npc: state+domains; settlement: building-row +
+// wards + recent + domains) flattens into ONE list of same-height rows so a
+// single `scrollList` can carry it — `drawInspector` no longer flow-lays-out and
+// budget-breaks each section by hand.
+type InspectorRow =
+  | { t: 'header'; label: string }
+  | { t: 'bar'; label: string; value: number; accent: readonly [number, number, number, number] }
+  | { t: 'text'; label: string }
+  | { t: 'building'; label: string };
+
+/** Storm-sky tint for "what they believe you command" bars — a belief you hold
+ *  OVER them, distinct from the player-accent bars that read as THEIR state. */
+const DOMAIN_BAR_ACCENT: readonly [number, number, number, number] = [0.55, 0.7, 0.9, 1];
+
+/** Flatten an `InspectorView` into the scroll list's rows, in display order.
+ *  Npc: state bars, then (if any) the domain-conviction bars under a header —
+ *  unchanged content from pre-D2, just row-ized. Settlement (W2 D5): the
+ *  building-row highlight (if the selection came from a building click) leads,
+ *  then WARDS, then RECENT, then the same domain bars. */
+function inspectorRows(view: InspectorView): InspectorRow[] {
+  const rows: InspectorRow[] = [];
+  if (view.kind === 'npc') {
+    for (const b of view.state) rows.push({ t: 'bar', label: b.label, value: b.value, accent: UI_PALETTE.accent as [number, number, number, number] });
+    if (view.domains.length) {
+      rows.push({ t: 'header', label: 'THEY BELIEVE YOU COMMAND' });
+      for (const d of view.domains) rows.push({ t: 'bar', label: d.label, value: d.value, accent: DOMAIN_BAR_ACCENT });
+    }
+    return rows;
+  }
+  if (view.buildingRow) rows.push({ t: 'building', label: `${view.buildingRow.name} · ${view.buildingRow.type}` });
+  if (view.wards?.length) {
+    rows.push({ t: 'header', label: 'WARDS' });
+    for (const wd of view.wards) rows.push({ t: 'text', label: `${wd.name} · ${wd.type}` });
+  }
+  if (view.recent?.length) {
+    rows.push({ t: 'header', label: 'RECENT' });
+    for (const r of view.recent) rows.push({ t: 'text', label: `${r.count} ${r.label}` });
+  }
+  if (view.domains.length) {
+    rows.push({ t: 'header', label: 'THEY BELIEVE YOU COMMAND' });
+    for (const d of view.domains) rows.push({ t: 'bar', label: d.label, value: d.value, accent: DOMAIN_BAR_ACCENT });
+  }
+  return rows;
+}
+
+/** Draw one flattened inspector row at `rowY` (the scroll list already clamped/
+ *  windowed it — this only paints). `building` gets a tinted highlight band so
+ *  the clicked building reads distinct from the wards list under it. */
+function drawInspectorRow(
+  c: UiContext, row: InspectorRow, innerX: number, innerW: number, rowY: number,
+  fsBody: number, lh: number, barH: number,
+): void {
+  switch (row.t) {
+    case 'header':
+      c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.accent);
+      return;
+    case 'building':
+      c.rect(innerX - 6, rowY - 2, innerW + 12, lh + 4, withAlpha(UI_PALETTE.accent, 0.16));
+      c.label(row.label.toUpperCase(), innerX, rowY, fsBody, UI_PALETTE.text);
+      return;
+    case 'text':
+      c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.textDim);
+      return;
+    case 'bar': {
+      c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.textDim);
+      const trackW = innerW * 0.42;
+      const trackX = innerX + innerW - trackW;
+      const trackY = rowY + Math.round((lh - barH) / 2);
+      c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      const fillW = Math.round(trackW * clamp01(row.value));
+      if (fillW > 0) c.rect(trackX, trackY, fillW, barH, row.accent);
+      return;
+    }
+  }
+}
+
+/** "Cwen · peace sworn (5d left)" / "Cwen · peace lapsed (2d ago)" / "Cwen · no
+ *  oath sworn" — the M6 Peace-of-God readout, fiction days only (never ticks). */
+function peaceLine(p: SettlementPeace): string {
+  const days = Math.max(0, Math.round(p.expiryDays ?? 0));
+  if (p.oath === 'sworn') return `${p.lordName} · peace sworn (${days}d left)`;
+  if (p.oath === 'lapsed') return `${p.lordName} · peace lapsed (${days}d ago)`;
+  return `${p.lordName} · no oath sworn`;
 }
 
 /** Chip caption: "WHISPER · 1  (praying)" with a lock glyph when belief-gated. */

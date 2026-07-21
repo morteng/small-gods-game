@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createGameQuery } from '@/game/game-query';
+import { createGameQuery, RECENT_STRIP_HORIZON_TICKS } from '@/game/game-query';
 import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import { initNpcProps } from '@/world/npc-helpers';
+import { TICKS_PER_DAY } from '@/core/calendar';
 import type { GameState } from '@/core/state';
 import type { GameMap, Tile, NpcProperties } from '@/core/types';
+import type { LordState } from '@/sim/lord';
 
 function miniMap(w = 8, h = 8): GameMap {
   const tiles: Tile[][] = [];
@@ -175,6 +177,139 @@ describe('game-query', () => {
       expect(q.inspect({ kind: 'none' })).toBeNull();
       const round = JSON.parse(JSON.stringify(q.inspect({ kind: 'npc', npcId: 'n1' })));
       expect(round.title).toBe('Ada');
+    });
+
+    // ── UI v2 W2 (D5): the settlement inspector's grown payload ──
+    describe('settlement v2 (W2 D5)', () => {
+      it('reports wards (same source as settlement()) and population', () => {
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.wards).toEqual([{ name: 'Mill Ward', type: 'craft' }]);
+        expect(v.population).toBe(2); // n1 + n2, both homed at poi1
+      });
+
+      it('housing capacity sums standing dwellings at the poi; 0 with none', () => {
+        // The base fixture's 'c1' cottage has no blueprint (bare test entity) —
+        // contributes no capacity, so the settlement starts at 0.
+        const bare = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(bare.housing).toBe(0);
+
+        state.world!.addEntity({
+          id: 'dwelling1', kind: 'cottage', x: 4, y: 4, tags: ['building'],
+          properties: {
+            poiId: 'poi1',
+            blueprint: {
+              rb: { preset: 'cottage', category: 'residential' },
+              collision: { footprint: { w: 1, h: 1 }, blocked: [], doorCells: [] },
+              anchors: [],
+            },
+          },
+        } as any);
+        const withDwelling = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(withDwelling.housing).toBe(5); // DWELLING_CAPACITY.cottage
+      });
+
+      it('a settlement with no lord reports no peace field', () => {
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.peace).toBeUndefined();
+      });
+
+      it('a seated lord with no proclaimed peace reports oath "none"', () => {
+        state.world!.lords.set('poi1', {
+          npcId: 'n1', lineageId: 'n1', tithe: 0.1, garrison: 0, unrest: 0, keepTier: 0,
+        } as LordState);
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.peace).toEqual({ lordName: 'Ada', oath: 'none' });
+      });
+
+      it('an unexpired Peace of God reports "sworn" with fiction days to expiry', () => {
+        state.clock.setNow(1000);
+        state.world!.lords.set('poi1', {
+          npcId: 'n1', lineageId: 'n1', tithe: 0.05, garrison: 1, unrest: 0, keepTier: 0,
+          peace: { spiritId: 'player', untilTick: 1000 + 3 * TICKS_PER_DAY, titheCap: 0.05, sworn: ['n1'] },
+        } as LordState);
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.peace?.lordName).toBe('Ada');
+        expect(v.peace?.oath).toBe('sworn');
+        expect(v.peace?.expiryDays).toBeCloseTo(3, 5);
+      });
+
+      it('an expired Peace of God reports "lapsed" with fiction days since lapse', () => {
+        state.clock.setNow(1000);
+        state.world!.lords.set('poi1', {
+          npcId: 'n1', lineageId: 'n1', tithe: 0.1, garrison: 1, unrest: 0, keepTier: 0,
+          peace: { spiritId: 'player', untilTick: 1000 - 2 * TICKS_PER_DAY, titheCap: 0.05, sworn: ['n1'] },
+        } as LordState);
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.peace?.oath).toBe('lapsed');
+        expect(v.peace?.expiryDays).toBeCloseTo(2, 5);
+      });
+
+      it('the RECENT strip coalesces last-day births/deaths/growth/road events for THIS settlement', () => {
+        state.clock.setNow(1000);
+        state.eventLog.append({ type: 'npc_birth', npcId: 'n1', parentIds: [], lineageId: 'n1' });
+        state.eventLog.append({ type: 'npc_death', npcId: 'n2', lineageId: 'n2', cause: 'old_age' });
+        state.eventLog.append({ type: 'settlement_grown', poiId: 'poi1', entityId: 'dwelling2', preset: 'cottage', lotId: 'lot1' });
+        state.eventLog.append({ type: 'road_promoted', edgeId: 'e1', from: 'path', to: 'road', fromPoiId: 'poi1', toPoiId: 'poi9' });
+        state.eventLog.append({ type: 'road_adopted', edgeId: 'e2', x: 3, y: 3, lengthT: 1, fromPoiId: 'poi9', toPoiId: 'poi1' });
+
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.recent).toEqual(expect.arrayContaining([
+          { label: 'BORN', count: 1 },
+          { label: 'PASSED', count: 1 },
+          { label: 'NEW ROOFS', count: 1 },
+          { label: 'ROAD RAISED', count: 1 },
+          { label: 'PATH WORN', count: 1 },
+        ]));
+        expect(v.recent).toHaveLength(5);
+      });
+
+      it('excludes events older than the RECENT horizon and events at a different settlement', () => {
+        state.clock.setNow(1000);
+        state.eventLog.append({ type: 'npc_birth', npcId: 'n1', parentIds: [], lineageId: 'n1' }); // too old, below
+        state.clock.setNow(1000 + RECENT_STRIP_HORIZON_TICKS + 1);
+        state.world!.addEntity(npc('n3', 'Cel', 5, 5, { homePoiId: 'otherpoi' }));
+        state.eventLog.append({ type: 'npc_birth', npcId: 'n3', parentIds: [], lineageId: 'n3' }); // different poi
+
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(v.recent).toEqual([]);
+      });
+
+      it('a building click threads a highlighted buildingRow; an npc target never carries one', () => {
+        state.world!.addEntity({
+          id: 'b1', kind: 'cottage', x: 3, y: 2, tags: ['building'],
+          properties: {
+            blueprint: {
+              rb: { preset: 'cottage', category: 'residential' },
+              collision: { footprint: { w: 1, h: 1 }, blocked: [], doorCells: [] },
+              anchors: [],
+            },
+          },
+        } as any);
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' }, 'player', { buildingId: 'b1' })!;
+        expect(v.buildingRow).toEqual({ name: 'a one-room peasant cottage', type: 'residential' });
+
+        // Absent when no buildingId is supplied, or it doesn't resolve.
+        const noBuilding = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(noBuilding.buildingRow).toBeUndefined();
+        const missing = q.inspect({ kind: 'settlement', poiId: 'poi1' }, 'player', { buildingId: 'nope' })!;
+        expect(missing.buildingRow).toBeUndefined();
+
+        const npcView = q.inspect({ kind: 'npc', npcId: 'n1' })!;
+        expect(npcView.buildingRow).toBeUndefined();
+      });
+
+      it('the whole enriched payload is JSON-serializable', () => {
+        state.world!.lords.set('poi1', {
+          npcId: 'n1', lineageId: 'n1', tithe: 0.1, garrison: 1, unrest: 0, keepTier: 0,
+          peace: { spiritId: 'player', untilTick: state.clock.now() + TICKS_PER_DAY, titheCap: 0.05, sworn: ['n1'] },
+        } as LordState);
+        state.eventLog.append({ type: 'npc_birth', npcId: 'n1', parentIds: [], lineageId: 'n1' });
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' }, 'player', { buildingId: 'c1' });
+        const round = JSON.parse(JSON.stringify(v));
+        expect(round.wards).toEqual([{ name: 'Mill Ward', type: 'craft' }]);
+        expect(round.peace.oath).toBe('sworn');
+        expect(round.recent).toEqual([{ label: 'BORN', count: 1 }]);
+      });
     });
   });
 });
