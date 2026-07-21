@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { WaterType, type WorldSeed } from '@/core/types';
 import { ELEVATION_SEA_LEVEL } from '@/world/heightfield';
-import { buildWaterField, computeShoreDist, fillShoreRing, floodDilateLakes, LAKE_FLOOD_RINGS, packWaterGlobals, WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
+import { buildWaterField, computeShoreDist, fillShoreRing, floodDilateLakes, LAKE_FLOOD_RINGS, packWaterGlobals, quadVisibleInDiamond, WATER_GLOBALS_FLOATS } from '@/render/gpu/water-field';
 import { terrainGrid } from '@/render/gpu/terrain-field';
 import { packTerrainGlobals, type TerrainGlobalsInput } from '@/render/gpu/instance-buffer';
 import { DEFAULT_LIGHTING } from '@/render/lighting-state';
@@ -53,6 +53,53 @@ describe('Water S2 — water field builder', () => {
     // The window still rides into uWindow (origin 0,0 + the snapped 16×12 cell span) — it
     // drives the CPU cull that scopes which wet cells are emitted.
     expect(Array.from(win.globals.subarray(32, 36))).toEqual([0, 0, 16, 12]);
+  });
+
+  describe('L1 — exact diamond cull (the AABB window circumscribes the visible iso rect)', () => {
+    it('keeps a cell whose z=0 projection lands inside the view rect', () => {
+      const d = { originX: 0, originY: 0, viewW: 800, viewH: 600 };
+      // Tile (5,5), sub=1: sx stays near 0 (cx≈cy), sy≈(5+5)*32=320..384 — well inside
+      // the 600-tall view. A genuinely on-screen cell.
+      expect(quadVisibleInDiamond(5, 5, 1, d)).toBe(true);
+    });
+
+    it('culls a cell sitting in the AABB corner the diamond does not actually cover', () => {
+      const d = { originX: 0, originY: 0, viewW: 800, viewH: 600 };
+      // Tile (0,60), sub=1: cx−cy = −60/−61 → sx runs to roughly −3840..−3776, far past
+      // the view's left edge (−viewW..0) — exactly the kind of corner `visibleTileBounds`'
+      // circumscribing AABB includes but the true rotated rect never reaches.
+      expect(quadVisibleInDiamond(0, 60, 1, d)).toBe(false);
+    });
+
+    it('a coarsened quad spanning several tiles is kept if ANY of its corners reach the view', () => {
+      const d = { originX: 0, originY: 0, viewW: 800, viewH: 600 };
+      // sub=4 quad starting at (0,0): its far corner (4,4) still projects near the view.
+      expect(quadVisibleInDiamond(0, 0, 4, d)).toBe(true);
+    });
+
+    it('buildWaterField emits no more quads with a diamond cull than the AABB window alone', async () => {
+      clearHydrologyCache();
+      const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
+      const full = buildWaterField(map, opts)!;
+      // A tall-but-narrow "view": generous in Y (keeps the whole map's sy range), tight
+      // in X — so the diamond trims the AABB's left/right corners without touching the
+      // AABB itself (the default whole-map window is unchanged).
+      const narrowDiamond = { originX: 0, originY: -2016, viewW: 400, viewH: 8064 };
+      const culled = buildWaterField(map, { ...opts, diamond: narrowDiamond })!;
+      expect(culled.vertexCount).toBeLessThan(full.vertexCount);
+      expect(culled.vertexCount).toBeGreaterThan(0);
+    });
+
+    it('an unrestricted diamond (covers every corner) is byte-identical to no diamond at all', async () => {
+      clearHydrologyCache();
+      const { map } = await generateWithNoise(64, 64, 1, noPoiSeed);
+      const full = buildWaterField(map, opts)!;
+      // originX/viewW sized to comfortably contain the whole 64×64 map's projected extent.
+      const wideOpen = { originX: 4100, originY: 0, viewW: 8200, viewH: 4200 };
+      const same = buildWaterField(map, { ...opts, diamond: wideOpen })!;
+      expect(same.vertexCount).toBe(full.vertexCount);
+      expect(Array.from(same.wetCells)).toEqual(Array.from(full.wetCells));
+    });
   });
 
   it('memoises the packed wet-cell list — same window ⇒ same reference; changed window/flood ⇒ re-pack', async () => {

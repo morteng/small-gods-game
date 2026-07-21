@@ -17,6 +17,7 @@ import { buildRiverSurfaceFieldMemo } from '@/render/gpu/river-surface-field';
 import { getRiverChannelGeometry, type RiverChannelGeometry } from '@/render/gpu/river-channel-geometry';
 import { WaterType } from '@/core/types';
 import { classifyWaterCell, climateOf, type AquaticBiome, type Rgb } from '@/water/water-biome';
+import { ISO_TILE_W, ISO_TILE_H } from '@/render/iso/iso-constants';
 
 /** Depth (m) below which water blends toward opaque — past it, water is opaque. */
 export const SHALLOW_BAND_M = 1.5;
@@ -381,6 +382,47 @@ export interface BuildWaterFieldOpts {
    *  (the byte-identical default; used by the static profiler / any caller without a
    *  camera rect). The window is snapped to the coarsen lattice internally. */
   window?: { minTx: number; minTy: number; maxTx: number; maxTy: number };
+  /** EXACT diamond (rotated-rectangle) cull — the same origin/extents `gpu-render-frame`
+   *  passes into `visibleTileBounds` to derive `window` (iso-screen origin `-camera.x/y`
+   *  + `canvasWidth/Height / camera.zoom`). `window`'s AABB CIRCUMSCRIBES the visible iso
+   *  diamond — at a typical aspect ratio roughly half its emitted quads sit in the four
+   *  AABB corners that are actually off-screen. Water rides the flat z=0 plane (no
+   *  height lift, unlike terrain), so projecting a candidate quad's 4 corners with the
+   *  SAME affine map `worldToScreen` uses and testing them against this rect is exact —
+   *  no lift margin needed. Absent ⇒ AABB-only cull (byte-identical prior behavior; the
+   *  static profiler / any camera-less caller omits it). */
+  diamond?: { originX: number; originY: number; viewW: number; viewH: number };
+}
+
+/** Sanity slack (screen px) around the exact visible rect — covers float edge noise
+ *  only. The generous multi-tile pad that keeps genuinely-near-edge geometry (the
+ *  river-band mesh dilation, the coarsen-lattice snap) already lives in `window`'s own
+ *  ±2-tile AABB pad upstream (`gpu-render-frame.ts`); this predicate only trims the
+ *  AABB's wasted corners inside that already-padded window, so it stays tiny. */
+const DIAMOND_MARGIN_PX = 1;
+
+/**
+ * Does a coarsened water quad `[cx,cy]..[cx+sub,cy+sub]` (tile space) fall inside the
+ * visible diamond `d`? Tests the quad's screen-space AABB (computed from its 4 corners
+ * under the iso projection, z=0) against the view rect `[0,viewW]×[0,viewH]` — exported
+ * standalone so a corner-of-the-circumscribing-AABB cell (culled) and a genuinely
+ * on-screen cell (kept) are both unit-testable without a full `buildWaterField` call.
+ */
+export function quadVisibleInDiamond(
+  cx: number, cy: number, sub: number,
+  d: { originX: number; originY: number; viewW: number; viewH: number },
+): boolean {
+  const hw = ISO_TILE_W / 2, hh = ISO_TILE_H / 2;
+  // The 4 tile-space corners' screen sx/sy extremes (worldToScreen, z=0): sx is
+  // extremal at (cx+sub,cy) and (cx,cy+sub) (the other two corners tie at the
+  // midpoint since `sub` cancels in tx−ty); sy is extremal at (cx,cy) and
+  // (cx+sub,cy+sub) (tx+ty grows with both corners together).
+  const sxMin = (cx - (cy + sub)) * hw + d.originX;
+  const sxMax = ((cx + sub) - cy) * hw + d.originX;
+  const syMin = (cx + cy) * hh + d.originY;
+  const syMax = ((cx + sub) + (cy + sub)) * hh + d.originY;
+  return sxMax >= -DIAMOND_MARGIN_PX && sxMin <= d.viewW + DIAMOND_MARGIN_PX
+      && syMax >= -DIAMOND_MARGIN_PX && syMin <= d.viewH + DIAMOND_MARGIN_PX;
 }
 
 /** Connected lake bodies over the RENDER lake mask (Lake cells INCLUDING the
@@ -1030,10 +1072,14 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
   // inside the mask (lakes are dilated `LAKE_FLOOD_RINGS` in the static), so it stays sparse.
   //
   // MEMOISED on the pack's complete input signature — the coarsened window origin +
-  // quad counts + subsample + the flood fallback flag (meshMask/W/H are constant per
-  // static). A stationary camera reuses the same packed subarray: no CPU re-pack, and
-  // the stable reference lets the GPU upload guard skip the per-frame writeBuffer.
-  const packSig = `${winX0},${winY0},${quadsX},${quadsY},${sub},${floodActive ? 1 : 0}`;
+  // quad counts + subsample + the flood fallback flag + the diamond cull params
+  // (meshMask/W/H are constant per static). A stationary camera reuses the same packed
+  // subarray: no CPU re-pack, and the stable reference lets the GPU upload guard skip
+  // the per-frame writeBuffer. The diamond params ride the signature too — they change
+  // every frame while panning (same as window), but hold byte-identical while idle.
+  const diamond = opts.diamond;
+  const packSig = `${winX0},${winY0},${quadsX},${quadsY},${sub},${floodActive ? 1 : 0}`
+    + (diamond ? `|${diamond.originX},${diamond.originY},${diamond.viewW},${diamond.viewH}` : '');
   let wetPacked = stat.packOut;
   if (!wetPacked || stat.packSig !== packSig) {
     const cap = quadsX * quadsY;
@@ -1045,6 +1091,7 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
         const cy = Math.min(winY0 + qy * sub, H - 1);
         for (let qx = 0; qx < quadsX; qx++) {
           const cx = Math.min(winX0 + qx * sub, W - 1);
+          if (diamond && !quadVisibleInDiamond(cx, cy, sub, diamond)) continue;
           wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
         }
       }
@@ -1055,7 +1102,9 @@ export function buildWaterField(map: GameMap, opts: BuildWaterFieldOpts): WaterF
         const row = cy * W;
         for (let qx = 0; qx < quadsX; qx++) {
           const cx = Math.min(winX0 + qx * sub, W - 1);
-          if (mask[row + cx]) wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
+          if (!mask[row + cx]) continue;
+          if (diamond && !quadVisibleInDiamond(cx, cy, sub, diamond)) continue;
+          wetCells[nQuads++] = (cx | (cy << 16)) >>> 0;
         }
       }
     }

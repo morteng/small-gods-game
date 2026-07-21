@@ -57,6 +57,21 @@ function connectomeRequested(): boolean {
   catch { return false; }
 }
 
+/** Flotsam (S6 flow-advected debris/fauna) is sub-pixel decoration once the camera is
+ *  zoomed out past the settlement→world transition — invisible at this scale but still
+ *  paid for (particle step + a `WorldRenderGraph`-adjacent draw-item build) every frame.
+ *  Gated on the CAMERA zoom (never `xform.sx`/px) — the resolution governor's art-pixel
+ *  tier is a SEPARATE knob, and entangling the two was a past bug (see CLAUDE.md: "GPU-
+ *  scene zoom-LOD gates key on CAMERA zoom, never xform.sx"). Mirrors the grass
+ *  billboards' `GRASS_MIN_ZOOM` gate (`grass-scatter.ts`), a lower threshold since a
+ *  drifting leaf reads fine a touch further out than individual grass blades. */
+export const FLOTSAM_MIN_ZOOM = 0.25;
+
+/** Pure predicate (unit-testable without a live camera/frame) — see {@link FLOTSAM_MIN_ZOOM}. */
+export function flotsamEnabled(camZoom: number): boolean {
+  return camZoom >= FLOTSAM_MIN_ZOOM;
+}
+
 /** `?nodetail` turns the adaptive sub-tile detail patches OFF (A/B + preference). */
 function detailDisabled(): boolean {
   try { return new URLSearchParams(window.location.search).has('nodetail'); }
@@ -248,6 +263,15 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       minTx: bounds.minTx - 2, minTy: bounds.minTy - 2,
       maxTx: bounds.maxTx + 2, maxTy: bounds.maxTy + 2,
     };
+    // EXACT diamond cull (L1): the SAME origin/extents just fed into `visibleTileBounds`
+    // above, so a candidate water quad is tested against the true visible iso rect, not
+    // just its circumscribing AABB (`waterWindow`) — the AABB corners are ~half the
+    // window's area at a typical aspect and are provably off-screen (water is flat,
+    // z=0, so this projection is exact — no lift margin needed, unlike terrain).
+    const waterDiamond = {
+      originX: -camera.x, originY: -camera.y,
+      viewW: canvasWidth / camera.zoom, viewH: canvasHeight / camera.zoom,
+    };
     const water: WaterField | null = (terrain && waterOn)
       ? buildWaterField(map, {
           viewport: [lowW, lowH], xform, lighting, timeSec, waterLevelM,
@@ -255,6 +279,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
           // pan (terrain opts out of that half). Waterlines stay crisp — the shore is a
           // per-fragment bicubic clip against the full-res height buffers, not the mesh.
           superSample: waterSuperSample, maxQuads: waterMaxQuads, window: waterWindow,
+          diamond: waterDiamond,
           // Localized per-basin level (climate W-B) — rain filling one lake.
           lakeOffsetM: rc.lakeOffsetM,
           // Per-cell standing water (W-E) — a god flooding a plain.
@@ -296,8 +321,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // renderer doesn't terrain-lift `circle` items, so they keep their surface z.
     // SKIPPED in the studio: a wandering fish/bird swarm makes no sense hovering
     // beside a single object under inspection (it read as random moving dots).
+    // SKIPPED past FLOTSAM_MIN_ZOOM: sub-pixel debris at a world-view zoom-out, gated
+    // on the camera's own zoom so it never entangles with the resolution governor's
+    // art-pixel tier (a past bug — see the constant's doc).
     let dynamicItems: readonly DrawItem[] = npcItems;
-    if (water && !studio) dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
+    if (water && !studio && flotsamEnabled(camera.zoom)) {
+      dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
+    }
 
     const chrome = !studio;
     // D10: thread this frame's own clock through so the UI runtime's
