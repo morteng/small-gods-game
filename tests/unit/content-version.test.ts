@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v36');
   });
 
-  it('declares the current world content version (112: the picture is the contract — continuous render-water distance + unified species-derived dust gate)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(112);
+  it('declares the current world content version (113: aridity-driven dust — vegetation placement dust gate retethered to slope/elevation/moisture)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(113);
   });
 });
