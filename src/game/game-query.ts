@@ -18,7 +18,7 @@ import type { SpiritId } from '@/core/spirit';
 import type { AppendedEvent } from '@/core/events';
 import { npcProps } from '@/world/npc-helpers';
 import { evaluateContracts, type ContractReport } from '@/world/connectome-contracts';
-import { isDurable } from '@/sim/believers';
+import { isDurable, npcStatusHint } from '@/sim/believers';
 import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous, getDomainBelief } from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
 import { scoreAffordance, PRAYER_SUBJECT_TEXT } from '@/game/affordance/salience';
@@ -105,6 +105,11 @@ export interface SettlementPeace {
  *  building click), rendered as a highlighted row atop the scroll content. */
 export interface InspectorBuildingRow { name: string; type: string; }
 
+/** W3 (D6): one social tie row for the npc inspector's TIES section — name (not
+ *  raw entity id, so the panel never resolves live state) + relationship type +
+ *  trust (0–1, same bar idiom as the domain-conviction bars). */
+export interface InspectorRelationship { name: string; type: string; trust: number; }
+
 /** The target-first inspector payload (spec §8): full legible state for any
  *  selectable + what the target believes YOU command (the belief-loop feedback) +
  *  the complete divine vocabulary applicable here. Plain data → MCP/UI bind directly. */
@@ -118,6 +123,13 @@ export interface InspectorView {
   domains: InspectorBar[];
   /** The full divine vocabulary for this target — locked/unaffordable verbs greyed. */
   affordances: InspectorAffordance[];
+  // ── W3 (D6): npc-only extensions. Always undefined for `kind: 'settlement'`. ──
+  /** One-line player-facing read of where this believer stands (`npcStatusHint`),
+   *  e.g. "praying — needs you now" / "devoted" / "turned away from you". */
+  statusHint?: string;
+  /** Top social ties by trust (desc, name asc tiebreak), capped ~8. Dead/missing
+   *  targets (a relationship can outlive its subject) are silently skipped. */
+  relationships?: InspectorRelationship[];
   // ── W2 (D5): settlement-only extensions. Always undefined for `kind: 'npc'`. ──
   /** Ward name+type rows (same source as `GameQuery.settlement()`). */
   wards?: { name: string; type: string }[];
@@ -391,6 +403,28 @@ function recentStripFor(world: World, state: GameState, poiId: string, now: numb
   return rows;
 }
 
+// ── W3 (D6): npc inspector deepening ─────────────────────────────────────────
+
+/** Row cap for the TIES section — the panel is a soul-band focus surface, not a
+ *  census; the strongest ties are the ones worth reading. */
+const MAX_INSPECTOR_TIES = 8;
+
+/** The npc inspector's TIES rows (§D6): top social ties by trust, resolved to
+ *  live names. A relationship can outlive its subject (nothing is ever deleted —
+ *  the dead soul stays queryable as `kind: 'remains'`), so a target that no
+ *  longer resolves to a living `npc` entity is silently skipped rather than
+ *  surfacing a stale/dead name. Deterministic order: trust desc, name asc. */
+function topRelationships(world: World, rels: readonly { npcId: string; type: string; trust: number }[]): InspectorRelationship[] {
+  const rows: InspectorRelationship[] = [];
+  for (const r of rels) {
+    const e = world.registry.get(r.npcId);
+    if (!e || e.kind !== 'npc') continue; // dead (→'remains') or missing
+    rows.push({ name: npcProps(e).name, type: r.type, trust: r.trust });
+  }
+  rows.sort((a, b) => (b.trust - a.trust) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return rows.slice(0, MAX_INSPECTOR_TIES);
+}
+
 export function createGameQuery(deps: GameQueryDeps): GameQuery {
   const { state } = deps;
 
@@ -494,6 +528,10 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           ],
           domains: ALL_DOMAINS.map(d => ({ label: DOMAIN_DEFS[d].label, value: getDomainBelief(p, spiritId, d) })),
           affordances,
+          // W3 (D6): the soul-band deepening — a prose read of where they stand
+          // + their strongest social ties (both plain data; MCP binds directly).
+          statusHint: npcStatusHint(b, p.needs, p.activity),
+          relationships: topRelationships(world, p.relationships),
         };
       }
 

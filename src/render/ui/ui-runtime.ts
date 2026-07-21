@@ -904,6 +904,15 @@ export class UiRuntime {
     c.label(view.subtitle, innerX, y, fsBody, UI_PALETTE.textDim);
     y += lh + 10 * s;
 
+    // W3 (D6): the status-hint prose line sits fixed under the subtitle (same
+    // "single fact, not a list" treatment as the settlement population/peace
+    // block below) — clamped to 2 lines so a long read never eats the scroll
+    // budget the TIES/domain rows need.
+    if (view.kind === 'npc' && view.statusHint) {
+      y = this.drawWrappedClamped(c, view.statusHint, innerX, y, innerW, fsBody, 2, UI_PALETTE.textDim);
+      y += 4 * s;
+    }
+
     const rowH = lh + 8 * s;
     // W2 (D5): population/housing + peace/oath are single settlement-scale FACTS,
     // not a list — they sit fixed under the subtitle, never inside the scroll list.
@@ -1133,6 +1142,32 @@ export class UiRuntime {
       }
     }
     if (line) { c.label(line, x, y, scale, color); y += lh + 2 * scale; }
+    return y;
+  }
+
+  /** W3 (D6): greedy word-wrap a run into at most `maxLines` lines within `maxW` —
+   *  the npc inspector's status-hint prose has no room for a chat transcript, so
+   *  it clamps rather than pushing the scroll-list start down unboundedly. The
+   *  last shown line gets an ellipsis when content was cut. Returns the y past
+   *  the last line drawn (same contract as `drawWrapped`). */
+  private drawWrappedClamped(
+    c: UiContext, text: string, x: number, y: number, maxW: number, scale: number,
+    maxLines: number, color = UI_PALETTE.textDim,
+  ): number {
+    const lh = c.lineHeight(scale);
+    const lines: string[] = [];
+    let line = '';
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const probe = line ? `${line} ${word}` : word;
+      if (line && c.measure(probe, scale) > maxW) { lines.push(line); line = word; }
+      else line = probe;
+    }
+    if (line) lines.push(line);
+    const shown = lines.slice(0, maxLines);
+    if (lines.length > maxLines && shown.length) {
+      shown[shown.length - 1] = c.ellipsize(`${shown[shown.length - 1]} …`, scale, maxW);
+    }
+    for (const ln of shown) { c.label(ln, x, y, scale, color); y += lh + 2 * scale; }
     return y;
   }
 
@@ -1506,6 +1541,11 @@ type InspectorRow =
  *  OVER them, distinct from the player-accent bars that read as THEIR state. */
 const DOMAIN_BAR_ACCENT: readonly [number, number, number, number] = [0.55, 0.7, 0.9, 1];
 
+/** W3 (D6): warm kinship tint for TIES trust bars — distinct from both the
+ *  player-accent state bars (THEIR state) and the storm-sky domain bars (what
+ *  they believe of YOU); this one is what they feel toward EACH OTHER. */
+const TIE_BAR_ACCENT: readonly [number, number, number, number] = [0.85, 0.65, 0.35, 1];
+
 /** Flatten an `InspectorView` into the scroll list's rows, in display order.
  *  Npc: state bars, then (if any) the domain-conviction bars under a header —
  *  unchanged content from pre-D2, just row-ized. Settlement (W2 D5): the
@@ -1518,6 +1558,13 @@ function inspectorRows(view: InspectorView): InspectorRow[] {
     if (view.domains.length) {
       rows.push({ t: 'header', label: 'THEY BELIEVE YOU COMMAND' });
       for (const d of view.domains) rows.push({ t: 'bar', label: d.label, value: d.value, accent: DOMAIN_BAR_ACCENT });
+    }
+    // W3 (D6): top social ties — name + type as the label, trust as the bar.
+    if (view.relationships?.length) {
+      rows.push({ t: 'header', label: 'TIES' });
+      for (const r of view.relationships) {
+        rows.push({ t: 'bar', label: `${r.name} · ${r.type}`, value: r.trust, accent: TIE_BAR_ACCENT });
+      }
     }
     return rows;
   }
@@ -1556,9 +1603,13 @@ function drawInspectorRow(
       c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.textDim);
       return;
     case 'bar': {
-      c.label(row.label, innerX, rowY, fsBody, UI_PALETTE.textDim);
       const trackW = innerW * 0.42;
       const trackX = innerX + innerW - trackW;
+      // W3 (D6): TIES rows carry an npc name + relationship type — long enough
+      // to run into the trust bar — so the label ellipsis-clips to the space
+      // actually left of the track (same idiom the button label already uses).
+      const label = c.ellipsize(row.label, fsBody, Math.max(0, trackX - innerX - 8));
+      c.label(label, innerX, rowY, fsBody, UI_PALETTE.textDim);
       const trackY = rowY + Math.round((lh - barH) / 2);
       c.rect(trackX, trackY, trackW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
       const fillW = Math.round(trackW * clamp01(row.value));
