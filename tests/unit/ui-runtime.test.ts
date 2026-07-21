@@ -4,6 +4,7 @@ import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import type { UiHit } from '@/render/ui/ui-context';
 import type { UiSpec, UiSpecChoice } from '@/story/uispec';
 import type { BeliefPowerView, InboxItem } from '@/game/game-query';
+import type { WorldLabelView } from '@/game/affordance/world-labels';
 
 const W = 1280, H = 720, DPR = 2;
 
@@ -671,6 +672,71 @@ describe('UiRuntime — tiding inbox items + pins (WP-C)', () => {
     expect(hit).toBeTruthy();
     click(rt, ...center(hit));
     expect(fired).toEqual(['cross:vale']);
+  });
+});
+
+// ── UI v2 W1/D4: World-band map-typography labels (the parked pins' replacement) ──
+const LABELS: WorldLabelView[] = [
+  { poiId: 'vale', name: 'Vale', x: 400, y: 300, badge: 0, focused: false, contestedBy: null },
+  { poiId: 'crossing', name: 'Crossing', x: 800, y: 500, badge: 3, focused: true, contestedBy: 'Om' },
+];
+
+describe('UiRuntime — world-band settlement labels (W1/D4)', () => {
+  it('draws no labels when the hook reports outside the world band (null)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => null });
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('wlabel.'))).toBe(false);
+  });
+
+  it('renders one clickable label per settlement, hotspot straddling its anchor', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+    rt.frame(W, H, DPR);
+    const ids = rt.hitRegions().filter((h) => h.id.startsWith('wlabel.')).map((h) => h.id).sort();
+    expect(ids).toEqual(['wlabel.crossing', 'wlabel.vale']);
+    const hit = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    expect(hit.x).toBeLessThanOrEqual(400);
+    expect(hit.x + hit.w).toBeGreaterThanOrEqual(400);
+  });
+
+  it('emits label geometry into a UiSpace.World draw group', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+    const groups = rt.frame(W, H, DPR);
+    const world = groups.filter((g) => g.space === UiSpace.World);
+    expect(world.length).toBeGreaterThan(0);
+    expect(totalVerts(world)).toBeGreaterThan(0);
+  });
+
+  it('a label over the world is consumed by the UI (so a click does not deselect/pan)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+    rt.frame(W, H, DPR);
+    // The label floats ABOVE its map anchor (400,300) — probe its actual hotspot
+    // rect (like the earlier "renders one clickable label" test) rather than the
+    // raw anchor point, which sits on the box's bottom edge.
+    const hit = rt.hitRegions().find((h) => h.id === 'wlabel.vale')!;
+    expect(rt.consumesPointer(...center(hit))).toBe(true);
+    expect(rt.consumesPointer(40, 40)).toBe(false);
+  });
+
+  it('clicking a label fires onWorldLabel with its poiId', () => {
+    const fired: string[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS, onWorldLabel: (id) => fired.push(id) });
+    rt.frame(W, H, DPR);
+    const hit = rt.hitRegions().find((h) => h.id === 'wlabel.crossing')!;
+    click(rt, ...center(hit));
+    expect(fired).toEqual(['crossing']);
+  });
+
+  it('a modal (menu) suppresses the labels entirely', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getWorldLabels: () => LABELS });
+    rt.toggleMenu();
+    rt.frame(W, H, DPR);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('wlabel.'))).toBe(false);
   });
 });
 

@@ -26,6 +26,7 @@ import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
 import type { BeliefPowerView, InboxItem, InboxKind, InspectorView } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
+import type { WorldLabelView } from '@/game/affordance/world-labels';
 import type { Command } from '@/sim/command/types';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { TICKS_PER_HOUR } from '@/core/calendar';
@@ -92,6 +93,15 @@ export interface UiRuntimeHooks {
   getAlertPins?: () => AlertPinView[] | null;
   /** Click a world alert pin: the game camera-flies to it, then acts on the item. */
   onAlertPin?: (id: string) => void;
+
+  // ── UI v2 W1/D4: World-band map typography (settlement name labels) ──
+  /** Settlement labels for the World band, or null outside it — the game owns the
+   *  band gate + the world→screen projection so a label stays pixel-snapped as the
+   *  camera moves (same idiom as `getAlertPins`; alert pins stay parked, this is
+   *  their sanctioned World-space replacement — text, not floating icons). */
+  getWorldLabels?: () => WorldLabelView[] | null;
+  /** Click a settlement label: the game focuses that settlement + flies to it. */
+  onWorldLabel?: (poiId: string) => void;
 
   // ── W-I-d: the selected CAUSAL SITE card (flood plain / drowned village) ──
   /** The card view for the currently-selected causal site, or null. The runtime
@@ -605,6 +615,11 @@ export class UiRuntime {
 
   // ── barebones HUD: a single presence orb that also opens the menu ─────────
   private drawHud(c: UiContext, w: number, h: number, s: number): void {
+    // UI v2 W1/D4: World-band settlement labels are map typography, drawn FIRST
+    // so every other HUD surface below wins any overlap (same rule the parked
+    // alert pins followed) — the World band IS the map.
+    this.drawWorldLabels(c, w, h, s);
+
     const pad = 16 * s;
     const orb = 30 * s;
     const ox = pad;
@@ -720,6 +735,53 @@ export class UiRuntime {
       }
       ry += rowH + gap;
     });
+  }
+
+  // ── UI v2 W1/D4: World-band map typography (settlement name labels) ────────
+  // The parked-pins ruling holds ("no floating icons over the world") — this is
+  // text pinned to places, drawn in `UiSpace.World` (same idiom `drawAlertPins`
+  // used). Null ⇒ outside the world band, nothing drawn.
+  private drawWorldLabels(c: UiContext, w: number, h: number, s: number): void {
+    const labels = this.hooks.getWorldLabels?.() ?? null;
+    if (!labels || labels.length === 0) return;
+    const fs = FS_BODY * s;
+    const fsSub = fs * 0.75; // contested-by: a smaller second line
+    const pad = 6 * s;
+    let clicked: string | null = null;
+    for (const lb of labels) {
+      const name = lb.name.toUpperCase();
+      const badgeText = lb.badge > 0 ? ` ·${lb.badge}` : '';
+      const nameW = c.measure(name, fs);
+      const badgeW = badgeText ? c.measure(badgeText, fs) : 0;
+      const lineW = nameW + badgeW;
+      const lh = c.lineHeight(fs);
+      const contested = lb.contestedBy ? lb.contestedBy.toUpperCase() : null;
+      const subW = contested ? c.measure(contested, fsSub) : 0;
+      const subH = contested ? c.lineHeight(fsSub) : 0;
+      const boxW = Math.ceil(Math.max(lineW, subW)) + pad * 2;
+      const boxH = Math.ceil(lh + subH) + pad * 2;
+      const bx = Math.round(lb.x - boxW / 2);
+      const by = Math.round(lb.y - boxH); // the label floats ABOVE its map anchor
+      if (bx + boxW < 0 || by + boxH < 0 || bx > w || by > h) continue; // off-screen cull
+
+      // subtle dark backing so the name reads over any terrain (spec: alpha ~0.35).
+      c.rect(bx, by, boxW, boxH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.35), UiSpace.World);
+      const nameColor = lb.focused ? UI_PALETTE.accent : UI_PALETTE.text;
+      const tx = Math.round(lb.x - lineW / 2);
+      const ty = by + pad;
+      c.label(name, tx, ty, fs, nameColor, UiSpace.World);
+      if (badgeText) c.label(badgeText, Math.round(tx + nameW), ty, fs, UI_PALETTE.textDim, UiSpace.World);
+      if (contested) {
+        const sx = Math.round(lb.x - subW / 2);
+        c.label(contested, sx, ty + lh, fsSub, UI_PALETTE.textDim, UiSpace.World);
+      }
+      // click target in screen coords (== the label's own backing rect).
+      if (c.hotspot(`wlabel.${lb.poiId}`, bx, by, boxW, boxH)) clicked = lb.poiId;
+    }
+    if (clicked) {
+      this.hooks.onWorldLabel?.(clicked);
+      this.hooks.requestRender?.();
+    }
   }
 
   // ── P5 semantic zoom: world-anchored alert pins (the zoomed-out inbox) ──────

@@ -24,21 +24,34 @@ export const PIN_SELECTION_ID = 'selection';
 /** Iso-screen px the pin floats above the tile centre (≈ a sprite's head). */
 const PIN_HEAD_LIFT = 40;
 
-/** Project a tile anchor to a pixel-snapped device-px centre (tile centre = +0.5).
- *  The live camera pans in ISO-SCREEN space, so this must go through the iso
- *  projection + stage transform — the flat `tile × TILE_SIZE` mapping is a
- *  different space and strands pins mid-ocean. */
-export function projectPinCentre(
+/** Project a tile anchor + vertical iso-lift to a pixel-snapped device-px centre
+ *  (tile centre = +0.5). The live camera pans in ISO-SCREEN space, so this must
+ *  go through the iso projection + stage transform — the flat `tile × TILE_SIZE`
+ *  mapping is a different space and strands markers mid-ocean. Shared by alert
+ *  pins (`projectPinCentre`) and the W1 world-band settlement labels
+ *  (`affordance/world-labels.ts`) — one projection idiom, one place it can drift. */
+export function projectWorldAnchor(
   anchor: { x: number; y: number },
+  liftPx: number,
   cam: Camera,
   dpr: number,
 ): { x: number; y: number } {
-  const iso = worldToScreen(anchor.x + 0.5, anchor.y + 0.5, PIN_HEAD_LIFT, 0, 0);
+  const iso = worldToScreen(anchor.x + 0.5, anchor.y + 0.5, liftPx, 0, 0);
   const t = isoStageTransform(cam);
   return {
     x: Math.round((iso.sx * t.scale + t.x) * dpr),
     y: Math.round((iso.sy * t.scale + t.y) * dpr),
   };
+}
+
+/** Project a tile anchor to a pixel-snapped device-px centre at the pin's fixed
+ *  head-height lift. */
+export function projectPinCentre(
+  anchor: { x: number; y: number },
+  cam: Camera,
+  dpr: number,
+): { x: number; y: number } {
+  return projectWorldAnchor(anchor, PIN_HEAD_LIFT, cam, dpr);
 }
 
 /**

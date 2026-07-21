@@ -31,6 +31,12 @@ export interface GameState {
   /** W-I-d: the causal site (`causalSites`) whose card is open, or null. The
    *  third member of the mutually-exclusive selection set (npc / building / site). */
   selectedCausalSiteId: string | null;
+  /** UI v2 W1/D4: a settlement selected DIRECTLY (clicking a World-band map label,
+   *  not via a building) — the `selectedBuildingId → nearestPoiId` path stays the
+   *  in-band way a building resolves to its settlement; this is the out-of-band
+   *  one. Not part of the npc/building/site mutual-exclusion set above (a world
+   *  label click clears those, but nothing else needs to clear this one). */
+  selectedPoiId: string | null;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   debug: boolean;
@@ -158,6 +164,7 @@ export function createState(): GameState {
     selectedNpcId: null,
     selectedBuildingId: null,
     selectedCausalSiteId: null,
+    selectedPoiId: null,
     visualMap: null,
     blobMap: null,
     debug: false,
