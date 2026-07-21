@@ -36,6 +36,14 @@ describe('terrain WGSL — Slice-2 colour ground texture', () => {
     expect(TERRAIN_WGSL).toContain('G.uFlags.x');
   });
 
+  it('px-invariance: fwTiles divides by uFlags.y (pxScale) so LOD/detail depend on camera zoom only', () => {
+    // T0 fix: fwidth(vGrid) is measured in the low-res dynamic-resolution target, so its
+    // raw value carries the px factor. Every downstream consumer (fwG, fwTexels, cellFw
+    // inside groundPatch/detailLod/analytic AA) derives from this ONE division, so pinning
+    // it here is sufficient to guarantee px1..px4 select identical ground LOD/fade.
+    expect(TERRAIN_WGSL).toMatch(/let fwTiles = fwidth\(in\.vGrid\) \/ max\(G\.uFlags\.y, 1e-4\);/);
+  });
+
   it('samples the atlas as mean-normalised COLOUR detail (matDetail, explicit LOD only)', () => {
     // The helper exists and uses explicit-LOD sampling (legal in the non-uniform
     // texFade branch — no derivative builtin inside it).
@@ -105,18 +113,24 @@ describe('packTerrainPassGlobals — uFlags plumbing', () => {
     sunDir: [-1, 1.6, -1], bands: 4, ambient: [0.4, 0.4, 0.45], sunStrength: 0.8,
   };
 
-  it('is 32 floats (24 shared + uWindow + uFlags) with groundTex defaulting ON', () => {
+  it('is 32 floats (24 shared + uWindow + uFlags) with groundTex/pxScale defaulting ON/1', () => {
     const b = packTerrainPassGlobals(tg);
     expect(TERRAIN_PASS_GLOBALS_FLOATS).toBe(32);
     expect(b).toHaveLength(32);
     expect(Array.from(b.subarray(24, 28))).toEqual([0, 0, 8, 8]); // uWindow unchanged
     expect(b[28]).toBe(1);                                        // uFlags.x default on
-    expect(Array.from(b.subarray(29, 32))).toEqual([0, 0, 0]);    // reserved
+    expect(b[29]).toBe(1);                                        // uFlags.y: pxScale default (no-op)
+    expect(Array.from(b.subarray(30, 32))).toEqual([0, 0]);       // zw reserved
   });
 
   it('writes uFlags.x = 0 when groundTex is disabled', () => {
     const b = packTerrainPassGlobals({ ...tg, groundTex: 0 });
     expect(b[28]).toBe(0);
+  });
+
+  it('writes uFlags.y = pxScale (the T0 px-normalization factor)', () => {
+    const b = packTerrainPassGlobals({ ...tg, pxScale: 3 });
+    expect(b[29]).toBe(3);
   });
 });
 
@@ -137,6 +151,15 @@ describe('buildTerrainField — groundTex option → globals', () => {
     const g = buildTerrainField(tinyMap(8, 8), { ...opts, groundTex: false }).globals;
     expect(g.groundTex).toBe(0);
     expect(packTerrainPassGlobals(g)[28]).toBe(0);
+  });
+
+  it('defaults pxScale to 1 (no-op) and threads an explicit value through to uFlags.y', () => {
+    const gDefault = buildTerrainField(tinyMap(8, 8), opts).globals;
+    expect(gDefault.pxScale).toBe(1);
+    expect(packTerrainPassGlobals(gDefault)[29]).toBe(1);
+    const gScaled = buildTerrainField(tinyMap(8, 8), { ...opts, pxScale: 3 }).globals;
+    expect(gScaled.pxScale).toBe(3);
+    expect(packTerrainPassGlobals(gScaled)[29]).toBe(3);
   });
 });
 

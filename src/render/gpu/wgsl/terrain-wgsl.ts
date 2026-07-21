@@ -29,7 +29,12 @@ struct TGlobals {
   uSun      : vec4<f32>,   // tile-space sun dir xyz, bands
   uAmbient  : vec4<f32>,   // ambient rgb, sun strength
   uWindow   : vec4<f32>,   // viewport-cull mesh window: oxTile, oyTile, spanW, spanH (tiles)
-  uFlags    : vec4<f32>,   // x: ground colour-texture enable (1; \`?groundtex=off\` ⇒ 0); yzw reserved
+  uFlags    : vec4<f32>,   // x: ground colour-texture enable (1; ?groundtex=off => 0);
+                           // y: pxScale (approx S/dpr, the dynamic-resolution px factor) —
+                           // divides the screen-space derivative footprint so ground LOD/
+                           // fade depends on camera zoom alone, never the resolution tier
+                           // (px1..px4 read identical ground colour at a fixed camera);
+                           // zw reserved
 };
 
 @group(0) @binding(0) var<uniform> G : TGlobals;
@@ -619,7 +624,17 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // Tile-space pixel footprint, taken ONCE in uniform control flow so the analytic
   // road materials can band-limit (and be guarded by a branch) without a derivative
   // builtin running in non-uniform flow.
-  let fwTiles = fwidth(in.vGrid);
+  //
+  // PX-INVARIANCE: fwidth() is measured in the low-res backing target, so its raw
+  // value is proportional to S/(z*dpr) — it carries the dynamic-resolution px factor,
+  // not just camera zoom. Divide by uFlags.y (pxScale ~= S/dpr ~= px) so the footprint
+  // depends on camera zoom z ALONE: a world tile always spans z*ISO_TILE_W CSS px
+  // regardless of which px tier is rendering it. Every downstream consumer (fwG,
+  // fwTexels, groundPatch's mip/lod0, texFade, detailLod, and the analytic AA terms
+  // in analyticCobble/Gravel/Pebbles/Rock) derives from this one value, so normalizing
+  // here makes px1..px4 select the same mip / same fade / same detail at a fixed
+  // camera — while a genuine camera zoom-out still recedes detail, since z still varies.
+  let fwTiles = fwidth(in.vGrid) / max(G.uFlags.y, 1e-4);
   // Shared domain-warp + footprint fade for ALL ground-patch texturing (open-ground splat,
   // beaches, snow, seabed). Hoisted to uniform flow so fwidth is taken once and every
   // downstream ground-patch sample uses explicit-LOD (legal in the non-uniform texFade branch

@@ -114,6 +114,13 @@ export interface TerrainGlobalsInput {
    *  terrain PASS packer. 1 (default) = climate-blended colour swatches modulate the
    *  biome colour; 0 (`?groundtex=off`) = the pre-Slice-2 grayscale grain. */
   groundTex?: number;
+  /** Dynamic-resolution px factor (approx `S/dpr`, `computeView`'s `S = round(px*dpr)`),
+   *  packed into `uFlags.y` by the terrain PASS packer. The shader divides its
+   *  screen-space derivative footprint (`fwidth(vGrid)`) by this so ground LOD/mip/fade
+   *  depend on camera zoom ALONE, never which px tier (1..4) is rendering — the fix for
+   *  ground colour/detail differing between dynamic-resolution levels. Defaults to 1
+   *  (no-op) when omitted, e.g. for the water pass which doesn't carry `uFlags`. */
+  pxScale?: number;
 }
 
 /** Pack the terrain Globals uniform (std140-ish; vec2 pairs share 16-byte slots). */
@@ -143,5 +150,6 @@ export function packTerrainPassGlobals(g: TerrainGlobalsInput): Float32Array {
   const w = g.window ?? [0, 0, g.grid[0], g.grid[1]];
   b[24] = w[0]; b[25] = w[1]; b[26] = w[2]; b[27] = w[3]; // uWindow: oxTile, oyTile, spanW, spanH
   b[28] = g.groundTex ?? 1;                               // uFlags.x: ground colour texture (1 = on)
+  b[29] = g.pxScale ?? 1;                                  // uFlags.y: px-normalization factor (1 = no-op)
   return b;
 }

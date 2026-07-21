@@ -428,6 +428,11 @@ export interface BuildTerrainFieldOpts {
   /** Per-biome colour ground texture (Slice 2). Default ON; `false` (`?groundtex=off`)
    *  restores the pre-Slice-2 grayscale grain for A/B comparison. */
   groundTex?: boolean;
+  /** Dynamic-resolution px factor (`computeView`'s `S/dpr`, ~= the art-pixel-size `px`
+   *  currently rendering). Threaded into `uFlags.y` so the shader can normalize its
+   *  screen-space derivative footprint by it — ground LOD/detail becomes px-invariant
+   *  (depends on camera zoom only). Defaults to 1 (no-op) when omitted. */
+  pxScale?: number;
   /** OPT-IN connectome-projected water (studio editing) — its render waterType paints
    *  author-placed lake beds damp too. Absent → derived from the map (raster path). */
   connectomeWater?: ConnectomeWaterOverride;
@@ -488,6 +493,9 @@ export function terrainGlobalsFor(
     window?: [number, number, number, number];
     /** Ground colour-texture enable (Slice 2). Default ON; `false` ⇒ grayscale grain. */
     groundTex?: boolean;
+    /** Dynamic-resolution px factor (`S/dpr`) — packed into `uFlags.y` so the terrain
+     *  shader can normalize its screen-space derivative footprint by it. Defaults to 1. */
+    pxScale?: number;
   },
 ): TerrainGlobalsInput {
   // S1 style knobs: vertical exaggeration + relief metres. Default to
@@ -510,6 +518,7 @@ export function terrainGlobalsFor(
     terrainSuper: Math.max(1, Math.floor(opts.superSample ?? 1)),
     window: opts.window,
     groundTex: opts.groundTex === false ? 0 : 1,
+    pxScale: opts.pxScale ?? 1,
   };
 }
 
@@ -552,7 +561,7 @@ export function buildTerrainField(map: GameMap, opts: BuildTerrainFieldOpts): Te
   const globals = terrainGlobalsFor(map, {
     viewport: opts.viewport, xform: opts.xform, lighting: opts.lighting, subsample: grid.subsample,
     terrainMode: opts.terrainMode, superSample: opts.superSample, window: grid.window,
-    groundTex: opts.groundTex,
+    groundTex: opts.groundTex, pxScale: opts.pxScale,
   });
   const climate = getClimateFields(map);
   const cw = opts.connectomeWater;
