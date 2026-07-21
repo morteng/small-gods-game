@@ -28,7 +28,7 @@ import { bootLlmClients, buildChatClient, buildCapableClient, paidArtGenOptions 
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
-import { simStateFromEntity, getNpc } from '@/world/npc-helpers';
+import { simStateFromEntity, getNpc, forEachNpc, npcProps } from '@/world/npc-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
 import { openMindPage, pathKey } from '@/game/mind-orchestrator';
 import { DivineActionsController } from '@/game/divine-actions-controller';
@@ -51,7 +51,8 @@ import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
 import type { ThreadSubject } from '@/sim/threads/thread-types';
 import { StoryRegistry, StorySession, createBusStoryHost, busAllowedVerbs } from '@/story';
 import { droughtOmenPack } from '@/story/samples/the-drought-omen';
-import { PLAYER_SPIRIT_ID } from '@/sim/believers';
+import { PLAYER_SPIRIT_ID, BELIEVER_THRESHOLD } from '@/sim/believers';
+import { cohortBelievers } from '@/sim/cohorts';
 import { AuthorCommandLog } from '@/sim/command/author-command-log';
 import { registerSimSystems } from '@/game/sim-systems';
 import { applySkip } from '@/sim/time-skip';
@@ -67,7 +68,8 @@ import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
-import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM } from '@/game/affordance/zoom-band';
+import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM, SETTLEMENT_FLY_ZOOM } from '@/game/affordance/zoom-band';
+import { buildWorldLabels, type SettlementContest } from '@/game/affordance/world-labels';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { ChronicleService } from '@/game/chronicle-service';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
@@ -750,6 +752,34 @@ export class Game {
       // P5 alert pins are PARKED (user: no floating icons over the world) — the
       // projection (`affordance/alert-pins.ts`) and the ui-runtime renderer stay,
       // but nothing feeds them. Re-enable by restoring the getAlertPins hook here.
+      // ── UI v2 W1/D4: World-band settlement labels — the parked pins' honest
+      // replacement (map typography, not icons). World-band-only by construction:
+      // `buildWorldLabels` gets a fresh viewport read each call, but the hook
+      // itself gates on `currentBand()` so the labels simply don't exist outside it.
+      getWorldLabels: () => {
+        if (this.currentBand() !== 'world') return null;
+        const pois = this.state.worldSeed?.pois ?? [];
+        if (pois.length === 0) return null;
+        return buildWorldLabels(
+          pois,
+          this.hudSim().inbox,
+          this.worldContest(),
+          this.focusedSettlementPoiId(),
+          this.state.camera,
+          devicePixelRatio,
+          { w: this.canvas.width, h: this.canvas.height },
+        );
+      },
+      // Click a settlement label: focus it directly (the world band has no
+      // building to hang the selection off) + fly to the settlement altitude.
+      onWorldLabel: (poiId) => {
+        this.state.selectedPoiId = poiId;
+        this.state.selectedNpcId = null;
+        this.state.selectedBuildingId = null;
+        const poi = this.state.worldSeed?.pois.find((p) => p.id === poiId);
+        if (poi?.position) this.flyTo(poi.position, undefined, SETTLEMENT_FLY_ZOOM);
+        this.requestRender();
+      },
       // ── W-I-d: selected causal-site card ──
       getSelectedSite: () => {
         const id = this.state.selectedCausalSiteId;
@@ -1060,6 +1090,71 @@ export class Game {
     return best;
   }
 
+  /** UI v2 W1/D4: the settlement a World-band label click should render focused —
+   *  either a direct label-click selection (`selectedPoiId`) or, mirroring
+   *  `inspectorTarget`'s building→settlement resolution without touching that
+   *  function (W2 owns it), a selected building's settlement. `selectedPoiId`
+   *  wins: it's the more recent, more specific act when both are somehow set. */
+  private focusedSettlementPoiId(): string | null {
+    const s = this.state;
+    if (s.selectedPoiId) return s.selectedPoiId;
+    if (s.selectedBuildingId && s.world) {
+      const b = s.world.registry.get(s.selectedBuildingId);
+      if (b) return this.nearestPoiId(Math.floor(b.x), Math.floor(b.y));
+    }
+    return null;
+  }
+
+  /** UI v2 W1/D4: per-settlement believer tallies (player + every rival), folding
+   *  BOTH population tiers — named NPCs (`forEachNpc`) and the P1 statistical
+   *  cohort tier (`cohortBelievers`), same two-tier fold `buildRivalSituation`
+   *  uses — so a settlement dominated by the statistical tier still reads as
+   *  contested. Memoised behind the same `HUD_SIM_TTL_MS` window as `hudSim()`
+   *  (own cache: this sweep only runs while a label consumer is asking, i.e. the
+   *  World band is active, so it must not piggyback on `hudSim`'s unconditional
+   *  every-frame refresh and tax the other two bands). */
+  private worldContestCache: { t: number; data: SettlementContest[] } | null = null;
+  private worldContest(): SettlementContest[] {
+    const now = performance.now();
+    const c = this.worldContestCache;
+    if (c && now - c.t < HUD_SIM_TTL_MS) return c.data;
+    const world = this.state.world;
+    const byPoi = new Map<string, { player: number; rivals: Map<string, number> }>();
+    const bump = (poiId: string, spiritId: string, n: number): void => {
+      if (n <= 0) return;
+      let rec = byPoi.get(poiId);
+      if (!rec) { rec = { player: 0, rivals: new Map() }; byPoi.set(poiId, rec); }
+      if (spiritId === PLAYER_SPIRIT_ID) rec.player += n;
+      else rec.rivals.set(spiritId, (rec.rivals.get(spiritId) ?? 0) + n);
+    };
+    if (world) {
+      forEachNpc(world, (e) => {
+        const p = npcProps(e);
+        const poiId = p.homePoiId;
+        if (!poiId) return;
+        for (const spiritId of Object.keys(p.beliefs).sort()) {
+          if ((p.beliefs[spiritId]?.faith ?? 0) >= BELIEVER_THRESHOLD) bump(poiId, spiritId, 1);
+        }
+      });
+    }
+    for (const poiId of [...this.state.cohorts.keys()].sort()) {
+      const sc = this.state.cohorts.get(poiId)!;
+      for (const spiritId of [...this.state.spirits.keys()].sort()) {
+        bump(poiId, spiritId, cohortBelievers(sc, spiritId));
+      }
+    }
+    const data: SettlementContest[] = [...byPoi.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([poiId, rec]) => ({
+        poiId,
+        player: rec.player,
+        rivals: [...rec.rivals.entries()]
+          .map(([spiritId, count]) => ({ name: this.state.spirits.get(spiritId)?.name ?? spiritId, count }))
+          .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+      }));
+    this.worldContestCache = { t: now, data };
+    return data;
+  }
+
   // ── UI v2 W0/D1: three attention bands on the zoom ladder ────────────────────
   /** The current attention band, updated with per-boundary hysteresis so a
    *  boundary rung can't oscillate. `soul` = per-NPC chrome; `settlement`/`world`
@@ -1098,11 +1193,14 @@ export class Game {
 
   /** Queue the P5 camera-fly toward a tile anchor — `flyTo(tx, ty)` or `flyTo({x, y})`.
    *  Lands at an in-band zoom when starting zoomed out; keeps the player's zoom when
-   *  already in-band. Presentation only — cancelled by any user pan/zoom
-   *  (`onUserCameraInput`). Non-finite / off-map targets are dropped: a bad call must
-   *  never write NaN into `cameraFly` (the ease would poison `camera.x/y` for the rest
-   *  of the session). */
-  private flyTo(txOrPos: number | { x: number; y: number }, ty?: number): void {
+   *  already in-band. An optional trailing `explicitZoom` (UI v2 W1/D4 — works with
+   *  EITHER call form: `flyTo(tx, ty, zoom)` or `flyTo({x, y}, undefined, zoom)`)
+   *  overrides that default, e.g. a World-band label click always wants to land at
+   *  `SETTLEMENT_FLY_ZOOM` regardless of which band it was clicked from. Presentation
+   *  only — cancelled by any user pan/zoom (`onUserCameraInput`). Non-finite / off-map
+   *  targets are dropped: a bad call must never write NaN into `cameraFly` (the ease
+   *  would poison `camera.x/y` for the rest of the session). */
+  private flyTo(txOrPos: number | { x: number; y: number }, ty?: number, explicitZoom?: number): void {
     const tx = typeof txOrPos === 'object' ? txOrPos.x : txOrPos;
     const tyv = typeof txOrPos === 'object' ? txOrPos.y : ty;
     const map = this.state.map;
@@ -1114,7 +1212,7 @@ export class Game {
       console.warn(`[camera] flyTo dropped invalid target (${String(tx)}, ${String(tyv)})`);
       return;
     }
-    const zoom = this.currentBand() === 'soul' ? this.state.camera.zoom : SOUL_FLY_ZOOM;
+    const zoom = explicitZoom ?? (this.currentBand() === 'soul' ? this.state.camera.zoom : SOUL_FLY_ZOOM);
     this.state.cameraFly = { tx, ty: tyv, zoom };
   }
 
