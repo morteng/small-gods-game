@@ -15,6 +15,7 @@ export const TILE_COLORS: Record<string, string> = {
   stone_road: '#78909C',
   river: '#2196F3',
   dirt: '#A1887F',
+  gravel: '#B8AD98',
   forest: '#2E7D32',
   dense_forest: '#1B5E20',
   pine_forest: '#33691E',

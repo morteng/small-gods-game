@@ -75,6 +75,7 @@ import { barrierFootprintTiles } from '@/world/barrier';
 import { reconcileBuildingsWithWater } from '@/world/building-water-reconcile';
 import type { SettlementPlan } from '@/world/settlement-plan';
 import { prewarmAllSettlementWear } from '@/world/settlement-wear';
+import { depositDoorstepGravel } from '@/world/doorstep-gravel';
 import { clearKillingFields } from '@/world/killing-field';
 import { TrampleGrid } from '@/sim/trample';
 import { applyPoiGroundPatches } from '@/world/poi-ground-patches';
@@ -119,6 +120,7 @@ const WALKABLE_TYPES: Record<string, boolean> = {
   dirt: true,
   dirt_road: true,
   stone_road: true,
+  gravel: true,
   farm_field: true,
   swamp: true,
   building_wood: true,
@@ -970,6 +972,16 @@ export async function generateWithNoise(
   const trample = new TrampleGrid(width, height);
   const worn = prewarmAllSettlementWear(trample, settlementPlans, map, world, seed);
   if (worn > 0) await report(`Trampled ${worn} tiles`);
+
+  // T3 — doorstep→world gravel scatter, hooked into the connectome road graph: from every
+  // building's doorstep, radiate a gravel apron outward along the connected road graph
+  // (distance falloff, busy premises reach farther) — the trodden ground a doorway spills
+  // into the world. Runs right after the trample prewarm (a doorstep already promoted to
+  // dirt there composes with gravel further out) and after the road graph is FINAL (fillet
+  // reconciliation happened above), so the apron follows the actually-drawn ribbon.
+  await report('Scattering doorstep gravel...');
+  const gravel = depositDoorstepGravel(map, settlementPlans, world, seed);
+  if (gravel.cells > 0) await report(`Scattered gravel from ${gravel.buildings} doorstep${gravel.buildings === 1 ? '' : 's'} (${gravel.cells} tiles)`);
 
   // Tilled fields around farm buildings — the open soil a settlement's farms work, beyond the
   // built-up core. Runs after settlement+roads+wear so it takes only the soil still free of

@@ -154,21 +154,25 @@ const PERIMETER_BUSY = 56;
 
 /** Building kinds (blueprint preset) with enough footfall to wear a real doorstep +
  *  perimeter at gen: the market, mill, well, and houses of worship / drink. Matched on
- *  the preset name so era packs' variants ("village-church", "market_stall") fall in. */
-const BUSY_KIND = /church|chapel|minster|temple|shrine|market|stall|tavern|inn|mill|well|forge|smith/i;
+ *  the preset name so era packs' variants ("village-church", "market_stall") fall in.
+ *  Exported: the doorstep→graph gravel pass (`doorstep-gravel.ts`) reuses this exact
+ *  busy/ordinary split so its reach/strength split agrees with the dirt-doorstep one. */
+export const BUSY_KIND = /church|chapel|minster|temple|shrine|market|stall|tavern|inn|mill|well|forge|smith/i;
 
-function isBusyKind(kind: string): boolean {
+export function isBusyKind(kind: string): boolean {
   return BUSY_KIND.test(kind);
 }
 
 /** The ground tile a door opens onto: step one full tile out from the anchor's wall-face
- *  point along its outward facing (the anchor x/y already carries the half-tile offset). */
-function doorstepTile(a: Anchor): { x: number; y: number } {
+ *  point along its outward facing (the anchor x/y already carries the half-tile offset).
+ *  Exported: `doorstep-gravel.ts` radiates its graph-hooked apron from this same point. */
+export function doorstepTile(a: Anchor): { x: number; y: number } {
   return { x: Math.floor(a.x + a.facing[0] * 0.5), y: Math.floor(a.y + a.facing[1] * 0.5) };
 }
 
-/** The main door anchor of a placed structure (world-space, stored at placement), or null. */
-function mainDoorAnchor(e: Entity): Anchor | null {
+/** The main door anchor of a placed structure (world-space, stored at placement), or null.
+ *  Exported for the same reason as `doorstepTile` above. */
+export function mainDoorAnchor(e: Entity): Anchor | null {
   const anchors = (e.properties as { anchors?: Anchor[] } | undefined)?.anchors;
   if (!anchors || anchors.length === 0) return null;
   return anchors.find(a => a.kind === 'door' && a.main)
