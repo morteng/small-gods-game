@@ -23,7 +23,7 @@ import { isLayerHidden } from '@/render/layer-visibility';
 import { getHydrologyResult } from '@/world/hydrology-store';
 // divine-actions functions now invoked via DivineActionsController
 import type { LLMClient } from "@/llm/llm-client";
-import type { ProviderConfig } from '@/llm/provider-factory';
+import type { ProviderConfig, ProviderType } from '@/llm/provider-factory';
 import { bootLlmClients, buildChatClient, buildCapableClient, paidArtGenOptions } from '@/game/llm-runtime';
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
@@ -71,6 +71,7 @@ import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
 import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM, SETTLEMENT_FLY_ZOOM } from '@/game/affordance/zoom-band';
 import { buildWorldLabels, type SettlementContest } from '@/game/affordance/world-labels';
 import { LlmBackfillService } from '@/game/llm-backfill';
+import { soulWarmFocusDue } from '@/game/soul-warm-focus';
 import { ChronicleService } from '@/game/chronicle-service';
 import { FateBrainService } from '@/game/fate/fate-brain-service';
 import { FateTrigger } from '@/game/fate/fate-trigger';
@@ -127,6 +128,18 @@ export class Game {
   private discoveryQueue = new DiscoveryQueue();
   /** Last NPC fed to the discovery queue, so we push a signal only on a switch. */
   private lastDiscoveredNpcId: string | null = null;
+  /** UI v2 W3 (D6): last `selectedNpcId` seen by the soul-warm-focus check, so a
+   *  fresh selection (including a re-selection after deselecting) is detected —
+   *  independent of `lastDiscoveredNpcId`'s own change-tracking above. */
+  private lastSoulFocusSelection: string | null = null;
+  /** UI v2 W3 (D6): per-npc real-clock (`Date.now()`) timestamp of the last warm-
+   *  focus backfill fire — transient, NEVER serialized/snapshotted (a save/load
+   *  or timeline scrub must not reset or extend the spend cooldown). */
+  private soulFocusFiredAt = new Map<string, number>();
+  /** UI v2 W3 (D6): the fast-tier provider's TYPE (mirrors `providerConfig.type`
+   *  the spend chip already gates on) — 'mock' means no LLM is actually
+   *  configured, so warm-focus has nothing to warm and silently skips. */
+  private llmProviderType: ProviderType = 'mock';
   private attentionStore = new NpcAttentionStore();
   private authorLog = new AuthorCommandLog();
   private timeline!: TimelineController;
@@ -322,6 +335,7 @@ export class Game {
         this.commandQueue.clear();
         this.discoveryQueue.clear();
         this.lastDiscoveredNpcId = null;
+        this.lastSoulFocusSelection = null; // (cooldown map itself is real-time, not reset)
         this.attentionStore.clearAll();
         // WP-D: Fate's wake throttle is game-side (outside the snapshot seam);
         // a scrub can put the clock BEFORE its lastTick, wedging the cooldown
@@ -348,6 +362,7 @@ export class Game {
     const providerConfig = llm.config;
     this.llmClient = llm.client;
     this.llmClientCapable = llm.capable;
+    this.llmProviderType = providerConfig.type;
     // M1: the chronicler's voice — fast/chat tier, off the sim tick, strictly
     // read-only over the event log. Constructed before `createGameQuery` so its
     // `chronicleLatest` dep closure below is wired the same way `rate`/`timeline`
@@ -845,6 +860,27 @@ export class Game {
     }
   }
 
+  /**
+   * UI v2 W3 (D6): fire the LLM backfill for a freshly soul-focused npc, gated by
+   * a per-npc real-time cooldown (`soulWarmFocusDue`) so re-selecting doesn't
+   * spam paid calls. Silent no-op (no error, no UI) when: no LLM is actually
+   * configured (mock provider), the npc no longer resolves, or the cooldown
+   * hasn't elapsed. Fire-and-forget — never awaited, never blocks the frame loop.
+   */
+  private noteSoulFocus(npcId: string): void {
+    if (this.llmProviderType === 'mock') return; // nothing configured to warm
+    const now = Date.now();
+    if (!soulWarmFocusDue(npcId, this.soulFocusFiredAt, now)) return;
+    const world = this.state.world;
+    if (!world) return;
+    const entity = getNpc(world, npcId);
+    if (!entity) return;
+    this.soulFocusFiredAt.set(npcId, now); // record on ATTEMPT, not on resolve — a mid-flight re-select must still respect the cooldown
+    void this.llmBackfill.trigger(entity).catch((err) => {
+      console.error('[soul-focus] warm backfill failed:', err);
+    });
+  }
+
   /** Rebuild both client tiers in place from a just-saved config (no reload). */
   private applyLlmConfig(config: ProviderConfig): void {
     try {
@@ -852,6 +888,7 @@ export class Game {
       this.llmBackfill.setClient(this.llmClient);
       this.chronicleService.setClient(this.llmClient);
       this.llmClientCapable = buildCapableClient(config, this.costTracker);
+      this.llmProviderType = config.type;
       this.spendChip?.setVisible(config.type === 'openrouter');
     } catch (err) {
       console.warn('[llm] config not applied:', err);
@@ -1545,6 +1582,19 @@ export class Game {
       if (this.state.selectedNpcId && this.state.selectedNpcId !== this.lastDiscoveredNpcId) {
         this.lastDiscoveredNpcId = this.state.selectedNpcId;
         this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
+      }
+      // UI v2 W3 (D6): "focus warms the soul" — a FRESH npc selection (barebones
+      // only; legacy chrome keeps its manual backfill button) made while the
+      // camera sits in the soul band is the v1 spec's "zoom = attention =
+      // narration trigger", finally wired automatically. Selection-change
+      // detected the same way as the discovery signal above, but tracked in its
+      // OWN field — deselecting and reselecting the same soul must count as a
+      // fresh focus (cooldown decides whether it actually fires).
+      if (this.barebones && this.state.selectedNpcId !== this.lastSoulFocusSelection) {
+        this.lastSoulFocusSelection = this.state.selectedNpcId;
+        if (this.state.selectedNpcId && this.currentBand() === 'soul') {
+          this.noteSoulFocus(this.state.selectedNpcId);
+        }
       }
       // R9: advance through TimeController (budgeted slices) instead of a raw
       // scheduler.tick. Rate ≤ 1 (incl. seek's pinned rate 1) is a single

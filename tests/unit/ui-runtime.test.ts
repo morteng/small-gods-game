@@ -414,6 +414,86 @@ describe('UiRuntime — settlement inspector v2 (UI v2 W2/D5)', () => {
   });
 });
 
+// ── UI v2 W3 (D6): the npc inspector's soul deepening — status hint + TIES ──
+describe('UiRuntime — npc inspector soul deepening (UI v2 W3/D6)', () => {
+  it('TIES rows ride the SAME scrollList (still exactly one region) and draw more geometry', () => {
+    const withTies = {
+      ...INSPECTOR,
+      relationships: [
+        { name: 'Bo', type: 'friend', trust: 0.4 },
+        { name: 'Cade', type: 'rival', trust: 0.9 },
+      ],
+    };
+    const rtBase = new UiRuntime();
+    rtBase.configure({ getInspector: () => INSPECTOR });
+    const baseGroups = rtBase.frame(W, H, DPR);
+
+    const rtTies = new UiRuntime();
+    rtTies.configure({ getInspector: () => withTies });
+    const tieGroups = rtTies.frame(W, H, DPR);
+
+    // more rows (a TIES header + one bar per tie) ⇒ strictly more glyph/bar geometry.
+    expect(totalVerts(tieGroups)).toBeGreaterThan(totalVerts(baseGroups));
+    // still ONE scroll surface for the variable middle — no second scroll region.
+    expect(rtTies.scrollRegions().filter((r) => r.id === 'ui.inspector.list')).toHaveLength(1);
+    // ACTS/close/panel geometry is untouched — only the scrollable middle grew.
+    expect(rtTies.hitRegions().some((h) => h.id === 'ui.inspector.close')).toBe(true);
+  });
+
+  it('the status-hint prose line is drawn under the subtitle, pushing the scroll list down', () => {
+    const rtBare = new UiRuntime();
+    rtBare.configure({ getInspector: () => INSPECTOR });
+    rtBare.frame(W, H, DPR);
+    const regionBare = rtBare.scrollRegions().find((r) => r.id === 'ui.inspector.list')!;
+
+    const rtHint = new UiRuntime();
+    rtHint.configure({ getInspector: () => ({ ...INSPECTOR, statusHint: 'praying, needs you now' }) });
+    rtHint.frame(W, H, DPR);
+    const regionHint = rtHint.scrollRegions().find((r) => r.id === 'ui.inspector.list')!;
+
+    expect(regionHint.y).toBeGreaterThan(regionBare.y);
+    // and it actually drew MORE geometry than the bare panel (the wrapped line itself).
+    expect(totalVerts(rtHint.frame(W, H, DPR))).toBeGreaterThan(totalVerts(rtBare.frame(W, H, DPR)));
+  });
+
+  it('a very long status hint clamps to 2 lines instead of eating the whole panel', () => {
+    const long = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+    const rtShort = new UiRuntime();
+    rtShort.configure({ getInspector: () => ({ ...INSPECTOR, statusHint: 'short line' }) });
+    rtShort.frame(W, H, DPR);
+    const regionShort = rtShort.scrollRegions().find((r) => r.id === 'ui.inspector.list')!;
+
+    const rtLong = new UiRuntime();
+    rtLong.configure({ getInspector: () => ({ ...INSPECTOR, statusHint: long }) });
+    rtLong.frame(W, H, DPR);
+    const regionLong = rtLong.scrollRegions().find((r) => r.id === 'ui.inspector.list')!;
+
+    // A one-line hint pushes the list down by ~1 line; a 40-word hint would wrap
+    // to many more lines if unclamped — clamped-to-2 caps the push to ~2 lines.
+    const pushOneLine = regionShort.y; // both start from the same panel top
+    const pushClamped = regionLong.y;
+    expect(pushClamped).toBeGreaterThan(pushOneLine);
+    expect(pushClamped).toBeLessThan(pushOneLine * 4); // nowhere near "40 words as one line each"
+  });
+
+  it('a settlement inspector never reads statusHint/relationships (npc-only fields)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getInspector: () => SETTLEMENT_INSPECTOR });
+    const before = totalVerts(rt.frame(W, H, DPR));
+
+    const withExtras = {
+      ...SETTLEMENT_INSPECTOR,
+      statusHint: 'devoted',
+      relationships: [{ name: 'X', type: 'friend', trust: 1 }],
+    } as any;
+    const rt2 = new UiRuntime();
+    rt2.configure({ getInspector: () => withExtras });
+    const after = totalVerts(rt2.frame(W, H, DPR));
+
+    expect(after).toBe(before);
+  });
+});
+
 // ── P4: the declarative UiSpec card (whisper card) ──
 const CARD_SPEC: UiSpec = {
   title: 'Whisper to Ada',

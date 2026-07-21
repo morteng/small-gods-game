@@ -311,5 +311,76 @@ describe('game-query', () => {
         expect(round.recent).toEqual([{ label: 'BORN', count: 1 }]);
       });
     });
+
+    // ── UI v2 W3 (D6): the npc inspector's soul deepening ──
+    describe('npc soul deepening (W3 D6)', () => {
+      beforeEach(() => {
+        // A third living actor (a rival, high trust) + a dead soul (kind →
+        // 'remains' on death — nothing is ever deleted, so a relationship can
+        // outlive its subject) + a dangling relationship pointing at nothing.
+        state.world!.addEntity(npc('n3', 'Cade', 3, 3, { homePoiId: 'poi1', lineageId: 'n3' }));
+        state.world!.addEntity({
+          id: 'n4', kind: 'remains', x: 4, y: 4, tags: [],
+          properties: initNpcProps('Dead Edda', 'farmer', 4),
+        } as any);
+        const ada = state.world!.registry.get('n1')!;
+        (ada.properties as any).relationships = [
+          { npcId: 'n2', type: 'friend', trust: 0.4 },
+          { npcId: 'n3', type: 'rival', trust: 0.9 },
+          { npcId: 'n4', type: 'family', trust: 0.99 }, // dead — must be skipped
+          { npcId: 'ghost', type: 'friend', trust: 0.5 }, // missing — must be skipped
+        ];
+      });
+
+      it('reads the status hint from npcStatusHint (Ada: faith 0.8, devotion 0.6 → devoted)', () => {
+        const v = q.inspect({ kind: 'npc', npcId: 'n1' })!;
+        expect(v.statusHint).toBe('devoted');
+      });
+
+      it('reads a non-believer\'s status hint too (Bo: faith 0.05 → faith fading)', () => {
+        const v = q.inspect({ kind: 'npc', npcId: 'n2' })!;
+        expect(v.statusHint).toBe('faith fading');
+      });
+
+      it('resolves relationships sorted by trust desc, skipping the dead and the missing', () => {
+        const v = q.inspect({ kind: 'npc', npcId: 'n1' })!;
+        expect(v.relationships).toEqual([
+          { name: 'Cade', type: 'rival', trust: 0.9 },
+          { name: 'Bo', type: 'friend', trust: 0.4 },
+        ]);
+      });
+
+      it('caps at 8 ties, tiebreaking equal trust by name ascending', () => {
+        const ada = state.world!.registry.get('n1')!;
+        const rels: { npcId: string; type: string; trust: number }[] = [];
+        const names = ['Zeno', 'Anna', 'Milo', 'Bex', 'Cato', 'Dara', 'Eno', 'Fara', 'Gus', 'Hela'];
+        names.forEach((name, i) => {
+          const id = `tie${i}`;
+          state.world!.addEntity(npc(id, name, 5, 5, { homePoiId: 'poi1', lineageId: id }));
+          rels.push({ npcId: id, type: 'friend', trust: 0.5 }); // all equal trust
+        });
+        (ada.properties as any).relationships = rels;
+        const v = q.inspect({ kind: 'npc', npcId: 'n1' })!;
+        expect(v.relationships).toHaveLength(8);
+        expect(v.relationships!.map(r => r.name)).toEqual(
+          [...names].sort().slice(0, 8),
+        );
+        expect(v.relationships!.every(r => r.trust === 0.5)).toBe(true);
+      });
+
+      it('has no npc-only fields on a settlement inspect, and round-trips through JSON', () => {
+        const settlement = q.inspect({ kind: 'settlement', poiId: 'poi1' })!;
+        expect(settlement.statusHint).toBeUndefined();
+        expect(settlement.relationships).toBeUndefined();
+
+        const v = q.inspect({ kind: 'npc', npcId: 'n1' })!;
+        const round = JSON.parse(JSON.stringify(v));
+        expect(round.statusHint).toBe('devoted');
+        expect(round.relationships).toEqual([
+          { name: 'Cade', type: 'rival', trust: 0.9 },
+          { name: 'Bo', type: 'friend', trust: 0.4 },
+        ]);
+      });
+    });
   });
 });
