@@ -136,6 +136,22 @@ keybind-reachable, untouched.
 - **W3 — soul deepening** (D6): status hint + relationships + warm-focus backfill w/ cooldown.
 - **W4 — pantheon + tidings + annals** (D7, D8, D9).
 - **W5 — polish** (D10) + empirical band-threshold tune on live grabs.
+  - **W5.a text-clamp (SHIPPED 2026-07-21):** panel content rows drew via raw
+    `label()` with no width awareness → long strings ran off the panel edge and
+    clipped mid-word at the canvas boundary. Routed every content row through the
+    existing `ellipsize` primitive (the one `button()` already uses): inspector
+    subtitle / population / peace / ward / building / RECENT rows, inbox
+    title+detail (replacing an ad-hoc `slice(0,43)` char clamp), annals
+    title+first-line, powers name/reach. Pantheon got a layout fix (stance
+    right-aligned on the name row, follower count reserved after the bar). Also
+    suppress world-band labels while a panel is open (they bled through the 82%
+    panel bg). 2 geometry-derived regression guards in `ui-runtime.test.ts` assert
+    glyphs stay within the panel's own rendered edge. NOTE: the DOM route was
+    considered and rejected — measurement + ellipsis already exist in the pixel
+    UI; DOM would force a parallel webfont, reverse the WebGPU-only + agent-driven
+    direction, and not improve perf.
+  - Remaining (optional, deferred): D10 quiet-chrome collapse (time→clock chip,
+    camera→+/-) + band-change label fade; empirical band-threshold retune.
 
 Ordering: W0 first (everything depends on it). W1 ∥ W2 in worktrees (both touch `ui-runtime`
 — coordinate: W1 adds `drawWorldLabels` as a NEW function + one call site; W2 rewrites
