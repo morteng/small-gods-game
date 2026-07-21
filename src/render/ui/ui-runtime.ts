@@ -24,7 +24,8 @@ import { WhisperInputIsland } from '@/render/ui/ui-whisper-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
-import type { BeliefPowerView, InboxItem, InboxKind, InspectorView, SettlementPeace } from '@/game/game-query';
+import { validateUiSpec } from '@/story/uispec';
+import type { BeliefPowerView, InboxItem, InboxKind, InspectorView, PantheonRow, SettlementPeace } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 import type { WorldLabelView } from '@/game/affordance/world-labels';
 import type { Command } from '@/sim/command/types';
@@ -85,6 +86,19 @@ export interface UiRuntimeHooks {
   onInboxAct?: (item: InboxItem) => void;
   /** Triage: investigate (focus the subject — mind page / backfill). */
   onInboxInvestigate?: (item: InboxItem) => void;
+
+  // ── W4 (D9): the chronicle browser — the inbox panel's ANNALS mode. ──
+  /** Past daily annals, newest first (default []). Plain display data — the
+   *  game glue reads `ChronicleService.entries()`. */
+  getAnnals?: () => AnnalRow[];
+
+  // ── W4 (D7): the pantheon panel (rivals finally visible) ──
+  /** The pantheon roster — player first, then rivals by follower count desc
+   *  (default []). */
+  getPantheon?: () => PantheonRow[];
+  /** Click a rival row: the game flies to + focuses its strongest settlement.
+   *  Never fires for the player's own row. */
+  onPantheonRow?: (id: string) => void;
 
   // ── P5 semantic zoom: the zoomed-out alert pins (inbox as world markers) ──
   /** Top-N inbox items projected to on-screen DEVICE-px pin centres, or null when
@@ -153,7 +167,20 @@ export type TimeCommand =
   | { kind: 'cancel_seek' };
 
 /** Which bottom-left side panel is open (mutually exclusive; below menu/story). */
-type Panel = 'powers' | 'inbox' | null;
+type Panel = 'powers' | 'inbox' | 'pantheon' | null;
+
+/** W4 (D9): one browsable chronicle entry — the inbox panel's ANNALS list row.
+ *  `day` is a display ordinal (the chronicler's calendar day index), never a
+ *  raw tick. Plain data; the game glue reads `ChronicleService.entries()`. */
+export interface AnnalRow {
+  day: number;
+  title: string;
+  body: string;
+}
+
+/** Which sub-view the divine-inbox panel shows (W4/D9): the triageable items
+ *  (default) or the chronicle browser. */
+type InboxMode = 'tidings' | 'annals';
 
 type Section = 'settings' | null;
 
@@ -232,10 +259,12 @@ export class UiRuntime {
     keepOpen: boolean;
   } | null = null;
 
-  /** Open bottom-left side panel (powers / inbox), or null. Non-modal. */
+  /** Open bottom-left side panel (powers / inbox / pantheon), or null. Non-modal. */
   private panel: Panel = null;
   /** Inbox item ids the player has dismissed this session (local triage state). */
   private ignoredInbox = new Set<string>();
+  /** W4 (D9): the inbox panel's sub-view (tidings list vs. chronicle browser). */
+  private inboxMode: InboxMode = 'tidings';
 
   /** Hit regions claimed by the LAST built frame — used by capture-phase input to
    *  decide whether a pointer-down belongs to the UI (consume) or the world. */
@@ -668,9 +697,21 @@ export class UiRuntime {
     if (c.button('ui.inbox', iLabel, bx, by, iw, bh, { scale: FS_BODY * s })) {
       this.panel = this.panel === 'inbox' ? null : 'inbox';
     }
+    bx += iw + 10 * s;
+
+    // ── W4 (D7): the pantheon panel — the rival roster finally visible.
+    // Plain text, no icon prefix (the pixel font renders only its documented
+    // symbol set — no new glyph, per the epic's rule).
+    const pantheon = this.hooks.getPantheon?.() ?? [];
+    const sLabel = `SPIRITS${pantheon.length > 0 ? ` (${pantheon.length})` : ''}`;
+    const sw = Math.ceil(c.measure(sLabel, FS_BODY * s)) + 24 * s;
+    if (c.button('ui.pantheon', sLabel, bx, by, sw, bh, { scale: FS_BODY * s })) {
+      this.panel = this.panel === 'pantheon' ? null : 'pantheon';
+    }
 
     if (this.panel === 'powers') this.drawPowers(c, w, h, s, powers, by - pad);
     else if (this.panel === 'inbox') this.drawInbox(c, w, h, s, inbox, by - pad);
+    else if (this.panel === 'pantheon') this.drawPantheon(c, w, h, s, pantheon, by - pad);
 
     const site = this.hooks.getSelectedSite?.() ?? null;
     if (site) this.drawSiteCard(c, w, s, site);
@@ -1013,6 +1054,8 @@ export class UiRuntime {
   }
 
   // ── divine inbox: triageable prayers / opportunities / threats / tidings ───
+  // W4 (D9): a TIDINGS/ANNALS toggle row leads the panel — TIDINGS is this
+  // triage list (unchanged); ANNALS swaps in the chronicle browser below.
   private drawInbox(c: UiContext, _w: number, _h: number, s: number, items: InboxItem[], bottom: number): void {
     const pad = 16 * s;
     const pw = 400 * s;
@@ -1023,12 +1066,41 @@ export class UiRuntime {
 
     const innerX = px + 20 * s;
     const innerW = pw - 40 * s;
+    const fsBody = FS_BODY * s;
     let y = top + 20 * s;
-    c.label(`DIVINE INBOX (${items.length})`, innerX, y, FS_BODY * s, UI_PALETTE.textDim);
-    y += c.lineHeight(FS_BODY * s) + 14 * s;
+
+    // ── TIDINGS / ANNALS toggle row ──
+    const tabH = 24 * s;
+    const tabGap = 8 * s;
+    const tabW = (innerW - tabGap) / 2;
+    const tabs: { mode: InboxMode; label: string }[] = [
+      { mode: 'tidings', label: 'TIDINGS' },
+      { mode: 'annals', label: 'ANNALS' },
+    ];
+    let tx = innerX;
+    for (const tab of tabs) {
+      const selected = this.inboxMode === tab.mode;
+      const clicked = c.hotspot(`ui.inbox.tab.${tab.mode}`, tx, y, tabW, tabH);
+      c.rect(tx, y, tabW, tabH, selected ? withAlpha(UI_PALETTE.accent, 0.25) : withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      c.batcher.border(tx, y, tabW, tabH, 1, selected ? UI_PALETTE.accent : UI_PALETTE.panelBorder);
+      const tw = c.measure(tab.label, fsBody);
+      c.label(tab.label, Math.round(tx + (tabW - tw) / 2), Math.round(y + (tabH - c.lineHeight(fsBody)) / 2),
+        fsBody, selected ? UI_PALETTE.text : UI_PALETTE.textDim);
+      if (clicked) { this.inboxMode = tab.mode; this.hooks.requestRender?.(); }
+      tx += tabW + tabGap;
+    }
+    y += tabH + 14 * s;
+
+    if (this.inboxMode === 'annals') {
+      this.drawAnnals(c, px, pw, innerX, innerW, y, bottom, s);
+      return;
+    }
+
+    c.label(`DIVINE INBOX (${items.length})`, innerX, y, fsBody, UI_PALETTE.textDim);
+    y += c.lineHeight(fsBody) + 14 * s;
 
     if (items.length === 0) {
-      c.label('All quiet. For now.', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+      c.label('All quiet. For now.', innerX, y, fsBody, UI_PALETTE.textDim);
       return;
     }
 
@@ -1062,6 +1134,99 @@ export class UiRuntime {
         this.hooks.requestRender?.();
       }
     });
+  }
+
+  // ── W4 (D9): the chronicle browser — the inbox panel's ANNALS mode. A
+  // scrollList of past entries (day + first line, truncated); clicking one
+  // presents the full text as a one-shot UiSpec card (existing budgets, same
+  // machinery as the whisper/landing cards). Read-only — no new commands.
+  private drawAnnals(
+    c: UiContext, px: number, pw: number, innerX: number, innerW: number, y: number, bottom: number, s: number,
+  ): void {
+    const fsBody = FS_BODY * s;
+    const annals = this.hooks.getAnnals?.() ?? [];
+    if (annals.length === 0) {
+      c.label('NO ANNALS YET', innerX, y, fsBody, UI_PALETTE.textDim);
+      return;
+    }
+
+    const rowH = 48 * s;
+    let clickedIdx = -1;
+    c.scrollList('ui.annals.list', { x: px, y, w: pw, h: bottom - y }, rowH, annals.length, (i, rowY) => {
+      const a = annals[i];
+      if (c.hotspot(`annal.row.${i}`, px, rowY, pw, rowH)) clickedIdx = i;
+      c.label(a.title, innerX, rowY, fsBody, UI_PALETTE.text);
+      const firstLine = a.body.split('\n')[0] ?? '';
+      const clipped = firstLine.length > 46 ? firstLine.slice(0, 45) + '…' : firstLine;
+      c.label(clipped, innerX, rowY + c.lineHeight(fsBody) + 4 * s, fsBody, UI_PALETTE.textDim);
+    });
+
+    if (clickedIdx >= 0) {
+      const a = annals[clickedIdx];
+      const spec = validateUiSpec({
+        title: a.title,
+        body: [{ kind: 'paragraph', text: a.body }],
+        choices: [{ text: 'Close', command: TIME_LANDING_DISMISS_COMMAND }],
+      });
+      this.presentUiSpec(spec, () => {});
+    }
+  }
+
+  // ── W4 (D7): the pantheon panel — the rival roster finally visible.
+  // sigil + name + power bar + follower count + a one-word stance for rivals.
+  // Clicking a rival row flies to + focuses its strongest settlement; the
+  // player's own row is never clickable.
+  private drawPantheon(c: UiContext, _w: number, _h: number, s: number, rows: PantheonRow[], bottom: number): void {
+    const pad = 16 * s;
+    const pw = 360 * s;
+    const px = pad;
+    const top = Math.max(pad, 80 * s);
+    const ph = bottom - top;
+    c.panel(px, top, pw, ph);
+
+    const innerX = px + 20 * s;
+    const innerW = pw - 40 * s;
+    const fsBody = FS_BODY * s;
+    let y = top + 20 * s;
+    c.label('SPIRITS', innerX, y, fsBody, UI_PALETTE.textDim);
+    y += c.lineHeight(fsBody) + 14 * s;
+
+    if (rows.length === 0) {
+      c.label('No spirits abroad.', innerX, y, fsBody, UI_PALETTE.textDim);
+      return;
+    }
+
+    const rowH = 58 * s;
+    let clickedId: string | null = null;
+    c.scrollList('ui.pantheon.list', { x: px, y, w: pw, h: bottom - y }, rowH, rows.length, (i, rowY) => {
+      const row = rows[i];
+      if (!row.isPlayer && row.strongestPoiId
+          && c.hotspot(`pantheon.row.${row.id}`, px, rowY, pw, rowH)) {
+        clickedId = row.id;
+      }
+
+      const glyph = sigilGlyph(row.sigil, row.name);
+      const gw = c.measure(glyph, fsBody);
+      c.label(glyph, innerX, rowY, fsBody, row.isPlayer ? UI_PALETTE.accent : UI_PALETTE.text);
+
+      const nameX = innerX + Math.max(gw, c.measure('M', fsBody)) + 10 * s;
+      const name = row.isPlayer ? `${row.name.toUpperCase()} (YOU)` : row.name.toUpperCase();
+      c.label(name, nameX, rowY, fsBody, UI_PALETTE.text);
+
+      let ry = rowY + c.lineHeight(fsBody) + 6 * s;
+      const barW = innerW * 0.55;
+      const barH = 8 * s;
+      c.rect(innerX, ry, barW, barH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
+      const powerFrac = Math.max(0, Math.min(1, row.power / 20));
+      if (powerFrac > 0) c.rect(innerX, ry, Math.round(barW * powerFrac), barH, row.isPlayer ? UI_PALETTE.accent : UI_PALETTE.textDim);
+
+      const meta = row.stance
+        ? `${row.followers} follower${row.followers === 1 ? '' : 's'} · ${row.stance.toUpperCase()}`
+        : `${row.followers} follower${row.followers === 1 ? '' : 's'}`;
+      c.label(meta, innerX + barW + 10 * s, ry - 2 * s, fsBody, UI_PALETTE.textDim);
+    });
+
+    if (clickedId) this.hooks.onPantheonRow?.(clickedId);
   }
 
   // ── story card: a modal narrative beat (line / choice) over a dim backdrop ──
@@ -1614,6 +1779,25 @@ function kindColor(kind: InboxItem['kind']): [number, number, number, number] {
     case 'threat': return [0.85, 0.32, 0.27, 1];    // rival red
     case 'tiding': return [0.5, 0.75, 0.5, 1];      // faith-turn green (low-key news)
   }
+}
+
+/** W4 (D7): the exact symbol set the builtin pixel font renders (see
+ *  `text/pixel-font.ts`'s glyph table `G`) — A–Z / 0–9 / this fixed punctuation
+ *  set. A spirit's `sigil` (e.g. '⊙', '◆') is almost never in it, so pantheon
+ *  rows fall back to the first letter of the spirit's name rather than draw a
+ *  blank cell. Mirrors `pinGlyph`'s reasoning for alert pins. */
+const RENDERABLE_GLYPHS = new Set<string>([
+  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+  '-', '+', '/', '.', ':', '·', '…', '✕', '⏭', '⏳',
+]);
+
+/** One renderable glyph for a spirit's sigil: the sigil itself when the font
+ *  supports it, else the name's first letter, else '' (blank — never crashes). */
+function sigilGlyph(sigil: string, name: string): string {
+  const ch = sigil.trim();
+  if (ch.length === 1 && RENDERABLE_GLYPHS.has(ch.toUpperCase())) return ch.toUpperCase();
+  const first = name.trim()[0];
+  return first ? first.toUpperCase() : '';
 }
 
 let singleton: UiRuntime | null = null;
