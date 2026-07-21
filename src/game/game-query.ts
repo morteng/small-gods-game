@@ -32,6 +32,10 @@ import {
   prayerAge, eligibleClaimants,
   PRAYER_CLAIM_WARNING_TICKS, PRAYER_CLAIM_WINDOW_TICKS, CLAIM_NOTICE_HORIZON_TICKS,
 } from '@/sim/rival-claims';
+import { housingCapacityByPoi } from '@/sim/systems/settlement-growth-system';
+import { peaceActive } from '@/sim/lord';
+import { blueprintOf } from '@/blueprint/entity';
+import { catalogue, loadDefaultPacks } from '@/catalogue';
 
 const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 
@@ -81,6 +85,25 @@ export interface InspectorBar { label: string; value: number; }
 /** One affordance row in the inspector (the full vocabulary; locked verbs greyed). */
 export interface InspectorAffordance { verb: string; label: string; cost: number; unlocked: boolean; affordable: boolean; }
 
+/** W2 (D5): one coalesced "last day" news row (e.g. `{label:'BORN', count:3}`) —
+ *  the renderer formats, this stays plain data. */
+export interface RecentRow { label: string; count: number; }
+
+/** W2 (D5): the M6 Peace-of-God readout for a settlement's seat, when a lord sits
+ *  it. `oath` is `'none'` when no peace was ever proclaimed on this seat, `'sworn'`
+ *  while it still binds the CURRENT holder (`peaceActive`), `'lapsed'` once it has
+ *  expired. `expiryDays` is fiction days — to expiry when sworn, since lapse when
+ *  lapsed — never a raw tick count; absent when `oath === 'none'`. */
+export interface SettlementPeace {
+  lordName: string;
+  oath: 'none' | 'sworn' | 'lapsed';
+  expiryDays?: number;
+}
+
+/** W2 (D5): the building a settlement inspector's selection resolved FROM (a
+ *  building click), rendered as a highlighted row atop the scroll content. */
+export interface InspectorBuildingRow { name: string; type: string; }
+
 /** The target-first inspector payload (spec §8): full legible state for any
  *  selectable + what the target believes YOU command (the belief-loop feedback) +
  *  the complete divine vocabulary applicable here. Plain data → MCP/UI bind directly. */
@@ -94,6 +117,19 @@ export interface InspectorView {
   domains: InspectorBar[];
   /** The full divine vocabulary for this target — locked/unaffordable verbs greyed. */
   affordances: InspectorAffordance[];
+  // ── W2 (D5): settlement-only extensions. Always undefined for `kind: 'npc'`. ──
+  /** Ward name+type rows (same source as `GameQuery.settlement()`). */
+  wards?: { name: string; type: string }[];
+  /** Living named residents (souls). */
+  population?: number;
+  /** Standing dwelling capacity summed from the settlement-growth store. */
+  housing?: number;
+  /** The seated lord's Peace-of-God status, when a lord holds this seat. */
+  peace?: SettlementPeace;
+  /** Last fiction-day news strip: births/deaths/growth/road events here, coalesced. */
+  recent?: RecentRow[];
+  /** Present when the selection resolved from a building click (W2 D5). */
+  buildingRow?: InspectorBuildingRow;
 }
 
 export interface BeliefView {
@@ -219,8 +255,10 @@ export interface GameQuery {
   npcs(filter?: QueryOpts): NpcView[];
   npc(id: EntityId): NpcDetail | null;
   /** Target-first inspector: full state + domain-belief feedback + affordances for
-   *  a selected npc/settlement (default spirit = player). Null when unresolvable. */
-  inspect(target: CommandTarget, spiritId?: SpiritId): InspectorView | null;
+   *  a selected npc/settlement (default spirit = player). Null when unresolvable.
+   *  `opts.buildingId` (W2 D5): when the settlement selection resolved from a
+   *  building click, the building's own name/type ride along as `buildingRow`. */
+  inspect(target: CommandTarget, spiritId?: SpiritId, opts?: { buildingId?: EntityId }): InspectorView | null;
   beliefState(spiritId?: SpiritId): BeliefView;
   settlement(poiId: string): SettlementView | null;
   events(sinceId?: number): AppendedEvent[];
@@ -274,6 +312,82 @@ function durableBelieverCount(state: GameState, spiritId: SpiritId): number {
     if (isDurable(npcProps(e).beliefs[spiritId])) n++;
   }
   return n;
+}
+
+// ── W2 (D5): settlement inspector v2 helpers ─────────────────────────────────
+
+/** How far back the settlement inspector's RECENT strip looks — one fiction day,
+ *  same intent as the other event-log-windowed news (crossings/disputes above),
+ *  named separately per that convention. */
+export const RECENT_STRIP_HORIZON_TICKS = TICKS_PER_DAY;
+
+/** A human building-type label: the catalogue's short blurb (`lod.l0`, e.g. "a
+ *  one-room peasant cottage") when the pack is loaded, else a humanized preset
+ *  id — never blank. */
+function presetDisplayName(preset: string | undefined): string {
+  if (!preset) return 'Building';
+  loadDefaultPacks(); // idempotent — buildings placed at worldgen already loaded it
+  const l0 = catalogue.get('buildingType', preset)?.lod?.l0;
+  if (l0) return l0;
+  return preset.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** The building-row payload (W2 D5): the entity the settlement selection
+ *  resolved FROM, when it came from a building click. Undefined for a missing/
+ *  non-blueprint entity (defensive — never throws on odd test fixtures). */
+function buildingRowFor(world: World, buildingId: EntityId): InspectorBuildingRow | undefined {
+  const e = world.registry.get(buildingId);
+  if (!e) return undefined;
+  const rb = blueprintOf(e)?.rb;
+  return { name: presetDisplayName(rb?.preset ?? e.kind), type: rb?.category ?? 'building' };
+}
+
+/** M6 Peace-of-God readout for a settlement's seat (§D5), or undefined when no
+ *  lord sits there. `now` decides sworn vs lapsed at read-time (LordSystem reaps
+ *  an expired oath only hourly, so a fresh lapse still reports honestly here). */
+function peaceStatusFor(world: World, poiId: string, now: number): SettlementPeace | undefined {
+  const seat = world.lords.get(poiId);
+  if (!seat) return undefined;
+  const lordEntity = world.registry.get(seat.npcId);
+  const lordName = lordEntity ? npcProps(lordEntity).name : 'the seat';
+  if (!seat.peace) return { lordName, oath: 'none' };
+  const active = peaceActive(seat, now);
+  const days = active ? (seat.peace.untilTick - now) : (now - seat.peace.untilTick);
+  return { lordName, oath: active ? 'sworn' : 'lapsed', expiryDays: Math.max(0, days / TICKS_PER_DAY) };
+}
+
+/** The settlement inspector's RECENT strip (§D5): births/deaths/growth/road
+ *  events at THIS settlement over the last fiction day, coalesced into short
+ *  counted rows. Only consumes event types that actually exist (checked against
+ *  `core/events.ts`) — `npc_birth`/`npc_death` carry no `poiId`, so they resolve
+ *  through the (never-deleted) entity's `homePoiId`. */
+function recentStripFor(world: World, state: GameState, poiId: string, now: number): RecentRow[] {
+  let born = 0, passed = 0, grown = 0, roadUp = 0, roadDown = 0, roadWorn = 0;
+  const homeOf = (npcId: EntityId): string | undefined => {
+    const e = world.registry.get(npcId);
+    return e ? npcProps(e).homePoiId : undefined;
+  };
+  for (const a of state.eventLog.range(now - RECENT_STRIP_HORIZON_TICKS, now + 1)) {
+    const ev = a.event;
+    switch (ev.type) {
+      case 'npc_birth': if (homeOf(ev.npcId) === poiId) born++; break;
+      case 'npc_death': if (homeOf(ev.npcId) === poiId) passed++; break;
+      case 'settlement_grown':
+      case 'settlement_upgraded': if (ev.poiId === poiId) grown++; break;
+      case 'road_promoted': if (ev.fromPoiId === poiId || ev.toPoiId === poiId) roadUp++; break;
+      case 'road_demoted': if (ev.fromPoiId === poiId || ev.toPoiId === poiId) roadDown++; break;
+      case 'road_adopted': if (ev.fromPoiId === poiId || ev.toPoiId === poiId) roadWorn++; break;
+      default: break;
+    }
+  }
+  const rows: RecentRow[] = [];
+  if (born > 0) rows.push({ label: 'BORN', count: born });
+  if (passed > 0) rows.push({ label: 'PASSED', count: passed });
+  if (grown > 0) rows.push({ label: 'NEW ROOFS', count: grown });
+  if (roadUp > 0) rows.push({ label: 'ROAD RAISED', count: roadUp });
+  if (roadDown > 0) rows.push({ label: 'ROAD FADED', count: roadDown });
+  if (roadWorn > 0) rows.push({ label: 'PATH WORN', count: roadWorn });
+  return rows;
 }
 
 export function createGameQuery(deps: GameQueryDeps): GameQuery {
@@ -344,7 +458,7 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       };
     },
 
-    inspect(target: CommandTarget, spiritId: SpiritId = PLAYER_SPIRIT_ID): InspectorView | null {
+    inspect(target: CommandTarget, spiritId: SpiritId = PLAYER_SPIRIT_ID, opts: { buildingId?: EntityId } = {}): InspectorView | null {
       const world = state.world;
       if (!world) return null;
       const ctx: CommandCtx = { world, spirits: state.spirits, log: state.eventLog, state };
@@ -386,6 +500,10 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         const poi = state.worldSeed?.pois.find(pp => pp.id === target.poiId);
         if (!poi) return null;
         const souls = world.query({ kind: 'npc' }).filter(n => npcProps(n).homePoiId === target.poiId).length;
+        // W2 (D5): wards from the same source `settlement()` uses.
+        const village = state.map?.villages.find(v => v.name && v.name === poi.name);
+        const now = state.clock.now();
+        const buildingRow = opts.buildingId ? buildingRowFor(world, opts.buildingId) : undefined;
         return {
           kind: 'settlement',
           title: poi.name ?? target.poiId,
@@ -395,6 +513,12 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           // settlement-scale loop feedback: how convinced the whole congregation is.
           domains: ALL_DOMAINS.map(d => ({ label: DOMAIN_DEFS[d].label, value: aggregateDomain(world, spiritId, d).conviction })),
           affordances,
+          wards: (village?.wards ?? []).map(w => ({ name: w.name, type: w.type })),
+          population: souls,
+          housing: housingCapacityByPoi(world).get(target.poiId) ?? 0,
+          peace: peaceStatusFor(world, target.poiId, now),
+          recent: recentStripFor(world, state, target.poiId, now),
+          ...(buildingRow ? { buildingRow } : {}),
         };
       }
       return null;

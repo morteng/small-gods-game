@@ -946,9 +946,10 @@ export class Game {
    */
   private hoverAffordances(): { chips: ReturnType<typeof hoverChips> } | null {
     if (this.interaction.targeting) return null;
-    // UI v2 W0/D1: no per-NPC chrome outside the `soul` band — the alert pins own
-    // `settlement`/`world` for now (v1 `out` behavior applies to BOTH; W2 differentiates).
-    if (this.currentBand() !== 'soul') { this.hoverFrozen = null; return null; }
+    // UI v2 W2/D1: per-target hover chrome collapses ONLY in the `world` band (the
+    // map — settlement labels/pins own that altitude, W1). `settlement` and `soul`
+    // both resolve the same npc/building-settlement target below.
+    if (this.currentBand() === 'world') { this.hoverFrozen = null; return null; }
     const world = this.state.world;
     const tile = this.interaction.hoverTile;
     if (!world || !tile) { this.hoverFrozen = null; return null; }
@@ -1023,16 +1024,20 @@ export class Game {
   /** The inspector payload for the current selection (spec §8, P3.8) — an NPC, else
    *  the settlement a selected building belongs to. Null when nothing is selected
    *  (a causal site has its own card). Freezes the target so CAST routes correctly.
-   *  UI v2 W0/D1: the inspector is a `soul`-band surface — it collapses outside
-   *  `soul` (both `settlement` and `world`, for now — W2 differentiates) WITHOUT
-   *  clearing the selection (its subject renders as a distinct alert pin instead, and
-   *  zooming back in restores the panel). */
+   *  UI v2 W2/D1: the inspector collapses ONLY in the `world` band — it now lives in
+   *  `settlement` too (W2 D5 grows the settlement payload: wards/population/peace/
+   *  recent). Zooming to `world` hides it WITHOUT clearing the selection (its
+   *  subject renders as a distinct alert pin instead, and zooming back in restores
+   *  the panel). */
   private inspectorView(): InspectorView | null {
-    if (this.currentBand() !== 'soul') return null;
+    if (this.currentBand() === 'world') return null;
     const target = this.inspectorTarget();
     if (!target) { this.inspectorFrozen = null; return null; }
     this.inspectorFrozen = target;
-    return this.query.inspect(target, PLAYER_SPIRIT_ID);
+    // W2 (D5): a settlement target only ever resolves via a selected building (see
+    // `inspectorTarget` below), so thread it along for the buildingRow highlight.
+    const buildingId = target.kind === 'settlement' ? (this.state.selectedBuildingId ?? undefined) : undefined;
+    return this.query.inspect(target, PLAYER_SPIRIT_ID, { buildingId });
   }
 
   /** Resolve the current selection to a command target: a selected NPC, else the
