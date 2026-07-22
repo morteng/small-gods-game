@@ -5,6 +5,7 @@ import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { isoEnvForMap } from '@/render/iso/iso-env';
 import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
+import { computeFrame, type FrameSubject } from '@/game/framing/compute-frame';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
@@ -31,6 +32,7 @@ import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { simStateFromEntity, getNpc, forEachNpc, npcProps } from '@/world/npc-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
 import { openMindPage, pathKey } from '@/game/mind-orchestrator';
+import { buildMindCard } from '@/game/affordance/mind-card';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
 import { ArtImageCache } from '@/render/decoration-image-cache';
@@ -465,6 +467,7 @@ export class Game {
       },
       onTargetNpc: (npcId) => {
         this.state.selectedNpcId = npcId;
+        this.frameSubject({ kind: 'npc', npcId });
         this.requestRender();
       },
       onClickMinimapTile: (x, y) => {
@@ -548,20 +551,14 @@ export class Game {
           // calls npcAttentionPanel.setNpc() (which opens their mind surface);
           // forceInfoRefresh makes it happen immediately.
           this.state.selectedNpcId = entityId;
+          this.frameSubject({ kind: 'npc', npcId: entityId });
           this.renderer.forceInfoRefresh();
           this.requestRender();
           return;
         }
-        // Gold place-link: pan the camera to the POI.
-        const poi = this.state.worldSeed?.pois.find((p) => p.id === entityId);
-        const pos =
-          poi?.position ??
-          (poi?.region
-            ? { x: (poi.region.x_min + poi.region.x_max) / 2, y: (poi.region.y_min + poi.region.y_max) / 2 }
-            : null);
-        if (pos) {
-          const vp = this.viewport();
-          focusCameraOnTile(this.state.camera, pos.x, pos.y, vp.width, vp.height, this.state.map);
+        // Gold place-link: frame the settlement (region-fit, settlement altitude).
+        if (this.state.worldSeed?.pois.some((p) => p.id === entityId)) {
+          this.frameSubject({ kind: 'settlement', poiId: entityId });
           this.requestRender();
         }
       },
@@ -772,6 +769,7 @@ export class Game {
       onInboxInvestigate: (item) => {
         if (item.target.kind === 'npc') {
           this.state.selectedNpcId = item.target.npcId;
+          this.frameSubject({ kind: 'npc', npcId: item.target.npcId });
           this.requestRender();
         }
       },
@@ -792,8 +790,7 @@ export class Game {
         this.state.selectedPoiId = row.strongestPoiId;
         this.state.selectedNpcId = null;
         this.state.selectedBuildingId = null;
-        const poi = this.state.worldSeed?.pois.find((p) => p.id === row.strongestPoiId);
-        if (poi?.position) this.flyTo(poi.position, undefined, SETTLEMENT_FLY_ZOOM);
+        this.frameSubject({ kind: 'settlement', poiId: row.strongestPoiId });
         this.requestRender();
       },
       // P5 alert pins are PARKED (user: no floating icons over the world) — the
@@ -823,8 +820,7 @@ export class Game {
         this.state.selectedPoiId = poiId;
         this.state.selectedNpcId = null;
         this.state.selectedBuildingId = null;
-        const poi = this.state.worldSeed?.pois.find((p) => p.id === poiId);
-        if (poi?.position) this.flyTo(poi.position, undefined, SETTLEMENT_FLY_ZOOM);
+        this.frameSubject({ kind: 'settlement', poiId });
         this.requestRender();
       },
       // ── W-I-d: selected causal-site card ──
@@ -1124,11 +1120,49 @@ export class Game {
     return null;
   }
 
-  /** Fire an inspector affordance against the frozen inspected target. */
+  /** Fire an inspector affordance against the frozen inspected target. `probe_mind`
+   *  is BRANCH-shaped like `whisper`: instead of the bare (invisible) command it
+   *  opens the read-only mind card (B). Everything else emits its command. */
   private castInspector(verb: string): void {
     const target = this.inspectorFrozen;
     if (!target) return;
+    if (verb === 'probe_mind') { this.presentMindCard(target); return; }
     this.emitDivine(verb as CommandVerb, target);
+  }
+
+  /** B (mind-reading): open the read-only mind card for an npc target. The card is
+   *  built deterministically from the InspectorView (thought + belief-in-you +
+   *  remembered deeds) so it reads with NO model configured; when a capable model
+   *  IS live, a richer `openMindPage` read is warmed and swapped into the open card
+   *  (the deterministic version shows meanwhile). The orphaned mind pipeline finally
+   *  reaches the WebGPU UI — the "PROBE MIND does nothing" no-op is closed. */
+  private presentMindCard(target: CommandTarget): void {
+    if (target.kind !== 'npc') return;
+    const view = this.query.inspect(target, PLAYER_SPIRIT_ID);
+    const spec = view && buildMindCard(view);
+    if (!spec) return;
+    getUiRuntime().presentUiSpec(spec, () => {}, { keepOpen: false });
+    this.requestRender();
+
+    const world = this.state.world;
+    const player = this.state.spirits.get(PLAYER_SPIRIT_ID);
+    if (!this.llmClientCapable || !world || !player) return;
+    const npc = getNpc(world, target.npcId);
+    if (!npc) return;
+    void openMindPage(npc, ['surface'], 0, {
+      world,
+      store: this.attentionStore,
+      queue: this.commandQueue,
+      llm: this.llmClientCapable,
+      playerSpirit: player,
+      playerSpiritId: PLAYER_SPIRIT_ID,
+    }).then((page) => {
+      const rt = getUiRuntime();
+      if (!page?.prose || !rt.hasCard()) return;
+      const fresh = this.query.inspect(target, PLAYER_SPIRIT_ID);
+      const enriched = fresh && buildMindCard(fresh, page.prose);
+      if (enriched) { rt.updateOpenCard(enriched); this.requestRender(); }
+    });
   }
 
   /** Pick the most specific target under a tile that the verb accepts (npc → entity → settlement → tile). */
@@ -1299,12 +1333,65 @@ export class Game {
     this.state.cameraFly = { tx, ty: tyv, zoom };
   }
 
+  /**
+   * D (camerawork): the ONE "frame this subject well" entry point every focusing
+   * affordance routes through. Resolves the target's world-tile bounding box, then
+   * `computeFrame` picks the largest ladder zoom at which it fits — capped at native
+   * 1:1 for a soul/tile (a focused NPC lands pixel-perfect, which also enters the
+   * soul band and warms narration) and at `SETTLEMENT_FLY_ZOOM` for a settlement
+   * (they live at settlement altitude or wider, never 1:1). The zoom BAND now falls
+   * out of the subject's size instead of the old two hardcoded landing zooms. Routes
+   * through the existing eased `flyTo`/`cameraFly` — presentation only, no command. */
+  private frameSubject(target: CommandTarget, opts?: { maxZoom?: number }): void {
+    const bbox = this.subjectBBox(target);
+    if (!bbox) return;
+    const maxZoom = opts?.maxZoom ?? (target.kind === 'settlement' ? SETTLEMENT_FLY_ZOOM : 1);
+    const frame = computeFrame(bbox, this.viewport(), { maxZoom });
+    this.flyTo(frame.cx, frame.cy, frame.zoom);
+  }
+
+  /** The world-tile bounding box of a command target: a single tile for
+   *  npc/entity/tile; the settlement's authored region when present, else its
+   *  centre tile. Null when the subject can't be located on the current map. */
+  private subjectBBox(target: CommandTarget): FrameSubject | null {
+    const world = this.state.world;
+    const pt = (x: number, y: number): FrameSubject => ({ min: { x, y }, max: { x, y } });
+    switch (target.kind) {
+      case 'npc': {
+        const e = world ? getNpc(world, target.npcId) : null;
+        return e ? pt(Math.floor(e.x), Math.floor(e.y)) : null;
+      }
+      case 'entity': {
+        const e = world?.registry.get(target.id);
+        return e ? pt(Math.floor(e.x), Math.floor(e.y)) : null;
+      }
+      case 'tile':
+        return pt(target.x, target.y);
+      case 'settlement': {
+        const poi = this.state.worldSeed?.pois.find((p) => p.id === target.poiId);
+        if (poi?.region) {
+          return {
+            min: { x: poi.region.x_min, y: poi.region.y_min },
+            max: { x: poi.region.x_max, y: poi.region.y_max },
+          };
+        }
+        return poi?.position ? pt(poi.position.x, poi.position.y) : null;
+      }
+      default:
+        return null;
+    }
+  }
+
   /** Triage "Act": route an inbox item to the matching divine action, flying the
    *  camera to its anchor first (pin click AND list ACT — the action must never
    *  strand off-screen). The fly is pure presentation; the emitted Command stream
    *  is exactly what it was before P5. */
   private actOnInbox(item: InboxItem): void {
-    if (item.anchor) this.flyTo(item.anchor.x, item.anchor.y);
+    // Frame the subject well before acting so the cast never fires off-screen —
+    // a soul lands at 1:1, a settlement at its altitude; the anchor is the fallback.
+    if (item.target.kind === 'npc') this.frameSubject({ kind: 'npc', npcId: item.target.npcId });
+    else if (item.target.kind === 'settlement') this.frameSubject({ kind: 'settlement', poiId: item.target.poiId });
+    else if (item.anchor) this.flyTo(item.anchor.x, item.anchor.y);
     if (item.target.kind === 'npc') {
       // A prayer → answer it; any other npc-target → a whisper (opens the whisper card).
       const verb: CommandVerb = item.kind === 'prayer' ? 'answer_prayer' : 'whisper';

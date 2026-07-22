@@ -38,6 +38,7 @@ import { peaceActive } from '@/sim/lord';
 import { blueprintOf } from '@/blueprint/entity';
 import { catalogue, loadDefaultPacks } from '@/catalogue';
 import { strategyForPersonality, type RivalStrategy } from '@/sim/rival-spirit';
+import { describeThought } from '@/game/npc-thought';
 
 const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 
@@ -111,6 +112,10 @@ export interface InspectorBuildingRow { name: string; type: string; }
  *  trust (0–1, same bar idiom as the domain-conviction bars). */
 export interface InspectorRelationship { name: string; type: string; trust: number; }
 
+/** One remembered interaction this soul carries of YOU (the divine actor). Plain
+ *  data off the memory ring — the "what do they remember of me" readout. */
+export interface InspectorMemory { summary: string; salience: number; kind: string; }
+
 /** The target-first inspector payload (spec §8): full legible state for any
  *  selectable + what the target believes YOU command (the belief-loop feedback) +
  *  the complete divine vocabulary applicable here. Plain data → MCP/UI bind directly. */
@@ -128,6 +133,13 @@ export interface InspectorView {
   /** One-line player-facing read of where this believer stands (`npcStatusHint`),
    *  e.g. "praying — needs you now" / "devoted" / "turned away from you". */
   statusHint?: string;
+  /** B (mind-reading): a short deterministic inner-monologue line derived purely
+   *  from sim state (`describeThought`) — the always-on, LLM-free "current thought"
+   *  readout that makes the inspector legible as mind-reading with no key. */
+  thought?: string;
+  /** B (mind-reading): what this soul remembers of YOU — the salient/recent slice
+   *  of its interaction memory ring. Absent when the ring is empty. */
+  memories?: InspectorMemory[];
   /** Top social ties by trust (desc, name asc tiebreak), capped ~8. Dead/missing
    *  targets (a relationship can outlive its subject) are silently skipped. */
   relationships?: InspectorRelationship[];
@@ -568,6 +580,13 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         if (!e) return null;
         const p = npcProps(e);
         const b = p.beliefs[spiritId] ?? { faith: 0, understanding: 0, devotion: 0 };
+        const spirit = state.spirits.get(spiritId);
+        // The most salient slice of the interaction ring (salience desc, newest
+        // first tiebreak) — the "what they remember of you" readout.
+        const mem = (p.memories ?? [])
+          .slice()
+          .sort((a, b) => (b.salience - a.salience) || (b.tick - a.tick))
+          .slice(0, 4);
         const ageYears = Math.max(0, (state.clock.now() - p.birthTick) / TICKS_PER_YEAR);
         // M0.b: a praying soul's inspector line names the plea's subject.
         const doing = p.activity === 'worship'
@@ -593,6 +612,19 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           // W3 (D6): the soul-band deepening — a prose read of where they stand
           // + their strongest social ties (both plain data; MCP binds directly).
           statusHint: npcStatusHint(b, p.needs, p.activity),
+          thought: describeThought({
+            activity: p.activity,
+            needs: p.needs,
+            mood: p.mood,
+            personality: p.personality,
+            prayerNeed: p.prayerNeed ?? null,
+            epithet: p.epithet,
+            memories: p.memories,
+            faithNote: spirit ? { spiritName: spirit.name, faith: b.faith } : null,
+          }),
+          memories: mem.length
+            ? mem.map(m => ({ summary: m.summary, salience: m.salience, kind: m.kind }))
+            : undefined,
           relationships: topRelationships(world, p.relationships),
         };
       }
