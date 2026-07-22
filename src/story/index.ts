@@ -28,6 +28,9 @@ export type { Stage, StorySessionOptions } from './story-session';
 // Bus integration (effects → commands, guards → query)
 export { createBusStoryHost, busAllowedVerbs } from './story-host-bus';
 export type { BusHostConfig } from './story-host-bus';
+export {
+  subjectToTarget, effectTargetsSubject, rewriteSubjectReadPath, SUBJECT_ARG_KEYS,
+} from './subject-binding';
 
 // Loaded-pack catalogue (storylet id → pack lookup for the staging seam)
 export { StoryRegistry } from './story-registry';
