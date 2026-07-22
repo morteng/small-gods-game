@@ -676,6 +676,15 @@ export interface NpcProperties {
   relationships: Relationship[];
   // possession marker
   possessedBy?: SpiritId;
+  /** Two-tier population P2: this npc is a TEMPORARY materialized extra drawn
+   *  from the statistical cohort tier while its settlement is focused (not an
+   *  authored named resident). Excluded from birth/mortality subject-picking so
+   *  it never distorts the lifecycle it was drawn out of, and re-adopted from
+   *  the world snapshot on load. Optional ⇒ no SAVE_VERSION bump. */
+  materializedTemp?: boolean;
+  /** Slice-2 workplace tile (commute target). Optional ⇒ no SAVE_VERSION bump. */
+  workX?: number;
+  workY?: number;
   // narrative breadcrumbs
   recentEventIds: number[];
   /** Distilled, salience-tagged episodic memory of interactions with gods (Track 2).

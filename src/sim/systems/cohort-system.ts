@@ -147,11 +147,21 @@ export class CohortSystem implements System, SerializableSystem {
     const window = ctx.log.since(this.cursor);
     for (const e of window) if (e.id > this.cursor) this.cursor = e.id;
 
+    // P2 materialization flow: per-poi net stat-tier delta over this window =
+    // Σ folded.count − Σ materialized.count (a materialize removeSoul's one stat
+    // soul into a named entity; a fold addSoul's one back). The stat-tier audit
+    // tolerates exactly this ledgered delta instead of demanding constant counts.
+    const matFlow = new Map<string, number>();
+    for (const { event } of window) {
+      if (event.type === 'souls_materialized') matFlow.set(event.poiId, (matFlow.get(event.poiId) ?? 0) - event.count);
+      else if (event.type === 'souls_folded') matFlow.set(event.poiId, (matFlow.get(event.poiId) ?? 0) + event.count);
+    }
+
     if (this.cohorts === null) {
       // Initialize by census (world gen / save load / post-reset baseline).
       this.cohorts = census;
       this.known = living;
-      this.auditStatisticalTier(ctx);
+      this.auditStatisticalTier(ctx, matFlow);
       return;
     }
 
@@ -201,6 +211,14 @@ export class CohortSystem implements System, SerializableSystem {
           for (const id of event.entityIds) born.add(id);
         } else if (event.type === 'authored_remove') {
           for (const id of event.entityIds) removed.add(id);
+        } else if (event.type === 'souls_materialized') {
+          // A materialized extra is a ledgered named-tier BIRTH (drawn from the
+          // stat tier), not an orphan appearance.
+          for (const id of event.entityIds) born.add(id);
+        } else if (event.type === 'souls_folded') {
+          // A folded extra is a ledgered named-tier REMOVAL (banked back to the
+          // stat tier), not an orphan vanishing.
+          for (const id of event.entityIds) removed.add(id);
         }
       }
       const orphanBirths = births.filter(id => !born.has(id));
@@ -227,14 +245,16 @@ export class CohortSystem implements System, SerializableSystem {
     this.cohorts = census;
     this.known = living;
 
-    this.auditStatisticalTier(ctx);
+    this.auditStatisticalTier(ctx, matFlow);
   }
 
-  /** P1: the statistical tier has no demographic flows yet, so its per-
-   *  settlement soul counts must be constant between checks. Belief sums are
-   *  NOT audited (P2's materialize/fold and drift will move them legitimately);
-   *  counts are the conservation quantity. */
-  private auditStatisticalTier(ctx: SystemContext): void {
+  /** P1/P2: the statistical tier's per-settlement soul counts may change ONLY by
+   *  the ledgered materialization flow this window — `after === before +
+   *  (Σ folded.count − Σ materialized.count)`. P1 had no flows (matFlow empty ⇒
+   *  counts constant); P2's materialize/fold move them legitimately. Belief sums
+   *  are NOT audited (materialize/fold + drift move them by design); counts are
+   *  the conservation quantity. */
+  private auditStatisticalTier(ctx: SystemContext, matFlow: ReadonlyMap<string, number>): void {
     const stat = this.getStatistical?.();
     if (!stat) { this.statBaseline = null; return; }
     const counts = new Map<string, number>();
@@ -246,8 +266,9 @@ export class CohortSystem implements System, SerializableSystem {
       for (const poi of [...buckets].sort()) {
         const before = this.statBaseline.get(poi) ?? 0;
         const after = counts.get(poi) ?? 0;
-        if (before !== after) {
-          this.violate(ctx, `statistical tier '${poi}' went ${before} → ${after} souls with no ledgered cohort flow (P1: statistical counts are constant)`);
+        const expected = before + (matFlow.get(poi) ?? 0);
+        if (expected !== after) {
+          this.violate(ctx, `statistical tier '${poi}' went ${before} → ${after} souls, expected ${expected} (± ledgered materialize/fold flow)`);
         }
       }
     }

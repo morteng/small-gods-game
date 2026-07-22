@@ -99,6 +99,14 @@ export type SimEvent =
   // rival; `data.otherRivalId` the one being contested; `data.poiId` the
   // contested settlement. Consumed by the divine-inbox tiding generator (D7).
   | { type: 'rival_dispute';      spiritId: SpiritId; data: { otherRivalId: SpiritId; poiId: string } }
+  // Two-tier population P2 — a focused settlement's statistical cohort souls were
+  // drawn into real npc entities (souls_materialized) or banked back into the
+  // cohort when focus left (souls_folded). CohortSystem reads these as ledgered
+  // named-tier flows (born/removed) AND as the stat-tier's net materialization
+  // delta, so a focus never trips a conservation system_error. Additive — no
+  // existing consumer must change.
+  | { type: 'souls_materialized'; poiId: string; entityIds: EntityId[]; count: number }
+  | { type: 'souls_folded';       poiId: string; entityIds: EntityId[]; count: number }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

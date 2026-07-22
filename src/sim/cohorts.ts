@@ -469,6 +469,88 @@ export function seedStatisticalCohorts(
  * (a snapshot restore re-adds entities in a different order — sums must still
  * reproduce byte-identically for the determinism/replay guarantee).
  */
+// ── P2 materialization primitives — the ONLY cohort mutations P2 adds ─────────
+// (unified spec shared_seams: cohorts.ts gets EXACTLY these two additive helpers;
+// all plan/fold logic lives in settlement-demand.ts / materialization.ts.)
+
+/**
+ * Synthesize one representative soul at a band's MEANS — age at the band
+ * midpoint, per-spirit belief = the band's running SUM ÷ count (the exact mean
+ * a materialized extra should carry so it's consistent with the band it came
+ * from), needs = the band's need means. Returns null for an empty band.
+ *
+ * The MEAN representative is what makes materialize/fold count-conservation
+ * exact: removing the band mean leaves the mean unchanged, so drawing n and
+ * re-adding the same n observations restores every running sum byte-for-byte
+ * (see drawCohortSouls / the draw-conservation test).
+ *
+ * `spiritIds` bounds which spirits appear in the observation (typically the
+ * live spirit set); a spirit the band never tracked is simply absent.
+ */
+export function bandMeanObservation(
+  band: CohortBand, spiritIds: readonly SpiritId[],
+): SoulObservation | null {
+  if (band.count <= 0) return null;
+  const beliefs: Record<SpiritId, SpiritBelief> = {};
+  for (const sid of [...spiritIds].sort()) {
+    const b = band.belief[sid];
+    if (!b) continue;
+    beliefs[sid] = {
+      faith: b.sumFaith / band.count,
+      understanding: b.sumU / band.count,
+      devotion: b.sumD / band.count,
+    };
+  }
+  return { age: (band.ageMin + band.ageMax) / 2, beliefs, needs: { ...band.needs } };
+}
+
+/**
+ * Draw `n` souls out of a settlement's cohorts as band-MEAN observations,
+ * `removeSoul`-ing each (exact running-sum subtraction) and advancing
+ * `sc.drawCount` by one per soul (the monotonic materialization determinism
+ * anchor — never decreases, so replay-stable ids never collide). Souls are
+ * apportioned across eligible bands proportional to band.count via the existing
+ * largest-remainder `apportion` (deterministic, rng-free). `filter` restricts
+ * eligibility (e.g. adult-only for slice-2 workers); absent ⇒ every occupied
+ * band. Draws at most the eligible population — the returned array may be
+ * shorter than `n`. The band mean is computed ONCE per band and reused for all
+ * of that band's draws, so the observations are byte-identical (exact fold-back).
+ */
+export function drawCohortSouls(
+  sc: SettlementCohorts, n: number, filter?: (band: CohortBand) => boolean,
+): SoulObservation[] {
+  const out: SoulObservation[] = [];
+  if (n <= 0) return out;
+  // Spirit set the observations carry: every spirit any band in this settlement
+  // tracks (sorted for replay-stable belief order).
+  const spiritIds = new Set<SpiritId>();
+  for (const band of sc.bands) for (const sid of Object.keys(band.belief)) spiritIds.add(sid);
+  const spirits = [...spiritIds].sort();
+
+  const weights = sc.bands.map(b => ((!filter || filter(b)) && b.count > 0 ? b.count : 0));
+  const eligible = weights.reduce((a, w) => a + w, 0);
+  const perBand = apportion(Math.min(n, eligible), weights);
+  for (let i = 0; i < sc.bands.length; i++) {
+    const take = perBand[i];
+    if (take <= 0) continue;
+    const mean = bandMeanObservation(sc.bands[i], spirits);
+    if (!mean) continue;
+    for (let k = 0; k < take; k++) {
+      // A fresh clone per draw so an entity mutating its own beliefs/needs later
+      // never aliases another materialized soul's observation.
+      const obs: SoulObservation = {
+        age: mean.age,
+        beliefs: structuredClone(mean.beliefs),
+        needs: { ...mean.needs },
+      };
+      removeSoul(sc, obs);
+      sc.drawCount++;
+      out.push(obs);
+    }
+  }
+  return out;
+}
+
 export function censusCohorts(world: World, now: number): CohortCensus {
   const cohorts = new Map<string, SettlementCohorts>();
   const homes = new Map<EntityId, string>();
