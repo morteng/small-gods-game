@@ -34,6 +34,7 @@ import { TICKS_PER_DAY } from '@/core/calendar';
 import { stubSeedCondition, seedStubArc } from '@/sim/fate/arc-stub';
 import { anySeedableShape } from '@/sim/fate/arc-library';
 import { sweepArcs } from '@/sim/fate/arc-sweep';
+import { computeFateTempo, pulseShouldHold } from '@/sim/fate/fate-tempo';
 import type { FateFocus } from './fate-context';
 
 export interface FatePulseDeps {
@@ -79,6 +80,14 @@ export class FatePulse {
     // IDLE: nothing to build toward, nothing to seed → skip WITHOUT consuming the
     // cadence, so the check stays cheap and Fate wakes the instant work appears.
     if (!anyLive && !canSeed) return;
+    // CLUSTER-GUARD (proactive pacing): if the world is already dramatically
+    // SATURATED, consume the cadence and HOLD — let events breathe rather than
+    // pile on. The sweep above already ran (arcs still land/escalate/fold), and
+    // reactive event-driven beats (FateTrigger) are deliberately NOT throttled.
+    if (pulseShouldHold(computeFateTempo(state, now))) {
+      this.lastPulseTick = now;   // consume this day's pulse without firing
+      return;
+    }
     this.lastPulseTick = now;   // consume this day's pulse
     // OFFLINE fallback: deterministically seed one dull arc so a no-LLM Fate still
     // holds an intention. Online, the LLM opens arcs via seed_arc (F3).

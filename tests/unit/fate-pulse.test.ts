@@ -3,8 +3,10 @@ import { FatePulse } from '@/game/fate/fate-pulse';
 import { FateTrigger } from '@/game/fate/fate-trigger';
 import { FateArcStore } from '@/sim/fate/arc-store';
 import { STUB_ARC_SHAPE } from '@/sim/fate/arc-stub';
+import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { SimClock } from '@/core/clock';
 import { TICKS_PER_DAY } from '@/core/calendar';
+import { SATURATED_BEAT_COUNT } from '@/sim/fate/fate-tempo';
 import type { GameState } from '@/core/state';
 import type { WorldSeed } from '@/core/types';
 import type { FateArc } from '@/sim/fate/arc-types';
@@ -100,6 +102,62 @@ describe('FatePulse — cadence + idle', () => {
     const pulse = new FatePulse({ getState: () => s, isOffline: () => false, fire: () => {}, intervalTicks: 1000 });
     pulse.tick(5000);
     expect(s.fateArcs.get(arc.id)!.goals[0].met).toBe(true);   // 'always' ⇒ recomputed true
+  });
+});
+
+describe('FatePulse — saturation cluster-guard', () => {
+  /** Arm N beats staged at `now` so the tempo reads SATURATED. */
+  function saturate(s: GameState, now: number, n: number): void {
+    const staging = new StagingBuffer();
+    for (let i = 0; i < n; i++) {
+      staging.arm({ subject: { kind: 'settlement', poiId: 'p1' }, trigger: { kind: 'discovery' }, hard: [], stagedTick: now - i });
+    }
+    (s as unknown as { staging: StagingBuffer }).staging = staging;
+  }
+
+  it('HOLDS (does not fire) when the world is dramatically saturated, but the sweep still ran', () => {
+    const s = state();
+    // A worked building arc whose goal already holds — the sweep should LAND it,
+    // proving sweepArcs ran even though the cluster-guard suppresses the fire.
+    const arc = s.fateArcs.open({
+      shape: 'strongman_dies_abroad', openedTick: 0,
+      goals: [{ predicate: 'always', met: false }],
+      applied: [], portents: [], cast: { poiIds: [], npcIds: [] },
+      stage: 'building', pressureBudget: 3,
+    });
+    const now = 10 * TICKS_PER_DAY;
+    saturate(s, now, SATURATED_BEAT_COUNT);
+    const fired: FateFocus[] = [];
+    const pulse = new FatePulse({ getState: () => s, isOffline: () => false, fire: (f) => fired.push(f), intervalTicks: 1000 });
+    pulse.tick(now);
+    expect(fired).toHaveLength(0);                        // saturated ⇒ held
+    expect(s.fateArcs.get(arc.id)!.stage).toBe('landed'); // sweep still ran (arc landed)
+  });
+
+  it('consumes the day cadence on a saturation-hold (holds for the interval)', () => {
+    const s = state();
+    openArc(s);                                           // a live arc ⇒ not idle
+    const now = 10 * TICKS_PER_DAY;
+    saturate(s, now, SATURATED_BEAT_COUNT);
+    const fired: FateFocus[] = [];
+    const pulse = new FatePulse({ getState: () => s, isOffline: () => false, fire: (f) => fired.push(f), intervalTicks: 1000 });
+    pulse.tick(now);
+    expect(fired).toHaveLength(0);
+    // Within the same cadence window the day gate blocks re-entry entirely.
+    pulse.tick(now + 500);
+    expect(fired).toHaveLength(0);
+  });
+
+  it('fires normally when the buffer is just BELOW saturation (nominal)', () => {
+    const s = state();
+    openArc(s);
+    const now = 10 * TICKS_PER_DAY;
+    saturate(s, now, SATURATED_BEAT_COUNT - 1);           // nominal, not saturated
+    const fired: FateFocus[] = [];
+    const pulse = new FatePulse({ getState: () => s, isOffline: () => false, fire: (f) => fired.push(f), intervalTicks: 1000 });
+    pulse.tick(now);
+    expect(fired).toHaveLength(1);
+    expect(fired[0].kind).toBe('pulse');
   });
 });
 

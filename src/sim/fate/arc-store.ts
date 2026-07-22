@@ -64,6 +64,20 @@ export class FateArcStore {
   }
 
   /**
+   * Rising action: promote a live 'building' arc to 'imminent' (Track 4 pacing).
+   * ONLY a 'building' arc escalates — a 'seeded'/'imminent'/finished arc is a no-op
+   * returning false (a stale id can never leapfrog the ladder), mirroring the same
+   * race discipline as `land`/`abandon`. Called by the deterministic sweep as an arc
+   * nears its landing; 'imminent' stays live (isArcLive) and still lands normally.
+   */
+  escalate(id: number): boolean {
+    const arc = this.arcs.get(id);
+    if (!arc || arc.stage !== 'building') return false;
+    arc.stage = 'imminent';
+    return true;
+  }
+
+  /**
    * F5: record one applied pressure onto every LIVE arc it served — the weaving
    * audit trail. Per served arc: append to `applied` (a bounded ring —
    * MAX_APPLIED_PRESSURES — so the snapshot stays small, spec §8.1), spend one
