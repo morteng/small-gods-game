@@ -1029,6 +1029,14 @@ export class UiRuntime {
       y += 4 * s;
     }
 
+    // B (mind-reading): the soul's current thought — a quoted inner-monologue line
+    // (deterministic, always present for an npc) sits under the stance line in the
+    // accent tint, clamped to 3 lines so it never eats the scroll budget.
+    if (view.kind === 'npc' && view.thought) {
+      y = this.drawWrappedClamped(c, `"${view.thought}"`, innerX, y, innerW, fsBody, 3, UI_PALETTE.accent);
+      y += 6 * s;
+    }
+
     const rowH = lh + 8 * s;
     // W2 (D5): population/housing + peace/oath are single settlement-scale FACTS,
     // not a list — they sit fixed under the subtitle, never inside the scroll list.
@@ -1845,6 +1853,12 @@ function inspectorRows(view: InspectorView): InspectorRow[] {
     if (view.domains.length) {
       rows.push({ t: 'header', label: 'THEY BELIEVE YOU COMMAND' });
       for (const d of view.domains) rows.push({ t: 'bar', label: d.label, value: d.value, accent: DOMAIN_BAR_ACCENT });
+    }
+    // B (mind-reading): what this soul remembers of YOU — the salient slice of its
+    // interaction ring, newest-distilled summaries as plain text rows.
+    if (view.memories?.length) {
+      rows.push({ t: 'header', label: 'REMEMBERS' });
+      for (const m of view.memories) rows.push({ t: 'text', label: m.summary });
     }
     // W3 (D6): top social ties — name + type as the label, trust as the bar.
     if (view.relationships?.length) {
