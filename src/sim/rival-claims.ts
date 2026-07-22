@@ -319,16 +319,21 @@ export function findClaimablePrayers(
   spirits: Map<SpiritId, Spirit>,
   now: number,
   rng: Rng,
+  /** Rival economics: per-poi claim-window multiplier (< 1 compresses the window
+   *  — a `holy_war` settlement lets neglected pleas be claimed FASTER). Default
+   *  `1` everywhere, so the pre-contention behaviour is byte-identical. */
+  contentionMult: (poiId: string) => number = () => 1,
 ): PrayerClaim[] {
   const claims: (PrayerClaim & { matched: boolean })[] = [];
   forEachNpc(world, (e) => {
     const p = npcProps(e);
     if (p.activity !== 'worship') return;
     const age = prayerAge(p, now);
-    if (age < PRAYER_CLAIM_WINDOW_TICKS) return;   // base window: nobody clears sooner
+    const mult = contentionMult(p.homePoiId ?? '');
+    if (age < PRAYER_CLAIM_WINDOW_TICKS * mult) return;   // base window (contention-scaled): nobody clears sooner
     const need = p.prayerNeed;
     const candidates = eligibleClaimants(e, spirits)
-      .filter(id => age >= claimWindowTicksFor(spirits.get(id)!, need));
+      .filter(id => age >= claimWindowTicksFor(spirits.get(id)!, need) * mult);
     if (candidates.length === 0) return;
     const matching = candidates.filter(id => domainMatches(spirits.get(id)!, need));
     const pool = matching.length > 0 ? matching : candidates;

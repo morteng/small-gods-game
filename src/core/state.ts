@@ -20,6 +20,7 @@ import type { SettlementCohorts } from '@/sim/cohorts';
 import { RoadUseTally } from '@/world/road-use';
 import { CrossingTierStore } from '@/world/crossing-tier-store';
 import { AdoptionLedger } from '@/world/desire-line-adoption';
+import { ContentionLedger } from '@/sim/rival-contention';
 
 export interface GameState {
   map: GameMap | null;
@@ -138,6 +139,14 @@ export interface GameState {
    *  — a scrub un-adopts / re-adopts byte-identically). Rides the Snapshot as `adoptions?`.
    *  See `@/world/desire-line-adoption`. */
   adoptions: AdoptionLedger;
+  /** Rival economics — the persistent contention→schism→holy_war escalation ladder,
+   *  keyed by settlement poiId. Stepped by `RivalContentionSystem` from the live
+   *  per-settlement believer balance + logged disputes; read by the divine inbox
+   *  (schism/holy_war tidings + alert pins) and by rival-claims (holy-war claim
+   *  compression). Snapshot-authoritative like the road stores — rides the Snapshot
+   *  as `contention?`, hydrating to empty for old saves (no SAVE_VERSION bump).
+   *  See `@/sim/rival-contention`. */
+  contention: ContentionLedger;
 }
 
 export function createState(): GameState {
@@ -198,5 +207,6 @@ export function createState(): GameState {
     roadUse: new RoadUseTally(),
     crossingTiers: new CrossingTierStore(),
     adoptions: new AdoptionLedger(),
+    contention: new ContentionLedger(),
   };
 }

@@ -24,6 +24,7 @@ import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import type { Rng } from '@/core/rng';
 import type { World } from '@/world/world';
 import type { SettlementCohorts } from '@/sim/cohorts';
+import type { ContentionLedger } from '@/sim/rival-contention';
 
 /** Map a sketched rival action type onto a real divine command verb. */
 function mapVerb(type: RivalAction['type']): CommandVerb {
@@ -83,9 +84,13 @@ export class RivalSystem implements System {
   /** `getCohorts` (P1, two-tier population): the statistical tier — when wired,
    *  `buildRivalSituation` folds aggregate cohort believers into the follower
    *  counts so rival strategy weighs the whole population, not just named souls. */
+  /** `getContention` (rival economics): the escalation ledger — when wired, a
+   *  `holy_war` settlement compresses its claim window so neglected pleas there
+   *  are claimed faster (`findClaimablePrayers`'s `contentionMult`). */
   constructor(
     private readonly queue: CommandQueue,
     private readonly getCohorts?: () => ReadonlyMap<string, SettlementCohorts> | null | undefined,
+    private readonly getContention?: () => ContentionLedger,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -95,7 +100,9 @@ export class RivalSystem implements System {
     // past the claim window through the SHARED command queue. The belief shift
     // toward the rival routes through the existing `answerPrayer` loop.
     updatePrayerLedger(ctx.world, ctx.now);
-    for (const claim of findClaimablePrayers(ctx.world, ctx.spirits, ctx.now, ctx.rng)) {
+    const contention = this.getContention?.();
+    const contentionMult = contention ? (poi: string) => contention.claimMultiplier(poi) : undefined;
+    for (const claim of findClaimablePrayers(ctx.world, ctx.spirits, ctx.now, ctx.rng, contentionMult)) {
       this.queue.emit({
         verb: 'answer_prayer',
         source: claim.rivalId,

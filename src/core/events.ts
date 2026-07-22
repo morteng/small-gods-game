@@ -4,6 +4,7 @@ import type { SpiritId } from '@/core/spirit';
 import type { ThreadId, ShapeId, ThreadSubject, NarrativeWeight } from '@/sim/threads/thread-types';
 import type { BeatId } from '@/sim/threads/staging-types';
 import type { RoadClass } from '@/world/road-graph';
+import type { ContentionState } from '@/core/contention-types';
 
 export type SimEvent =
   | { type: 'world_seeded';       worldSeed: WorldSeed; substrateSeed: number }
@@ -107,6 +108,12 @@ export type SimEvent =
   // existing consumer must change.
   | { type: 'souls_materialized'; poiId: string; entityIds: EntityId[]; count: number }
   | { type: 'souls_folded';       poiId: string; entityIds: EntityId[]; count: number }
+  // Rival-contention ladder (rival economics): a settlement's escalation state
+  // climbed (`contention_escalated`) or eased (`contention_eased`) a rung as two
+  // gods contest its congregation. The `ContentionLedger` STATE is the inbox's
+  // source of truth; these events feed the chronicle + the LLM-narration seam.
+  | { type: 'contention_escalated'; poiId: string; from: ContentionState; to: ContentionState; rivals: [SpiritId, SpiritId] }
+  | { type: 'contention_eased';     poiId: string; from: ContentionState; to: ContentionState; rivals: [SpiritId, SpiritId] }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

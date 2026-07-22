@@ -13,6 +13,7 @@ import type { TrampleSnapshot } from '@/sim/trample';
 import { RoadUseTally, type RoadUseSnapshot } from '@/world/road-use';
 import { reconcileCrossingTiers, type CrossingTierSnapshot } from '@/world/crossing-tier-store';
 import { AdoptionLedger, reconcileAdoptions, type AdoptionLedgerSnapshot } from '@/world/desire-line-adoption';
+import { ContentionLedger, type ContentionLedgerSnapshot } from '@/sim/rival-contention';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -87,6 +88,11 @@ export interface Snapshot {
    *  the restored trample grid owns the dirt again); forward re-adopts byte-identically.
    *  Optional so pre-S4 saves + partial test states restore to an empty ledger. */
   adoptions?: AdoptionLedgerSnapshot;
+  /** Rival economics: the persistent contention ladder (per-settlement heat +
+   *  escalation state). Snapshot-authoritative like the road stores — a scrub
+   *  restores the exact escalation state; optional so pre-contention saves +
+   *  partial test states restore to an empty ledger (no SAVE_VERSION bump). */
+  contention?: ContentionLedgerSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -165,6 +171,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     roadUse: state.roadUse?.serialize(),
     crossingTiers: state.crossingTiers?.serialize(),
     adoptions: state.adoptions?.serialize(),
+    contention: state.contention?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -232,6 +239,11 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // reset to an empty tally for a pre-S1 snapshot so a scrub past a fold can't inherit future
   // counts. No tile reconcile needed: the tally is pure counters, not a map projection.
   state.roadUse = snap.roadUse ? RoadUseTally.fromSnapshot(snap.roadUse) : new RoadUseTally();
+
+  // Rival-contention ladder: pure per-settlement heat/state — no world entity to
+  // reconcile, so restore is a straight rebuild (or reset to empty for a
+  // pre-contention snapshot so a scrub can't inherit a future escalation).
+  state.contention = snap.contention ? ContentionLedger.fromSnapshot(snap.contention) : new ContentionLedger();
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.

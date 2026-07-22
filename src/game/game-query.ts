@@ -918,6 +918,38 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         }
       }
 
+      // ── rival economics: the PERSISTENT contention ladder (schism / holy war) ──
+      // Unlike the transient `rival_dispute` tidings above, this reads the durable
+      // `state.contention` ledger — one entry per settlement — so a town that two
+      // gods have driven to schism or open holy war surfaces as ONE coalesced,
+      // poi-anchored item (alert-pins projects it for free). Holy war is a
+      // headline `threat` (high salience); a schism reuses the ordinary `tiding`.
+      for (const entry of state.contention?.all() ?? []) {
+        if (entry.state !== 'schism' && entry.state !== 'holy_war') continue;
+        const poi = state.worldSeed?.pois.find(pp => pp.id === entry.poiId);
+        const name = poi?.name ?? entry.poiId;
+        const war = entry.state === 'holy_war';
+        const id = `${war ? 'war' : 'schism'}:${entry.poiId}`;
+        const surfaced = surfacedSet.has(id);
+        const [g0, g1] = entry.rivals;
+        const s0 = state.spirits.get(g0)?.name ?? g0;
+        const s1 = state.spirits.get(g1)?.name ?? g1;
+        items.push({
+          id,
+          kind: war ? 'threat' : 'tiding',
+          title: war ? `Holy war rends ${name}` : `A schism splits ${name}`,
+          detail: war
+            ? `${s0} and ${s1} have driven ${name} to open holy war over its souls.`
+            : `${s0} and ${s1} vie so evenly that ${name} is fracturing into factions.`,
+          salience: scoreAffordance(war
+            ? { kind: 'holy_war', surfaced }
+            : { kind: 'tiding', count: 3, surfaced }),
+          surfaced,
+          target: { kind: 'settlement', poiId: entry.poiId },
+          ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+        });
+      }
+
       // ── W4 (D8): lifecycle tidings — births/deaths per settlement over the
       // last fiction day, "N souls born, M passed in X". Same homePoiId
       // resolution `recentStripFor` uses (a dead NPC's entity is never

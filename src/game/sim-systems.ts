@@ -13,6 +13,7 @@ import type { StoryRegistry } from '@/story';
 import { pathKey } from '@/game/mind-orchestrator';
 import { CommandExecutorSystem } from '@/sim/command/command-system';
 import { RivalSystem } from '@/sim/systems/rival-system';
+import { RivalContentionSystem } from '@/sim/systems/rival-contention-system';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
@@ -117,7 +118,12 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   scheduler.register(materialization);
   state.systemState.register(materialization);
   scheduler.register(new SpiritSystem(getCohorts));
-  scheduler.register(new RivalSystem(commandQueue, getCohorts));
+  scheduler.register(new RivalSystem(commandQueue, getCohorts, () => state.contention));
+  // Rival economics: the persistent contention ladder — steps per-settlement heat
+  // from the live believer balance + logged disputes (calm→tension→schism→holy_war
+  // with hysteresis). The ledger STATE drives the inbox; a holy_war poi compresses
+  // rival claim windows (RivalSystem reads `state.contention` above for that).
+  scheduler.register(new RivalContentionSystem(() => state.contention, getCohorts));
   scheduler.register(new MortalitySystem());
   scheduler.register(new BirthSystem({
     cohorts: getCohorts,

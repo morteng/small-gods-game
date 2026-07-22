@@ -120,4 +120,33 @@ describe('snapshot', () => {
     restoreSnapshot(s, snap);
     expect(s.roadUse.activeEdges()).toBe(0);
   });
+
+  it('the contention ladder scrubs with the timeline (escalation state reverts)', () => {
+    const s = createState();
+    attachWorld(s);
+    // Drive poi1 to holy war (near-even, populous), then capture.
+    const census = new Map([['poi1', new Map([['player', 30], ['rival-1', 28]])]]);
+    for (let i = 0; i < 3; i++) s.contention.step(census, new Map(), i);
+    expect(s.contention.stateOf('poi1')).toBe('holy_war');
+    const snap = captureSnapshot(s);
+    // The "future" a scrub must undo: the rivalry collapses and cools away.
+    const collapsed = new Map([['poi1', new Map([['player', 30]])]]);
+    for (let i = 0; i < 60; i++) s.contention.step(collapsed, new Map(), 100 + i);
+    expect(s.contention.stateOf('poi1')).toBe('calm');
+    restoreSnapshot(s, snap);
+    expect(s.contention.stateOf('poi1')).toBe('holy_war');       // reverted to capture time
+    expect(s.contention.claimMultiplier('poi1')).toBeLessThan(1); // teeth restored too
+  });
+
+  it('a pre-contention snapshot (no contention field) restores to an empty ledger', () => {
+    const s = createState();
+    attachWorld(s);
+    const census = new Map([['poi1', new Map([['player', 30], ['rival-1', 28]])]]);
+    for (let i = 0; i < 3; i++) s.contention.step(census, new Map(), i);
+    const snap = captureSnapshot(s);
+    delete (snap as { contention?: unknown }).contention;   // simulate an older save
+    restoreSnapshot(s, snap);
+    expect(s.contention.all()).toEqual([]);
+    expect(s.contention.stateOf('poi1')).toBe('calm');
+  });
 });
