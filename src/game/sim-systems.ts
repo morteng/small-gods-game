@@ -18,6 +18,7 @@ import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
 import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
+import { NpcEncounterSystem } from '@/sim/systems/npc-encounter-system';
 import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
 import { SpiritSystem } from '@/sim/spirit-system';
 import { BeliefContentSystem } from '@/sim/systems/belief-content-system';
@@ -99,7 +100,15 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   state.systemState.register(settlementEvents);
   state.systemState.register(npcSim);
   state.systemState.register(abandonment);
-  scheduler.register(new NpcActivitySystem());
+  // Activity picks targets (socialize now heads to the settlement's gathering
+  // tile via the map getter) → movement walks them there → the encounter system
+  // detects the meetings that fall out of that convergence, all before belief
+  // propagates. The encounter system carries a per-pair cooldown map (sim truth
+  // outside the entity world) → it joins the WP-D snapshot seam.
+  scheduler.register(new NpcActivitySystem(() => state.map));
+  const encounters = new NpcEncounterSystem();
+  scheduler.register(encounters);
+  state.systemState.register(encounters);
   scheduler.register(new BeliefPropagationSystem());
   // Belief CONTENT (Track B): propagate + decay what they think you can DO.
   // After propagation (faith spread) so content rides the same social graph.

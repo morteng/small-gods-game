@@ -588,8 +588,10 @@ export interface NpcSimState {
   epithet?:        string;
 }
 
-/** What kind of interaction produced a memory. */
-export type MemoryKind = 'whisper' | 'backfill' | 'dream' | 'miracle' | 'answer';
+/** What kind of interaction produced a memory. `social` is the odd one out: it
+ *  is written by the deterministic encounter sim (mortal↔mortal), not by a god —
+ *  an ordinary chat between neighbours. Low-weight and forgettable by design. */
+export type MemoryKind = 'whisper' | 'backfill' | 'dream' | 'miracle' | 'answer' | 'social';
 
 /** A distilled, salience-tagged episodic memory of one interaction with a god.
  *  Stored on NpcProperties; rides the snapshot (structuredClone) + SaveFile. */

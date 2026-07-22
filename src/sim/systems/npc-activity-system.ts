@@ -13,7 +13,7 @@
  * switch simultaneously, creating organic-looking crowd behavior.
  */
 
-import type { Entity, NpcActivity, NpcNeeds } from '@/core/types';
+import type { Entity, NpcActivity, NpcNeeds, GameMap } from '@/core/types';
 import type { World } from '@/world/world';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
@@ -21,6 +21,7 @@ import type { System, SystemContext } from '@/core/scheduler';
 import { clamp01 } from '@/sim/npc-sim';
 import { solarHourForTick } from '@/core/calendar';
 import { titheRateFor, workRestoreScale, patrolAnchorFor, DEFAULT_TITHE } from '@/sim/lord';
+import { marketAnchorTile } from '@/sim/population/settlement-demand';
 
 /** Sleep window (solar hours): from NIGHT_START_HOUR to NIGHT_END_HOUR. */
 export const NIGHT_START_HOUR = 21;
@@ -90,12 +91,32 @@ export class NpcActivitySystem implements System {
   readonly name = 'npc_activity';
   readonly tickHz = 1;
   private rng = new Random(0);
+  /** Per-tick memo of each POI's gathering tile (the well at the green's heart).
+   *  Settlement geometry is static, but the plan scan is not free — cache it for
+   *  the duration of one tick so a crowded town resolves each venue once. */
+  private venueCache = new Map<string, { x: number; y: number } | null>();
+
+  /** `() => state.map` — the encounter sim (Phase 2) sends socializing mortals to
+   *  the settlement's gathering tile so neighbours actually CONVERGE and meet.
+   *  Optional so tests can construct the system bare (socialize falls back home). */
+  constructor(private readonly mapGetter?: () => GameMap | null) {}
 
   tick(ctx: SystemContext): void {
     this.rng = new Random(ctx.rng.next() * 0x7fffffff);
+    this.venueCache.clear();
     const solarHour = solarHourForTick(ctx.clock.now());
 
     forEachNpc(ctx.world, (e) => this.tickNpcActivity(e, solarHour, ctx.world));
+  }
+
+  /** The gathering tile a socializing mortal of this POI walks to (memoized per
+   *  tick). null when no map is wired or the POI has no resolvable centre. */
+  private venueTile(poiId: string): { x: number; y: number } | null {
+    if (this.venueCache.has(poiId)) return this.venueCache.get(poiId)!;
+    const map = this.mapGetter?.();
+    const tile = map ? marketAnchorTile(map, poiId) : null;
+    this.venueCache.set(poiId, tile);
+    return tile;
   }
 
   private tickNpcActivity(e: Entity, solarHour: number, world: World): void {
@@ -157,11 +178,17 @@ export class NpcActivitySystem implements System {
       targetX = props.homeX;
       targetY = props.homeY;
     } else if (this.hasLowNeed(props.needs.community, COMMUNITY_THRESHOLD)) {
-      // Low community → socialize
+      // Low community → socialize. Head for the settlement's gathering tile (the
+      // well at the green's heart) so neighbours CONVERGE and actually meet there
+      // (Phase 2 encounter sim), instead of milling at their own doorstep. A ±1
+      // jitter clusters them without a pile-up on one tile. Orphans (no poi) or a
+      // map-less test fall back to socializing at home — the two rng draws are the
+      // same either way, so no other NPC's deterministic stream shifts by branch.
       activity = 'socialize';
-      // Socialize near home
-      targetX = props.homeX;
-      targetY = props.homeY;
+      const venue = props.homePoiId ? this.venueTile(props.homePoiId) : null;
+      const base = venue ?? { x: props.homeX, y: props.homeY };
+      targetX = base.x + (Math.floor(this.rng.next() * 3) - 1);
+      targetY = base.y + (Math.floor(this.rng.next() * 3) - 1);
     } else if (props.role === 'soldier' && (patrolAnchor = patrolAnchorFor(world, props.homePoiId)) !== null) {
       // M5: a castle knight rides OUT — down to the settlement his seat grips
       // and back to the keep, leg after leg (the desire-line trample under his

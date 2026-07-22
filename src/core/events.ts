@@ -27,6 +27,12 @@ export type SimEvent =
   | { type: 'smite';              spiritId: SpiritId; npcId?: EntityId; poiId?: string; x?: number; y?: number; witnesses: number }
   | { type: 'mind_probed';        spiritId: SpiritId; npcId: EntityId; depth: number }
   | { type: 'believer_lost';      npcId: EntityId }
+  // "A Town You Can Watch" (Phase 2) — the encounter sim: two socially-tied mortals
+  // met face to face (both socializing, co-located) and it MEANT something — trust
+  // shifted, they each remembered it. `warm` is false for a rival friction. (x,y) =
+  // where they met (the gathering tile), for Phase 3's speech bubbles. Consumed by
+  // the chronicler now (eventFactLine); the bubble/dialog layer will read it next.
+  | { type: 'npc_encounter';      aId: EntityId; bId: EntityId; poiId?: string; warm: boolean; x: number; y: number }
   | { type: 'npc_death';          npcId: EntityId; lineageId: EntityId; cause: string }
   | { type: 'npc_birth';          npcId: EntityId; parentIds: EntityId[]; lineageId: EntityId }
   | { type: 'timeline_commit';    parentTick: number; rerolled: boolean }

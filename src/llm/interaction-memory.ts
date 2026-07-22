@@ -19,6 +19,10 @@ const KIND_WEIGHT: Record<MemoryKind, number> = {
   dream: 0.4,
   whisper: 0.2,
   backfill: 0.1,
+  // A mortal↔mortal chat is the most forgettable thing a soul carries — below
+  // even ambient narration, so a full ring evicts these first and never loses a
+  // divine deed to small talk.
+  social: 0.08,
 };
 
 /** Distill an LLM response into a one-line summary. Consolidates the two former
@@ -98,6 +102,7 @@ const EPITHET_BY_KIND: Record<MemoryKind, string | null> = {
   dream:    'the God-dreamt',
   whisper:  'the Whispered-to',
   backfill: null,                  // ambient narration confers nothing
+  social:   null,                  // small talk names no one
 };
 
 /** The byname this ring currently earns, or null. Argmax salience (oldest wins

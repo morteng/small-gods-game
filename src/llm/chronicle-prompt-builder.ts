@@ -184,6 +184,8 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return `A mind was searched, to a depth of ${ev.depth}.`;
     case 'believer_lost':
       return `${resolveNpcName(world, ev.npcId)}'s faith lapsed.`;
+    case 'npc_encounter':
+      return `${resolveNpcName(world, ev.aId)} and ${resolveNpcName(world, ev.bId)} ${ev.warm ? 'talked together' : 'fell to quarrelling'}.`;
     case 'npc_death':
       return `${resolveNpcName(world, ev.npcId)} died, cause: ${ev.cause}.`;
     case 'npc_birth':
