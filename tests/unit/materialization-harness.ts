@@ -72,9 +72,20 @@ export interface Harness {
   liveCount(poiId: string): number;
 }
 
-export function makeHarness(opts: { cottages?: number; souls?: number; poiId?: string } = {}): Harness {
+/** Workplace instances (worker capacity > 0) at spread-out tiles — slice-2 jobs. */
+export function workplaces(poiId: string, kinds: string[]): BuildingInstance[] {
+  return kinds.map((templateId, i) => ({
+    id: `${poiId}_job_${i}`, templateId,
+    tileX: 20 + (i % 4) * 2, tileY: 20 + Math.floor(i / 4) * 2, poiId, state: 'intact' as const,
+  }));
+}
+
+export function makeHarness(
+  opts: { cottages?: number; souls?: number; poiId?: string; extraBuildings?: BuildingInstance[] } = {},
+): Harness {
   const poiId = opts.poiId ?? 'village';
-  const map = grassMap(cottages(poiId, opts.cottages ?? 12), poiId);
+  const map = grassMap(
+    [...cottages(poiId, opts.cottages ?? 12), ...(opts.extraBuildings ?? [])], poiId);
   const world = new World(map);
   const cohorts = new Map<string, SettlementCohorts>([[poiId, seedCohort(poiId, opts.souls ?? 40)]]);
   let focus: { poiId: string | null; band: ZoomBand } = { poiId: null, band: 'world' };

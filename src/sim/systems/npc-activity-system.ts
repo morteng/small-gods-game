@@ -174,11 +174,19 @@ export class NpcActivitySystem implements System {
       targetX = leg.x + (Math.floor(this.rng.next() * 5) - 2);
       targetY = leg.y + (Math.floor(this.rng.next() * 5) - 2);
     } else if (WORKING_ROLES.has(props.role)) {
-      // Daytime: working roles go to work area
+      // Daytime: working roles go to work.
       activity = 'work';
-      // Walk to a random offset from home to simulate "at work"
-      targetX = props.homeX + (Math.floor(this.rng.next() * 5) - 2);
-      targetY = props.homeY + (Math.floor(this.rng.next() * 5) - 2);
+      if (props.workX !== undefined && props.workY !== undefined) {
+        // P2 slice 2: commute to the assigned workplace (small on-site jitter so
+        // co-workers cluster at the door). Same two rng draws as the home path,
+        // so other NPCs' deterministic stream is unaffected.
+        targetX = props.workX + (Math.floor(this.rng.next() * 3) - 1);
+        targetY = props.workY + (Math.floor(this.rng.next() * 3) - 1);
+      } else {
+        // No workplace → labour near home (fields, home-craft) as before.
+        targetX = props.homeX + (Math.floor(this.rng.next() * 5) - 2);
+        targetY = props.homeY + (Math.floor(this.rng.next() * 5) - 2);
+      }
     } else if (VAGRANT_ROLES.has(props.role)) {
       // Non-working roles wander or idle
       if (props.personality.sociability > 0.5) {

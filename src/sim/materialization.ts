@@ -73,3 +73,31 @@ export function residentSlots(map: GameMap, poiId: string, budget: number): Buil
   const draws = settlementDraws(map, poiId);
   return occupancySlots(draws, planResidents(draws, budget));
 }
+
+/**
+ * Slice-2 workplaces — the ordered JOB-slot list for a settlement: every
+ * building with worker capacity, repeated by its `workers` count, ROUND-ROBINED
+ * across buildings so the first materialized workers spread over every workshop /
+ * market / farmstead before any one site fills. Sorted deterministically (draws
+ * are already building-id sorted); capped at `cap`. Job slot k is where the k-th
+ * materialized extra commutes (index-driven → fold-stable, no rng). A settlement
+ * with no worker buildings returns [] → its extras all work from home.
+ */
+export function workplaceSlots(map: GameMap, poiId: string, cap: number): BuildingDraw[] {
+  const jobs = settlementDraws(map, poiId).filter(d => Math.round(d.workers) > 0);
+  if (jobs.length === 0 || cap <= 0) return [];
+  const maxW = jobs.reduce((m, d) => Math.max(m, Math.round(d.workers)), 0);
+  const slots: BuildingDraw[] = [];
+  for (let r = 0; r < maxW && slots.length < cap; r++) {
+    for (const d of jobs) {                       // already sorted by buildingId
+      if (r < Math.round(d.workers) && slots.length < cap) slots.push(d);
+    }
+  }
+  return slots;
+}
+
+/** The land-snapped workplace tile for a job slot — the commute target. Byte-
+ *  identical to a resident's door → snapToLand step (reuses homeTileFor). */
+export function workTileFor(draw: BuildingDraw, map: GameMap): { x: number; y: number } {
+  return homeTileFor(draw, map);
+}

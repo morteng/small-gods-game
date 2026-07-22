@@ -36,7 +36,7 @@ import {
 } from '@/sim/cohorts';
 import {
   foldObservation, residentCapacityForPoi, residentSlots, homeTileFor,
-  type MaterializedRef,
+  workplaceSlots, workTileFor, type MaterializedRef,
 } from '@/sim/materialization';
 import { initNpcProps, queryNpcs, npcProps, NPC_KIND } from '@/world/npc-helpers';
 import { snapToLand } from '@/world/land-snap';
@@ -66,6 +66,12 @@ function roleForAge(age: number, seed: number): NpcRole {
   if (age < 15) return 'child';
   if (age >= 60) return 'elder';
   return (seed & 1) === 0 ? 'farmer' : 'merchant';
+}
+
+/** The working-age roles roleForAge mints — the ones that commute to a workplace
+ *  (children wander, elders idle). Kept local; must agree with roleForAge. */
+function isWorkingRole(role: NpcRole): boolean {
+  return role === 'farmer' || role === 'merchant';
 }
 
 export class MaterializationSystem implements System, SerializableSystem {
@@ -171,6 +177,7 @@ export class MaterializationSystem implements System, SerializableSystem {
     const start = this.liveCount(poi);
     const total = start + n;
     const slots = residentSlots(map, poi, total);       // ordered home slots [0..total)
+    const jobs = workplaceSlots(map, poi, total);        // ordered job slots [0..total) (slice 2)
     let made = 0;
     while (made < n && budget > 0) {
       const drawIndex = sc.drawCount;                    // id anchor (pre-bump)
@@ -178,12 +185,14 @@ export class MaterializationSystem implements System, SerializableSystem {
       if (!obs) break;                                   // cohort exhausted
       const id = `${poi}-mat-${drawIndex}`;
       const seed = hashId(id);
-      const slot = slots[start + made] ?? slots[slots.length - 1];
+      const idx = start + made;                          // stable materialization index
+      const slot = slots[idx] ?? slots[slots.length - 1];
       const home = slot
         ? homeTileFor(slot, map)
         : this.poiFallbackTile(ctx, poi, map, seed);
 
-      const props = initNpcProps(MAT_NAMES[seed % MAT_NAMES.length], roleForAge(obs.age, seed), seed);
+      const role = roleForAge(obs.age, seed);
+      const props = initNpcProps(MAT_NAMES[seed % MAT_NAMES.length], role, seed);
       props.beliefs = obs.beliefs;                       // already a fresh clone
       props.needs = obs.needs;
       props.birthTick = ctx.now - Math.round(obs.age * TICKS_PER_YEAR);
@@ -191,6 +200,13 @@ export class MaterializationSystem implements System, SerializableSystem {
       props.homeBuildingId = slot?.buildingId;
       props.homeX = home.x;
       props.homeY = home.y;
+      // Slice 2: a working-age extra with a job commutes there by day. Index-
+      // driven (jobs[idx]) so the assignment is fold-stable and rng-free; extras
+      // past the job count (or in a workless hamlet) work from home.
+      if (isWorkingRole(role)) {
+        const job = jobs[idx];
+        if (job) { const t = workTileFor(job, map); props.workX = t.x; props.workY = t.y; }
+      }
       props.materializedTemp = true;
       props.lineageId = id;
       props.parentIds = [];
