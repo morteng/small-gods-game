@@ -329,7 +329,7 @@ export class Game {
       onClimateApplied: () => { this.renderer.forceInfoRefresh(); this.requestRender(); },
       onBeatFired: (subject, storyletId) => {
         this.cuePresentationBeat(subject);
-        return this.playStorylet(storyletId);
+        return this.playStorylet(storyletId, subject);
       },
     });
 
@@ -933,10 +933,10 @@ export class Game {
    * world + clock), then hands it to the UI runtime. Returns false if the id is
    * unknown — the staging seam and `__debug.playStory` both route through here.
    */
-  playStorylet(storyletId: string): boolean {
+  playStorylet(storyletId: string, subject?: ThreadSubject): boolean {
     const pack = this.storyRegistry.findByStorylet(storyletId);
     if (!pack) return false;
-    const host = createBusStoryHost(this.bus, { source: PLAYER_SPIRIT_ID });
+    const host = createBusStoryHost(this.bus, { source: PLAYER_SPIRIT_ID, subject });
     const seed = ((this.state.map?.seed ?? 1) ^ (this.state.clock.now() | 0)) >>> 0;
     const session = new StorySession(pack, { host, seed });
     getUiRuntime().presentStory(session, storyletId);

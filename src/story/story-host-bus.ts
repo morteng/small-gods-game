@@ -20,8 +20,12 @@
 import type { GameBus } from '@/game/game-bus';
 import type { Command, CommandVerb, CommandTarget } from '@/sim/command/types';
 import type { SpiritId } from '@/core/spirit';
+import type { ThreadSubject } from '@/sim/threads/thread-types';
 import type { Value, Effect } from './story-ir';
 import type { StoryHost } from './story-state';
+import {
+  SUBJECT_ARG_KEYS, effectTargetsSubject, subjectToTarget, rewriteSubjectReadPath,
+} from './subject-binding';
 
 export interface BusHostConfig {
   /** Who the authored effects act as. */
@@ -30,6 +34,14 @@ export interface BusHostConfig {
   resolveTarget?: (effect: Effect) => CommandTarget;
   /** Override read resolution; default walks the query facade (see below). */
   read?: (path: string) => Value | undefined;
+  /**
+   * The beat subject this storylet was armed on, if any. When present, effects
+   * flagged with the `$subject`/`subject:true` sentinel resolve their target to
+   * this subject, and `subject.<field>` read paths rewrite to it — see
+   * subject-binding.ts. Absent → behaviour is identical to before (the
+   * `__debug.playStory` path and any un-subjected beat).
+   */
+  subject?: ThreadSubject;
 }
 
 /** The set of verbs the bus will actually accept — feed to the validator. */
@@ -40,14 +52,26 @@ export function busAllowedVerbs(bus: GameBus): Set<string> {
 export function createBusStoryHost(bus: GameBus, config: BusHostConfig): StoryHost {
   const allowed = busAllowedVerbs(bus);
 
-  const resolveTarget = config.resolveTarget ?? ((e: Effect): CommandTarget => {
+  const baseResolveTarget = config.resolveTarget ?? ((e: Effect): CommandTarget => {
     const a = e.args ?? {};
     if (typeof a.npc === 'string') return { kind: 'npc', npcId: a.npc };
     if (typeof a.settlement === 'string') return { kind: 'settlement', poiId: a.settlement };
     return { kind: 'none' };
   });
 
-  const read = config.read ?? ((path: string) => defaultRead(bus, path));
+  const baseRead = config.read ?? ((path: string) => defaultRead(bus, path));
+
+  // Wrap (never replace) the defaults with the subject binding when a beat armed
+  // this storylet on a subject. Absent subject ⇒ the base fns pass straight through.
+  const subject = config.subject;
+  const resolveTarget = subject
+    ? (e: Effect): CommandTarget =>
+        effectTargetsSubject(e) ? subjectToTarget(subject) : baseResolveTarget(e)
+    : baseResolveTarget;
+
+  const read = subject
+    ? (path: string): Value | undefined => baseRead(rewriteSubjectReadPath(path, subject) ?? path)
+    : baseRead;
 
   return {
     read,
@@ -76,7 +100,7 @@ function splitArgs(args: Record<string, unknown>): {
   let params: Record<string, number | string> | undefined;
   let payload: Record<string, unknown> | undefined;
   for (const [k, v] of Object.entries(args)) {
-    if (k === 'npc' || k === 'settlement') continue; // consumed by the target
+    if (SUBJECT_ARG_KEYS.has(k)) continue; // consumed by the target (npc/settlement/subject sentinel)
     if (typeof v === 'number' || typeof v === 'string') (params ??= {})[k] = v;
     else if (v !== undefined) (payload ??= {})[k] = v;
   }

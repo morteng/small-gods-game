@@ -59,7 +59,7 @@ export const droughtOmenPack: StoryPack = {
               text: 'Send an omen — clouds gathering on the ridge',
               body: [
                 { t: 'set', target: 'omenSent', op: '=', value: true },
-                { t: 'do', effect: { verb: 'omen', args: { subject: 'elder', kind: 'clouds' } } },
+                { t: 'do', effect: { verb: 'omen', args: { subject: true, kind: 'clouds' } } },
                 { t: 'goto', storylet: 'the-answer' },
               ],
             },
@@ -67,7 +67,7 @@ export const droughtOmenPack: StoryPack = {
               text: 'Whisper into his dream instead',
               when: { op: '>=', l: { var: 'elder.faith' }, r: 2 },
               body: [
-                { t: 'do', effect: { verb: 'whisper', args: { subject: 'elder', tone: 'gentle' } } },
+                { t: 'do', effect: { verb: 'whisper', args: { subject: true, tone: 'gentle' } } },
                 { t: 'goto', storylet: 'the-answer' },
               ],
             },
