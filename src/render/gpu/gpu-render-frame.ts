@@ -328,6 +328,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     if (water && !studio && flotsamEnabled(camera.zoom)) {
       dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
     }
+    // Split point: everything above (structure mesh + flotsam step/emit) vs the
+    // immediate-mode UI build below, so the trace charges them to SEPARATE buckets
+    // (`flotsam` vs `uiFrame`). The old `uiFlotsam` bucket bundled the two, which hid
+    // that at a world-view zoom-out — where flotsam is gated OFF — the whole bucket
+    // is `ui.frame()` (and, within it, the World-band `getWorldLabels` hook's NPC
+    // sweep). Kept alongside the total so existing readouts still resolve.
+    const tDynamic = performance.now();
 
     const chrome = !studio;
     // D10: thread this frame's own clock through so the UI runtime's
@@ -373,6 +380,11 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       // mode UI frame build (bundled into this phase's window historically).
       waterField: tWaterField - tTerrain,
       uiFlotsam: tFields - tWaterField,
+      // ...and the two halves of that historical bucket, split out so a trace can
+      // tell the flotsam step (+ structure mesh) from the UI frame build. At a
+      // world-view zoom-out flotsam is gated off, so `uiFrame` ≈ the whole bucket.
+      flotsam: tDynamic - tWaterField,
+      uiFrame: tFields - tDynamic,
       render: tRender - tFields,
       composite: tComposite - tRender,
       overlay: tOverlay - tComposite,

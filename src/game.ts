@@ -88,6 +88,16 @@ import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
  *  the readout yet collapses ~4–6 full congregation sweeps/frame to one. */
 const HUD_SIM_TTL_MS = 150;
 
+/** How long the World-band settlement-contest memo stays fresh — DECOUPLED from
+ *  `HUD_SIM_TTL_MS` (perf follow-up). `worldContest()` runs a full `forEachNpc`
+ *  belief sweep on the RENDER thread, and it fires ONLY in the World band (via the
+ *  `getWorldLabels` hook) — so at a world-view zoom-out it stacked a second whole-
+ *  congregation sweep on top of `hudSim`'s at the 150 ms HUD cadence (~6.6 Hz),
+ *  the zoom-specific cost the frame trace charged to `ui.frame()`. The contest is
+ *  cosmetic, slow-changing map typography (which rival, if any, leads a town) — a
+ *  ~1 s refresh is imperceptible on a label yet cuts that sweep frequency ~6.6×. */
+const WORLD_CONTEST_TTL_MS = 1000;
+
 /** Cadence of the post-boot LPC sheet re-kick (real ms) — catches NPCs born
  *  after the boot pass so they render with a sheet, not a fallback circle.
  *  Births are rare; the scan is a Map.has per NPC, so slow is plenty. */
@@ -1172,15 +1182,17 @@ export class Game {
    *  BOTH population tiers — named NPCs (`forEachNpc`) and the P1 statistical
    *  cohort tier (`cohortBelievers`), same two-tier fold `buildRivalSituation`
    *  uses — so a settlement dominated by the statistical tier still reads as
-   *  contested. Memoised behind the same `HUD_SIM_TTL_MS` window as `hudSim()`
+   *  contested. Memoised behind its OWN, longer `WORLD_CONTEST_TTL_MS` window
    *  (own cache: this sweep only runs while a label consumer is asking, i.e. the
    *  World band is active, so it must not piggyback on `hudSim`'s unconditional
-   *  every-frame refresh and tax the other two bands). */
+   *  every-frame refresh and tax the other two bands — and even in-band it refreshes
+   *  ~6.6× less often than the HUD, since a contest label changes far slower than the
+   *  power orb it sits beside). */
   private worldContestCache: { t: number; data: SettlementContest[] } | null = null;
   private worldContest(): SettlementContest[] {
     const now = performance.now();
     const c = this.worldContestCache;
-    if (c && now - c.t < HUD_SIM_TTL_MS) return c.data;
+    if (c && now - c.t < WORLD_CONTEST_TTL_MS) return c.data;
     const world = this.state.world;
     const byPoi = new Map<string, { player: number; rivals: Map<string, number> }>();
     const bump = (poiId: string, spiritId: string, n: number): void => {
