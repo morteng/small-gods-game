@@ -324,7 +324,11 @@ export function footprintLevelDeformation(
       const d = dist[y * bw + x];
       if (d <= 0) return 1;
       if (d >= feather) return 0;
-      return clamp01(1 - d / feather);
+      // Smoothstep, not a linear ramp: a linear falloff KINKS in slope at both feather
+      // edges, tracing a shading rim / diamond faceting along every carve boundary (the
+      // road corridor carve fixed this same way). C1 at both ends → grades in/out smoothly.
+      const t = clamp01(1 - d / feather);
+      return t * t * (3 - 2 * t);
     },
   };
 }
@@ -378,7 +382,11 @@ export function footprintCarveDeformation(
       const d = dist[y * bw + x];
       if (d <= 0) return 1;
       if (d >= feather) return 0;
-      return clamp01(1 - d / feather);
+      // Smoothstep, not a linear ramp: a linear falloff KINKS in slope at both feather
+      // edges, tracing a shading rim / diamond faceting along every carve boundary (the
+      // road corridor carve fixed this same way). C1 at both ends → grades in/out smoothly.
+      const t = clamp01(1 - d / feather);
+      return t * t * (3 - 2 * t);
     },
   };
 }

@@ -242,13 +242,24 @@ describe('runElements — assembly y-sort ordering (residual render-order fixes)
     for (const f of fragments) expect(depth(leaf)).toBeLessThan(depth(f));
   });
 
-  it('towers sort at their camera-NEAR face — strictly deeper than their placement anchor', () => {
-    const els = runElements(crenStoneRing([{ t: 7, width: 3 }]));
-    const towers = els.filter((e) => e.key.startsWith('tower:'));
+  it('towers bias forward DIRECTIONALLY — near-side caps its joint, far-side never sorts over the wall behind it', () => {
+    // A ring WITH a centroid → the directional path. Corners of RING relative to centroid
+    // [7,5]: [14,10] is the CAMERA-NEAR corner (+x/+y), [0,0] is the FAR corner (−x/−y).
+    const ring: BarrierRun = { kind: 'wall', path: RING, height: 3, thickness: 2, material: 'stone', crenellated: true, centroid: [7, 5], gates: [] };
+    const towers = runElements(ring).filter((e) => e.key.startsWith('tower:'));
     expect(towers.length).toBeGreaterThan(0);
+    // No tower ever biases BEHIND its anchor (that would let the near curtain slice it).
     for (const t of towers) {
-      expect(t.sortX).toBeGreaterThan(t.refX);
-      expect(t.sortY).toBeGreaterThan(t.refY);
+      expect(t.sortX).toBeGreaterThanOrEqual(t.refX);
+      expect(t.sortY).toBeGreaterThanOrEqual(t.refY);
     }
+    // The near corner biases forward on BOTH axes (caps its joint); the far corner stays AT
+    // its anchor (does NOT sort proud of the wall it stands behind — the pasted-on-drum fix).
+    const near = towers.find((t) => t.refX === 14 && t.refY === 10)!;
+    const far = towers.find((t) => t.refX === 0 && t.refY === 0)!;
+    expect(near.sortX).toBeGreaterThan(near.refX);
+    expect(near.sortY).toBeGreaterThan(near.refY);
+    expect(far.sortX).toBe(far.refX);
+    expect(far.sortY).toBe(far.refY);
   });
 });

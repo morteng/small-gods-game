@@ -740,24 +740,9 @@ export async function generateWithNoise(
       },
     })) world.addEntity(e);
 
-    // (Road stair flights are sited AFTER map assembly below, on the COMPOSED heightfield.)
-
-    // ENTRANCE STOOPS (outdoor-architectural stairs — the kit's entrance/site siting
-    // authority): a building standing proud of the grade it faces (a hall on a hillside pad,
-    // a temple on a rise) gets a perron from grade up to its door, read from the SAME
-    // normalised grade the road stairs use. Flush sites — most buildings — get none.
-    await report('Setting entrance steps...');
-    for (const e of buildEntranceStoopEntities(world.query({ tag: 'building' }), {
-      elevAt: (x, y) => deckHf[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
-      reliefM: worldStyleOf(worldSeed ?? undefined).mountainRelief,
-      liftElevAt: deckElevAt,
-      cellBlocked: (x, y) => {
-        const t = tiles[y]?.[x];
-        if (!t) return true;
-        // A stoop foots OUTSIDE its own door — keep it off VISIBLE water, roads and other buildings.
-        return tileBlockedByBuilding(world, x, y) || ROAD_TILES.has(t.type) || renderWaterAt(x, y);
-      },
-    })) world.addEntity(e);
+    // (Road stair flights AND entrance stoops are sited AFTER map assembly below, on the
+    // COMPOSED heightfield — the stoop pass MUST run after building↔water reconciliation, or
+    // a building nudged off flooded ground leaves its stoop orphaned at the vacated door.)
 
     // AQUEDUCTS (G6): the inverted river. A dry, inland settlement with a HIGHLAND water source
     // above it (a spring headwater / perched-lake outlet in the water connectome) gets a gravity
@@ -1086,6 +1071,27 @@ export async function generateWithNoise(
       liftElevAt: (x, y) => curveRenderElev(stairComposed[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, stairStyle.terrainHeightGamma),
     })) world.addEntity(e);
   }
+
+  // ENTRANCE STOOPS (outdoor-architectural stairs — the kit's entrance/site siting authority):
+  // a building standing proud of the grade it faces (a hall on a hillside pad, a temple on a
+  // rise) gets a perron from grade up to its door. Sited HERE — after building↔water AND
+  // barrier reconciliation — so each stoop reads its building's FINAL door position; placed
+  // before the reconciles, a building nudged off flooded ground left its stoop stranded at the
+  // vacated door tile (a flight of stairs alone in the open). Composed field + style, matching
+  // the road stairs. Flush sites — most buildings — get none.
+  await report('Setting entrance steps...');
+  for (const e of buildEntranceStoopEntities(world.query({ tag: 'building' }), {
+    elevAt: stairElevAt,
+    reliefM: stairStyle.mountainRelief,
+    liftElevAt: (x, y) => curveRenderElev(stairComposed[y * width + x] ?? ELEVATION_SEA_LEVEL, ELEVATION_SEA_LEVEL, stairStyle.terrainHeightGamma),
+    cellBlocked: (x, y) => {
+      const t = tiles[y]?.[x];
+      if (!t) return true;
+      // A stoop foots OUTSIDE its own door — keep it off VISIBLE water, roads and other buildings.
+      const road = t.type === 'dirt_road' || t.type === 'stone_road' || t.type === 'bridge';
+      return tileBlockedByBuilding(world, x, y) || road || renderWaterAt(x, y);
+    },
+  })) world.addEntity(e);
 
   // JUNCTION ARTIFACTS (world-compiler WP-C): record the typed objects that own every
   // feature×feature overlap the builders just committed — Bridges over crossings, Gatehouse/

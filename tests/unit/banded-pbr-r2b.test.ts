@@ -150,7 +150,8 @@ describe('R2b — WGSL parity with the reference', () => {
   it('the scalloped bury edge is IDENTITY at scallop 0 (non-buried sprites untouched)', () => {
     expect(LIT_WGSL).toContain('let scallop = fract(vMisc.y) * 0.5;');
     expect(LIT_WGSL).toContain('if (scallop > 0.0) {');
-    expect(LIT_WGSL).toContain('if (vFoot > 1.0 - scallop * wob) { discard; }');
+    expect(LIT_WGSL).toContain('let erode = scallop * (0.45 + 0.55 * wob);');
+    expect(LIT_WGSL).toContain('if (vFoot > 1.0 - erode) { discard; }');
   });
 
   it('the ground CONTACT blend is IDENTITY at strength 0 and only reaches the FOOT', () => {
