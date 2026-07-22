@@ -4,6 +4,7 @@ import {
   TRUST_WARMTH, TRUST_FRICTION,
 } from '@/sim/systems/npc-encounter-system';
 import { initNpcProps, npcProps } from '@/world/npc-helpers';
+import { addDomainBelief, getDomainBelief } from '@/sim/belief-domains';
 import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
 import { EventLog, type AppendedEvent } from '@/core/events';
@@ -174,5 +175,40 @@ describe('NpcEncounterSystem', () => {
     const mem = (npcProps(a).memories ?? [])[0];
     // below whisper (0.2) and backfill (0.1) — evicted before any divine deed.
     expect(mem.salience).toBeLessThan(0.1);
+  });
+
+  // ── Phase 3b: rumour spreads belief CONTENT, never faith ──
+  const SPIRIT = 'zephyr';
+
+  it('a warm meeting spreads a domain rumour to a faith-bearing listener', () => {
+    const { world, a, b, log } = friendPair(0.8);
+    // a KNOWS the god commands storms; b believes the god exists but not its deeds.
+    addDomainBelief(npcProps(a), SPIRIT, 'storm', 0.9);
+    npcProps(b).beliefs[SPIRIT] = { faith: 0.5, understanding: 0.1, devotion: 0.1 };
+    const bFaithBefore = npcProps(b).beliefs[SPIRIT].faith;
+
+    new NpcEncounterSystem().tick(ctx(world, log, 1000));
+
+    // b now believes MORE that the god commands storms — but its FAITH is untouched.
+    expect(getDomainBelief(npcProps(b), SPIRIT, 'storm')).toBeGreaterThan(0);
+    expect(npcProps(b).beliefs[SPIRIT].faith).toBe(bFaithBefore);
+    // and a's own storm belief was not drained (spread copies toward the gap, not a transfer)
+    expect(getDomainBelief(npcProps(a), SPIRIT, 'storm')).toBeCloseTo(0.9, 6);
+  });
+
+  it('no rumour reaches a listener who does not believe the god exists (faith 0)', () => {
+    const { world, a, b, log } = friendPair(0.8);
+    addDomainBelief(npcProps(a), SPIRIT, 'storm', 0.9);
+    // b has NO faith in this spirit → cannot believe its deeds.
+    new NpcEncounterSystem().tick(ctx(world, log, 1000));
+    expect(getDomainBelief(npcProps(b), SPIRIT, 'storm')).toBe(0);
+  });
+
+  it('a friction (rival) meeting spreads NO rumour', () => {
+    const { world, a, b, log } = friendPair(0.8, 'rival');
+    addDomainBelief(npcProps(a), SPIRIT, 'storm', 0.9);
+    npcProps(b).beliefs[SPIRIT] = { faith: 0.5, understanding: 0, devotion: 0 };
+    new NpcEncounterSystem().tick(ctx(world, log, 1000));
+    expect(getDomainBelief(npcProps(b), SPIRIT, 'storm')).toBe(0);
   });
 });
