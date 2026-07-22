@@ -331,6 +331,7 @@ export class Game {
         this.cuePresentationBeat(subject);
         return this.playStorylet(storyletId, subject);
       },
+      focusView: () => this.focusView(),
     });
 
     this.timeline = new TimelineController({
@@ -1176,6 +1177,13 @@ export class Game {
       if (b) return this.nearestPoiId(Math.floor(b.x), Math.floor(b.y));
     }
     return null;
+  }
+
+  /** P2 living-population: the live VIEW focus fed to the MaterializationSystem —
+   *  the settlement the camera is framing + the current zoom band. Reads live
+   *  camera/selection state only; nothing is written to the sim or snapshot. */
+  private focusView(): { poiId: string | null; band: ZoomBand } {
+    return { poiId: this.focusedSettlementPoiId(), band: this.currentBand() };
   }
 
   /** UI v2 W1/D4: per-settlement believer tallies (player + every rival), folding

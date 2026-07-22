@@ -89,10 +89,18 @@ export class BirthSystem implements System {
       if (combined >= cap) continue;
       let headroom = cap - combined;
 
-      // Stable order so rng draws reproduce under replay.
+      // Stable order so rng draws reproduce under replay. P2: exclude
+      // materialized extras from PARENTING — they're temporary embodiments of
+      // statistical cohort souls, so letting them breed would both mint phantom
+      // named souls and make births focus-dependent (the extras only exist while
+      // the settlement is watched). They STILL count in `combined` above (as
+      // named entities their origin cohort dropped via removeSoul), so the
+      // housing throttle stays invariant whether or not the town is focused.
       const fertile = residents
         .filter(e => {
-          const age = ageInYears(npcProps(e).birthTick, ctx.now);
+          const p = npcProps(e);
+          if (p.materializedTemp === true) return false;
+          const age = ageInYears(p.birthTick, ctx.now);
           return age >= FERTILE_MIN_AGE && age <= FERTILE_MAX_AGE;
         })
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

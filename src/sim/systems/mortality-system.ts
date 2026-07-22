@@ -28,7 +28,12 @@ export class MortalitySystem implements System {
   readonly tickHz = MORTALITY_TICK_HZ;
 
   tick(ctx: SystemContext): void {
-    const living = queryNpcs(ctx.world);
+    // P2: materialized extras (temporary embodiments of statistical cohort souls,
+    // drawn only while a settlement is focused) are excluded — mortality picking
+    // one would leak a soul out of its cohort AND make the death draw sequence
+    // focus-dependent (a headless replay never spawns them). They fold back into
+    // the cohort untouched; only permanent named souls age and die.
+    const living = queryNpcs(ctx.world).filter(e => npcProps(e).materializedTemp !== true);
     if (living.length < CRADLE_MORTALITY_FLOOR) return;
 
     // Stable order so the rng draw sequence is reproducible under replay.

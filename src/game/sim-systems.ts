@@ -30,7 +30,9 @@ import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/t
 import { BirthSystem } from '@/sim/systems/birth-system';
 import { LordSystem } from '@/sim/systems/lord-system';
 import { CohortSystem } from '@/sim/systems/cohort-system';
+import { MaterializationSystem } from '@/sim/systems/materialization-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
+import type { ZoomBand } from '@/game/affordance/zoom-band';
 import { StagingActivationSystem } from '@/sim/threads/systems/staging-activation-system';
 import { identityOracle } from '@/world/oracle';
 
@@ -51,6 +53,10 @@ export interface SimSystemsDeps {
   /** A fired staged beat carrying a storylet ref → interactive card (plus any
    *  presentation cue). Returns false if the storylet id is unknown. */
   onBeatFired: (subject: ThreadSubject, storyletId: string) => boolean;
+  /** P2 living-population: the coordinator's live VIEW focus (which settlement
+   *  the camera is framing + the zoom band). Read each tick by the
+   *  MaterializationSystem; view state stays OUT of the sim/snapshot. */
+  focusView: () => { poiId: string | null; band: ZoomBand };
 }
 
 export function registerSimSystems(deps: SimSystemsDeps): void {
@@ -101,6 +107,15 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // (state.cohorts) — power regen, rival situation, birth throttle, growth,
   // perception all take the same getter.
   const getCohorts = () => state.cohorts;
+  // P2 living-population (slice 1): materialize a FOCUSED settlement's cohort
+  // souls into real npc entities so the town fills with walkers, and bank them
+  // back (conservation-exact) when focus leaves. Registered after
+  // NpcActivitySystem so the extras it mints are swept by the already-registered
+  // activity/movement systems on the same tick. Stateful (hysteresis) → joins
+  // the WP-D snapshot seam; rebuilds its live set from materializedTemp on load.
+  const materialization = new MaterializationSystem(getCohorts, () => state.map, deps.focusView);
+  scheduler.register(materialization);
+  state.systemState.register(materialization);
   scheduler.register(new SpiritSystem(getCohorts));
   scheduler.register(new RivalSystem(commandQueue, getCohorts));
   scheduler.register(new MortalitySystem());
