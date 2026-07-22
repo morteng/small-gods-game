@@ -503,12 +503,23 @@ function towerElements(run: BarrierRun): Element[] {
     const [ux, uy] = CANONICAL_DIRS[octOf(v)]; const m = Math.hypot(ux, uy) || 1; return [ux / m, uy / m];
   };
   const q = (v?: [number, number]): string => v ? `o${octOf(v)}` : 'solid';
-  // Towers y-sort at their CAMERA-NEAR face, not their centre: a tower projects `side/2`
-  // proud of the wall line both ways, so a curtain piece whose midpoint sits a touch nearer
-  // used to draw over the drum and slice it. +0.35·side on both axes ≈ the near surface
-  // (√2/2·side of iso depth) — the tower now caps its joint instead of being cut by it.
-  const mk = (key: string, spec: () => StructureSpec, x: number, y: number, side = 0): Element =>
-    ({ key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x + side * 0.35, sortY: y + side * 0.35 });
+  // Towers y-sort forward of their centre so a curtain piece whose midpoint sits a touch
+  // nearer doesn't draw over the drum and slice it — but the bias must be DIRECTIONAL. An
+  // unconditional +0.35·side on both axes shoves ~0.7·side (a full drum-width) of iso depth
+  // toward the camera, so a FAR-side tower (bulging away, standing behind the near curtain)
+  // out-sorts and composites its whole billboard over the wall it stands behind — the
+  // "pasted-on cylinder" bug. Bias only along the tower's OUTWARD normal (ring-centroid →
+  // tower) and only when that normal faces the camera (+x/+y), at half-radius: a near-side
+  // drum still caps its joint, a far-side drum stays behind its curtain.
+  const mk = (key: string, spec: () => StructureSpec, x: number, y: number, side = 0): Element => {
+    // No centroid (hand-built runs / crofts): keep the legacy unconditional +0.35·side bias —
+    // those small runs never showed the far-side-tower artifact, so don't regress them.
+    if (!c) return { key, spec, anchor: tagAnchor, refX: x, refY: y, sortX: x + side * 0.35, sortY: y + side * 0.35 };
+    const ox = x - c[0], oy = y - c[1], om = Math.hypot(ox, oy) || 1;
+    return { key, spec, anchor: tagAnchor, refX: x, refY: y,
+      sortX: x + Math.max(0, ox / om) * side * 0.5,
+      sortY: y + Math.max(0, oy / om) * side * 0.5 };
+  };
   const drumAt = (x: number, y: number): Element => {
     const inward = inwardAt(x, y);
     const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined });

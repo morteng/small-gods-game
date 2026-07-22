@@ -31,11 +31,16 @@
 import type { GameMap, EntityId, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import type { RoadGraph } from '@/world/road-graph';
-import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { tryGetEntityKindDef, isRockKind } from '@/world/entity-kinds';
 import { isBuilding } from '@/world/building-collision';
 import { elevationAt } from '@/world/heightfield';
 import { getRenderWaterDist } from '@/world/render-water';
 import { canStandAtPoint } from '@/world/water-habitat';
+import { DeformationStore, heightAt } from '@/world/terrain-deformation';
+import { buildRiverDeformations } from '@/world/river-deformation';
+import { getHydrologyResult } from '@/world/hydrology-store';
+import { STONE_SLOPE } from '@/world/brushes/vegetation-placer';
+import { WATER_TYPES } from '@/core/constants';
 
 /**
  * Treeline: normalised elevation above which no TREE grows — the high ground carries
@@ -184,6 +189,24 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
   // tuft standing mid-channel on a dry-centred cell (38 of them on seed 777).
   const waterDist = getRenderWaterDist(map);
 
+  // STEEP RIVER-CARVED BANKS: a river incision cuts the channel wall down up to ~6.5 m over
+  // 1-3 tiles — a render slope far past the stone repose ceiling — but neither rock-placement
+  // path sees it: riparian bank stones have NO slope gate, and the hills brush gates on the
+  // BASE heightfield, which excludes the incision. Cull rock-family entities whose COMPOSED-
+  // field slope exceeds STONE_SLOPE. Natural crag rocks are already ≤ this ceiling in the base
+  // field (the hills gate ensured it) and there is no incision away from rivers, so composed ==
+  // base there and they survive — only rocks the incision stranded on a bank wall are removed.
+  // Build a THROWAWAY store from just the river incision; NEVER prime the memoized world store
+  // (getWorldDeformationStore) — its cache key omits the rockPads not yet harvested at this
+  // point in gen, so priming it here would bake empty pads permanently.
+  const riverStore = new DeformationStore();
+  riverStore.add(...buildRiverDeformations(map, getHydrologyResult(map)));
+  const composedSlopeM = (tx: number, ty: number): number => {
+    const gx = Math.abs(heightAt(map, riverStore, tx + 1, ty) - heightAt(map, riverStore, tx - 1, ty)) / 2;
+    const gy = Math.abs(heightAt(map, riverStore, tx, ty + 1) - heightAt(map, riverStore, tx, ty - 1)) / 2;
+    return Math.max(gx, gy);
+  };
+
   for (const e of world.query({})) {
     const def = tryGetEntityKindDef(e.kind);
     if (!def || !NATURE_CATEGORIES.has(def.category)) continue;
@@ -215,8 +238,14 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     // 'in-water'); a riparian BANK tree carries the same tag and a willow belongs on the
     // bank, and a hills-brush boulder in a mountain tarn was never deliberate at all.
     const inWater = !canStandAtPoint(map, e.kind, e.tags ?? [], e.x, e.y, waterDist);
+    // A rock stranded on a river-carved bank WALL steeper than stone repose (composed slope,
+    // so the incision the base field hides is included). Gated to DRY-LAND cells: an
+    // in-channel boulder sits on a WATER-typed cell (the deliberate rocky-channel character —
+    // kept), so this fires only for a stone clinging to the dry, incised bank the user saw.
+    const onDryLand = !WATER_TYPES.has(map.tiles[ty]?.[tx]?.type ?? '');
+    const onSteepBank = onDryLand && isRockKind(e.kind) && composedSlopeM(tx, ty) > STONE_SLOPE.maxSlopeM;
 
-    if (inCorridor || onBuilding || aboveTreeline || inWater) toRemove.push(e.id);
+    if (inCorridor || onBuilding || aboveTreeline || inWater || onSteepBank) toRemove.push(e.id);
   }
 
   for (const id of toRemove) world.removeEntity(id);

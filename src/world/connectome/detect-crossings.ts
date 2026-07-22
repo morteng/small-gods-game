@@ -188,9 +188,14 @@ export function detectCrossings(graph: RoadGraph | undefined, width: number, opt
     if (edge.feature !== 'road' || !edge.bridgeCells.length || edge.polyline.length < 2) continue;
     const bridge = new Set(edge.bridgeCells);
     const pts = edge.polyline;
-    // The ribbon the player SEES (and the terrain carve follows) — the same smoothing
-    // `edgeRoadProfile` applies. Banks are seated on THIS, not on the walker's staircase.
-    const sm = opts.bridgeAt ? smoothCenterline(pts as Pt[]) : null;
+    // The ribbon the player SEES (and the terrain carve follows) — smoothed with the SAME
+    // bow-reconciliation pins the drawn ribbon uses (`plainSmoothOptions`). Without the
+    // pins this detector bows one way while the pinned ribbon bows the other, so the deck
+    // seats OFF the road — the bridge lands beside the road's bank terminus. Banks are
+    // seated on THIS ribbon, not on the walker's staircase.
+    const sm = opts.bridgeAt
+      ? smoothCenterline(pts as Pt[], edge.pins?.length ? { keepIndices: new Set(edge.pins) } : {})
+      : null;
     const smCum = sm && sm.length >= 2 ? cumulative(sm) : null;
     const cellOf = (p: { x: number; y: number }) => Math.floor(p.y) * width + Math.floor(p.x);
     // The run SEEDS from the walker's raster bridge cells (crossing intent + count), then extends

@@ -33,8 +33,12 @@ const DITCH_DEPTH_M = 1.0;
 const DITCH_WIDTH = 2;
 /** Gap (tiles) between the wall centreline and the inner edge of the ditch, on top of half-thickness. */
 const DITCH_GAP = 1;
-/** Feather (tiles) of the carve back to untouched ground at the band edges. */
-const DITCH_FEATHER = 1;
+/** Feather (tiles) of the carve back to untouched ground at the band edges. Must span
+ *  SEVERAL integer tiles: the heightfield samples the carve mask at tile centres, so a
+ *  feather < 1 tile is inert (every off-footprint cell is ≥1 tile away → snaps to 0) and
+ *  the ditch collapses to a 1 m cliff between adjacent tiles → visible diamond faceting in
+ *  front of the wall. At 3 tiles the wall grades ~0.67/0.33 m over successive cells. */
+const DITCH_FEATHER = 3;
 
 /** Only a masonry town wall earns a ditch. */
 function ditchesEarned(run: BarrierRun): boolean {

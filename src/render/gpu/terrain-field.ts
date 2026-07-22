@@ -147,6 +147,13 @@ const WETBED_FALLBACK = '#5E4C3A';
 const IRRIGATED_FIELD_COLOR = '#9CCC65';
 /** How far the carved bed is darkened vs the inherited bank colour (wet sheen). */
 const WETBED_DARKEN = 0.62;
+/** Silt/mud a submerged bed reads as. The inherited biome is BLENDED toward this so a
+ *  grassy valley bed shows brown riverbed — not dark GREEN grass — under the translucent
+ *  water pass (which floors its alpha at ~0.28 in the shallows, exposing this bed). A mere
+ *  hue-preserving darken left grass reading as dark green in the middle of every stream. */
+const RIVERBED = '#6B5A3E';
+/** How far the bed is pulled toward riverbed silt (vs the inherited-biome tint). */
+const RIVERBED_BLEND = 0.7;
 
 /**
  * Base colour for a SUBMERGED bed cell (river channel or lake basin). The terrain
@@ -173,11 +180,22 @@ function wetBedColorAbgr(
         const t = tiles[ny]?.[nx];
         if (!t || WATER_TYPES.has(t.type)) continue;
         const hex = TILE_COLORS[effectiveTileType(t.type, devMode)] ?? WETBED_FALLBACK;
-        return darkenAbgr(hexToAbgr(hex), WETBED_DARKEN);
+        const damp = darkenAbgr(hexToAbgr(hex), WETBED_DARKEN);
+        return blendAbgr(damp, hexToAbgr(RIVERBED), RIVERBED_BLEND);
       }
     }
   }
   return darkenAbgr(hexToAbgr(WETBED_FALLBACK), 1);
+}
+
+/** Lerp `a`'s RGB toward `b`'s by `t` (0 = a, 1 = b); alpha of `a` kept. Both 0xAABBGGRR. */
+function blendAbgr(a: number, b: number, t: number): number {
+  const keepA = a & 0xff000000;
+  const mix = (shift: number): number => {
+    const av = (a >> shift) & 0xff, bv = (b >> shift) & 0xff;
+    return Math.round(av + (bv - av) * t) & 0xff;
+  };
+  return (keepA | (mix(16) << 16) | (mix(8) << 8) | mix(0)) >>> 0;
 }
 
 /** Scale an 0xAABBGGRR colour's RGB toward black by `f` (alpha kept). */

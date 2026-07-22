@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v36');
   });
 
-  it('declares the current world content version (114: T3 doorstep→graph gravel scatter — new gravel tile.type radiated from building doorsteps along the road graph)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(114);
+  it('declares the current world content version (115: render+worldgen believability — orphaned entrance stoops re-sited after water reconcile, bridge deck seated on the pinned road ribbon, rocks culled off steep river-carved banks)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(115);
   });
 });

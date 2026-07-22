@@ -125,7 +125,13 @@ fn fsMain(
   // unevenly over the base. Two incommensurate sines = irregular, deterministic.
   if (scallop > 0.0) {
     let wob = 0.5 + 0.28 * sin(vUV.x * 61.0) + 0.22 * sin(vUV.x * 23.7 + 1.9);
-    if (vFoot > 1.0 - scallop * wob) { discard; }
+    // The wobble bottoms out at 0, so its un-eroded columns all share the razor-flat crop
+    // y — the eye reads that continuous baseline as "rock sliced flat" no matter the
+    // amplitude (pushing amplitude just turns the un-eroded columns into downward fangs).
+    // Give erosion a POSITIVE floor (0.45·scallop): the ground line undulates around a
+    // LIFTED baseline, so the flat crop edge is gone and there are no fangs.
+    let erode = scallop * (0.45 + 0.55 * wob);
+    if (vFoot > 1.0 - erode) { discard; }
   }
 
   let nrm = textureSample(uNormalMap, uSampler, vUV);

@@ -530,10 +530,10 @@ export const BUILDING_BLUEPRINTS: Record<string, Blueprint> = {
       crosswing: {
         type: 'body', at: { x: 3, y: 0 }, size: { w: 2, h: 3 },
         params: { plan: 'rect', levels: 2, roof: 'gable', jetty: 0.12 },
-        features: {
-          win_s: { type: 'window', face: 'south', params: { style: 'shuttered', t: 0.5, perStorey: true } },
-          win_e: { type: 'window', face: 'east', params: { style: 'shuttered', t: 0.5, perStorey: true } },
-        },
+        // NO authored windows: the crosswing's south (y=0) and east (x=5) walls are
+        // COINCIDENT with the hall's, which the hall's GEN_OPENINGS already lights — a
+        // `win_s`/`win_e` here lands on the exact same wall plane and column as a derived
+        // pane, mashing two recessed windows into each other (the doubled-window bug).
       },
     },
   }),

@@ -58,7 +58,12 @@ export function buildRenderWaterType(map: GameMap, net: WaterNetwork = getWaterN
     const halfWidths = reachHalfWidths(reach, refFlow);
     // Centreline points are in cell-centre coords (cell (cx,cy) → (cx+0.5, cy+0.5)).
     reach.centerline.forEach((p, i) => {
-      const r = Math.max(0.5, halfWidths[i] ?? REACH_CARVE[reach.klass].halfWidth);
+      // +0.7-tile margin over the analytic half-width: the water SURFACE is drawn per-
+      // fragment from the continuous channel SDF (fringe cells whose CENTRE is dry still
+      // get water quads), but the bed colour is stamped per whole cell here. Without the
+      // margin those fringe cells kept full undarkened GRASS under the drawn ribbon — a
+      // green rim along every stream. The margin covers the half-cell centre-test slop.
+      const r = Math.max(0.5, (halfWidths[i] ?? REACH_CARVE[reach.klass].halfWidth) + 0.7);
       stampDisc(out, W, H, p.x, p.y, r);
     });
   }
