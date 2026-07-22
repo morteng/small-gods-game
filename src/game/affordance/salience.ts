@@ -46,7 +46,13 @@ export type Situation =
   // per settlement. Deliberately scored BELOW every other `tiding` (which starts at
   // 0.1) so these dead-end-closing items never crowd out contention (`rival_dispute`)
   // or faith/mood crossings; still above the pure-atmosphere `chronicle` floor.
-  | { kind: 'lifecycle_tiding'; count: number; surfaced?: boolean };
+  | { kind: 'lifecycle_tiding'; count: number; surfaced?: boolean }
+  // Rival economics: a settlement torn into open HOLY WAR by two near-even cults —
+  // a headline threat, scored above ordinary rival threats (which cap at 0.9) yet
+  // below a plea already lost (`prayer_claimed`, 0.95). A `schism` (the rung below)
+  // reuses the ordinary `tiding` kind. Fixed floor — the ledger, not a count, is
+  // the salience.
+  | { kind: 'holy_war'; surfaced?: boolean };
 
 /**
  * Score how salient acting on a situation is right now (higher = more urgent).
@@ -70,6 +76,8 @@ export function scoreAffordance(sit: Situation): number {
     // 0.06 floor, +0.01 per coalesced event, capped at 0.09 — always below the
     // ordinary tiding floor (0.1) and well below a dispute's minimum (0.15).
     case 'lifecycle_tiding': base = 0.06 + Math.min(0.03, 0.01 * sit.count); break;
+    // Above every ordinary threat (≤0.9), below a soul already lost (0.95).
+    case 'holy_war':         base = 0.92; break;
   }
   return sit.surfaced ? base + FATE_SURFACE_BOOST : base;
 }
