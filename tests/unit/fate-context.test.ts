@@ -245,6 +245,17 @@ describe('buildFateContext', () => {
     expect([...validPoiIds]).toEqual(['poi1']);
   });
 
+  it('splices the dramatic-tempo digest line into the user prompt without touching the valid-id sets', () => {
+    const s = state();
+    const focus: FateFocus = { kind: 'pulse' };
+    const before = buildFateContext(s, focus);
+    expect(before.user).toContain('Dramatic tempo');   // the pacing digest is present
+    // The tempo line changes nothing about the drift-guard id sets.
+    expect([...before.validPoiIds]).toEqual(['poi1']);
+    expect(before.validRivalIds.size).toBe(0);
+    expect(before.validLordPoiIds.size).toBe(0);
+  });
+
   it('W-I: surfaces an active causal site as an addressable subject (in user text + valid ids)', () => {
     const s = state();
     // A live site, hydrated directly (footprint cells irrelevant for the context).

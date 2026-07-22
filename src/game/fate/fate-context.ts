@@ -19,6 +19,7 @@ import { TICKS_PER_DAY } from '@/core/calendar';
 import { MAX_LIVE_ARCS } from '@/sim/fate/arc-types';
 import { getArcShape, seedableShapes } from '@/sim/fate/arc-library';
 import { advancingVerbsFor } from '@/sim/fate/arc-advance';
+import { computeFateTempo, describeTempoForFate } from '@/sim/fate/fate-tempo';
 import { ADVANCE_ARC_TOOLS } from './fate-tools';
 
 /**
@@ -345,6 +346,9 @@ export function buildFateContext(
     describeWorldQualityForFate(state),   // connectome lint digest (empty when clean)
     describeArcsForFate(state),           // Fate's live arcs (empty when none)
     describeSeedableShapesForFate(state), // F3: shapes seed_arc may open now (empty when none)
+    // Pacing digest — the LLM reads the dramatic RHYTHM and self-paces (it never
+    // computes tempo; this is a pure derivation over staging/eventLog/arcs).
+    describeTempoForFate(computeFateTempo(state, state.clock?.now() ?? 0)),
     focusLine,
     closing,
   ].filter(Boolean).join('\n\n');

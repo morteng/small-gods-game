@@ -185,7 +185,7 @@ describe('abandon_arc (LLM path) — a folded arc never fires its beat either', 
 
 describe('sweep — partial-state tolerance (never throws)', () => {
   it('tolerates a state with no arc store and no staging buffer', () => {
-    expect(sweepArcs({} as GameState)).toEqual({ landed: [], abandoned: [] });
+    expect(sweepArcs({} as GameState)).toEqual({ landed: [], escalated: [], abandoned: [] });
     expect(expireArcBeats({} as GameState, 1)).toBe(0);
   });
 
