@@ -1,5 +1,5 @@
 /**
- * MaterializationSystem (P2 living-population, slice 1 — RESIDENTS ONLY).
+ * MaterializationSystem (P2 living-population: residents + workers + visitors).
  *
  * A tickHz-4 reconcile controller: when the player FOCUSES a settlement (zoom
  * band `settlement`/`soul` with a poiId), it draws that town's statistical
@@ -8,6 +8,19 @@
  * the cohort (conservation-exact). Because the extras are real npc entities with
  * a home + role, the shipped NpcActivitySystem/NpcMovementSystem drive their
  * home↔sleep loop for FREE — this system never touches them.
+ *
+ * SLICE 3 (market / visitors): a SECOND materialized category layered on the
+ * focused host during market hours — merchants who gather at the town's market
+ * tile (their `homeX/homeY` IS the market, so the same activity system mills them
+ * there). Two flavours share one mechanism: everyday LOCAL bustle drawn from the
+ * host's own cohort, and a weekly MARKET-DAY pull drawn from ≤1-hop road-neighbour
+ * settlements' cohorts. A visitor's `homePoiId` is its SOURCE cohort (host for
+ * local, the neighbour for a market-day guest), so fold-back banks the soul to the
+ * right tier and the souls_materialized/souls_folded events key to that source —
+ * which is exactly what CohortSystem's stat-tier audit reconciles against, so the
+ * cross-settlement draw needs no audit change. Visitors carry `visitorTemp:true`
+ * (kept out of the resident set on scrub-restore) and disperse the moment focus
+ * leaves or the market closes.
  *
  * CONSERVATION: materialize = `drawCohortSouls` (removeSoul + drawCount++ per
  * soul, exact running-sum subtraction) → create named entity carrying the soul.
@@ -38,8 +51,14 @@ import {
   foldObservation, residentCapacityForPoi, residentSlots, homeTileFor,
   workplaceSlots, workTileFor, type MaterializedRef,
 } from '@/sim/materialization';
+import {
+  settlementDraws, marketAnchorTile, isMarketHour, isMarketDay,
+  localVisitorTarget, neighbourVisitorTarget, VISITOR_CAP, MARKET_PULL_MAX_HOPS,
+} from '@/sim/population/settlement-demand';
+import { roadNeighbours } from '@/world/road-neighbours';
 import { initNpcProps, queryNpcs, npcProps, NPC_KIND } from '@/world/npc-helpers';
 import { snapToLand } from '@/world/land-snap';
+import { solarHourForTick, dayIndexForTick } from '@/core/calendar';
 import { TICKS_PER_YEAR, ageInYears } from '@/sim/mortality';
 
 /** Max simultaneously-materialized extras per settlement. */
@@ -79,6 +98,10 @@ export class MaterializationSystem implements System, SerializableSystem {
   readonly tickHz = 4;
 
   private live = new Map<EntityId, MaterializedRef>();
+  /** Slice-3 market visitors at the active host, keyed by entity id. `srcPoi` is
+   *  the cohort a visitor was drawn from (host itself for local bustle, a road-
+   *  neighbour for a market-day guest) — where fold-back banks it. */
+  private visitors = new Map<EntityId, { id: EntityId; srcPoi: string; bandIndex: number }>();
   private activePoi: string | null = null;
   private pendingPoi: string | null = null;
   private pendingSince = 0;
@@ -113,8 +136,11 @@ export class MaterializationSystem implements System, SerializableSystem {
       this.leftSince = null;
       this.pendingPoi = null;
       budget = this.reconcile(ctx, this.activePoi, budget, materialized, folded);
+      budget = this.reconcileVisitors(ctx, this.activePoi, budget, materialized, folded);
     } else {
-      // Focus differs from (or left) the active settlement.
+      // Focus differs from (or left) the active settlement — the market crowd
+      // disperses at once (visitors are tied to the player watching this town).
+      if (this.visitors.size > 0) budget = this.foldAllVisitors(ctx, budget, folded);
       if (this.activePoi !== null) {
         if (this.leftSince === null) this.leftSince = ctx.now;
         if (ctx.now - this.leftSince >= FOLD_LINGER_TICKS) {
@@ -249,6 +275,144 @@ export class MaterializationSystem implements System, SerializableSystem {
     return budget;
   }
 
+  // ── visitors (slice 3) ───────────────────────────────────────────────────
+
+  /** Step the market crowd at `host` toward its per-source target for the current
+   *  solar hour / day, within `budget`. Empty target (market shut, or the town has
+   *  no market anchor / attractors) ⇒ folds any lingering visitors. */
+  private reconcileVisitors(
+    ctx: SystemContext, host: string, budget: number,
+    materialized: Map<string, EntityId[]>, folded: Map<string, EntityId[]>,
+  ): number {
+    const map = this.getMap();
+    const cohorts = this.getCohorts();
+    if (!map || !cohorts) return budget;
+
+    // Desired visitors PER SOURCE cohort for this host, this hour.
+    const targets = new Map<string, number>();
+    const hour = solarHourForTick(ctx.now);
+    if (isMarketHour(hour) && marketAnchorTile(map, host)) {
+      const hostDraws = settlementDraws(map, host);
+      const scHost = cohorts.get(host);
+      // The host's CONSERVED soul total (un-materialized + residents + its own
+      // visitors) — stable no matter how many are currently drawn out, so the
+      // local-bustle target doesn't wobble as residents materialize alongside.
+      const hostPop = (scHost ? cohortPopulation(scHost) : 0) + this.liveCount(host) + this.visitorCount(host);
+      const local = localVisitorTarget(hostPop, hostDraws);
+      let sum = 0;
+      if (local > 0) { targets.set(host, local); sum += local; }
+      // Weekly market day → pull from road-neighbours (nearest first), up to the cap.
+      if (isMarketDay(host, dayIndexForTick(ctx.now))) {
+        for (const nb of roadNeighbours(map, host, MARKET_PULL_MAX_HOPS)) {
+          if (sum >= VISITOR_CAP) break;
+          const scNb = cohorts.get(nb.poiId);
+          if (!scNb || nb.poiId === host) continue;
+          const want = Math.min(neighbourVisitorTarget(cohortPopulation(scNb)), VISITOR_CAP - sum);
+          if (want > 0) { targets.set(nb.poiId, (targets.get(nb.poiId) ?? 0) + want); sum += want; }
+        }
+      }
+    }
+
+    // Reconcile each source (union of desired + currently-live), deterministic order.
+    const srcs = new Set<string>([...targets.keys()]);
+    for (const v of this.visitors.values()) srcs.add(v.srcPoi);
+    for (const src of [...srcs].sort()) {
+      if (budget <= 0) break;
+      const want = targets.get(src) ?? 0;
+      const have = this.visitorCount(src);
+      if (want > have) budget = this.spawnVisitors(ctx, host, src, want - have, budget, materialized);
+      else if (want < have) budget = this.foldVisitors(ctx, src, have - want, budget, folded);
+    }
+    return budget;
+  }
+
+  /** Materialize up to `n` visitors at `host`'s market, drawn from `src`'s cohort. */
+  private spawnVisitors(
+    ctx: SystemContext, host: string, src: string, n: number, budget: number,
+    materialized: Map<string, EntityId[]>,
+  ): number {
+    const map = this.getMap();
+    const sc = this.getCohorts()?.get(src);
+    if (!map || !sc) return budget;
+    const anchor = marketAnchorTile(map, host);
+    if (!anchor) return budget;
+
+    let made = 0;
+    while (made < n && budget > 0) {
+      const drawIndex = sc.drawCount;                    // id anchor (pre-bump)
+      const [obs] = drawCohortSouls(sc, 1);              // removeSoul + drawCount++
+      if (!obs) break;                                   // source cohort exhausted
+      const id = `${host}-vis-${src}-${drawIndex}`;
+      const seed = hashId(id);
+      // Deterministic jitter so the crowd spreads a little around the market tile.
+      const spot = snapToLand(map,
+        Math.max(0, Math.min(map.width - 1, anchor.x + (seed % 3) - 1)),
+        Math.max(0, Math.min(map.height - 1, anchor.y + ((seed >> 2) % 3) - 1)));
+
+      const props = initNpcProps(MAT_NAMES[seed % MAT_NAMES.length], 'merchant', seed);
+      props.beliefs = obs.beliefs;                       // already a fresh clone
+      props.needs = obs.needs;
+      props.birthTick = ctx.now - Math.round(obs.age * TICKS_PER_YEAR);
+      props.homePoiId = src;                             // SOURCE cohort — fold banks here
+      props.homeX = spot.x;                              // the market tile → mills here
+      props.homeY = spot.y;
+      props.materializedTemp = true;
+      props.visitorTemp = true;
+      props.lineageId = id;
+      props.parentIds = [];
+
+      ctx.world.addEntity({ id, kind: NPC_KIND, x: spot.x, y: spot.y, properties: props as unknown as Record<string, unknown> });
+      this.visitors.set(id, { id, srcPoi: src, bandIndex: bandIndexForAge(obs.age) });
+      (materialized.get(src) ?? materialized.set(src, []).get(src)!).push(id);
+      made++;
+      budget--;
+    }
+    return budget;
+  }
+
+  /** Fold up to `n` of `src`'s visitors back into `src`'s cohort (LIFO), budget-limited. */
+  private foldVisitors(
+    ctx: SystemContext, src: string, n: number, budget: number,
+    folded: Map<string, EntityId[]>,
+  ): number {
+    if (n <= 0) return budget;
+    const sc = this.getCohorts()?.get(src);
+    const refs = [...this.visitors.values()].filter(v => v.srcPoi === src).reverse();
+    let done = 0;
+    for (const ref of refs) {
+      if (done >= n || budget <= 0) break;
+      const e = ctx.world.registry.get(ref.id);
+      if (e && e.kind === NPC_KIND && sc) {
+        addSoul(sc, foldObservation(e, ctx.now));        // bank the (possibly drifted) soul
+        ctx.world.removeEntity(ref.id);
+      } else if (e) {
+        ctx.world.removeEntity(ref.id);
+      }
+      this.visitors.delete(ref.id);
+      (folded.get(src) ?? folded.set(src, []).get(src)!).push(ref.id);
+      done++;
+      budget--;
+    }
+    return budget;
+  }
+
+  /** Fold every live visitor back to its source cohort (host un-focused / market shut). */
+  private foldAllVisitors(ctx: SystemContext, budget: number, folded: Map<string, EntityId[]>): number {
+    const srcs = new Set<string>();
+    for (const v of this.visitors.values()) srcs.add(v.srcPoi);
+    for (const src of [...srcs].sort()) {
+      if (budget <= 0) break;
+      budget = this.foldVisitors(ctx, src, this.visitorCount(src), budget, folded);
+    }
+    return budget;
+  }
+
+  private visitorCount(src: string): number {
+    let n = 0;
+    for (const v of this.visitors.values()) if (v.srcPoi === src) n++;
+    return n;
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
 
   private liveCount(poi: string): number {
@@ -282,14 +446,19 @@ export class MaterializationSystem implements System, SerializableSystem {
    *  / scrub-restore). Resumes `activePoi` on the settlement holding them. */
   private adoptFromWorld(ctx: SystemContext): void {
     this.live.clear();
+    this.visitors.clear();
     let adoptedPoi: string | null = null;
     for (const e of queryNpcs(ctx.world)) {
       const p = npcProps(e) as NpcProperties;
       if (p.materializedTemp !== true || !p.homePoiId) continue;
-      this.live.set(e.id, {
-        id: e.id, poiId: p.homePoiId,
-        bandIndex: bandIndexForAge(ageInYears(p.birthTick, ctx.now)),
-      });
+      const band = bandIndexForAge(ageInYears(p.birthTick, ctx.now));
+      if (p.visitorTemp === true) {
+        // A market visitor — re-adopt into the visitor set (its homePoiId is the
+        // SOURCE cohort), never the resident set. Does not resume a host on its own.
+        this.visitors.set(e.id, { id: e.id, srcPoi: p.homePoiId, bandIndex: band });
+        continue;
+      }
+      this.live.set(e.id, { id: e.id, poiId: p.homePoiId, bandIndex: band });
       if (adoptedPoi === null || p.homePoiId < adoptedPoi) adoptedPoi = p.homePoiId;
     }
     // If the serialized activePoi no longer holds extras, adopt the one the world
@@ -302,6 +471,10 @@ export class MaterializationSystem implements System, SerializableSystem {
     for (const id of [...this.live.keys()]) {
       const e = ctx.world.registry.get(id);
       if (!e || e.kind !== NPC_KIND) this.live.delete(id);
+    }
+    for (const id of [...this.visitors.keys()]) {
+      const e = ctx.world.registry.get(id);
+      if (!e || e.kind !== NPC_KIND) this.visitors.delete(id);
     }
   }
 
@@ -319,6 +492,7 @@ export class MaterializationSystem implements System, SerializableSystem {
 
   hydrate(state: unknown): void {
     this.live = new Map();
+    this.visitors = new Map();
     this.activePoi = null;
     this.pendingPoi = null;
     this.pendingSince = 0;
@@ -337,5 +511,10 @@ export class MaterializationSystem implements System, SerializableSystem {
   /** Read-only view for tests / dev readouts. */
   liveRefs(): ReadonlyMap<EntityId, MaterializedRef> {
     return this.live;
+  }
+
+  /** Read-only view of the live market crowd for tests / dev readouts. */
+  visitorRefs(): ReadonlyMap<EntityId, { id: EntityId; srcPoi: string; bandIndex: number }> {
+    return this.visitors;
   }
 }
