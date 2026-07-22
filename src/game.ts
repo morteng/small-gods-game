@@ -7,7 +7,7 @@ import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { computeFrame, type FrameSubject } from '@/game/framing/compute-frame';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
-import type { GameMap, WorldSeed, TerrainOptions } from '@/core/types';
+import type { GameMap, WorldSeed, TerrainOptions, Relationship } from '@/core/types';
 import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem, type InspectorView, type BeliefView, type BeliefPowerView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
@@ -74,8 +74,11 @@ import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
 import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM, SETTLEMENT_FLY_ZOOM } from '@/game/affordance/zoom-band';
 import { buildWorldLabels, type SettlementContest } from '@/game/affordance/world-labels';
 import {
-  SpeechBubbleStore, buildSpeechBubbles, describeEncounterLine, encounterSeed,
+  SpeechBubbleStore, buildSpeechBubbles, describeEncounterLine, encounterSeed, lowestWorry,
 } from '@/game/affordance/speech-bubbles';
+import {
+  GarnishThrottle, buildGarnishPrompt, sanitizeGarnish, type GarnishInput,
+} from '@/game/affordance/bubble-garnish';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { soulWarmFocusDue } from '@/game/soul-warm-focus';
 import { ChronicleService } from '@/game/chronicle-service';
@@ -232,6 +235,10 @@ export class Game {
   /** Phase 3 (dialog bubbles): transient store of who is "speaking" right now.
    *  Fed by npc_encounter events, read each frame. Presentation-only (never sim). */
   private speechBubbles = new SpeechBubbleStore();
+  /** Phase 3c: budget throttle for the OPTIONAL LLM bubble garnish — reword ONLY
+   *  the watched soul's line, at most one call every few seconds, under a hard
+   *  session cap. The deterministic line is always the fallback. */
+  private garnishThrottle = new GarnishThrottle();
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — consumed by the Fate brain (+ structured-output fallbacks)
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
@@ -1258,6 +1265,57 @@ export class Game {
     });
     this.speechBubbles.spawn(ev.aId, line, performance.now());
     this.requestRender();
+
+    // Phase 3c (OPTIONAL): when the player is watching this soul closely, reword
+    // its line through the fast chat tier and slot the result into the same
+    // bubble. Fire-and-forget — the deterministic line above already shows.
+    this.maybeGarnishBubble(ev, line, sp.name, sp.role, rel?.type ?? 'friend', npcProps(partner).name);
+  }
+
+  /**
+   * Phase 3c: the OPTIONAL LLM garnish. Rewords the deterministic bubble line for
+   * the conversation the player is actively watching — gated hard so spend is a
+   * rounding error and a no-LLM / offline session behaves exactly as before:
+   *   • only in the SOUL band (the closest, one-soul-at-a-time view), and
+   *   • only conversations involving the SELECTED soul (or any, if none selected), and
+   *   • only when a real client is configured (mock/no-key → skip), and
+   *   • only when the budget throttle (spend cap + rate + single in-flight) allows.
+   * On success the reworded line is swapped IN PLACE via retext(), which refuses
+   * if the speaker has since said something new or the bubble already faded — so a
+   * late reply never clobbers a newer line or pops a ghost bubble.
+   */
+  private maybeGarnishBubble(
+    ev: Extract<AppendedEvent['event'], { type: 'npc_encounter' }>,
+    baseLine: string, speakerName: string, role: string,
+    relType: Relationship['type'], partnerName: string,
+  ): void {
+    if (this.currentBand() !== 'soul') return;
+    const sel = this.state.selectedNpcId;
+    if (sel && ev.aId !== sel && ev.bId !== sel) return;
+    if (!this.llmClient.isAvailable()) return;
+    const nowMs = performance.now();
+    if (!this.garnishThrottle.canGarnish(nowMs)) return;
+
+    // The worry the deterministic producer would have coloured with: the speaker's
+    // lowest need, if it crossed the worry floor (else null → a plain greeting).
+    const needs = npcProps(this.state.world!.registry.get(ev.aId)!).needs;
+    const worry = lowestWorry(needs);
+    const input: GarnishInput = { speakerName, role, warm: ev.warm, relType, partnerName, worry, baseLine };
+    const { system, user } = buildGarnishPrompt(input);
+
+    this.garnishThrottle.begin(nowMs);
+    void this.llmClient.generateNpcBackfill(system, user, { maxTokens: 48, temperature: 0.9 })
+      .then((res) => {
+        this.garnishThrottle.end(res.cost);
+        const text = sanitizeGarnish(res.content, baseLine);
+        if (text !== baseLine && this.speechBubbles.retext(ev.aId, baseLine, text, performance.now())) {
+          this.requestRender();
+        }
+      })
+      .catch((err) => {
+        this.garnishThrottle.end(0);
+        console.warn('[bubble-garnish] rewording failed, keeping template line:', err);
+      });
   }
 
   private focusedSettlementPoiId(): string | null {

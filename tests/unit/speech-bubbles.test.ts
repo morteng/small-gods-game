@@ -33,6 +33,28 @@ describe('SpeechBubbleStore', () => {
     expect(s.active()[0].text).toBe('second');
   });
 
+  it('retext swaps a live bubble in place, keeping its lifetime', () => {
+    const s = new SpeechBubbleStore();
+    s.spawn('a', 'base line', 1000);
+    // Replaces only if the current text still matches `from`, and only in-window.
+    expect(s.retext('a', 'base line', 'reworded', 1500)).toBe(true);
+    expect(s.active()[0].text).toBe('reworded');
+    // bornMs unchanged → still expires at the ORIGINAL TTL, not reset to 1500.
+    s.prune(1000 + BUBBLE_TTL_MS + 1);
+    expect(s.active().length).toBe(0);
+  });
+
+  it('retext refuses when the line has changed or the bubble expired (no clobber / no ghost)', () => {
+    const s = new SpeechBubbleStore();
+    s.spawn('a', 'base line', 1000);
+    // A newer line was spoken → a late garnish of the old line must not overwrite.
+    s.spawn('a', 'newer line', 1200);
+    expect(s.retext('a', 'base line', 'reworded', 1300)).toBe(false);
+    expect(s.active()[0].text).toBe('newer line');
+    // And once faded, retext resurrects nothing.
+    expect(s.retext('a', 'newer line', 'reworded', 1200 + BUBBLE_TTL_MS + 1)).toBe(false);
+  });
+
   it('caps at MAX_BUBBLES, dropping the oldest', () => {
     const s = new SpeechBubbleStore();
     for (let i = 0; i < MAX_BUBBLES + 3; i++) s.spawn(`npc${i}`, `l${i}`, 1000 + i);

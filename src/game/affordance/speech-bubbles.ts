@@ -64,6 +64,18 @@ export class SpeechBubbleStore {
     while (this.bubbles.length > MAX_BUBBLES) this.bubbles.shift();
   }
 
+  /** Swap a live bubble's text IN PLACE, keeping its bornMs (no lifetime reset,
+   *  no pop-in). Only replaces if a non-expired bubble for `npcId` is still
+   *  showing exactly `from` — so the async LLM garnish (Phase 3c) never clobbers
+   *  a newer line the speaker has since spoken, and never resurrects one that
+   *  already faded. Returns whether it replaced. */
+  retext(npcId: string, from: string, to: string, nowMs: number): boolean {
+    const b = this.bubbles.find(x => x.npcId === npcId && nowMs - x.bornMs < BUBBLE_TTL_MS);
+    if (!b || b.text !== from) return false;
+    b.text = to;
+    return true;
+  }
+
   /** Drop lines whose TTL has elapsed. Idempotent; call before reading. */
   prune(nowMs: number): void {
     this.bubbles = this.bubbles.filter(b => nowMs - b.bornMs < BUBBLE_TTL_MS);
@@ -163,6 +175,20 @@ const BARB_LINES_HARD = ['Out of my way.', "You've some nerve, showing your face
 /** The WORRY floor — a need must be at least this low to colour the line. */
 const WORRY = 0.45;
 
+/** The single need "grinding on" a soul: its lowest need, if that need has
+ *  crossed the WORRY floor; else null (all is well → a plain greeting). Shared by
+ *  the deterministic producer AND the LLM garnish so both colour the line with
+ *  the same worry. Fixed NEED_KEYS order → deterministic tie-break. */
+export function lowestWorry(needs: NpcNeeds): keyof NpcNeeds | null {
+  let worst: keyof NpcNeeds | null = null;
+  let lowest = Infinity;
+  for (const k of NEED_KEYS) {
+    const v = needs[k];
+    if (v < WORRY && v < lowest) { lowest = v; worst = k; }
+  }
+  return worst;
+}
+
 function pick(arr: string[], seed: number): string {
   return arr[Math.abs(seed) % arr.length];
 }
@@ -193,12 +219,7 @@ export function describeEncounterLine(input: EncounterLineInput): string {
   }
 
   // Dominant worry: the lowest need, if it has crossed the WORRY floor.
-  let worst: keyof NpcNeeds | null = null;
-  let lowest = Infinity;
-  for (const k of NEED_KEYS) {
-    const v = input.needs[k];
-    if (v < WORRY && v < lowest) { lowest = v; worst = k; }
-  }
+  const worst = lowestWorry(input.needs);
   if (worst) return pick(NEED_LINES[worst], input.seed);
 
   const table = WARM_LINES[input.relType] ?? WARM_LINES.friend;
