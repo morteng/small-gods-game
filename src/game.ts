@@ -47,6 +47,7 @@ import { ClutterFloraArtSource } from '@/render/clutter-flora-art-source';
 import { FLORA_IMAGE_MODEL } from '@/assetgen/flora-image-prompt';
 import { AssetManager } from '@/render/asset-manager';
 import { Scheduler } from '@/core/scheduler';
+import type { AppendedEvent } from '@/core/events';
 import { TimelineController } from '@/core/timeline';
 import { CommandQueue } from '@/sim/command/command-queue';
 import { DiscoveryQueue } from '@/sim/threads/discovery-queue';
@@ -72,6 +73,9 @@ import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
 import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM, SETTLEMENT_FLY_ZOOM } from '@/game/affordance/zoom-band';
 import { buildWorldLabels, type SettlementContest } from '@/game/affordance/world-labels';
+import {
+  SpeechBubbleStore, buildSpeechBubbles, describeEncounterLine, encounterSeed,
+} from '@/game/affordance/speech-bubbles';
 import { LlmBackfillService } from '@/game/llm-backfill';
 import { soulWarmFocusDue } from '@/game/soul-warm-focus';
 import { ChronicleService } from '@/game/chronicle-service';
@@ -225,6 +229,9 @@ export class Game {
   private fateBrain!: FateBrainService;
   private fateTrigger!: FateTrigger;
   private fatePulse!: FatePulse;
+  /** Phase 3 (dialog bubbles): transient store of who is "speaking" right now.
+   *  Fed by npc_encounter events, read each frame. Presentation-only (never sim). */
+  private speechBubbles = new SpeechBubbleStore();
   private llmClientCapable: LLMClient | null = null;   // Tier-2 "key moments" — consumed by the Fate brain (+ structured-output fallbacks)
   private costTracker = new CostTracker();
   private spendChip: SpendChipHandle | null = null;
@@ -592,6 +599,11 @@ export class Game {
       onTrigger: (focus) => { void this.fateBrain.deliberate(focus); },
     });
     this.fateTrigger.attach((fn) => this.state.eventLog.subscribe(fn));
+    // Phase 3 (dialog bubbles): an encounter makes its speaker say something. The
+    // deterministic producer runs FREE for every encounter; we only bother spawning
+    // a bubble when the player is close enough to read one (settlement/soul band) —
+    // out at the world band the town is a map, not a stage.
+    this.state.eventLog.subscribe((a) => this.onEncounterEvent(a));
     // F2: Fate's heartbeat — wakes the brain once a game-day even when nothing
     // happened ("what are you building toward?"), sharing FateTrigger's cooldown so
     // a pulse can't pile onto a just-fired event deliberation. Ticked from onFrame.
@@ -809,6 +821,23 @@ export class Game {
           this.hudSim().inbox,
           this.worldContest(),
           this.focusedSettlementPoiId(),
+          this.state.camera,
+          devicePixelRatio,
+          { w: this.canvas.width, h: this.canvas.height },
+        );
+      },
+      // Phase 3 (dialog bubbles): live spoken lines over speakers' heads. Gated to
+      // the close bands (settlement/soul) — out at the world band the town is a map,
+      // not a stage. Projected per-frame from each speaker's LIVE position (same
+      // idiom as the labels above) so a bubble tracks its walking speaker.
+      getSpeechBubbles: () => {
+        if (this.currentBand() === 'world') return null;
+        const world = this.state.world;
+        if (!world) return null;
+        return buildSpeechBubbles(
+          this.speechBubbles,
+          performance.now(),
+          (id) => { const e = world.registry.get(id); return e ? { x: e.x, y: e.y } : null; },
           this.state.camera,
           devicePixelRatio,
           { w: this.canvas.width, h: this.canvas.height },
@@ -1203,6 +1232,34 @@ export class Game {
    *  `inspectorTarget`'s building→settlement resolution without touching that
    *  function (W2 owns it), a selected building's settlement. `selectedPoiId`
    *  wins: it's the more recent, more specific act when both are somehow set. */
+  /** Phase 3: an npc_encounter makes its speaker say a line. The producer runs
+   *  free; we only spawn a visible bubble when the player is close enough to read
+   *  it (settlement/soul band) and both parties are live entities on the map. */
+  private onEncounterEvent(a: AppendedEvent): void {
+    const ev = a.event;
+    if (ev.type !== 'npc_encounter') return;
+    if (this.currentBand() === 'world') return;
+    const world = this.state.world;
+    if (!world) return;
+    const speaker = world.registry.get(ev.aId);
+    const partner = world.registry.get(ev.bId);
+    if (!speaker || !partner) return;
+    const sp = npcProps(speaker);
+    const rel = sp.relationships.find(r => r.npcId === ev.bId);
+    const line = describeEncounterLine({
+      warm: ev.warm,
+      relType: rel?.type ?? 'friend',
+      personality: sp.personality,
+      needs: sp.needs,
+      partnerName: npcProps(partner).name,
+      // Same meeting always voices the same line; different meetings vary
+      // (presentation-only — no sim rng needed).
+      seed: encounterSeed(ev.aId, ev.bId, a.t),
+    });
+    this.speechBubbles.spawn(ev.aId, line, performance.now());
+    this.requestRender();
+  }
+
   private focusedSettlementPoiId(): string | null {
     const s = this.state;
     if (s.selectedPoiId) return s.selectedPoiId;

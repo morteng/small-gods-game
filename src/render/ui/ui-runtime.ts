@@ -28,6 +28,7 @@ import { validateUiSpec } from '@/story/uispec';
 import type { BeliefPowerView, InboxItem, InboxKind, InspectorView, PantheonRow, SettlementPeace } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 import type { WorldLabelView } from '@/game/affordance/world-labels';
+import type { SpeechBubbleView } from '@/game/affordance/speech-bubbles';
 import type { Command } from '@/sim/command/types';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { TICKS_PER_HOUR } from '@/core/calendar';
@@ -116,6 +117,12 @@ export interface UiRuntimeHooks {
   getWorldLabels?: () => WorldLabelView[] | null;
   /** Click a settlement label: the game focuses that settlement + flies to it. */
   onWorldLabel?: (poiId: string) => void;
+
+  // ── "A Town You Can Watch" Phase 3: real-time dialog bubbles ──
+  /** Live spoken lines over speakers' heads, or null in the world band. Views are
+   *  already world→screen projected (device px) + carry a fade alpha; the game
+   *  owns the projection so a bubble tracks its walking speaker with no swim. */
+  getSpeechBubbles?: () => SpeechBubbleView[] | null;
 
   // ── W-I-d: the selected CAUSAL SITE card (flood plain / drowned village) ──
   /** The card view for the currently-selected causal site, or null. The runtime
@@ -689,6 +696,8 @@ export class UiRuntime {
     // so every other HUD surface below wins any overlap (same rule the parked
     // alert pins followed) — the World band IS the map.
     this.drawWorldLabels(c, w, h, s, nowMs);
+    // Phase 3: dialog bubbles ride just above the labels — town life over the map.
+    this.drawSpeechBubbles(c, w, h, s);
 
     const pad = 16 * s;
     const orb = 30 * s;
@@ -897,6 +906,30 @@ export class UiRuntime {
     if (clicked) {
       this.hooks.onWorldLabel?.(clicked);
       this.hooks.requestRender?.();
+    }
+  }
+
+  /** Phase 3: dialog bubbles — a speaker's line in a small dark backing floated
+   *  above their head, alpha from the view's fade. Display-only (no hotspot): a
+   *  bubble is town ambience, not a control. Suppressed while a panel is open
+   *  (you're reading a menu, not watching the town). */
+  private drawSpeechBubbles(c: UiContext, w: number, h: number, s: number): void {
+    if (this.panel !== null) return;
+    const bubbles = this.hooks.getSpeechBubbles?.() ?? null;
+    if (!bubbles || bubbles.length === 0) return;
+    const fs = FS_BODY * s;
+    const pad = 5 * s;
+    for (const b of bubbles) {
+      if (b.alpha <= 0) continue;
+      const tw = c.measure(b.text, fs);
+      const lh = c.lineHeight(fs);
+      const boxW = Math.ceil(tw) + pad * 2;
+      const boxH = Math.ceil(lh) + pad * 2;
+      const bx = Math.round(b.x - boxW / 2);
+      const by = Math.round(b.y - boxH); // float above the anchor
+      if (bx + boxW < 0 || by + boxH < 0 || bx > w || by > h) continue;
+      c.rect(bx, by, boxW, boxH, withAlpha(shade(UI_PALETTE.panelBg, -0.2), 0.72 * b.alpha), UiSpace.World);
+      c.label(b.text, Math.round(b.x - tw / 2), by + pad, fs, withAlpha(UI_PALETTE.text, b.alpha), UiSpace.World);
     }
   }
 
