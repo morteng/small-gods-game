@@ -42,6 +42,13 @@ const KNOWN_GENERIC_ONLY: Record<string, string> = {
   authored_climate:'Create-panel audit trail; generic feeds only',
   tile_collapsed:  'oracle/WFC realization trace; generic feeds only',
   system_error:    'diagnostic channel (LLM writeback etc.); generic feeds only',
+  // contention_escalated / contention_eased added 2026-07-22: the rival
+  // contention ladder surfaces through the inbox from ContentionLedger STATE
+  // (game-query divineInbox reads state.contention, not these events); the
+  // events feed the chronicle now and are the seam for future LLM-narrated
+  // rival encounters — generic feeds only until that consumer lands.
+  contention_escalated: 'contention ladder chronicle + future rival-narration seam; generic feeds only',
+  contention_eased:     'contention ladder chronicle + future rival-narration seam; generic feeds only',
 };
 
 // ── source scanning ─────────────────────────────────────────────────────────────
