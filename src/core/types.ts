@@ -685,6 +685,14 @@ export interface NpcProperties {
   /** Slice-2 workplace tile (commute target). Optional ⇒ no SAVE_VERSION bump. */
   workX?: number;
   workY?: number;
+  /** Slice-3 market visitor: a materialized extra drawn to a HOST settlement's
+   *  market (its `homeX/homeY` is the market tile, so the shipped activity system
+   *  makes it mill there). `homePoiId` stays its SOURCE cohort — local visitors
+   *  from the host itself, market-day visitors from a road-neighbour — so fold-back
+   *  banks the soul to the right tier. Always paired with `materializedTemp:true`;
+   *  this flag only tells the controller to re-adopt it as a visitor, not a
+   *  resident, on scrub-restore. Optional ⇒ no SAVE_VERSION bump. */
+  visitorTemp?: boolean;
   // narrative breadcrumbs
   recentEventIds: number[];
   /** Distilled, salience-tagged episodic memory of interactions with gods (Track 2).
