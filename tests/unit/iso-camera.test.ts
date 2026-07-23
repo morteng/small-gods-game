@@ -16,7 +16,7 @@ describe('iso-camera', () => {
 
   it('exposes iso zoom range constants', () => {
     expect(ISO_ZOOM_MIN).toBe(0.05);
-    expect(ISO_ZOOM_MAX).toBe(2); // 2:1 cap — one clean integer magnify rung above native
+    expect(ISO_ZOOM_MAX).toBe(1); // native 1:1 cap — no magnify rung above native
   });
 
   it('centerOnTile sets camera so the tile renders at viewport center', () => {
@@ -28,11 +28,11 @@ describe('iso-camera', () => {
   });
 
   describe('pixel-perfect zoom ladder', () => {
-    it('rungs are 1/n zooming out and top out at 2:1, ascending, spanning the range', () => {
+    it('rungs are 1/n zooming out and top out at native 1:1, ascending, spanning the range', () => {
       expect(ISO_ZOOM_RUNGS[0]).toBeCloseTo(ISO_ZOOM_MIN); // 1/20 = 0.05
-      expect(ISO_ZOOM_RUNGS[ISO_ZOOM_RUNGS.length - 1]).toBe(ISO_ZOOM_MAX); // 2
+      expect(ISO_ZOOM_RUNGS[ISO_ZOOM_RUNGS.length - 1]).toBe(ISO_ZOOM_MAX); // 1
       expect(ISO_ZOOM_RUNGS).toContain(1);
-      expect(ISO_ZOOM_RUNGS).toContain(2); // one integer magnify rung above 1:1 (clean 2× upscale)
+      expect(ISO_ZOOM_RUNGS).not.toContain(2); // no magnify rung above native (user: stop at 1:1)
       // strictly ascending
       for (let i = 1; i < ISO_ZOOM_RUNGS.length; i++) {
         expect(ISO_ZOOM_RUNGS[i]).toBeGreaterThan(ISO_ZOOM_RUNGS[i - 1]);
@@ -45,9 +45,9 @@ describe('iso-camera', () => {
     });
 
     it('quantizeIsoZoom snaps to the nearest rung (dir 0)', () => {
-      expect(quantizeIsoZoom(1.1)).toBe(1);  // nearer 1 than 2
-      expect(quantizeIsoZoom(5)).toBe(2);    // above the 2:1 cap → clamps to 2
-      expect(quantizeIsoZoom(1.7)).toBe(2);  // nearer 2 than 1
+      expect(quantizeIsoZoom(1.1)).toBe(1);  // above the 1:1 cap → clamps to 1
+      expect(quantizeIsoZoom(5)).toBe(1);    // above the 1:1 cap → clamps to 1
+      expect(quantizeIsoZoom(1.7)).toBe(1);  // above native → clamps to 1
       expect(quantizeIsoZoom(0.9)).toBe(1);
       expect(quantizeIsoZoom(0.49)).toBeCloseTo(0.5);
     });
@@ -55,8 +55,7 @@ describe('iso-camera', () => {
     it('quantizeIsoZoom steps exactly one rung up/down regardless of magnitude', () => {
       // a tiny wheel factor must still advance one full rung, not stall
       expect(quantizeIsoZoom(0.5, 1)).toBe(1);
-      expect(quantizeIsoZoom(1, 1)).toBe(2);   // native → the 2:1 magnify rung
-      expect(quantizeIsoZoom(2, 1)).toBe(2);   // already at the 2:1 cap
+      expect(quantizeIsoZoom(1, 1)).toBe(1);   // native is the top rung — no further in
       expect(quantizeIsoZoom(1, -1)).toBeCloseTo(0.5);
       expect(quantizeIsoZoom(0.5, -1)).toBeCloseTo(1 / 3);
     });

@@ -40,6 +40,14 @@ import { TICKS_PER_HOUR } from '@/core/calendar';
 const FS_TITLE = 4;
 const FS_BODY = 2;
 
+// Dev perf-pill palette (WebGPU-native replacement for the old Canvas2D overlay).
+// Normalised RGBA; rate colour ramps green ≥50 / amber ≥30 / red below, matching the
+// former overlay's #7ee787 / #e3b341 / #f85149 on a translucent slate plate.
+const PERF_BG: Rgba = [0.04, 0.047, 0.078, 0.62];
+const PERF_GREEN: Rgba = [0.494, 0.906, 0.529, 1];
+const PERF_AMBER: Rgba = [0.890, 0.702, 0.255, 1];
+const PERF_RED: Rgba = [0.973, 0.318, 0.286, 1];
+
 /** What the runtime needs from the game to be live. All optional so the singleton
  *  renders a sane gray-box even before `attach()`. */
 export interface UiRuntimeHooks {
@@ -259,6 +267,10 @@ const REAL_TIMERS: UiTimers = {
 export class UiRuntime {
   private ctx = new UiContext();
   private hooks: UiRuntimeHooks = {};
+
+  // Dev fps/px readout, fed each frame by the render loop (set AFTER the frame's rate is
+  // measured, so it draws one frame stale — invisible for a smoothed value). Null hides it.
+  private perf: { fps: number; px: number; fixed: boolean } | null = null;
 
   // pointer state (device px)
   private ptr = { x: -1, y: -1, down: false };
@@ -666,6 +678,9 @@ export class UiRuntime {
       this.drawHud(c, wDev, hDev, s, this.clockMs);
     }
 
+    // Dev perf pill LAST so it wins any overlap — a persistent readout above every state.
+    this.drawPerfPill(c, s);
+
     const { hits, scrollRegions } = c.end();
     this.lastHits = hits;
     this.lastScrollRegions = scrollRegions;
@@ -690,6 +705,32 @@ export class UiRuntime {
       }
     }
     return c.batcher.flush();
+  }
+
+  /** Feed the dev perf readout (fps + art-pixel tier). Called by the render loop once its
+   *  rate is measured; pass null to hide. Replaces the old Canvas2D overlay pill so the game
+   *  chrome is 100% WebGPU (studio, which has no UI pass, keeps its own 2D pill). */
+  setPerfHud(v: { fps: number; px: number; fixed: boolean } | null): void {
+    this.perf = v;
+  }
+
+  /** Top-LEFT "27 FPS  PX 1" pill, WebGPU-native. Top-left because the top-right is owned by
+   *  the time cluster (clock + transport) — the pill used to collide with it. ASCII-only (two
+   *  spaces separate the fields) so it never depends on a non-ASCII glyph in the pixel font. */
+  private drawPerfPill(c: UiContext, s: number): void {
+    const p = this.perf;
+    if (!p) return;
+    const fs = FS_BODY * s;
+    const label = `${Math.round(p.fps)} FPS  PX ${p.px}${p.fixed ? ' FIXED' : ''}`;
+    const padX = 6 * s;
+    const lh = c.lineHeight(fs);
+    const w = c.measure(label, fs) + padX * 2;
+    const h = lh + 6 * s;
+    const x = 8 * s;
+    const y = 8 * s;
+    c.rect(x, y, w, h, PERF_BG);
+    const col = p.fps >= 50 ? PERF_GREEN : p.fps >= 30 ? PERF_AMBER : PERF_RED;
+    c.label(label, Math.round(x + padX), Math.round(y + (h - lh) / 2), fs, col);
   }
 
   // ── barebones HUD: a single presence orb that also opens the menu ─────────

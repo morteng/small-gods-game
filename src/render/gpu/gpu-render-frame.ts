@@ -32,6 +32,7 @@ import { DEFAULT_LIGHTING } from '@/render/lighting-state';
 import { buildTerrainField, zoomSuperSample, zoomCoarsenMaxQuads, type TerrainField } from '@/render/gpu/terrain-field';
 import { buildDetailField } from '@/render/gpu/detail-field';
 import { buildWaterField, type WaterField } from '@/render/gpu/water-field';
+import { getRenderWaterDist } from '@/world/render-water';
 import { FlotsamLayer } from '@/render/gpu/flotsam-layer';
 import { drawWorldConnectome } from '@/render/connectome-overlay';
 import type { GpuScene } from '@/render/gpu/gpu-scene';
@@ -71,6 +72,32 @@ export const FLOTSAM_MIN_ZOOM = 0.25;
 export function flotsamEnabled(camZoom: number): boolean {
   return camZoom >= FLOTSAM_MIN_ZOOM;
 }
+
+/** Master flotsam switch, DROPPED by default (user: "drop flotsam for now") — the
+ *  cosmetic water debris costs a per-frame particle step + emit and a transparent
+ *  circle overdraw pass over the (already fill-heavy) water surface, for a
+ *  low-signal effect. `?flotsam` opts it back in; the zoom gate above still applies
+ *  on top. Reading the flag (not a build constant) keeps the drop reversible live. */
+function flotsamDropped(): boolean {
+  try { return !new URLSearchParams(window.location.search).has('flotsam'); }
+  catch { return true; }
+}
+
+/** Water renders at half resolution (¼ the fragments) into its own target, occluded by a
+ *  cheap depth-only terrain prepass, then upscale-composited over the crisp full-res scene
+ *  — water is smooth so the quality cost is ~nil while it slashes the frame's dominant fill
+ *  pass (the constant full-screen water fragment cost that pinned dense views at px2).
+ *  DEFAULT ON (verified on-device: correct occlusion, no bank bleed, holds px1); `?fullwater`
+ *  is the escape hatch back to the full-res single-pass path. */
+function halfWaterEnabled(): boolean {
+  try { return !new URLSearchParams(window.location.search).has('fullwater'); }
+  catch { return true; }
+}
+
+/** Below this camera zoom the sub-tile detail patches are sub-pixel (their refined
+ *  relief can't resolve on screen) so they're skipped — an instanced pass saved for
+ *  no visible loss at overview. Matches the flotsam/grass "too far out to read" gates. */
+export const DETAIL_MIN_ZOOM = 0.25;
 
 /** `?nodetail` turns the adaptive sub-tile detail patches OFF (A/B + preference). */
 function detailDisabled(): boolean {
@@ -234,11 +261,13 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
         });
     // Adaptive sub-tile detail patches (the px4-3-2-1 idea): a finer instanced mesh
     // with GENUINE analytic relief, overlaid ONLY on the hot regions (coast/carve/
-    // slope). Always on now (was zoom ≥ 2) so the road/river carve banks keep their
-    // refined mesh at every zoom; the field is memoised per map and covers only the
-    // hot regions, and `?nodetail` is the escape hatch. Sub-pixel at extreme
-    // overview — the adaptive art-pixel resolution absorbs the cost.
-    const detail = (terrain && !detailDisabled())
+    // slope). On at gameplay zoom so the road/river carve banks keep their refined
+    // mesh; the field is memoised per map and covers only the hot regions, and
+    // `?nodetail` is the escape hatch. GATED OFF below DETAIL_MIN_ZOOM (extreme
+    // overview): there the patches are sub-pixel — the refined relief can't resolve
+    // and the extra instanced pass is pure cost — so we skip it and let the flat
+    // terrain mesh (+ the art-pixel ladder) carry the frame.
+    const detail = (terrain && !detailDisabled() && camera.zoom >= DETAIL_MIN_ZOOM)
       ? buildDetailField(map, rc.connectomeWater)
       : null;
     const tTerrain = performance.now();
@@ -325,7 +354,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // on the camera's own zoom so it never entangles with the resolution governor's
     // art-pixel tier (a past bug — see the constant's doc).
     let dynamicItems: readonly DrawItem[] = npcItems;
-    if (water && !studio && flotsamEnabled(camera.zoom)) {
+    if (water && !studio && !flotsamDropped() && flotsamEnabled(camera.zoom)) {
       dynamicItems = [...npcItems, ...flotsam.items(map, timeSec)];
     }
     // Split point: everything above (structure mesh + flotsam step/emit) vs the
@@ -346,7 +375,9 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     scene.renderFrame({
       items: dynamicItems, staticItems: staticList, lighting, terrain, detail, water, structures,
       w: lowW, h: lowH, out: { w: target.width, h: target.height },
-      xform, uiGroups, camZoom: camera.zoom,
+      xform, uiGroups, camZoom: camera.zoom, waterHalfRes: halfWaterEnabled(),
+      // Cull grass/flower scatter off the DRAWN water channel (matches the entity-flora cull).
+      waterDist: water ? getRenderWaterDist(map) : null,
       ...(chrome ? null : { passes: { ui: false } }),
     });
     const tRender = performance.now();
@@ -399,7 +430,14 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     // Dev-only — the single FPS counter (the DOM HUD was removed).
     const fps = 1000 / Math.max(1, frameDt);
     fpsEma = fpsEma > 0 ? fpsEma * 0.9 + fps * 0.1 : fps;
-    if (showPerfHud) drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
+    // Perf pill. Game chrome draws it WebGPU-native in the UI pass (fed here, one frame
+    // stale — invisible for a smoothed rate); studio has no UI pass, so it keeps the
+    // Canvas2D overlay pill. Either way, gated on the dev flag.
+    if (chrome) {
+      ui.setPerfHud(showPerfHud ? { fps: fpsEma, px, fixed: fixedPx !== null } : null);
+    } else if (showPerfHud) {
+      drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
+    }
   };
 }
 

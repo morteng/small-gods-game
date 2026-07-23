@@ -81,9 +81,13 @@ export function waterHabitatOf(kind: string, tags: readonly string[] = []): Wate
 }
 
 /** How far (tiles) past the drawn water's edge an EMERGENT species may wade. The old
- *  rule was "a render-dry cell is 4-adjacent" ≈ within a tile of the bank; this is the
- *  continuous restatement of the same fringe. */
-export const EMERGENT_BAND_TILES = 0.9;
+ *  1-tile rule ("a render-dry cell is 4-adjacent") let a TALL reed sprite root a full
+ *  tile into the channel — and iso draw order (land veg drawn OVER the water plane) then
+ *  smeared its 2-tile-tall body clear across the water, so a fringe reed read as a clump
+ *  standing MID-STREAM (user: "reeds in middle of water"). Tightened to a hug-the-edge
+ *  band: a reed's FEET stay within a third of a tile of the waterline, where a real reed
+ *  bed sits, so the tall sprite leans out FROM the bank instead of out OF the water. */
+export const EMERGENT_BAND_TILES = 0.3;
 
 /**
  * May this thing stand at (tx,ty)? `isWater` is the RENDER-water predicate (the drawn

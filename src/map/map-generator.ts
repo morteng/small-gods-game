@@ -861,6 +861,16 @@ export async function generateWithNoise(
   const stairStyle = worldStyleOf(worldSeed ?? undefined);
   const stairWallCells = roadGraph ? gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles : new Set<string>();
   const stairElevAt = (x: number, y: number): number => stairComposed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL;
+  // CROSSING EXCLUSION: a stair must never fire on a river-crossing's incised bank — the steep drop
+  // there is the channel a BRIDGE spans, not a flight. Collect every crossing's bank anchors; they
+  // survive even when the deck FAILED to seat (a road node sited in water), which is exactly what
+  // stranded the road on the raw bank and let it over-grade into a giant standalone stair.
+  const CROSSING_STAIR_EXCLUDE = 5;   // Chebyshev tiles around a crossing bank the road descends to
+  const crossingBankPts: Array<[number, number]> = [];
+  for (const s of crossingSpecs) {
+    if (s.bankCells) for (const [bx, by] of s.bankCells) crossingBankPts.push([bx, by]);
+    if (s.banks) for (const b of s.banks) crossingBankPts.push([Math.round(b.x), Math.round(b.y)]);
+  }
   const stairPorts = collectStairPorts(roadGraph, {
     elevAt: stairElevAt,
     reliefM: stairStyle.mountainRelief,
@@ -869,6 +879,9 @@ export async function generateWithNoise(
     isRoadTile: (x, y) => { const t = tiles[y]?.[x]?.type; return t === 'dirt_road' || t === 'stone_road'; },
     // A flight must not stand on the VISIBLE water, a building, or a wall curtain (only openings).
     cellBlocked: (x, y) => tileBlockedByBuilding(world, x, y) || renderWaterAt(x, y) || stairWallCells.has(`${x},${y}`),
+    nearCrossing: crossingBankPts.length
+      ? (x, y) => crossingBankPts.some(([bx, by]) => Math.max(Math.abs(bx - x), Math.abs(by - y)) <= CROSSING_STAIR_EXCLUDE)
+      : undefined,
   });
   const { anchors, roads } = collectAnchors(world, roadGraph, width, stairPorts);
   map.anchors = anchors;

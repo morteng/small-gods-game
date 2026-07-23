@@ -201,6 +201,44 @@ export function createWaterPipeline(
   });
 }
 
+/** Depth-only prepass for the HALF-RES water target. Runs the terrain VERTEX stage with
+ *  NO fragment stage — pure depth, no colour, no expensive banded-PBR shading — so the
+ *  reduced-resolution water pass can occlude against the terrain silhouette at a fraction
+ *  of the cost of re-shading terrain. Keeps the SAME iso depth scheme (greater, write) —
+ *  the clip positions are resolution-independent, so the depth values are identical to the
+ *  full-res terrain pass, just rasterised at half resolution.
+ *
+ *  Uses `layout: 'auto'` (NOT the terrain pipeline's auto BGL passed to an explicit
+ *  createPipelineLayout — Dawn/Chrome rejects an auto-generated BGL fed back into an
+ *  explicit pipeline layout, which invalidated the whole command buffer → white screen).
+ *  The vertex-only auto layout derives a 2-binding BGL (globals @0, heights @1 — the only
+ *  bindings vsMain's call graph touches); the caller builds a matching `terrainDepthBind`. */
+export function createTerrainDepthPipeline(
+  device: GPUDevice, terrainModule: GPUShaderModule,
+): GPURenderPipeline {
+  return device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: terrainModule, entryPoint: 'vsMain' },
+    primitive: { topology: 'triangle-list' },
+    depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: 'greater' },
+  });
+}
+
+/** Upscale-composite the half-res water target over the full-res scene. Reuses the blit
+ *  shader (samples the low-res texture) but with PREMULT src-over blend: the water target
+ *  was rendered premultiplied over transparent, so compositing it premultiplied reproduces
+ *  the direct over-terrain blend byte-for-byte (modulo the half-res sample). No depth — the
+ *  water's occlusion was already resolved by its own half-res depth prepass. */
+export function createWaterCompositePipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+  const module = device.createShaderModule({ code: BLIT_WGSL });
+  return device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module, entryPoint: 'vsMain' },
+    fragment: { module, entryPoint: 'fsMain', targets: [{ format, blend: PREMULT_BLEND }] },
+    primitive: { topology: 'triangle-list' },
+  });
+}
+
 /** Infinite-ocean backdrop pipeline: a fullscreen triangle, OPAQUE, no depth (drawn
  *  first; terrain loads over it and covers the whole map rect, so the backdrop
  *  survives only OUTSIDE the island = open sea to the horizon). Reuses the 112-byte

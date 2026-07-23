@@ -39,7 +39,7 @@ function seededState() {
   } as any);
   s.clock.setNow(123);
   s.eventLog.append({ type: 'whisper', spiritId: 'player', npcId: 'n1' });
-  s.camera.x = 50; s.camera.y = 60; s.camera.zoom = 2;
+  s.camera.x = 50; s.camera.y = 60; s.camera.zoom = 0.5;
   s.selectedNpcId = 'n1';
   return s;
 }
@@ -52,7 +52,7 @@ describe('save-file', () => {
     expect(save.snapshot.tick).toBe(123);
     expect(save.snapshot.entities).toHaveLength(1);
     expect(save.events.length).toBeGreaterThanOrEqual(1);
-    expect(save.view.camera.zoom).toBe(2);
+    expect(save.view.camera.zoom).toBe(0.5);
     expect(save.view.selectedNpcId).toBe('n1');
   });
 
@@ -65,7 +65,7 @@ describe('save-file', () => {
     expect(fresh.clock.now()).toBe(123);
     expect(fresh.world!.query({ kind: 'npc' })).toHaveLength(1);
     expect(fresh.eventLog.size()).toBe(save.events.length);
-    expect(fresh.camera.zoom).toBe(2);
+    expect(fresh.camera.zoom).toBe(0.5);
     expect(fresh.selectedNpcId).toBe('n1');
     // visual/blob maps are derived, not stored
     expect(fresh.visualMap).not.toBeNull();

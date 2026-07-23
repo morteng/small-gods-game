@@ -34,9 +34,9 @@ describe('computeFrame', () => {
     expect(r.cy).toBe(50);
   });
 
-  it('a single-tile subject with maxZoom:2 may reach the magnify rung', () => {
+  it('a caller-supplied maxZoom:2 still cannot exceed the absolute 1:1 ceiling', () => {
     const r = computeFrame({ min: { x: 50, y: 50 }, max: { x: 50, y: 50 } }, VIEW, { maxZoom: 2 });
-    expect(r.zoom).toBe(2);
+    expect(r.zoom).toBe(1); // ISO_ZOOM_MAX hard-caps at native — the 2× rung is gone
   });
 
   it('a big bbox zooms out to a valid ladder rung and the WHOLE bbox fits with margin', () => {

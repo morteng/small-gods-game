@@ -35,6 +35,7 @@ import {
   createWaterPipeline, createOceanBackdropPipeline,
   createShadowPipeline, createShapePipeline, createBlitPipeline,
   createStructureMeshPipeline, createGrassPipeline,
+  createTerrainDepthPipeline, createWaterCompositePipeline,
 } from '@/render/gpu/gpu-pipelines';
 import {
   buildGrassInstances, GRASS_VERTEX_COUNT, GRASS_MIN_ZOOM,
@@ -178,6 +179,9 @@ export class GpuScene {
   // by distance, no per-cell field. Replaces the old super-sampled roadSurface buffer.
   private terrainFeatureBuf: GPUBuffer | null = null;
   private terrainBind: GPUBindGroup | null = null;
+  // Half-res water depth-prepass bind group: globals @0 + heights @1 only (the subset the
+  // terrain VERTEX shader touches), matching the depth pipeline's vertex-only auto layout.
+  private terrainDepthBind: GPUBindGroup | null = null;
   private terrainCellCap = 0;
   // The feature buffer is variable-length (header + index + segments), so it has its
   // own byte capacity / realloc trigger independent of the per-cell fields.
@@ -326,6 +330,22 @@ export class GpuScene {
   private sceneH = 0;
   private blitBind: GPUBindGroup | null = null;
 
+  // HALF-RES WATER (perf): the water pass is the frame's dominant fill bill on integrated
+  // GPUs (a full-screen expensive fragment shader). Water is SMOOTH (no pixel art), so it
+  // renders into a ¼-area target — occluded by a cheap depth-only terrain prepass at the
+  // same half res — and is upscale-composited (linear) over the crisp full-res scene. That
+  // quarters the water fragment count for a visually ~free result. Behind `?halfwater`
+  // until verified live, then default-on.
+  private terrainDepthPipeline: GPURenderPipeline;
+  private waterCompositePipeline: GPURenderPipeline;
+  private waterCompositeGlobalsBuf: GPUBuffer;
+  private waterLinearSampler: GPUSampler;
+  private waterHalfTex: GPUTexture | null = null;
+  private waterHalfDepthTex: GPUTexture | null = null;
+  private waterHalfW = 0;
+  private waterHalfH = 0;
+  private waterCompositeBind: GPUBindGroup | null = null;
+
   constructor(gpu: GpuContext) {
     this.device = gpu.device;
     this.ctx = gpu.ctx;
@@ -455,6 +475,15 @@ export class GpuScene {
 
     this.blitPipeline = createBlitPipeline(device, gpu.format);
     this.blitGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+    // Half-res water: a depth-only terrain prepass (reuses the terrain bind group via a
+    // shared layout) + a premult-blend composite of the half-res water over the scene.
+    this.terrainDepthPipeline = createTerrainDepthPipeline(device, terrainModule);
+    this.waterCompositePipeline = createWaterCompositePipeline(device, gpu.format);
+    this.waterCompositeGlobalsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // Linear so the ¼-area water upscales SMOOTHLY (water has no crisp pixel-art edges to
+    // preserve — nearest would reintroduce blockiness the half-res is meant to hide).
+    this.waterLinearSampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
   }
 
   /** (Re)create the low-res scene colour target + its blit bind group on resize. */
@@ -477,6 +506,35 @@ export class GpuScene {
       });
     }
     return this.sceneTex!.createView();
+  }
+
+  /** (Re)create the HALF-RES water colour + depth targets + the composite bind group,
+   *  sized ⌈w/2⌉×⌈h/2⌉ of the scene target. Recreated only when that size changes. */
+  private ensureWaterHalf(w: number, h: number): { colorView: GPUTextureView; depthView: GPUTextureView } {
+    const hw = Math.max(1, Math.ceil(w / 2));
+    const hh = Math.max(1, Math.ceil(h / 2));
+    if (!this.waterHalfTex || this.waterHalfW !== hw || this.waterHalfH !== hh) {
+      this.waterHalfTex?.destroy();
+      this.waterHalfDepthTex?.destroy();
+      this.waterHalfTex = this.device.createTexture({
+        size: [hw, hh, 1], format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      this.waterHalfDepthTex = this.device.createTexture({
+        size: [hw, hh, 1], format: DEPTH_FORMAT, usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.waterHalfW = hw;
+      this.waterHalfH = hh;
+      this.waterCompositeBind = this.device.createBindGroup({
+        layout: this.waterCompositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: this.waterLinearSampler },
+          { binding: 1, resource: this.waterHalfTex.createView() },
+          { binding: 2, resource: { buffer: this.waterCompositeGlobalsBuf } },
+        ],
+      });
+    }
+    return { colorView: this.waterHalfTex!.createView(), depthView: this.waterHalfDepthTex!.createView() };
   }
 
   private make1x1(rgba: [number, number, number, number]): GPUTexture {
@@ -798,6 +856,16 @@ export class GpuScene {
           { binding: 12, resource: this.matSampler },
         ],
       });
+      // Companion bind group for the half-res water depth prepass. The vertex-only depth
+      // pipeline's auto layout has just globals @0 + heights @1 (all vsMain's call graph
+      // reads), so this MUST provide exactly those two — extra entries would be rejected.
+      this.terrainDepthBind = device.createBindGroup({
+        layout: this.terrainDepthPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.terrainGlobalsBuf } },
+          { binding: 1, resource: { buffer: this.terrainHeightsBuf! } },
+        ],
+      });
     }
     if (realloc || heights !== this.lastHeights) {
       device.queue.writeBuffer(this.terrainHeightsBuf, 0, heights as GPUAllowSharedBufferSource);
@@ -929,7 +997,8 @@ export class GpuScene {
    *  memoised on the height-array identity, so a static world re-packs nothing per frame;
    *  the camera rides uXform so pan/zoom never invalidate it. Needs the clutter atlas +
    *  its manifest (both async) — until they land, the pass simply does not run. */
-  private ensureGrass(terrain: TerrainField, water: WaterField | null): boolean {
+  private ensureGrass(terrain: TerrainField, water: WaterField | null,
+    waterDist: ((x: number, y: number) => number) | null = null): boolean {
     if (!this.clutterLoaded || !this.clutterManifest) return false;
     // Memoised on the height array AND the water-surface array (which arrives a frame or two
     // after terrain, and shifts on drought/flood) so river/lake weed re-packs when it lands.
@@ -945,6 +1014,7 @@ export class GpuScene {
 
     const { data, count, seaweedCount } = buildGrassInstances(
       terrain, this.clutterManifest, waterSurf, water?.waterType ?? null, terrain.roadGeo ?? null,
+      waterDist,
     );
     this.grassSrcHeights = terrain.heights;
     this.grassSrcRoad = roadPacked;
@@ -1180,6 +1250,14 @@ export class GpuScene {
      *  the resolution dropped to px2/px3, even at gameplay zoom. Absent ⇒ falls
      *  back to xform.sx (tests / direct callers without a camera). */
     camZoom?: number;
+    /** Render the water pass at HALF resolution (¼ the fragments) and upscale-composite
+     *  it over the crisp full-res scene. Water is smooth so the quality cost is ~nil while
+     *  it slashes the dominant fill pass. Needs terrain (the occluder). Default false. */
+    waterHalfRes?: boolean;
+    /** Signed distance to the DRAWN water (analytic channel, `getRenderWaterDist`) — threaded
+     *  to the grass-scatter so it culls land clutter off the painted river/lake, matching the
+     *  entity-flora cull. Absent ⇒ scatter falls back to the coarse per-cell water raster only. */
+    waterDist?: ((x: number, y: number) => number) | null;
     /** Profiler ablation: turn individual passes off to attribute GPU cost
      *  (all on by default). */
     passes?: {
@@ -1279,7 +1357,7 @@ export class GpuScene {
     // the terrain depth. Gated to gameplay zoom (a full meadow is noise + fill cost at
     // overview) and to a loaded clutter atlas + manifest.
     const zoom = opts.camZoom ?? xform?.sx ?? 1;
-    const hasGrass = !!(hasTerrain && zoom >= GRASS_MIN_ZOOM && this.ensureGrass(terrain!, water ?? null));
+    const hasGrass = !!(hasTerrain && zoom >= GRASS_MIN_ZOOM && this.ensureGrass(terrain!, water ?? null, opts.waterDist ?? null));
     // Dev observability (mutated in place — no per-frame alloc), like __gpuTexStats.
     const gStats = ((globalThis as Record<string, unknown>).__grassStats ??= {}) as Record<string, unknown>;
     gStats.zoom = zoom; gStats.hasGrass = hasGrass;
@@ -1313,7 +1391,7 @@ export class GpuScene {
     const grassOn = hasGrass && !(globalThis as { __noGrass?: boolean }).__noGrass;
     // Submerged seaweed draws UNDER the water so the surface composites over it (submerged).
     if (grassOn) this.passGrassSubmerged(ctx);
-    if (hasWater) this.passWater(ctx, water!);
+    if (hasWater) this.passWater(ctx, water!, hasTerrain ? terrain!.vertexCount : 0, !!opts.waterHalfRes);
     if (hasStructures) this.passStructures(ctx, structures!);
     if (grassOn) this.passGrass(ctx);
     // Cast shadows LAST of the ground layers — after the terrain AND the standing veg — so a
@@ -1429,7 +1507,14 @@ export class GpuScene {
    * terrain occludes water, but water never disturbs the depth the entity pass
    * resets. One draw for the whole grid; the fragment discards dry cells.
    */
-  private passWater(ctx: PassCtx, water: WaterField): void {
+  private passWater(ctx: PassCtx, water: WaterField, terrainVertexCount: number, halfRes: boolean): void {
+    // HALF-RES PATH: render water into a ¼-area target (occluded by a cheap depth-only
+    // terrain prepass), then upscale-composite it over the crisp full-res scene. Needs
+    // terrain (the occluder) + its bind group; falls through to full-res otherwise.
+    if (halfRes && terrainVertexCount > 0 && this.terrainDepthBind) {
+      this.passWaterHalfRes(ctx, water, terrainVertexCount);
+      return;
+    }
     const wpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
       depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
@@ -1438,6 +1523,51 @@ export class GpuScene {
     wpass.setBindGroup(0, this.waterBind!);
     wpass.draw(water.vertexCount);
     wpass.end();
+    ctx.colorCleared = true;
+  }
+
+  /**
+   * Half-resolution water (perf). Three sub-passes:
+   *  1. A depth-only terrain prepass into a half-res depth target — the occluder
+   *     silhouette (clip positions are resolution-independent, so the depth matches the
+   *     full-res terrain, just rasterised at half res). No fragment shading = cheap.
+   *  2. The water pass into a half-res colour target CLEARED TRANSPARENT, depth-tested
+   *     (greater-equal, no write) against the prepass — so nearer terrain still occludes
+   *     water. Premultiplied out ⇒ the target holds premultiplied water-over-nothing.
+   *  3. Upscale-composite that target over the full-res scene (which already holds terrain
+   *     + submerged veg + backdrop) with premult src-over — reproducing the direct blend.
+   * Only water is half-res; terrain, entities and UI stay crisp at full resolution.
+   */
+  private passWaterHalfRes(ctx: PassCtx, water: WaterField, terrainVertexCount: number): void {
+    const { colorView, depthView } = this.ensureWaterHalf(ctx.w, ctx.h);
+    // 1) Depth-only terrain prepass (no colour attachment).
+    const zpass = ctx.enc.beginRenderPass({
+      colorAttachments: [],
+      depthStencilAttachment: { view: depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+    });
+    zpass.setPipeline(this.terrainDepthPipeline);
+    zpass.setBindGroup(0, this.terrainDepthBind!);
+    zpass.draw(terrainVertexCount);
+    zpass.end();
+    // 2) Water into the half-res colour target, occluded by the prepass depth.
+    const wpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: colorView, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: 'clear', storeOp: 'store' }],
+      depthStencilAttachment: { view: depthView, depthLoadOp: 'load', depthStoreOp: 'discard' },
+    });
+    wpass.setPipeline(this.waterPipeline);
+    wpass.setBindGroup(0, this.waterBind!);
+    wpass.draw(water.vertexCount);
+    wpass.end();
+    // 3) Upscale-composite (linear) over the scene. uOffset 0 ⇒ a plain smooth upscale.
+    this.device.queue.writeBuffer(this.waterCompositeGlobalsBuf, 0,
+      new Float32Array([1 / this.waterHalfW, 1 / this.waterHalfH, 0, 0]));
+    const cpass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
+    });
+    cpass.setPipeline(this.waterCompositePipeline);
+    cpass.setBindGroup(0, this.waterCompositeBind!);
+    cpass.draw(3);
+    cpass.end();
     ctx.colorCleared = true;
   }
 

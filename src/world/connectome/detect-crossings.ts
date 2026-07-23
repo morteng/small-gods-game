@@ -146,7 +146,23 @@ function banksOnRibbon(
   const walk = (from: number, dir: -1 | 1): Pt | undefined => {
     for (let d = RIBBON_STEP_TILES; d <= RIBBON_BANK_MAX_TILES; d += RIBBON_STEP_TILES) {
       const s = from + dir * d;
-      if (s < 0 || s > total) return undefined;    // ran off the ribbon still wet
+      if (s < 0 || s > total) {
+        // The ribbon ENDS here while still wet — a road NODE sited IN the water (a junction or
+        // terminus dropped mid-channel; the connected road continues on dry land a tile past the
+        // node, so the ribbon of THIS edge simply runs out over the water). Rather than declining
+        // — which drops the deck onto the raw walker chord, a slab sitting BESIDE the road, not
+        // spanning it (user: "bridges spawning beside the road … not spanning river") — seat the
+        // abutment on the nearest dry cell to that terminal point. Only a terminus running into
+        // OPEN water with no dry cell within reach (a genuine estuary) still declines; inventing a
+        // bank in open water there would be worse than no bridge.
+        const endArc = dir < 0 ? 0 : total;
+        const end = pointAtArc(sm, cum, endArc);
+        // Outward tangent at the ribbon end (points OFF the end, across the water toward the far
+        // bank the connected road continues onto), so the abutment lands in line with the road.
+        const inArc = dir < 0 ? Math.min(total, RIBBON_STEP_TILES) : Math.max(0, total - RIBBON_STEP_TILES);
+        const inP = pointAtArc(sm, cum, inArc);
+        return nearestDry(end.x, end.y, end.x - inP.x, end.y - inP.y, wet, RIBBON_BANK_MAX_TILES);
+      }
       const p = pointAtArc(sm, cum, s);
       if (!wet(Math.round(p.x), Math.round(p.y))) return p;
     }
@@ -155,6 +171,40 @@ function banksOnRibbon(
   const a = walk(wetLo, -1);
   const b = walk(wetHi, 1);
   return a && b ? { a, b } : undefined;
+}
+
+/** The first DRY cell centre reached by stepping from (px,py) ALONG (dx,dy) — the ribbon's
+ *  outward tangent at the end that ran into the water — for up to `maxR` tiles, so the abutment
+ *  lands ACROSS the channel in line with the road (the far bank the connected road continues onto)
+ *  rather than a cell to the SIDE. Falls back to an expanding square-ring search when the tangent
+ *  finds no dry ground (a bend, a corner), and returns undefined only when EVERY cell in range is
+ *  wet (open water — no bank to seat an abutment on; the crossing then still declines). Used when
+ *  the smoothed ribbon ENDS mid-channel: a road node sited IN the water, its far bank a cell or two
+ *  past the ribbon's end. The cell centre is returned as a continuous point so the caller rounds it
+ *  once, exactly as it rounds the ribbon-walked banks. */
+function nearestDry(
+  px: number, py: number, dx: number, dy: number, wet: (x: number, y: number) => boolean, maxR: number,
+): Pt | undefined {
+  const len = Math.hypot(dx, dy);
+  if (len > 1e-6) {
+    const ux = dx / len, uy = dy / len;
+    for (let s = RIBBON_STEP_TILES; s <= maxR; s += RIBBON_STEP_TILES) {
+      const cx = Math.round(px + ux * s), cy = Math.round(py + uy * s);
+      if (!wet(cx, cy)) return { x: cx, y: cy };
+    }
+  }
+  // Off-axis fallback: the nearest dry cell in any direction (the tangent ran along the channel).
+  const bx = Math.round(px), by = Math.round(py);
+  if (!wet(bx, by)) return { x: bx, y: by };
+  for (let r = 1; r <= maxR; r++) {
+    for (let dyc = -r; dyc <= r; dyc++) {
+      for (let dxc = -r; dxc <= r; dxc++) {
+        if (Math.max(Math.abs(dxc), Math.abs(dyc)) !== r) continue;   // the ring shell at radius r
+        if (!wet(bx + dxc, by + dyc)) return { x: bx + dxc, y: by + dyc };
+      }
+    }
+  }
+  return undefined;
 }
 
 /** Push a bank anchor that sits on water outward (along `awayDir`, unit-ish) until it clears

@@ -54,6 +54,13 @@ const CLASS_STAIR: Record<RoadClass, { construction: number; material: string; w
  *  below it the road's own carve handles the grade and a flight would just be clutter. */
 const MIN_RUN_TILES = 2;
 const MIN_RISE_M = 1.5;        // one storey — below this it's a step, not a flight
+/** A SINGLE flight tops out around here: ~4 tiles (8 m) of ground run at 45° lifts ~8 m, a tall
+ *  civic stair. Past it the chunk is not a walkable flight but a cliff/retaining wall — and, left
+ *  uncapped, exactly what produced the 10-to-20-tile-tall MONUMENT on a deeply-incised riverbank
+ *  (a crossing whose bridge failed to seat, so the road still ran down the raw bank). A run that
+ *  needs more than this is SKIPPED, not staired (a genuinely long WALKABLE climb still stairs — it
+ *  arrives as several ≤`MAX_FLIGHT_RUN_TILES` chunks, each under the cap, STACKED up the slope). */
+const MAX_STAIR_RISE_M = 8;
 /** A detected run (one port PAIR) spans at most this much ground run — the snap rule's `maxGap`
  *  is sized to it. A long steep climb chunks into consecutive capped runs (stacked port pairs),
  *  each riding its own terrain, with implied landings between (G3c). */
@@ -100,6 +107,12 @@ export interface StairPortOptions {
   isRoadTile?: (x: number, y: number) => boolean;
   /** A cell a stair may NOT foot/head on (water, an existing building, a wall curtain). */
   cellBlocked?: (x: number, y: number) => boolean;
+  /** True when a cell sits within the exclusion radius of a river CROSSING bank. A stair whose
+   *  foot or head lands here is suppressed: the steep drop there is the river's incised bank, where
+   *  a BRIDGE belongs — not a flight. This is the locus of the orphaned-monument bug (a crossing
+   *  whose deck failed to seat left the road running down the raw bank, which then over-graded into
+   *  a giant standalone stair with no bridge beside it). Omitted ⇒ no crossing awareness (tests). */
+  nearCrossing?: (x: number, y: number) => boolean;
 }
 
 /**
@@ -174,8 +187,9 @@ export function collectStairPorts(graph: RoadGraph | undefined, opts: StairPortO
       let spanClear = true;
       for (let k = i; k <= j && spanClear; k++) if (opts.cellBlocked?.(pts[k].x, pts[k].y)) spanClear = false;
       if (
-        runTiles >= MIN_RUN_TILES && riseM >= MIN_RISE_M && grade > classGrade
-        && onRoad(foot) && onRoad(head) && spanClear
+        runTiles >= MIN_RUN_TILES && riseM >= MIN_RISE_M && riseM <= MAX_STAIR_RISE_M
+        && grade > classGrade && onRoad(foot) && onRoad(head) && spanClear
+        && !(opts.nearCrossing?.(foot.x, foot.y) || opts.nearCrossing?.(head.x, head.y))
         && !usedTiles.has(footKey) && !tooCrowded(foot.x, foot.y, edge.id)
       ) {
         usedTiles.add(footKey);

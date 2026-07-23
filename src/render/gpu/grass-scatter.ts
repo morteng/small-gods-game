@@ -88,6 +88,12 @@ export function buildGrassInstances(
   field: TerrainField, m: ClutterManifest,
   waterSurf: Float32Array | null = null, waterType: Uint32Array | null = null,
   roadGeo: RoadFeatureGeometry | null = null,
+  // Signed distance to the DRAWN water (the analytic river/lake channel, `getRenderWaterDist`):
+  // negative under the painted surface. The submerged gates above key on the coarse per-cell
+  // `waterType` raster, which the meandering analytic channel strays up to ~1 tile from — so
+  // land clutter (flowers/grass) would stand on the painted river. This is the SAME truth the
+  // entity-flora cull uses, so scatter and entities agree with the shader's silhouette.
+  waterDist: ((x: number, y: number) => number) | null = null,
 ): { data: Float32Array; count: number; seaweedCount: number } {
   const { heights, moisture, temperature, globals: g } = field;
   const W = g.grid[0] | 0, H = g.grid[1] | 0;
@@ -278,6 +284,12 @@ export function buildGrassInstances(
         // checked after the submerged branches so underwater categories still grow.
         if (snowT >= SNOW_CLUTTER_HIDE) continue;
 
+        // DRAWN-CHANNEL cull: the submerged gates above use the coarse per-cell water raster,
+        // but the water the shader PAINTS is the analytic offset channel, which meanders off
+        // that raster line — so poppies/grass would stand on the painted river. Drop any land
+        // clutter whose foot falls inside the drawn surface, matching the entity-flora cull.
+        if (waterDist && waterDist(fx, fy) < 0) continue;
+
         // Slope from central differences (same frame as the terrain normal).
         const hL = elevAt(fx - 1, fy), hR = elevAt(fx + 1, fy);
         const hU = elevAt(fx, fy - 1), hD = elevAt(fx, fy + 1);
@@ -319,7 +331,15 @@ export function buildGrassInstances(
         //    Hot summits keep their cover (gate mirrors the shader's cool term).
         // Stone categories (scree/outcrop/boulder/pebble) are exempt — stones ON
         // rock paint read correctly, and the snow hard-cut still removes them.
-        const slopeKeep = 1 - clamp01((slope - 0.32) / 0.16);
+        //  · ARIDITY shifts the slope fade DOWN: the terrain shader's scree/rock band
+        //    comes in at gentler slopes on dry, upland, rocky-biome ground (the same
+        //    aridity-shifted wScree the outcrop threshold below mirrors), so soft cover
+        //    must clear there too — a lush moderate hillside keeps its 0.32→0.48 window,
+        //    a dry incised rock bank loses grass by ~slope 0.28 (user: "grass and rocks
+        //    on steep rocky banks"). Lush ground (aridity→0) is UNCHANGED.
+        const softFadeLo = 0.32 - 0.18 * aridity;
+        const softFadeHi = 0.48 - 0.20 * aridity;
+        const slopeKeep = 1 - clamp01((slope - softFadeLo) / Math.max(0.05, softFadeHi - softFadeLo));
         const snowKeep = 1 - clamp01((snowT - 0.05) / (SNOW_CLUTTER_HIDE - 0.05));
         const coolT = clamp01((0.45 - temp) / 0.12);
         const alpineKeep = 1 - 0.92 * clamp01((aboveM - 16) / 8) * coolT;
