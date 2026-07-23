@@ -72,4 +72,33 @@ describe('validateUiSpec — no-scroll budgets', () => {
     expect(v.body).toEqual([]);
     expect(v.choices).toEqual([]);
   });
+
+  it('clamps a wordCloud: token count, per-token chars, weight range, bad tone', () => {
+    const tokens = Array.from({ length: 40 }, (_, i) => ({ text: `w${i}`, weight: 0.5, tone: 'need' as const }));
+    tokens.push({ text: longStr(80), weight: 5, tone: 'need' });
+    tokens.push({ text: 'weird', weight: -1, tone: 'bogus' as unknown as 'need' });
+    const v = validateUiSpec({ title: 't', body: [{ kind: 'wordCloud', tokens }], choices: [] });
+    const cloud = v.body[0] as { kind: 'wordCloud'; tokens: { text: string; weight: number; tone: string }[] };
+    expect(cloud.kind).toBe('wordCloud');
+    expect(cloud.tokens.length).toBe(UISPEC_BUDGETS.cloudTokens);
+    for (const t of cloud.tokens) {
+      expect(t.text.length).toBeLessThanOrEqual(UISPEC_BUDGETS.cloudTokenChars);
+      expect(t.weight).toBeGreaterThanOrEqual(0);
+      expect(t.weight).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('drops empty-text cloud tokens and falls a bad tone back to memory', () => {
+    const v = validateUiSpec({
+      title: 't',
+      body: [{ kind: 'wordCloud', tokens: [
+        { text: '', weight: 0.5, tone: 'need' },
+        { text: 'keep', weight: 0.5, tone: 'zzz' as unknown as 'need' },
+      ] }],
+      choices: [],
+    });
+    const cloud = v.body[0] as { tokens: { text: string; tone: string }[] };
+    expect(cloud.tokens.map(t => t.text)).toEqual(['keep']);
+    expect(cloud.tokens[0].tone).toBe('memory');
+  });
 });

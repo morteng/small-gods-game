@@ -23,8 +23,10 @@ import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import { WhisperInputIsland } from '@/render/ui/ui-whisper-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
-import type { UiSpec, UiSpecBlock, UiSpecChoice } from '@/story/uispec';
+import type { UiSpec, UiSpecBlock, UiSpecChoice, CloudTone } from '@/story/uispec';
 import { validateUiSpec } from '@/story/uispec';
+import { layoutMindCloud } from '@/render/ui/mind-cloud-layout';
+import type { Rgba } from '@/render/ui/ui-color';
 import type { BeliefPowerView, InboxItem, InboxKind, InspectorView, PantheonRow, SettlementPeace } from '@/game/game-query';
 import type { SiteCardView } from '@/game/causal-site-view';
 import type { WorldLabelView } from '@/game/affordance/world-labels';
@@ -1590,6 +1592,21 @@ export class UiRuntime {
         if (fillW > 0) c.rect(trackX, trackY, fillW, barH, UI_PALETTE.accent);
         return y + lh + 8 * s;
       }
+      case 'wordCloud': {
+        // The gestalt: lay the weighted words out (deterministic banded spiral,
+        // pure module) into the remaining card space, then draw each in its tone.
+        const boxH = Math.min(limit - y, 240 * s);
+        if (boxH < 44 * s) return y; // no room to read a cloud — skip it
+        const words = layoutMindCloud(b.tokens, { x, y, w, h: boxH }, {
+          base: fs,
+          measure: (t, f) => c.measure(t, f),
+          lineHeight: (f) => c.lineHeight(f),
+        });
+        for (const wd of words) {
+          c.label(wd.text, wd.x, wd.y, wd.fs, withAlpha(CLOUD_TONE_COLOR[wd.tone], wd.alpha));
+        }
+        return y + boxH + 8 * s;
+      }
     }
   }
 
@@ -1873,6 +1890,17 @@ const DOMAIN_BAR_ACCENT: readonly [number, number, number, number] = [0.55, 0.7,
  *  player-accent state bars (THEIR state) and the storm-sky domain bars (what
  *  they believe of YOU); this one is what they feel toward EACH OTHER. */
 const TIE_BAR_ACCENT: readonly [number, number, number, number] = [0.85, 0.65, 0.35, 1];
+
+/** B (mind-reading): the four mind-cloud token hues — each a category of thought.
+ *  Ember need, violet divine (the player-god's own colour), teal memory, sage
+ *  person — chosen to read apart at a glance and to echo the inspector's bar
+ *  tints (domain storm-sky, tie kinship-warm) without duplicating them. */
+const CLOUD_TONE_COLOR: Record<CloudTone, Rgba> = {
+  need: [0.91, 0.55, 0.29, 1],
+  divine: UI_PALETTE.accent,
+  memory: [0.31, 0.70, 0.77, 1],
+  person: [0.50, 0.68, 0.42, 1],
+};
 
 /** Flatten an `InspectorView` into the scroll list's rows, in display order.
  *  Npc: state bars, then (if any) the domain-conviction bars under a header —
