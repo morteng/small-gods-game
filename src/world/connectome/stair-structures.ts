@@ -51,8 +51,16 @@ const CLASS_STAIR: Record<RoadClass, { construction: number; material: string; w
 };
 
 /** A steep run earns a flight only when it is at least this long AND lifts at least this much —
- *  below it the road's own carve handles the grade and a flight would just be clutter. */
-const MIN_RUN_TILES = 2;
+ *  below it the road's own carve handles the grade and a flight would just be clutter.
+ *  RUN length ≥ 3 tiles (was 2): a dressed-stone flight is a deliberate structure for a SUSTAINED
+ *  climb, not a momentary 2-tile grade spike. On gentle rolling terrain a road constantly pitches
+ *  up ~2 m over a couple of tiles then levels; at 2 tiles that fired a full flight which — under the
+ *  render vertical exaggeration (~30 px/m) and dressed-stone construction — loomed as a standalone
+ *  MONUMENT beside the road on ground the terrain-gamma draws flat (user, live playtest: "stairs
+ *  randomly next to road", persisting after the render-space-grade + monument-cap fixes). A genuine
+ *  hillside climb is long and still stairs — it arrives as consecutive `MAX_FLIGHT_RUN_TILES` chunks,
+ *  each ≥ 3 tiles; only the isolated 2-tile pitch (a bump, not a hill) now rolls unstaired. */
+const MIN_RUN_TILES = 3;
 const MIN_RISE_M = 1.5;        // one storey — below this it's a step, not a flight
 /** A SINGLE flight tops out around here: ~4 tiles (8 m) of ground run at 45° lifts ~8 m, a tall
  *  civic stair. Past it the chunk is not a walkable flight but a cliff/retaining wall — and, left
@@ -135,7 +143,11 @@ export function collectStairPorts(graph: RoadGraph | undefined, opts: StairPortO
   for (const edge of graph.edges) {
     if (edge.feature !== 'road') continue;
     const poly = edge.polyline;
-    if (poly.length < MIN_RUN_TILES + 1) continue;
+    // Need ≥2 points to form any segment. NOT `< MIN_RUN_TILES + 1`: this guard counts polyline
+    // VERTICES, but a sparse 2-vertex edge densifies to many tiles — the real run-length gate runs
+    // later on the DENSIFIED `runTiles` (see MIN_RUN_TILES below). Conflating the two silently
+    // skipped a long-but-few-vertex road when MIN_RUN_TILES rose above 2.
+    if (poly.length < 2) continue;
     const classGrade = CLASS_STAIR[edge.class].grade;
 
     // Densify to the unit-step lattice (the SAME lattice placement stacks on), then build the raw

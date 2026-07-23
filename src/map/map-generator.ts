@@ -855,12 +855,26 @@ export async function generateWithNoise(
   // STAIR PORTS (G3b, anchor-driven): the road-grade scan emits foot/head `stair_anchor` pairs on
   // over-grade runs, matched into `spans` links alongside doors/banks. Computed HERE (before the
   // match) off the COMPOSED heightfield (base ⊕ road cuts/embankments ⊕ river carve ⊕ wall
-  // footings) — the ground the renderer lifts entities by — so grade + placement read the same
-  // profile. The composed field + style are reused by the placement pass below.
+  // footings). The composed field + style are reused by the placement pass below.
   const stairComposed = getComposedHeightfield(map);
   const stairStyle = worldStyleOf(worldSeed ?? undefined);
   const stairWallCells = roadGraph ? gateApproachPlan(barrierRuns, [], worldSeed?.pois ?? []).wallObstacles : new Set<string>();
-  const stairElevAt = (x: number, y: number): number => stairComposed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL;
+  // Grade is read in RENDER space — the CURVED profile the terrain is actually DRAWN with — not the
+  // raw composed field. `terrainHeightGamma` (1.8 here) flattens gentle above-sea slopes toward zero
+  // on screen while steepening peaks; measuring the LINEAR field let a road's real ~18 % micro-grade
+  // on soft ground fire a flight that placement then SEATED on the gamma-flattened (visually level)
+  // ground — a dressed-stone staircase standing on flat ground beside the road, climbing nothing (the
+  // user-reported "stairs randomly next to road"). Curving at this single source makes BOTH the
+  // detection threshold (`collectStairPorts.elevAt`) AND the placement geometry (`placeStairsFromLinks
+  // .elevAt`, which sizes each flight's rise) agree with the drawn terrain AND with `liftElevAt`'s
+  // seating: a rise the render flattens no longer stairs, a gamma-preserved steep climb still does,
+  // and the flight it builds is exactly as tall as the ground it sits on (no floating head/monument).
+  const stairElevAt = (x: number, y: number): number =>
+    curveRenderElev(
+      stairComposed[Math.round(y) * width + Math.round(x)] ?? ELEVATION_SEA_LEVEL,
+      ELEVATION_SEA_LEVEL,
+      stairStyle.terrainHeightGamma,
+    );
   // CROSSING EXCLUSION: a stair must never fire on a river-crossing's incised bank — the steep drop
   // there is the channel a BRIDGE spans, not a flight. Collect every crossing's bank anchors; they
   // survive even when the deck FAILED to seat (a road node sited in water), which is exactly what

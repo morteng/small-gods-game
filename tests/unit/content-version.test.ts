@@ -6,7 +6,7 @@ describe('content-version constants', () => {
     expect(ART_RECIPE_VERSION).toBe('v36');
   });
 
-  it('declares the current world content version (117: riverbank believability — offset bridges now seat dry-to-dry across the water (nearestDry snap when the ribbon ends mid-channel), reeds hug the waterline (EMERGENT_BAND_TILES 0.9→0.3), and render-only aridity-shifted grass cull clears vegetation off steep rocky banks)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(117);
+  it('declares the current world content version (118: road-grade stairs now measure grade in RENDER space (curveRenderElev) so a gentle rise the terrain-gamma flattens on screen no longer fires a dressed-stone monument standing on flat ground beside the road — the detection threshold and the placement geometry both agree with the drawn terrain)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(118);
   });
 });
