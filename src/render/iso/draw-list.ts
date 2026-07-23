@@ -116,6 +116,17 @@ export type DrawItem =
        * (`flora-registry.floraSwayAmplitude`).
        */
       sway?: number;
+      /**
+       * GLOBAL y-sort depth key (iso foot-depth = `sortTx+sortTy`, plus a small
+       * `kindPriority/16` term so an NPC beats co-tile ground flora / buildings on a
+       * true tie). Unlike list index, this is on ONE world-anchored scale shared by
+       * the separately-batched static and dynamic (NPC) draw lists — so a townsfolk
+       * depth-tests correctly against buildings and grass instead of only against
+       * other NPCs. Absent ⇒ the batcher falls back to painter-order-by-index (the
+       * pre-existing behaviour, still correct within a single list). See
+       * `instance-batch.ts` and the emitter in `entity-draw-list.ts`.
+       */
+      depthKey?: number;
     }
   | { t: 'poly'; points: Array<{ x: number; y: number }>; color: string }
   | { t: 'circle'; cx: number; cy: number; r: number; color: string };

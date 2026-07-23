@@ -179,9 +179,17 @@ export function buildEntityDrawList(
       case 'vegetation': {
         const e = node.ref as Entity;
         vegById.set(e.id, e);
+        // Ground cover / low shrubs y-sort at their TILE (floored) rather than their
+        // true fractional foot, so a townsfolk standing on the same tile TIES on
+        // depth and then wins on kindPriority (npc > vegetation) — a person stands IN
+        // FRONT of the grass/flowers at their feet instead of under them. Tall plants
+        // (trees, gorse) keep their fractional foot, so someone standing BEHIND a tree
+        // still sorts behind it. (Fixes the "grass over the feet" half of the report.)
+        const groundCover = isGroundCoverKind(e.kind) || isLowShrubKind(e.kind);
         entries.push({
           id: e.id, kind: 'vegetation',
           tx: e.x, ty: e.y, z: 0,
+          ...(groundCover ? { sortTx: Math.floor(e.x), sortTy: Math.floor(e.y) } : {}),
           kindPriority: KIND_PRIORITY.vegetation,
         });
         break;
@@ -212,6 +220,15 @@ export function buildEntityDrawList(
   const items: DrawItem[] = [];
   const sorted = buildYSortBucket(entries);
   for (const e of sorted) {
+    // Every image item emitted for THIS entry carries the same GLOBAL y-sort depth
+    // key: iso foot-depth (`sortTx+sortTy`, matching buildYSortBucket's comparator)
+    // plus a small `kindPriority/16` term so an NPC beats a co-tile building/plant on
+    // an exact tie. One world-anchored scale shared by the static and NPC lists, which
+    // are batched separately (see instance-batch) — without it a townsfolk depth-tests
+    // only against other NPCs and slips behind buildings and grass. Stamped after the
+    // per-kind emission below over [start, items.length).
+    const start = items.length;
+    const depthKey = (e.sortTx ?? e.tx) + (e.sortTy ?? e.ty) + e.kindPriority / 16;
     if (e.kind === 'building') {
       const b = buildingById.get(e.id);
       if (b) {
@@ -314,6 +331,10 @@ export function buildEntityDrawList(
       const d = decoById.get(e.id);
       const img = d ? rc.resolveDecorationImage?.(d.assetId) ?? null : null;
       if (d && img) items.push(artBillboardItem(ic, img, d.tx, d.ty));
+    }
+    for (let k = start; k < items.length; k++) {
+      const it = items[k];
+      if (it.t === 'image') it.depthKey = depthKey;
     }
   }
 

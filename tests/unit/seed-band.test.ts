@@ -29,7 +29,7 @@ function makeSpirits(): Map<SpiritId, Spirit> {
 }
 
 describe('seedWorld band', () => {
-  it('spawns ~6 NPCs, each a shallow believer above the 0.15 line (faith≈0.18, u=d=0)', () => {
+  it('spawns ~6 NPCs, each a founding believer above the 0.3 reinforcement line', () => {
     const m = map();
     const world = new World(m);
     const clock = new SimClock();
@@ -40,12 +40,15 @@ describe('seedWorld band', () => {
     expect(npcs.length).toBe(6);
     for (const e of npcs) {
       const b = npcProps(e).beliefs['player'];
-      // Above the 0.15 believer line so the opening reads as a flock to keep,
-      // but shallow (no understanding/devotion) so neglect bleeds it away.
-      expect(b.faith).toBeGreaterThan(0.15);
-      expect(b.faith).toBeLessThanOrEqual(0.2);
-      expect(b.understanding).toBe(0);
-      expect(b.devotion).toBe(0);
+      // Above the 0.3 reinforcement threshold so the socially-linked band can
+      // self-sustain (below it, communion cuts out and a flock only decays), with
+      // a modest understanding/devotion buffer against neglect — but not yet deep.
+      expect(b.faith).toBeGreaterThan(0.3);
+      expect(b.faith).toBeLessThanOrEqual(0.5);
+      expect(b.understanding).toBeGreaterThan(0);
+      expect(b.understanding).toBeLessThan(0.3);
+      expect(b.devotion).toBeGreaterThan(0);
+      expect(b.devotion).toBeLessThan(0.3);
     }
   });
 

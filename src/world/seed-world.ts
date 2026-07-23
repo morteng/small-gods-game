@@ -1,4 +1,4 @@
-import type { GameMap, WorldSeed, NpcRole, Entity } from '@/core/types';
+import type { GameMap, WorldSeed, NpcRole, Entity, POI } from '@/core/types';
 import type { EventLog } from '@/core/events';
 import type { SimClock } from '@/core/clock';
 import type { Spirit, SpiritId } from '@/core/spirit';
@@ -15,6 +15,28 @@ import { placeWallConnections } from '@/world/wall-connections';
 /** Founders start as young adults so the cradle never opens with elders. */
 const FOUNDER_MIN_AGE = 20;
 const FOUNDER_MAX_AGE = 30;
+
+/** The founding flock belongs in a humble DWELLING, not whatever inhabited POI
+ *  happens to sort first in array order — which once put a MINE (ironvein) ahead
+ *  of the villages, founding the whole religion at a mineshaft near map-centre.
+ *  Prefer a village, then other settlement types; a mine/quarry ranks last and is
+ *  chosen only if nothing else is inhabited. Deterministic: ties break on authored-
+ *  npc count (a busier town first), then id. */
+const CRADLE_TYPE_RANK: Record<string, number> = {
+  village: 0, hamlet: 1, town: 2, city: 3, port: 4, castle: 5, farm: 6, temple: 7,
+};
+function pickCradlePoi(pois: POI[]): POI | undefined {
+  const inhabited = pois.filter(p => p.npcs && p.npcs.length > 0 && p.position);
+  if (inhabited.length === 0) return undefined;
+  return inhabited.slice().sort((a, b) => {
+    const ra = CRADLE_TYPE_RANK[a.type] ?? 90;
+    const rb = CRADLE_TYPE_RANK[b.type] ?? 90;
+    if (ra !== rb) return ra - rb;
+    const na = a.npcs?.length ?? 0, nb = b.npcs?.length ?? 0;
+    if (na !== nb) return nb - na;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  })[0];
+}
 
 export interface SeedWorldArgs {
   world: World;
@@ -36,7 +58,7 @@ export function seedWorld(args: SeedWorldArgs): void {
   // 2. Pick seed POI (first one with NPCs and a position). A valid worldSeed may carry
   //    NO settlements at all — a terrain-only GENOME is pure ground for shader/biome work.
   //    That is not an error: seed no cradle band, reveal the whole map, and return.
-  const seedPoi = worldSeed.pois.find(p => p.npcs && p.npcs.length > 0 && p.position);
+  const seedPoi = pickCradlePoi(worldSeed.pois);
   if (!seedPoi || !seedPoi.position) {
     for (const row of map.tiles) for (const t of row) t.state = 'realized';
     if (worldSeed.connections) placeWallConnections(world, worldSeed);
@@ -46,9 +68,15 @@ export function seedWorld(args: SeedWorldArgs): void {
 
   // 3. Spawn a band of ~6 NPCs around the seed POI. Varied roles → varied
   //    skepticism/piety so they decay and convert at different rates. Each starts
-  //    as a shallow believer: faith ≈ 0.18 (just above the 0.15 believer line),
-  //    understanding = devotion = 0 — a small flock to keep from drifting, not yet
-  //    deepened. The secularization dilemma is live from turn one.
+  //    a young believer: faith 0.4 (comfortably above the 0.3 REINFORCEMENT line,
+  //    below which social communion cuts out entirely and a flock can only decay —
+  //    "isolation kills gods"), with a little understanding + devotion so there is
+  //    a decay buffer to build on. Seeded together and socially linked (step 4),
+  //    the six reinforce each other into a metastable founding congregation: it
+  //    holds with attention and grows with divine action, but SUSTAINED neglect
+  //    (needs unmet → worship-abandonment) still bleeds it. The secularization
+  //    dilemma stays live — it just no longer wipes the flock before the first
+  //    real second of play (old faith 0.18/u=0/d=0 collapsed to ~0 in ~60s).
   const BAND: { name: string; role: NpcRole; dx: number; dy: number }[] = [
     { name: 'Tola',  role: 'farmer',   dx: 0,  dy: 0 },
     { name: 'Bram',  role: 'elder',    dx: 1,  dy: 0 },
@@ -81,9 +109,10 @@ export function seedWorld(args: SeedWorldArgs): void {
     p.birthTick = -Math.round(founderAge * TICKS_PER_YEAR);
     p.lineageId = id;
     p.parentIds = [];
-    // Shallow-believer start (override initNpcProps' role-scaled belief):
-    // just above the 0.15 believer line, no understanding/devotion yet.
-    p.beliefs['player'] = { faith: 0.18, understanding: 0, devotion: 0 };
+    // Founding-believer start (override initNpcProps' role-scaled belief): above
+    // the 0.3 reinforcement line so the linked band self-sustains, with a modest
+    // understanding/devotion buffer against neglect-decay. See the note above.
+    p.beliefs['player'] = { faith: 0.4, understanding: 0.1, devotion: 0.15 };
     world.addEntity({
       id, kind: 'npc', x, y,
       properties: p as unknown as Record<string, unknown>,

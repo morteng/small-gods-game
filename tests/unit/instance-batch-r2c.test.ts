@@ -65,6 +65,41 @@ describe('R2c — instance batching', () => {
     expect(aDepths[1]).toBeLessThan(bDepths[1]); // 2 < 3
   });
 
+  it('derives depth from a GLOBAL depthKey, not list index (cross-list comparability)', () => {
+    const a = tex();
+    // Two SEPARATE batch calls (the static + NPC lists are built independently). A
+    // building deep in the static list vs an NPC early in the tiny dynamic list.
+    const near = buildInstanceBatches([img(a, 0, { depthKey: 500 })]).batches[0].instances[0].depth;
+    const staticList: DrawItem[] = Array.from({ length: 100 }, (_, i) => img(a, i, { depthKey: 100 + i }));
+    const farBuilding = buildInstanceBatches(staticList).batches[0].instances[50].depth; // depthKey 150
+    // The NPC (key 500, foot further downhill) must depth-test IN FRONT of the
+    // building (key 150) even though the NPC is index 0 of a 1-item list and the
+    // building is index 50 of a 100-item list. Index-based depth got this backwards.
+    expect(near).toBeGreaterThan(farBuilding);
+  });
+
+  it('an equal-tile NPC (higher kindPriority key) beats co-tile ground flora', () => {
+    const a = tex();
+    // Same tile-sum 20; ground cover quantized to kindPriority 3 → key 20+3/16;
+    // npc kindPriority 6 → key 20+6/16. The npc key is higher ⇒ greater depth ⇒ front.
+    const grass = buildInstanceBatches([img(a, 0, { depthKey: 20 + 3 / 16 })]).batches[0].instances[0].depth;
+    const npc = buildInstanceBatches([img(a, 0, { depthKey: 20 + 6 / 16 })]).batches[0].instances[0].depth;
+    expect(npc).toBeGreaterThan(grass);
+  });
+
+  it('equal depthKey keeps stable painter order via the index nudge (stacked quads)', () => {
+    const a = tex();
+    // Three quads of ONE building entry share a depthKey; they must still layer in
+    // emission order so the massing stacks correctly.
+    const d = buildInstanceBatches([
+      img(a, 0, { depthKey: 42 }), img(a, 1, { depthKey: 42 }), img(a, 2, { depthKey: 42 }),
+    ]).batches[0].instances.map(i => i.depth);
+    expect(d[0]).toBeLessThan(d[1]);
+    expect(d[1]).toBeLessThan(d[2]);
+    expect(d[0]).toBeGreaterThan(0);
+    expect(d[2]).toBeLessThan(1);
+  });
+
   it('computes UV sub-rects from a sheet frame', () => {
     const sheet = tex(128, 64);
     const items: DrawItem[] = [img(sheet, 0, { frame: { sx: 64, sy: 0, sw: 32, sh: 64 } })];

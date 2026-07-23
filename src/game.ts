@@ -3,6 +3,7 @@ import type { RenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { isoEnvForMap } from '@/render/iso/iso-env';
+import { pickTile } from '@/ui/pick-tile';
 import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
 import { focusCameraOnTile } from '@/render/focus-camera';
 import { computeFrame, type FrameSubject } from '@/game/framing/compute-frame';
@@ -1328,11 +1329,50 @@ export class Game {
     return null;
   }
 
+  /** P2 living-population: the materializable settlement the camera is CENTRED on,
+   *  or null. Unlike `focusedSettlementPoiId` (explicit click-selection), this lets
+   *  the player bring a town to life by simply ZOOMING into it — the intent the
+   *  MaterializationSystem's own docstring already describes ("when the player
+   *  FOCUSES a settlement"). Without it, panning the camera onto a town spawned
+   *  nobody; only a click did, so zoomed-in towns stood empty.
+   *
+   *  Restricted to POIs that actually carry a statistical cohort (only those
+   *  materialize) and to the nearest one whose centre sits within the on-screen
+   *  radius, so panning over open wilderness never wakes a distant settlement. The
+   *  radius is read from the viewport itself (centre-tile vs edge-tile) so it tracks
+   *  zoom. Flat (lift-free) picking is fine here — settlements sit near sea level and
+   *  we only need nearest-POI resolution, not sub-tile precision. */
+  private cameraFocusedSettlementPoiId(): string | null {
+    const cohorts = this.state.cohorts;
+    const seed = this.state.worldSeed;
+    if (!cohorts || cohorts.size === 0 || !seed) return null;
+    const cam = this.state.camera;
+    const vp = this.viewport();
+    const centre = pickTile(cam, vp.width / 2, vp.height / 2);
+    const edge = pickTile(cam, vp.width, vp.height / 2);
+    const radius = Math.hypot(edge.tx - centre.tx, edge.ty - centre.ty);
+    const r2 = radius * radius;
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const poi of seed.pois) {
+      if (!poi.position || !cohorts.has(poi.id)) continue;
+      const dx = poi.position.x - centre.tx, dy = poi.position.y - centre.ty;
+      const d = dx * dx + dy * dy;
+      if (d < bestD && d <= r2) { bestD = d; best = poi.id; }
+    }
+    return best;
+  }
+
   /** P2 living-population: the live VIEW focus fed to the MaterializationSystem —
    *  the settlement the camera is framing + the current zoom band. Reads live
-   *  camera/selection state only; nothing is written to the sim or snapshot. */
+   *  camera/selection state only; nothing is written to the sim or snapshot. An
+   *  explicit selection wins; otherwise, inside the close bands, the settlement the
+   *  camera is centred on (so zooming into a town populates it — no click needed). */
   private focusView(): { poiId: string | null; band: ZoomBand } {
-    return { poiId: this.focusedSettlementPoiId(), band: this.currentBand() };
+    const band = this.currentBand();
+    const poiId = this.focusedSettlementPoiId()
+      ?? (band !== 'world' ? this.cameraFocusedSettlementPoiId() : null);
+    return { poiId, band };
   }
 
   /** UI v2 W1/D4: per-settlement believer tallies (player + every rival), folding

@@ -16,6 +16,13 @@
 import type { DrawItem } from '@/render/iso/draw-list';
 import type { RawMap } from '@/render/iso/sprite-canvas';
 
+/** Fixed divisor that maps a global y-sort key (`sortTx+sortTy+kindPriority/16`,
+ *  max a few hundred for any realistic map) into the depth buffer's (0,1). Fixed
+ *  (not map-derived) so the static and NPC batches, built by separate calls, share
+ *  one scale. Comfortably larger than any tileSum so depth never reaches 1; the
+ *  smallest meaningful key step is `(1/16)/SPAN`, which bounds the index-nudge. */
+const DEPTH_KEY_SPAN = 4096;
+
 /** Per-instance attributes: a destination quad + its UV sub-rect + depth. */
 export interface InstanceAttrs {
   dx: number;
@@ -108,7 +115,19 @@ export function buildInstanceBatches(items: readonly DrawItem[]): {
       passthrough.push(it);
       return;
     }
-    const depth = (i + 1) / (count + 1); // strictly in (0,1), increasing with order
+    // Painter-order depth. When the item carries a GLOBAL y-sort key (entity pass —
+    // see entity-draw-list), derive depth from it against a FIXED world span so the
+    // separately-batched static and NPC lists land on ONE comparable scale (that is
+    // what lets a townsfolk depth-test correctly against buildings and grass, not
+    // just against other NPCs). A tiny index nudge (well under the smallest key step,
+    // `(1/16)/SPAN`) breaks exact ties in stable list order — so stacked quads of one
+    // building keep painter order — and guarantees depth > 0 (the cleared value).
+    // Items with no key (poly/circle callers, or lists that never set it) keep the
+    // original strictly-increasing index depth. All depths stay within (0,1).
+    const idxNudge = (i + 1) / (count + 1); // (0,1), strictly increasing
+    const depth = it.depthKey !== undefined
+      ? Math.min(1 - 1e-6, it.depthKey / DEPTH_KEY_SPAN + idxNudge * 3e-6)
+      : idxNudge;
 
     let batch = byTexture.get(it.src);
     if (!batch) {
