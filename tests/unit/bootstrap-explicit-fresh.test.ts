@@ -86,6 +86,40 @@ describe('bootstrapWorld — explicit fresh / seed override', () => {
     expect(digests[0]).not.toBe(digests[1]);
   });
 
+  it('onReady means FULLY built — map/world are set long before it fires', async () => {
+    /**
+     * The invariant `Game.worldReady` (and therefore the sim advance) depends on.
+     *
+     * Since the boot restructure the frame loop is already running while worldgen
+     * proceeds — it starts with the SHELL so the title backdrop can animate. But
+     * `bootstrapWorld` assigns `state.map`/`state.world` PARTWAY THROUGH, before it
+     * seeds the statistical cohorts, installs the weather stepper and builds the
+     * flood watch. So "map exists" is NOT "world is ready", and the sim must gate
+     * on `onReady` instead. This pins that distinction in both directions.
+     */
+    const state = createState();
+    let mapSetBeforeReady = false;
+    let readySawFullWorld = false;
+    await bootstrapWorld({
+      state, assets: stubAssets, sheets: new Map(), decorationImages: stubDecorationImages,
+      getViewport, worldSeed: structuredClone(testSeed),
+      forceFresh: true,
+      readSave: async () => null,
+      onProgress: () => {
+        // Mid-generation: the map/world land here, well before onReady.
+        if (state.map && state.world) mapSetBeforeReady = true;
+      },
+      onReady: () => {
+        // By onReady EVERYTHING the sim systems read must be in place.
+        readySawFullWorld = !!state.map && !!state.world
+          && state.weather !== null && state.floodWatch !== null
+          && state.causalSites !== null && state.cohorts.size > 0;
+      },
+    });
+    expect(mapSetBeforeReady, 'map/world should be set mid-generation').toBe(true);
+    expect(readySawFullWorld, 'onReady must see cohorts + weather + floodWatch installed').toBe(true);
+  });
+
   it('an invalid genSeedOverride is ignored rather than producing seed 0/NaN', async () => {
     const state = createState();
     await bootstrapWorld({

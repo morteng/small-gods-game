@@ -388,6 +388,10 @@ export class Game {
   /** Real playtime accrued in THIS world (ms, real time). Persisted with the
    *  save; meta state, deliberately outside the deterministic sim stream. */
   private playtimeMs = 0;
+  /** True once `onWorldReady` has fired — i.e. the world is fully built. Gates
+   *  the sim advance, because since the boot restructure the frame loop is
+   *  already running while worldgen is in progress (see `onFrame`). */
+  private worldReady = false;
 
   constructor(container: HTMLElement, options: GameOptions = {}) {
     this.container = container;
@@ -2087,6 +2091,7 @@ export class Game {
     // A genome world is a throwaway terrain study by definition.
     if (opts.genome) this.ephemeral = true;
     this.playtimeMs = 0;
+    this.worldReady = false;
     const worldSeed = opts.worldSeed
       ?? (opts.genome ? await this.genomeSeed(opts.genome) : undefined);
     return this.generateWorld(worldSeed, undefined, {
@@ -2140,6 +2145,7 @@ export class Game {
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         if (!this.ephemeral) this.persistence.start();
+        this.worldReady = true;
         this.enterWorldRunning();
       },
     }, worldSeed);
@@ -2256,6 +2262,7 @@ export class Game {
       this.lastSoulFocusSelection = null;
       this.soulFocusFiredAt.clear();
       this.playtimeMs = 0;
+      this.worldReady = false;
       // The rate stays 0 while we sit on the title — there is no world to
       // advance. `enterWorldRunning()` states it again on the next world entry,
       // so the title deliberately does NOT try to guess a "resting" rate.
@@ -2352,7 +2359,16 @@ export class Game {
     // (and the title screen must not spin a laptop fan).
     if (!this.state.map) return paused ? false : 'ambient';
 
-    const live = !paused && this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
+    // `worldReady` is load-bearing since the boot restructure. The frame loop now
+    // starts with the SHELL (so the title's backdrop animates), which means it is
+    // already running while `bootstrapWorld` builds the world — and that function
+    // sets `state.map`/`state.world` PARTWAY THROUGH, before it seeds the
+    // statistical cohorts, installs the weather stepper or builds the flood watch.
+    // Without this gate the sim would begin ticking against a half-initialised
+    // world. Set in `onWorldReady`, which is exactly where the loop used to start
+    // before the shell existed, so the timing is unchanged from pre-UI-v3.
+    const live = !paused && this.worldReady && this.scheduler.getRate() > 0
+      && this.state.world && !this.timeline.isScrubbed;
     // Real playtime, accrued only while the world actually runs (meta mode and a
     // pause do not count). Meta state — deliberately outside the deterministic
     // sim stream, so it rides the SaveFile top-level, never the snapshot.
