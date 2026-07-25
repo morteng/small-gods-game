@@ -55,7 +55,17 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
   // and rethrows, so without one here the page would just sit there on an
   // unhandled rejection.
   game.bootShell().then(
-    () => { console.log('Shell up'); dismissBootVeil(); },
+    async () => {
+      console.log('Shell up');
+      // Grant the save probe a SHORT grace window before lifting the veil:
+      // it usually settled during GPU init, and the menu then reveals with
+      // its CONTINUE/LOAD notes already in place instead of streaming them
+      // in a beat later. A slow or wedged IndexedDB must never hold the
+      // title hostage — past the window we reveal with the honest
+      // "looking…" notes and let them fill in.
+      await Promise.race([game.savesProbed, new Promise((r) => setTimeout(r, 300))]);
+      dismissBootVeil();
+    },
     (err: unknown) => { console.error('Boot failed', err); dismissBootVeil(true); },
   );
 

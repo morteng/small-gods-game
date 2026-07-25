@@ -461,6 +461,11 @@ export class Game {
    *  `SlotSummary` reader (P3a's `save-meta` store now exists to serve this). */
   private slotMetas = new Map<SaveSlot, SaveMeta>();
   private slotsProbed = false;
+  /** Settles when the boot-time save probe has (successfully or not) finished
+   *  — `probeSaves` never rejects. The page's boot veil races this against a
+   *  short grace timeout so the title usually reveals with its CONTINUE/LOAD
+   *  notes already in place instead of streaming them in a beat later. */
+  savesProbed: Promise<void> = Promise.resolve();
   /** Real playtime accrued in THIS world (ms, real time). Persisted with the
    *  save; meta state, deliberately outside the deterministic sim stream. */
   private playtimeMs = 0;
@@ -2467,7 +2472,10 @@ export class Game {
     // phase is that the first frame is quick, and an IndexedDB open can be slow
     // (or wedged — idb-guard times it out at 4s). The title draws immediately
     // with CONTINUE pending, and the row fills itself in when the probe lands.
-    void this.probeSaves();
+    // The promise is kept so the page's boot veil can grant the probe a SHORT
+    // grace window (main.ts) — usually it has already settled by first frame,
+    // and the menu then reveals complete instead of its notes streaming in.
+    this.savesProbed = this.probeSaves();
     // The loop must run even with no world: the sky backdrop animates, and the
     // shell is render-on-demand for everything else.
     this.startLoop();
