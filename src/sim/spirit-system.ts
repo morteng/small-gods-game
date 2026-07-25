@@ -4,6 +4,7 @@ import type { SpiritId } from '@/core/spirit';
 // coefficients at eval time, so a value import back would be a circular-eval hazard.
 import type { SettlementCohorts } from '@/sim/cohorts';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
+import { tierFor, stepFading } from '@/sim/god-tier';
 
 export const POWER_REGEN_RATE = 0.02;
 /** Understanding & devotion are multipliers on a believer's faith contribution.
@@ -26,6 +27,14 @@ export class SpiritSystem implements System {
 
   tick(ctx: SystemContext): void {
     const totals = new Map<SpiritId, number>();
+    // T5.0: Σ contribution·(u·d) alongside the mass, so `intimacy` is a
+    // mass-weighted mean rather than a headcount mean — one deep believer
+    // outweighs a crowd of shallow ones, which is the whole point of the axis.
+    // NAMED TIER ONLY (see `Spirit.intimacy`): the statistical tier has no
+    // Σ contribution·u·d to fold in, and mixing an exact sum with an
+    // approximation silently would be worse than scoping this honestly.
+    const intimacyNum = new Map<SpiritId, number>();
+    const intimacyDen = new Map<SpiritId, number>();
     forEachNpc(ctx.world, (e) => {
       const p = npcProps(e);
       for (const [sid, b] of Object.entries(p.beliefs)) {
@@ -34,6 +43,8 @@ export class SpiritSystem implements System {
           (1 + POWER_UNDERSTANDING_COEFF * b.understanding) *
           (1 + POWER_DEVOTION_COEFF * b.devotion);
         totals.set(sid, (totals.get(sid) ?? 0) + contribution);
+        intimacyNum.set(sid, (intimacyNum.get(sid) ?? 0) + contribution * b.understanding * b.devotion);
+        intimacyDen.set(sid, (intimacyDen.get(sid) ?? 0) + contribution);
       }
     });
 
@@ -54,6 +65,28 @@ export class SpiritSystem implements System {
     for (const [sid, spirit] of ctx.spirits) {
       const total = totals.get(sid) ?? 0;
       spirit.power += total * POWER_REGEN_RATE;
+
+      // ── T5.0: the reality number ──────────────────────────────────────────
+      // The same total, kept instead of discarded. Tier is hysteretic against
+      // its own previous value, so a god parked on an edge cannot flicker its
+      // title every second — a god's name changing is a story beat.
+      spirit.beliefMass = total;
+      const den = intimacyDen.get(sid) ?? 0;
+      spirit.intimacy = den > 0 ? (intimacyNum.get(sid) ?? 0) / den : 0;
+      spirit.tier = tierFor(total, spirit.tier);
+
+      // ── T5.1: the god lifecycle (VISION §5) ───────────────────────────────
+      // Symmetric across player, rivals, and great gods alike. Sustained, not
+      // instantaneous: two game days below the line, so one bad hour is survivable.
+      const fade = stepFading(spirit, total, ctx.now);
+      const wasFaded = spirit.faded === true;
+      spirit.belowSinceTick = fade.belowSinceTick;
+      spirit.faded = fade.faded;
+      if (fade.transition === 'faded' && !wasFaded) {
+        ctx.log.append({ type: 'god_faded', spiritId: sid });
+      } else if (fade.transition === 'returned' && wasFaded) {
+        ctx.log.append({ type: 'god_returned', spiritId: sid });
+      }
 
       if (spirit.power <= 0) {
         if (!this.depletedAlready.has(sid)) {

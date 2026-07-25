@@ -64,6 +64,11 @@ export type SimEvent =
   | { type: 'belief_cross';       npcId: EntityId; spiritId: SpiritId; kind: 'high' | 'low'; faith: number }
   | { type: 'mood_cross';         npcId: EntityId; kind: 'high' | 'low'; mood: number }
   | { type: 'power_depleted';     spiritId: SpiritId }
+  // T5.1 — the god lifecycle (VISION §5). Belief mass held below `FADE_MASS` for
+  // `FADE_SUSTAIN_TICKS` shrinks a god to "nothing but names"; belief returning
+  // brings it back. Symmetric across the player, rivals, and great gods alike.
+  | { type: 'god_faded';          spiritId: SpiritId }
+  | { type: 'god_returned';       spiritId: SpiritId }
   | { type: 'region_realized';    region: Region; cause: 'belief_spread' | 'miracle' | 'cradle_start' }
   | { type: 'tile_collapsed';     x: number; y: number; becameType: string; by: 'wfc' | 'oracle' }
   | { type: 'settlement_grown';   poiId: string; entityId: EntityId; preset: string; lotId: string }

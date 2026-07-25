@@ -187,9 +187,23 @@ items below.**
   escalation (VISION tenet 10). *(Sharpened by F1: arc state scrubs WITH the
   timeline — rewinding the world rewinds Fate's plan.)*
 
-## Track 5 — Progression & win-state  — ⬜
+## Track 5 — Progression & win-state  — 🟡 **lifecycle shipped, arc ahead**
 
 The arc's spine (VISION §5/§7).
+📋 **[spec](superpowers/specs/2026-07-25-progression-winstate-spec.md)** ·
+🧠 **[brainstorm](superpowers/2026-07-25-progression-winstate-brainstorm.md)**
+
+**Shipped (T5.0 + T5.1, 2026-07-25) — a god is only as real as its belief.**
+`SpiritSystem` was already summing each god's belief mass every second and
+discarding it; it is now persisted as `Spirit.beliefMass` alongside `intimacy`
+(mass-weighted mean of understanding·devotion — the *hollowness* axis that makes
+major gods beatable) and a hysteretic `tier` (`nameless`/`small`/`cult`/`major`,
+edges calibrated against `FICTION_POP_BY_SIZE`). Mass held below `FADE_MASS` for
+two game days fades a god to "nothing but names" (`god_faded` / `god_returned`),
+**symmetrically for the player, rivals, and great gods alike**. A faded god keeps
+**only the whisper** — canon (tenet 6) *and* the reason the lose-state isn't a
+softlock. Faded rivals stop claiming prayers and stop running strategies, so
+Track 3's long-promised **supplanting** finally has teeth.
 
 - God tiers (small → cult → major) with believer accounting.
 - God **fading threshold** — faith→0 across believers shrinks a god toward
@@ -230,7 +244,7 @@ command bus). Remaining:
 - **Generated imagery** (NPC portraits, vistas, chapter scenes, god portrait) —
   gated by the art-reseed freeze.
 
-## Track 8 — Mortal power: the lord, the castle, the knights  — 📋 **spec'd**
+## Track 8 — Mortal power: the lord, the castle, the knights  — ✅ **shipped**
 
 📋 **[spec](superpowers/specs/2026-07-14-mortal-power-lord-castle-knights.md)** ·
 🧠 **[brainstorm](superpowers/2026-07-14-mortal-power-and-proactive-fate-brainstorm.md)**
@@ -263,16 +277,17 @@ the entire belief economy runs on **one need out of four**. M0 (worship fires on
   inbox tiding, persists in the snapshot, and reads aloud on the boot loading screen.
 - **M2 — epithets** — ✅ **SHIPPED 2026-07-16** — deed-derived, salience-argmax over
   the memory ring, escalating for answered prayers (*victory renames you*).
-- **M3 — the lord** — a `noble` NPC (role exists). **Never** gets a `beliefs[]`
-  entry — he competes for *allegiance*, not *belief* (that would invent a fifth
-  category of god). He can fight you **by proxy** by endowing a rival's shrine.
-- **M4 — the castle** — `placeComplexOnPatch` **already plants a motte-and-bailey on
-  an empty hilltop** and the game never calls it. ⚠ Blocked on **runtime POI
-  creation** (there is none) — needs its own spike.
-- **M5 — knights** — `soldier` NPCs, **not** a new entity kind.
-- **M6 — the Peace of God** — relics paraded into a field; armed men bound by oath
-  before a crowd. **Spends `devotion`, not power** — finally giving devotion a job
-  the player can feel, and denying the move to a god who only bought cheap fear.
+- **M3 — the lord** — ✅ **SHIPPED 2026-07-17** — `noble` role + `LordState` on
+  `World.lords` + `LordSystem` + `set_lord_stance` (tithe capped ±0.2, shrine-
+  endowment proxy). Never gets a `beliefs[]` entry: he competes for *allegiance*.
+  Closed M0.c (tithe scales the `work` self-restore).
+- **M4 — the castle** — ✅ **SHIPPED 2026-07-17** (S1–S5) — the runtime-POI blocker
+  was resolved in the slice rather than a separate spike.
+- **M5 — knights** — ✅ **SHIPPED 2026-07-17** — `soldier` NPCs; the garrison got teeth.
+- **M6 — the Peace of God** — ✅ **SHIPPED 2026-07-17** — spends `devotion`, not
+  power, giving devotion its first job the player can feel.
+
+**Track 8 is closed.** Per-slice reality checks live at the foot of the spec.
 
 ## Track 7 — Backlog (opportunistic)
 

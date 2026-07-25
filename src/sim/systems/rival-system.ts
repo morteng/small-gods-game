@@ -115,6 +115,10 @@ export class RivalSystem implements System {
     // ── strategy actions: situation-driven target AND action choice ──
     for (const spirit of ctx.spirits.values()) {
       if (spirit.isPlayer || !spirit.ai?.personality) continue;
+      // T5.1: a faded rival is "nothing but names" — it keeps the whisper, but it
+      // no longer runs a strategy. Skipped BEFORE the situation sweep so a dead
+      // god costs no work (same reasoning as the cooldown gate below).
+      if (spirit.faded === true) continue;
       const ai = spirit.ai;
 
       // Cooldown-gate BEFORE the situation sweep — a rival that cannot act this

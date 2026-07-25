@@ -215,6 +215,14 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return `Mood crossed ${ev.kind}.`;
     case 'power_depleted':
       return "The god's power was spent to nothing.";
+    // T5.1 — the god lifecycle. The annalist records a god's fading the way it
+    // records a lord's death: as the passing of a power, without naming it (the
+    // `power_depleted` register above). A faded god is not gone — it is "nothing
+    // but names," and belief can still call it back.
+    case 'god_faded':
+      return 'A god dwindled for want of believers, until nothing was left of it but a name.';
+    case 'god_returned':
+      return 'A god that had dwindled to a name was believed in again, and was once more a power in the world.';
     case 'settlement_grown':
       return `A ${ev.preset} was raised in the settlement.`;
     case 'settlement_upgraded':

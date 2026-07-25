@@ -263,6 +263,10 @@ export function eligibleClaimants(npc: Entity, spirits: Map<SpiritId, Spirit>): 
   const poi = npcProps(npc).homePoiId;
   const out: SpiritId[] = [];
   for (const s of spirits.values()) {
+    // T5.1: a faded god has lost `answer_prayer` (it keeps only the whisper), so
+    // it cannot claim — this is what makes starving a rival's last settlement
+    // actually kill it rather than merely inconvenience it.
+    if (s.faded === true) continue;
     if (isRivalPresent(s, poi) && s.power >= ANSWER_PRAYER_COST) out.push(s.id);
   }
   out.sort();

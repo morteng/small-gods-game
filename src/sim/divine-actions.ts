@@ -5,6 +5,7 @@ import { npcProps, forEachNpc, queryNpcs, rememberEvent, getNpc } from '@/world/
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
 import { addDomainBelief, isOminous } from '@/sim/belief-domains';
+import { isSilenced } from '@/sim/god-tier';
 import { isWaterTile } from '@/world/land-snap';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
 import type { CausalSite } from '@/world/causal-site';
@@ -120,6 +121,7 @@ function nearWater(world: World, x: number, y: number, r: number): boolean {
 }
 
 export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog): boolean {
+  if (isSilenced(spirit, 'omen')) return false;
   if (spirit.power < OMEN_COST) return false;
   spirit.power -= OMEN_COST;
 
@@ -174,6 +176,7 @@ export function omen(spirit: Spirit, poiId: string, world: World, log: EventLog)
 // ─── Dream: deep influence on one NPC during sleep ──────────────────────────
 
 export function dream(spirit: Spirit, npc: Entity, log: EventLog): boolean {
+  if (isSilenced(spirit, 'dream')) return false;
   if (spirit.power < DREAM_COST) return false;
   const p = npcProps(npc);
 
@@ -224,6 +227,7 @@ export function miracle(
   world: World,
   log: EventLog,
 ): boolean {
+  if (isSilenced(spirit, 'miracle')) return false;
   if (spirit.power < MIRACLE_COST) return false;
   spirit.power -= MIRACLE_COST;
 
@@ -276,6 +280,7 @@ export function miracle(
 // ─── Answer Prayer: respond to an NPC's prayer ──────────────────────────────
 
 export function answerPrayer(spirit: Spirit, npc: Entity, log: EventLog): boolean {
+  if (isSilenced(spirit, 'answer_prayer')) return false;
   if (spirit.power < ANSWER_PRAYER_COST) return false;
   const p = npcProps(npc);
 
@@ -475,6 +480,7 @@ function reinforceStormWitnesses(spirit: Spirit, world: World, accept: (e: Entit
 }
 
 export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog): boolean {
+  if (isSilenced(spirit, 'smite')) return false;
   if (spirit.power < SMITE_COST) return false;
   spirit.power -= SMITE_COST;
 
@@ -516,6 +522,7 @@ export function smite(spirit: Spirit, npc: Entity, world: World, log: EventLog):
  * `SMITE_WITNESS_RADIUS` tiles who sees it has their storm-attribution reinforced.
  */
 export function smiteLocation(spirit: Spirit, x: number, y: number, world: World, log: EventLog): boolean {
+  if (isSilenced(spirit, 'smite')) return false;
   if (spirit.power < SMITE_COST) return false;
   spirit.power -= SMITE_COST;
   const r2 = SMITE_WITNESS_RADIUS * SMITE_WITNESS_RADIUS;
@@ -542,6 +549,7 @@ export function summonStorm(
   log: EventLog,
   weather: WeatherStepper | null | undefined,
 ): boolean {
+  if (isSilenced(spirit, 'summon_storm')) return false;
   if (spirit.power < SUMMON_STORM_COST) return false;
   spirit.power -= SUMMON_STORM_COST;
   const cells = weather?.floodPoi(poiId, SUMMON_STORM_RADIUS, SUMMON_STORM_DEPTH_M) ?? 0;
@@ -598,6 +606,10 @@ export function getPower(spirts: Map<SpiritId, Spirit>, spiritId: SpiritId): num
 export function canAfford(spirts: Map<SpiritId, Spirit>, spiritId: SpiritId, action: string): boolean {
   const spirit = spirts.get(spiritId);
   if (!spirit) return false;
+  // T5.1: a faded god cannot be *afforded* into an action it no longer has, no
+  // matter how much banked power it is sitting on. Keeps this query honest with
+  // the guards above, so affordance ranking and previews agree with the sim.
+  if (isSilenced(spirit, action)) return false;
   const costs: Record<string, number> = {
     whisper: WHISPER_COST,
     omen: OMEN_COST,
