@@ -229,6 +229,29 @@ describe('attachControls keyboard', () => {
     expect(onToggleSettings).not.toHaveBeenCalled();
   });
 
+  it('P5b: invokes onPhotoMode on P (the default photo_mode binding)', () => {
+    const onPhotoMode = vi.fn();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onPhotoMode,
+    });
+    fireKey('KeyP');
+    expect(onPhotoMode).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not invoke onPhotoMode when an input is focused', () => {
+    const onPhotoMode = vi.fn();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onPhotoMode,
+    });
+    fireKey('KeyP', input);
+    expect(onPhotoMode).not.toHaveBeenCalled();
+  });
+
   it('does not invoke onTileClick after a drag-pan', () => {
     const onTileClick = vi.fn();
     const onCanvasClick = vi.fn();

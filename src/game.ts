@@ -77,6 +77,11 @@ import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
 import type { SaveAction, SaveScreenView, SlotRow } from '@/render/ui/shell/save-screen';
 import type { LoadAction } from '@/render/ui/shell/load-screen';
 import type { SettingsAction, SettingsScreenView, SettingsKey } from '@/render/ui/shell/settings-screen';
+import type { GameOverAction } from '@/render/ui/shell/gameover-screen';
+import type { PhotoView } from '@/render/ui/shell/photo-screen';
+import type { NewGameAction } from '@/render/ui/shell/newgame-screen';
+import { encodeWorldCode, decodeWorldCode } from '@/game/world-code';
+import { firstRunTidings, FIRST_RUN_TIDING_HORIZON_TICKS } from '@/game/first-run-tidings';
 import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
 import { setUiScaleMultiplier } from '@/render/ui/ui-tokens';
@@ -117,6 +122,16 @@ import { GamepadPoller, type GamepadFrame } from '@/game/input/gamepad';
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
  *  the readout yet collapses ~4–6 full congregation sweeps/frame to one. */
 const HUD_SIM_TTL_MS = 150;
+
+/** How long the photo screen's "PHOTO SAVED" hint takes to fade to nothing —
+ *  real ms (a presentation timing, not fiction time), long enough to read at
+ *  a glance without lingering over the shot the player just framed. */
+const PHOTO_HINT_FADE_MS = 1800;
+
+/** How long the legacy pause menu's "COPIED: …" world-code confirmation stays
+ *  up — real ms, a plain hold rather than a fade (the menu isn't guaranteed
+ *  to keep repainting while the world sits paused behind it). */
+const WORLD_CODE_STATUS_MS = 2500;
 
 /** How long the World-band settlement-contest memo stays fresh — DECOUPLED from
  *  `HUD_SIM_TTL_MS` (perf follow-up). `worldContest()` runs a full `forEachNpc`
@@ -203,6 +218,23 @@ const SETTINGS_KEYS = new Set<SettingsKey>([
  *  directly, per the P4b brief: "test the predicate you add, not `Game`". */
 export function isSettingsKey(v: string): v is SettingsKey {
   return (SETTINGS_KEYS as Set<string>).has(v);
+}
+
+/** Trigger a browser download of a data URL via a transient `<a download>`
+ *  click — `capture_photo`'s one sanctioned DOM exception (spec §7: "an `<a
+ *  download>` click is acceptable DOM here since it produces no visible
+ *  chrome"). Appended to `document.body` only for the instant `.click()`
+ *  needs an in-DOM element to fire reliably, then removed synchronously —
+ *  never a mounted, persistent element, so this doesn't run afoul of the
+ *  embed's "no `document.body` assumptions" rule (that rule guards the
+ *  game's OWN standing UI, not a one-shot save-file trigger). */
+function downloadDataUrl(dataUrl: string, filename: string): void {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /** Parse a bus param into a boolean, accepting the shapes a `Command.params`/
@@ -493,6 +525,22 @@ export class Game {
    *  connected (see `GamepadPoller`'s doc). */
   private readonly gamepad = new GamepadPoller();
 
+  // ── P5b: photo mode, seed share, tutorial toasts ──────────────────────────
+  /** Real-time (`performance.now()`) of the LAST `capture_photo`, or null
+   *  before the first one this session — `photoView()` fades the "PHOTO
+   *  SAVED" hint from this, never a stored duration (see its own doc). */
+  private lastPhotoAt: number | null = null;
+  /** The last new-world paste attempt's refusal message (malformed code / a
+   *  contentVersion mismatch), or null — surfaced through
+   *  `NewGameView.error`. Cleared whenever the new-world screen is (re)opened
+   *  so a stale refusal from a PREVIOUS visit never reappears. */
+  private newGameError: string | null = null;
+  /** Real-time of the last successful `copy_world_code`, paired with the code
+   *  itself — feeds the legacy pause menu's "COPIED: …" confirmation
+   *  (`worldCodeStatus()`). Both null before the first copy this session. */
+  private worldCodeCopiedAt: number | null = null;
+  private lastWorldCode: string | null = null;
+
   constructor(container: HTMLElement, options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
@@ -507,6 +555,9 @@ export class Game {
       saveView: () => this.buildSlotsView(),
       loadView: () => this.buildSlotsView(),
       settingsView: () => this.buildSettingsView(),
+      gameoverView: () => ({ note: null }),
+      photoView: () => this.buildPhotoView(),
+      newGameView: () => ({ error: this.newGameError }),
     });
 
     this.scheduler = new Scheduler();
@@ -821,6 +872,21 @@ export class Game {
     // a bubble when the player is close enough to read one (settlement/soul band) —
     // out at the world band the town is a map, not a stage.
     this.state.eventLog.subscribe((a) => this.onEncounterEvent(a));
+    // P5b: the game-over / fade screen. `god_faded` fires EXACTLY ONCE per
+    // transition (`SpiritSystem`'s own `wasFaded` guard — see
+    // `sim/spirit-system.ts`), so this needs no debouncing of its own; a
+    // RESUMED save that was already faded before this session started does
+    // not refire it (`EventLog.hydrate` deliberately does not re-notify
+    // subscribers), which is the correct "once per transition" contract, not
+    // a gap. Symmetric wiring point for player, rivals and great gods alike
+    // (VISION §5) — only the PLAYER's fade owns the shell, though: a rival's
+    // or a great god's fade is the player's news, not the player's screen.
+    this.state.eventLog.subscribe((a) => {
+      const ev = a.event;
+      if (ev.type !== 'god_faded' || ev.spiritId !== PLAYER_SPIRIT_ID) return;
+      this.shell.push('gameover');
+      this.requestRender();
+    });
     // F2: Fate's heartbeat — wakes the brain once a game-day even when nothing
     // happened ("what are you building toward?"), sharing FateTrigger's cooldown so
     // a pulse can't pile onto a just-fired event deliberation. Ticked from onFrame.
@@ -929,6 +995,7 @@ export class Game {
       onToggleSettings: () => { if (this.barebones) getUiRuntime().toggleMenu(); else this.ui.unifiedSettings.toggle(); },
       onToggleMinimap: () => { this.ui.minimap?.toggle(); this.requestRender(); },
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
+      onPhotoMode: () => this.bus.emit({ verb: 'capture_photo', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } }),
       getKeymap: () => this.keymap,
       onRedraw: this.requestRender,  // controls fire this on drag-pan + wheel-zoom
     });
@@ -960,6 +1027,12 @@ export class Game {
         return this.dev.devMode.lighting !== 'off';
       },
       onSaveLlmConfig: (cfg) => this.applyLlmConfig(cfg),
+      // P5b: seed share, from the legacy pause menu's left nav — the same
+      // meta-verb path every shell action takes (spec §3.7); `Game` owns the
+      // real `WORLD_CONTENT_VERSION`/clipboard write in `handleMetaCommand`'s
+      // `copy_world_code` case, not this hook.
+      onCopyWorldCode: () => this.bus.emit({ verb: 'copy_world_code', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } }),
+      getWorldCodeStatus: () => this.worldCodeStatus(),
       // A story card is modal narrative — pause the sim while it's up, restore the
       // prior rate (could be 2×/4×/8× or an existing pause) when it dismisses.
       // Idempotent on repeat toggles: presenting a card OVER an open card would
@@ -1130,7 +1203,12 @@ export class Game {
             this.bus.emit({ verb: 'load_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: 'autosave' } });
             break;
           case 'new_world':
-            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            // P5b: NEW WORLD lands on the new-world screen (random OR a pasted
+            // seed-share code) rather than firing `new_game` straight away —
+            // see `newgame-screen.ts`'s header. `open_screen` is the SAME
+            // meta-verb path every other shell navigation takes.
+            this.newGameError = null; // a stale refusal from a PREVIOUS visit must not reappear
+            this.bus.emit({ verb: 'open_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { screen: 'newgame' } });
             break;
           case 'demo':
             this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { demo: 1 } });
@@ -1168,6 +1246,48 @@ export class Game {
             this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
             break;
         }
+      },
+      onGameOverAction: (action: GameOverAction) => {
+        switch (action.kind) {
+          case 'keep_watching':
+            // Pop the screen; the god is already whisper-only (spirit.faded,
+            // enforced by `isSilenced` at the divine-action guard) — nothing
+            // else changes. Same meta path as every other "back".
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+          case 'begin_again':
+            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+        }
+      },
+      onNewGameAction: (action: NewGameAction) => {
+        switch (action.kind) {
+          case 'random':
+            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+          case 'back':
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+        }
+      },
+      // P5b: the new-world screen's paste field submitted raw text. Decoding
+      // (and the real `WORLD_CONTENT_VERSION`) lives HERE, not in the pure
+      // screen module — a successful decode fires `new_game` with the
+      // recovered `genSeed` through the SAME meta path every other shell
+      // action takes; a refusal is stored for `NewGameView.error` to show,
+      // never thrown or silently dropped.
+      onWorldCodeSubmit: (text) => {
+        const decoded = decodeWorldCode(text, WORLD_CONTENT_VERSION);
+        if (!decoded.ok) {
+          this.newGameError = decoded.message;
+          this.requestRender();
+          return;
+        }
+        this.newGameError = null;
+        this.bus.emit({
+          verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' },
+          params: { genSeed: decoded.code.genSeed },
+        });
       },
       onSettingsAction: (action: SettingsAction) => {
         switch (action.kind) {
@@ -1780,11 +1900,25 @@ export class Game {
     const now = performance.now();
     const c = this.hudSimCache;
     if (c && now - c.t < HUD_SIM_TTL_MS) return c;
+    // P5b: first-run tutorial toasts — appended here (not in `game-query.ts`'s
+    // `divineInbox`) so the golden/inbox tests there stay untouched; this is
+    // pure Game-side composition over an otherwise-unmodified query result.
+    // `firstRunSeen` flips PERMANENTLY once the horizon has passed, whether or
+    // not the player actually opened the inbox tray — "delivered" means "made
+    // available for the window", the same honest best-effort every other
+    // auto-expiring tiding already settles for.
+    const simNow = this.state.clock.now();
+    if (!settingsStore.getFirstRunSeen() && simNow >= FIRST_RUN_TIDING_HORIZON_TICKS) {
+      settingsStore.setFirstRunSeen(true);
+    }
     const fresh = {
       t: now,
       belief: this.query.beliefState(),
       powers: this.query.beliefPowers(),
-      inbox: this.query.divineInbox(),
+      inbox: [
+        ...this.query.divineInbox(),
+        ...(settingsStore.getFirstRunSeen() ? [] : firstRunTidings(simNow)),
+      ],
     };
     this.hudSimCache = fresh;
     return fresh;
@@ -2063,12 +2197,18 @@ export class Game {
         break;
       }
       case 'rename_slot':
-      case 'capture_photo':
-      case 'copy_world_code':
-        // Declared in the registry (so the vocabulary + `capabilities` discovery
-        // are stable from the start) but serviced by their own phases. An honest
-        // log beats a silent no-op: an agent that calls one early can tell.
+        // Declared in the registry (so the vocabulary + `capabilities`
+        // discovery are stable from the start) but serviced by its own phase
+        // (slot naming — deferred in P3b, still open; see save-screen.ts's
+        // header doc). An honest log beats a silent no-op: an agent that
+        // calls it early can tell.
         console.info(`[shell] '${cmd.verb}' is declared but not yet serviced`);
+        break;
+      case 'capture_photo':
+        this.capturePhoto();
+        break;
+      case 'copy_world_code':
+        void this.copyWorldCode();
         break;
     }
   }
@@ -2232,6 +2372,16 @@ export class Game {
     };
   }
 
+  /** The photo screen's fading "PHOTO SAVED" hint, computed from real elapsed
+   *  time since the last capture — see `photo-screen.ts`'s `PhotoView` doc for
+   *  why the CURVE lives here and not in the (pure) screen module. */
+  private buildPhotoView(): PhotoView {
+    if (this.lastPhotoAt === null) return { hintText: null, alpha: 0 };
+    const elapsed = performance.now() - this.lastPhotoAt;
+    const alpha = 1 - clamp01(elapsed / PHOTO_HINT_FADE_MS);
+    return alpha > 0 ? { hintText: 'PHOTO SAVED', alpha } : { hintText: null, alpha: 0 };
+  }
+
   /** Public seam for the WebGPU UI (WP-B) to drive time controls through the same
    *  meta-verb path the bus uses. Keeps all time dispatch funnelling through one
    *  handler. */
@@ -2348,6 +2498,66 @@ export class Game {
       console.warn('[save] thumbnail capture failed', err);
       return null;
     }
+  }
+
+  /**
+   * P5b: `capture_photo` — a chrome-free screenshot the player keeps. Pushes
+   * the `photo` screen (idempotent if it's already on top — `shell-state.ts`'s
+   * `push` is a no-op for the top screen, so a second press just takes ANOTHER
+   * photo without re-pushing) then writes the PNG via a transient, invisible
+   * `<a download>` click — the shell's one sanctioned DOM exception (spec §7):
+   * it produces no visible or persistent chrome, unlike the mounted DOM
+   * islands (settings/whisper/world-code) the embed's "no `document.body`
+   * assumptions" rule actually guards against.
+   */
+  private capturePhoto(): void {
+    const dataUrl = this.captureFrame();
+    if (!dataUrl) {
+      console.info("[shell] 'capture_photo' refused — no world to capture yet");
+      return;
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadDataUrl(dataUrl, `small-gods-${stamp}.png`);
+    this.lastPhotoAt = performance.now();
+    this.shell.push('photo');
+    this.requestRender();
+  }
+
+  /**
+   * P5b: `copy_world_code` — a short base36 code identifying the CURRENT
+   * world (`@/game/world-code`), copied to the clipboard for the legacy pause
+   * menu's COPY WORLD CODE row (`ui-runtime.ts`'s `drawMenu`) and pasteable
+   * into the new-world screen elsewhere. Async because
+   * `navigator.clipboard.writeText` is; a failure (no world yet, no clipboard
+   * permission) logs rather than throwing — copying a code is a convenience,
+   * never load-bearing.
+   */
+  private async copyWorldCode(): Promise<void> {
+    if (!this.state.map) {
+      console.info("[shell] 'copy_world_code' refused — no world yet");
+      return;
+    }
+    const code = encodeWorldCode({
+      genSeed: this.state.map.seed,
+      worldSeedName: this.state.worldSeed?.name ?? '',
+      contentVersion: WORLD_CONTENT_VERSION,
+    });
+    try {
+      await navigator.clipboard?.writeText(code);
+      this.worldCodeCopiedAt = performance.now();
+      this.lastWorldCode = code;
+      this.requestRender();
+    } catch (err) {
+      console.warn('[shell] copy_world_code: clipboard write failed', err);
+    }
+  }
+
+  /** The legacy pause menu's "COPIED: …" confirmation, or null once
+   *  `WORLD_CODE_STATUS_MS` has elapsed (or nothing has been copied yet). */
+  private worldCodeStatus(): string | null {
+    if (this.worldCodeCopiedAt === null || this.lastWorldCode === null) return null;
+    if (performance.now() - this.worldCodeCopiedAt > WORLD_CODE_STATUS_MS) return null;
+    return `COPIED: ${this.lastWorldCode}`;
   }
 
   /** The slot metadata a save is listed by. Read-only over live state, so the

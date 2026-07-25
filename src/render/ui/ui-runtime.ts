@@ -69,6 +69,12 @@ export interface UiRuntimeHooks {
   getLighting?: () => boolean;
   /** Persist + live-apply a new LLM provider config (from the DOM input island). */
   onSaveLlmConfig?: (cfg: ProviderConfig) => void;
+  /** P5b: COPY WORLD CODE, from the legacy pause menu's left nav — emits the
+   *  `copy_world_code` meta verb (spec §3.6). */
+  onCopyWorldCode?: () => void;
+  /** A one-line "COPIED: …" confirmation to show under the row for a short
+   *  while after a copy, or null the rest of the time. */
+  getWorldCodeStatus?: () => string | null;
   /** A story card opened/closed — the game pauses the sim while one is up. */
   onStoryToggle?: (active: boolean) => void;
   /** Free-text whisper submitted from the conversation card's DOM input island. The
@@ -1971,7 +1977,15 @@ export class UiRuntime {
     if (nav('nav.resume', 'RESUME', false)) { this.setMenu(false); return null; }
     if (nav('nav.settings', 'SETTINGS', this.section === 'settings')) this.section = 'settings';
     if (nav('nav.world', 'NEW WORLD', false)) { this.setMenu(false); this.hooks.onNewWorld?.(); return null; }
-    // the nav column's interactive box (covers all three rows + the spine)
+    // P5b: seed share. Deliberately does NOT close the menu (unlike RESUME/NEW
+    // WORLD above) — the player likely wants to see the confirmation land.
+    if (nav('nav.copycode', 'COPY WORLD CODE', false)) this.hooks.onCopyWorldCode?.();
+    const worldCodeStatus = this.hooks.getWorldCodeStatus?.() ?? null;
+    if (worldCodeStatus) {
+      c.label(worldCodeStatus, navX, navY, fsBody, UI_PALETTE.textDim);
+      navY += navH + gap;
+    }
+    // the nav column's interactive box (covers every row + the spine)
     const navBox: Rect = { x: navX - 8 * s, y: navTop, w: navW + 8 * s, h: navY - navTop };
 
     // ── settings panel ──
