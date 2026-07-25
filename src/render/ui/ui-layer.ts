@@ -12,10 +12,21 @@
 import { UiContext } from '@/render/ui/ui-context';
 import { UI_PALETTE } from '@/render/ui/ui-palette';
 import type { UiDrawGroup } from '@/render/ui/ui-batcher';
+import { getUiScaleMultiplier } from '@/render/ui/ui-tokens';
 
-/** Integer HUD scale from device-pixel-ratio (keeps gray-box marks crisp). */
+/**
+ * Integer UI scale: the device-pixel-ratio rung, times the player's UI-scale
+ * preference, rounded back to an integer (fractional glyph scaling is never
+ * allowed). Governs the HUD and every shell screen, so one setting moves the
+ * whole interface together.
+ *
+ * The preference lives in `ui-tokens` (see `setUiScaleMultiplier` there) because
+ * the responsive type scale must be able to DISCOUNT it when measuring the
+ * physical viewport.
+ */
 export function uiScaleFor(dpr: number): number {
-  return Math.max(1, Math.round(dpr));
+  const base = Math.max(1, Math.round(dpr));
+  return Math.max(1, Math.round(base * getUiScaleMultiplier()));
 }
 
 export class UiLayer {

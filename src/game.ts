@@ -1,6 +1,6 @@
 import { createState, resetState, type GameState } from '@/core/state';
 import type { RenderFn, MetaRenderFn } from '@/render/select-renderer';
-import { zoomAt } from '@/render/camera';
+import { pan, zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { isoEnvForMap } from '@/render/iso/iso-env';
 import { pickTile } from '@/ui/pick-tile';
@@ -79,6 +79,7 @@ import type { LoadAction } from '@/render/ui/shell/load-screen';
 import type { SettingsAction, SettingsScreenView, SettingsKey } from '@/render/ui/shell/settings-screen';
 import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
+import { setUiScaleMultiplier } from '@/render/ui/ui-tokens';
 import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
@@ -106,6 +107,11 @@ import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
 import { clamp01 } from '@/core/math';
+import {
+  DEFAULT_KEYMAP, isAction, bind, conflictsFor, promptFor, loadKeymap, diffFromDefault,
+  type Action, type Keymap,
+} from '@/game/input/keymap';
+import { GamepadPoller, type GamepadFrame } from '@/game/input/gamepad';
 
 /** How long the per-frame HUD sim-read memo (belief/powers/inbox) stays fresh.
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
@@ -463,11 +469,33 @@ export class Game {
    *  already running while worldgen is in progress (see `onFrame`). */
   private worldReady = false;
 
+  // ── P5: controls (keymap + gamepad) ───────────────────────────────────────
+  /** The LIVE keybinding map — `DEFAULT_KEYMAP` merged with whatever the
+   *  player has rebound (persisted as a diff in `settings-store.ts`). Read by
+   *  `attachControls`/`attachTimeKeys` on every keydown via `getKeymap`, so a
+   *  rebind takes effect immediately with no re-attach. */
+  private keymap: Keymap = loadKeymap(settingsStore.getKeymap());
+  /** The action currently waiting for its next physical key/gamepad button
+   *  (the settings CONTROLS tab's REBIND capture state) — the runtime, not
+   *  the pure screen module, owns this (see `settings-screen.ts`'s header
+   *  doc): a capture is real DOM/gamepad plumbing. Null = not capturing. */
+  private capturingAction: Action | null = null;
+  /** A one-line status from the LAST rebind (e.g. which action lost a key to
+   *  a conflict) — cleared on the next capture start / tab switch / screen
+   *  close, surfaced through `SettingsScreenView.keymapNote`. */
+  private keymapNote: string | null = null;
+  /** Polled once per frame from `onFrame` — a COMPLETE no-op with no pad
+   *  connected (see `GamepadPoller`'s doc). */
+  private readonly gamepad = new GamepadPoller();
+
   constructor(container: HTMLElement, options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
     this.autostart = options.autostart ?? null;
     if (options.ephemeral !== undefined) this.ephemeral = options.ephemeral;
+    // Apply the persisted UI-scale preference BEFORE the first frame, so the
+    // shell and HUD come up at the player's size rather than snapping after boot.
+    setUiScaleMultiplier(settingsStore.getUiScale());
     this.shell = new Shell({
       requestRender: () => this.requestRender(),
       titleView: () => this.buildTitleView(),
@@ -642,6 +670,7 @@ export class Game {
       onSetRate:       (n) => { this.scheduler.setRate(n); this.requestRender(); },
       timeBarOpen:     () => this.timeBar !== null,
       onEscape:        () => { if (this.timeBar) this.toggleTimeBar(); },
+      getKeymap:       () => this.keymap,
     });
 
     this.ui = new GameUi(this.container, {
@@ -895,6 +924,7 @@ export class Game {
       onToggleSettings: () => { if (this.barebones) getUiRuntime().toggleMenu(); else this.ui.unifiedSettings.toggle(); },
       onToggleMinimap: () => { this.ui.minimap?.toggle(); this.requestRender(); },
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
+      getKeymap: () => this.keymap,
       onRedraw: this.requestRender,  // controls fire this on drag-pan + wheel-zoom
     });
 
@@ -1152,8 +1182,28 @@ export class Game {
             // Pure Shell-local presentation state (which tab is selected) — a
             // direct call, not a bus round-trip. See `Shell.setSettingsTab`'s doc.
             this.shell.setSettingsTab(action.tab);
+            // Leaving the row a stale note referred to reads as a bug ("why is
+            // this still here") once the player has moved on.
+            this.keymapNote = null;
+            break;
+          case 'rebind_start':
+            // Arm the capture: the actual key/gamepad LISTEN happens once, in
+            // `startKeyCapture` below — not re-armed per render, and not a
+            // bus round-trip itself (only the RESULT, `rebind_key`, is).
+            this.startKeyCapture(action.action);
+            break;
+          case 'rebind_cancel':
+            this.cancelKeyCapture();
+            break;
+          case 'reset_controls':
+            this.keymap = DEFAULT_KEYMAP;
+            settingsStore.setKeymap({});
+            this.keymapNote = 'RESET TO DEFAULTS.';
+            this.cancelKeyCapture();
+            this.requestRender();
             break;
           case 'back':
+            this.cancelKeyCapture();
             this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
             break;
         }
@@ -1916,6 +1966,9 @@ export class Game {
         break;
       }
       case 'close_screen':
+        // Popping out from under an in-progress rebind capture (Esc, a bus
+        // `close_screen`) must not leave a dangling capture-phase listener.
+        this.cancelKeyCapture();
         this.shell.pop();
         this.requestRender();
         break;
@@ -1964,8 +2017,30 @@ export class Game {
         this.applySetting(key, raw);
         break;
       }
+      case 'rebind_key': {
+        // Same entry point for the settings CONTROLS tab's own capture
+        // (`finishKeyCapture` below) and an agent's `emit_command` (spec
+        // §3.7) — `action`/`code` arrive from OUTSIDE either way, so `action`
+        // is validated against the real `Action` union exactly like
+        // `open_screen`'s screen id / `load_slot`'s slot / `set_setting`'s
+        // key, never cast and trusted.
+        const actionParam = str('action');
+        const code = str('code');
+        if (!actionParam || !isAction(actionParam) || !code) {
+          console.info(`[shell] 'rebind_key' refused — action '${actionParam ?? ''}' code '${code ?? ''}'`);
+          break;
+        }
+        const losers = conflictsFor(this.keymap, code, actionParam);
+        this.keymap = bind(this.keymap, actionParam, code);
+        settingsStore.setKeymap(diffFromDefault(this.keymap));
+        const label = promptFor(actionParam, this.keymap);
+        this.keymapNote = losers.length
+          ? `${label} REBOUND — ${losers.join(', ').toUpperCase()} LOST IT.`
+          : `${label} REBOUND.`;
+        this.requestRender();
+        break;
+      }
       case 'rename_slot':
-      case 'rebind_key':
       case 'capture_photo':
       case 'copy_world_code':
         // Declared in the registry (so the vocabulary + `capabilities` discovery
@@ -1974,6 +2049,64 @@ export class Game {
         console.info(`[shell] '${cmd.verb}' is declared but not yet serviced`);
         break;
     }
+  }
+
+  // ── P5: controls — the rebind capture listener ────────────────────────────
+  /** The live DOM listener for the CURRENTLY-armed capture (see
+   *  `startKeyCapture`), or null when nothing is being captured — detached
+   *  the instant a key resolves or cancels it, so at most one is ever live. */
+  private captureKeyListener: ((e: KeyboardEvent) => void) | null = null;
+
+  /** Arm a rebind capture for `action`: the settings CONTROLS tab reported
+   *  `{kind:'rebind_start'}` (REBIND clicked). The capture listener lives
+   *  HERE (the runtime), not in the pure screen module — see
+   *  `settings-screen.ts`'s header doc. Listens in the CAPTURE phase on
+   *  `window` so the rebind press never also fires its OLD action through
+   *  `attachControls`/`attachTimeKeys` (both bubble-phase) or reaches the UI
+   *  runtime's own Esc handler first. */
+  private startKeyCapture(action: Action): void {
+    this.cancelKeyCapture(); // only one capture at a time
+    this.capturingAction = action;
+    this.keymapNote = null;
+    const listener = (e: KeyboardEvent): void => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === 'Escape') { this.cancelKeyCapture(); return; }
+      this.finishKeyCapture(action, e.code);
+    };
+    this.captureKeyListener = listener;
+    window.addEventListener('keydown', listener, true);
+    this.requestRender();
+  }
+
+  /** Abandon an in-progress capture with no rebind (Escape, RESET, tab
+   *  switch, closing the screen). Idempotent — safe to call with nothing
+   *  armed (every `onSettingsAction` case that might follow a capture calls
+   *  it defensively). */
+  private cancelKeyCapture(): void {
+    if (this.captureKeyListener) {
+      window.removeEventListener('keydown', this.captureKeyListener, true);
+      this.captureKeyListener = null;
+    }
+    if (this.capturingAction !== null) {
+      this.capturingAction = null;
+      this.requestRender();
+    }
+  }
+
+  /** A key resolved the capture: detach the listener and route the result
+   *  through the SAME `rebind_key` meta verb an agent would use (spec
+   *  §3.7) — a player's click-then-press and `emit_command` are one path. */
+  private finishKeyCapture(action: Action, code: string): void {
+    if (this.captureKeyListener) {
+      window.removeEventListener('keydown', this.captureKeyListener, true);
+      this.captureKeyListener = null;
+    }
+    this.capturingAction = null;
+    this.bus.emit({
+      verb: 'rebind_key', source: PLAYER_SPIRIT_ID, target: { kind: 'none' },
+      params: { action, code },
+    });
   }
 
   /**
@@ -2031,11 +2164,13 @@ export class Game {
       case 'uiScale': {
         const v = toNumParam(raw);
         if (v === undefined) { console.info("[shell] 'set_setting uiScale' refused — not a number"); return; }
-        settingsStore.setUiScale(Math.round(v));
-        // NO live apply path: `ui-layer.ts`'s `uiScaleFor(dpr)` derives the HUD
-        // scale from device pixel ratio alone, never this store. Persisted
-        // honestly; effective on a future slice, not even on reload yet.
-        console.info("[shell] 'uiScale' saved — no render-side apply path exists yet");
+        settingsStore.setUiScale(v);
+        // LIVE: `uiScaleFor(dpr)` multiplies by this, and it feeds BOTH the HUD
+        // and every shell screen, so one setting moves the whole interface. The
+        // result is rounded back to an integer — fractional glyph scaling is
+        // never allowed — so coarse steps are the honest granularity here.
+        setUiScaleMultiplier(v);
+        this.requestRender();
         break;
       }
       case 'lighting': {
@@ -2069,6 +2204,9 @@ export class Game {
       halfResWater: s.halfResWater,
       uiScale: s.uiScale,
       lighting: this.dev.devMode.lighting !== 'off',
+      keymap: this.keymap,
+      capturing: this.capturingAction,
+      keymapNote: this.keymapNote,
     };
   }
 
@@ -2653,12 +2791,22 @@ export class Game {
    *  the FrameLoop driver knows whether to keep the continuous loop running. `paused` = hard
    *  pause: no sim advance, no presentation, no ambient water — the driver renders one pending
    *  frame then idles. */
-  private onFrame(_now: number, deltaMs: number, paused: boolean): FrameAnimating {
+  private onFrame(now: number, deltaMs: number, paused: boolean): FrameAnimating {
+    // P5: gamepad polling — once per frame, unconditionally, even in META
+    // MODE and while paused (a controller must be able to navigate the title
+    // / resume from the pause menu). `pollGamepad` is a complete no-op with
+    // no pad connected (see `GamepadPoller`'s doc), so this costs nothing in
+    // the overwhelmingly common case. Its return threads into the animating
+    // decision below: a CONNECTED pad keeps the loop ticking at the ambient
+    // cadence instead of going fully idle, so held-repeat/fresh presses are
+    // never missed for want of a scheduled frame.
+    const gamepadConnected = this.pollGamepad(now, deltaMs);
+
     // META MODE: no world to advance. The sky backdrop is wall-clock animated, so
     // report "animating" to keep the loop drawing — but at the reduced 'ambient'
     // cadence, because a slowly drifting cloud band does not need display rate
     // (and the title screen must not spin a laptop fan).
-    if (!this.state.map) return paused ? false : 'ambient';
+    if (!this.state.map) return paused ? (gamepadConnected ? 'ambient' : false) : 'ambient';
 
     // `worldReady` is load-bearing since the boot restructure. The frame loop now
     // starts with the SHELL (so the title's backdrop animates), which means it is
@@ -2725,7 +2873,67 @@ export class Game {
     // burning full-scene GPU at display rate on an otherwise idle watery world. (A hard
     // pause forces all of these false, so the driver renders one frame then rests.)
     if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic || this.state.cameraFly) return true;
-    return !paused && this.waterAnimating() ? 'ambient' : false;
+    if (!paused && this.waterAnimating()) return 'ambient';
+    return gamepadConnected ? 'ambient' : false;
+  }
+
+  /**
+   * P5: poll the gamepad once and apply whatever it produced. Returns
+   * whether a pad is currently connected (see `onFrame`'s doc for why that
+   * feeds the animating decision). `actions` route to the SAME `UiContext`
+   * focus ring / Esc stack the keyboard would drive when a modal surface is
+   * up (menu navigation has exactly one implementation); the left stick/
+   * triggers pan/zoom the WORLD camera only when nothing modal owns the
+   * frame — a stick input while a menu is open is that menu's business, not
+   * the camera's.
+   */
+  private pollGamepad(nowMs: number, deltaMs: number): boolean {
+    const frame = this.gamepad.poll(nowMs);
+    if (!frame) return false;
+    this.applyGamepadFrame(frame, deltaMs);
+    return true;
+  }
+
+  /** Real-ms-sized gamepad camera constants (CLAUDE.md: input timing is
+   *  wall-clock, never sim ticks). Tuned against `controls.ts`'s own drag/
+   *  wheel constants for a comparable FEEL, not measured against real
+   *  hardware — the studio review is where these get eyeballed for real. */
+  private static readonly GAMEPAD_PAN_PX_PER_MS = 0.9;
+  private static readonly GAMEPAD_ZOOM_PER_MS = 0.0016;
+
+  private applyGamepadFrame(frame: GamepadFrame, deltaMs: number): void {
+    const ui = getUiRuntime();
+    const modal = ui.isModalActive();
+    for (const action of frame.actions) {
+      if (!modal) continue; // dpad/confirm/cancel are menu-navigation only (§7) — no world-view meaning yet
+      switch (action) {
+        case 'menu_up': case 'menu_left': ui.focusPrev(); break;
+        case 'menu_down': case 'menu_right': ui.focusNext(); break;
+        case 'confirm': ui.activateFocus(); break;
+        case 'cancel': ui.escape(); break;
+        default: break; // toggle_*/rate_*/photo_mode aren't gamepad-mapped (see BUTTON_ACTION in gamepad.ts)
+      }
+    }
+    // Camera pan/zoom is a WORLD-view control — a menu owns the stick/
+    // triggers while it's up, and there's no camera at all in meta mode.
+    if (modal || !this.state.map) return;
+    if (frame.pan.dx !== 0 || frame.pan.dy !== 0) {
+      // Sign convention: pushing the stick right/down PANS the view right/
+      // down (a "look that way" joystick), the mirror of a mouse DRAG (which
+      // moves the camera opposite the drag direction) — see `attachControls`'
+      // `onMouseMove` for the drag convention this deliberately differs from.
+      pan(this.state.camera, -frame.pan.dx * Game.GAMEPAD_PAN_PX_PER_MS * deltaMs,
+        -frame.pan.dy * Game.GAMEPAD_PAN_PX_PER_MS * deltaMs);
+      this.state.followNpc = false;
+      this.state.cameraFly = null;
+      this.requestRender();
+    }
+    if (frame.zoomAxis !== 0) {
+      const vp = this.viewport();
+      const factor = Math.exp(-frame.zoomAxis * Game.GAMEPAD_ZOOM_PER_MS * deltaMs);
+      zoomAt(this.state.camera, factor, vp.width / 2, vp.height / 2);
+      this.requestRender();
+    }
   }
 
   /** The expensive scene render + UI refresh — only invoked when onFrame reported animating

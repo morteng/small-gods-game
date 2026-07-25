@@ -189,7 +189,34 @@ export function shellTypeScale(cssWidth: number, s: number): {
  *  effective CSS width exactly for the integer DPRs that produces. This is the
  *  call every shell screen should use. */
 export function shellTypeScaleFor(wDev: number, s: number): ReturnType<typeof shellTypeScale> {
-  return shellTypeScale(wDev / Math.max(1, s), s);
+  // The size CLASS must describe the PHYSICAL viewport, so it is derived from the
+  // DPR-only base scale -- NOT from `s`, which also carries the player's UI-scale
+  // preference. Dividing by the inflated `s` would shrink the apparent CSS width
+  // and flip a desktop down to `compact`, cancelling the very enlargement the
+  // player asked for (caught by `tests/unit/ui-scale-setting.test.ts`).
+  const base = Math.max(1, s / Math.max(0.0001, uiScaleMultiplier));
+  return shellTypeScale(wDev / base, s);
+}
+
+// -- the player's UI-scale preference ---------------------------------------
+// Held HERE rather than in `ui-layer.ts` so the type scale can discount it when
+// measuring the viewport (above) without `ui-tokens` depending on the layer.
+// `ui-layer.uiScaleFor` reads it; `Game.applySetting` sets it.
+let uiScaleMultiplier = 1;
+
+/** Offered steps. Coarse on purpose: the final scale is rounded to an INTEGER, so
+ *  fine steps would silently collapse onto each other (at dpr 2, 0.75x and 1x both
+ *  land on 2) and the control would look broken. */
+export const UI_SCALE_STEPS = [1, 1.5, 2] as const;
+
+/** Set the preference. Junk (from disk, or an agent over the bus) falls back to 1
+ *  rather than throwing. */
+export function setUiScaleMultiplier(m: number): void {
+  uiScaleMultiplier = Number.isFinite(m) && m >= 0.5 && m <= 4 ? m : 1;
+}
+
+export function getUiScaleMultiplier(): number {
+  return uiScaleMultiplier;
 }
 
 /** Minimum comfortable HIT TARGET in device px, by class. Touch needs ~44 CSS px
