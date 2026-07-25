@@ -335,7 +335,18 @@ current shortlist (see `MEMORY.md` for status & next slices):
   masks-worldgen). *Brainstorm.*
 - **River crossings as generative sites**, **building-validity** (auto-fix +
   scored siting), **shrine procession connectome**, **skirt + affordance graph**.
-- **Legacy-chrome retirement** (L0 done → L1 tooltip next).
+- **UI v3 — "a proper, real game"** (`docs/superpowers/specs/2026-07-25-ui-v3-complete-game-design.md`;
+  remaining slices briefed in `docs/superpowers/plans/2026-07-25-ui-v3-handoff.md`).
+  **P1–P3a shipped:** meta-mode (world-less) render path + sky backdrop, the shell screen
+  stack, the WebGPU loading screen, UI kit + design tokens + a shared keyboard/gamepad
+  focus ring, an 87-glyph pixel font (fixing prose that rendered blank commas), 12 meta
+  capability verbs as an **external agent API**, in-process quit-to-title (`resetState` +
+  keys-parity guard), instant title with generation on demand, and the save services
+  (slots + metadata store + append-only event journal, `SAVE_VERSION` 4).
+  **NEXT:** P3b save/load screens → P4 settings v2 + audio → P5 controls/gamepad/game-over/
+  photo mode → **P6 absorbs the legacy-chrome retirement L1–L6** → P7 docs/CI.
+- **Legacy-chrome retirement** — now **P6 of UI v3** (L0 done → L1 tooltip next; L5 minimap
+  is a DELETE, not a port, per D4).
 - **WebGPU-UI / MCP integration** (UI S1–S2 shipped → S3 input/scroll; then
   MCP-into-running-game over the command/query bus).
 - **Studio** — the current active surface (world browser + object editor); next

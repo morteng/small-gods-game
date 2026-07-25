@@ -17,7 +17,7 @@ A god game inspired by Terry Pratchett's *Small Gods*. The player is a minor dei
 
 Sim is deterministic with seedable RNG (sfc32); snapshot/replay supports scrub + commit + re-roll + jump-forward presets. `state.paused` retired for `scheduler.getRate()`. **All `src/sim/` is `Math.random`-free** (guard: `tests/unit/no-random-in-sim.test.ts`).
 
-**TIME IS 1:1 REALTIME (R8):** a calendar day = a solar day = 24 real hours at rate 1 (`TICKS_PER_DAY` 5,184,000; tick stays 16.667 sim-ms; rate stays a pure multiplier; NO offline catch-up). Fresh worlds start at a fixed 08:00 morning (`WORLD_START_HOUR`, `?solarhour=H` override; non-browser fallback = tick 0 = 09:00) — never anchored to the player's wall clock. Day-keyed lifecycle (mortality/births/growth) checks once per GAME HOUR (`GAME_HOUR_HZ`) with per-day meanings preserved; the belief/need economy stays REAL-TIME per-fire by design (the live loop). `SAVE_VERSION` 2 discards pre-1:1 saves. Constants meaning fiction-days must be `TICKS_PER_DAY` multiples — never raw tick literals.
+**TIME IS 1:1 REALTIME (R8):** a calendar day = a solar day = 24 real hours at rate 1 (`TICKS_PER_DAY` 5,184,000; tick stays 16.667 sim-ms; rate stays a pure multiplier; NO offline catch-up). Fresh worlds start at a fixed 08:00 morning (`WORLD_START_HOUR`, `?solarhour=H` override; non-browser fallback = tick 0 = 09:00) — never anchored to the player's wall clock. Day-keyed lifecycle (mortality/births/growth) checks once per GAME HOUR (`GAME_HOUR_HZ`) with per-day meanings preserved; the belief/need economy stays REAL-TIME per-fire by design (the live loop). Pre-1:1 saves were discarded by a `SAVE_VERSION` bump at the time (**read the current value from `src/core/save-file.ts`; never restate it here**). Constants meaning fiction-days must be `TICKS_PER_DAY` multiples — never raw tick literals.
 
 ## Known gaps & gotchas (code reality)
 
@@ -41,6 +41,22 @@ Sim is deterministic with seedable RNG (sfc32); snapshot/replay supports scrub +
 `game.ts` is a thin coordinator; the work lives in the `src/game/` collaborator modules + subsystem dirs (`core/`, `sim/`, `world/`, `llm/`, `map/`, `render/`, `assetgen/`, `blueprint/`, `catalogue/`, `terrain/`, `ui/`, `wfc/`, `dev/`, `services/`, `embed/`).
 
 **Embedding (for MCP UI):** `new Game(containerElement, options?)` mounts into any element via `src/embed/mount.ts`. Keep it that way — **no `document.body` assumptions and no inline handlers** (all `addEventListener`), so the embed stays CSP-compatible.
+
+### Boot & the game shell (UI v3)
+
+**A page load does NOT generate a world.** `Game.bootShell()` brings up the GPU device + scene and shows the **title screen** (~1–2 s); worldgen happens only when something asks — `Game.startWorld({fresh,genSeed,genome,worldSeed,ephemeral})`. `resolveAutostart` (`src/game/autostart.ts`) decides which URLs skip the title: **`?genseed` / `?genome` / `?bridge` / `?autostart` all boot straight in exactly as before**; only a plain visit reaches the title.
+
+**Two render modes, ONE frame loop.** `onRender` branches on `state.map == null` → `renderMeta` (sky-backdrop shader + UI pass only, no camera/terrain/entities/2D overlay); `onFrame` reports `'ambient'` in meta mode so the title doesn't spin a fan. `selectRenderer` returns `{ render, renderMeta }`.
+
+**The shell = the screen stack** (`src/render/ui/shell/`): `shell-state.ts` is a pure reducer, each screen is a pure `(UiContext, w, h, s, view) => action` module, `shell.ts` is the only stateful glue. `UiRuntime.frame()` has ONE branch for it (the first arm of the existing menu/card/story/HUD chain, so it inherits all hit/scroll/island bookkeeping). Adding a screen = one `case` in `Shell.draw` + one pure module + one entry in `Shell.describe()` — never a branch inside another screen. A screen swallows pointer input unconditionally (in meta mode there is no world beneath). Esc routes shell → card → pause menu.
+
+**THE ART-SETTLE RULE IS UNCHANGED:** the loading screen holds until the world is fully displayed — never grey boxes, **no wall-clock caps** (`art-settle-gate.ts`, `maxWaitMs` defaults `Infinity`). Only *where* progress draws moved (WebGPU, `src/render/ui/shell/loading-screen.ts`).
+
+**Quit to title is IN-PROCESS**, not a reload: `Game.returnToTitle()` → `resetState(state)` (`src/core/state.ts`) clears `GameState` in place, PRESERVING the container identities collaborators built in the constructor hold (`clock`/`eventLog`/`spirits`/the stores) — the same split `restoreSnapshot` already lives by. Guarded by `tests/unit/state-reset-parity.test.ts`, which also **pins the `GameState` field count**, so adding a field fails with instructions. `location.reload()` survives only as a logged fallback. **Never `Object.assign(state, createState())`** — it dangles every collaborator.
+
+**Meta capability verbs are an EXTERNAL AGENT API, not internal plumbing.** The bus/MCP seam is becoming a product feature (a player connects their own agent and drives the game). `new_game`/`load_slot`/`save_slot`/`delete_slot`/`rename_slot`/`quit_to_title`/`open_screen`/`close_screen`/`set_setting`/`rebind_key`/`capture_photo`/`copy_world_code` are registry verbs at `tier:'meta'`, `targetKind:'none'`, no `apply` — intercepted in `Game.handleMetaCommand`, never enqueued. They work **with no world loaded**. Every shell action (including a player's own click) is routed as one of these, so a click and an agent's `emit_command` share one path. `Shell.describe()` exposes screen + enumerated choices (with enabled state and refusal reasons) so a headless agent navigates menus without screenshots — its `choices` MUST derive from the same function the renderer walks. Verb/param names are API: renaming one is a breaking change.
+
+**Saves:** slots (`autosave` + `slot1..3`), a separate `save-meta` store so listing never deserialises a ~171k-tile blob, and an append-only `event-journal` (the log is no longer in the SaveFile — it was O(total history) per autosave). Blob + meta + journal delta land in ONE transaction. A stale save (`slotCompat` → `stale-save` / `stale-world`) is **shown and refused, never silently regenerated over**.
 
 Rendering internals are documented in [`src/render/CLAUDE.md`](src/render/CLAUDE.md), which loads when you work under `src/render/`.
 
