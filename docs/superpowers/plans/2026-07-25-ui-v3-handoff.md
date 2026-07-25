@@ -46,7 +46,26 @@ knowing:
 
 ---
 
-## P3b — save/load SCREENS (P3a services assumed landed)
+## P3b — SHIPPED (`d85ad391`)
+
+Save + load screens (`src/render/ui/shell/{save,load}-screen.ts`), wired through the shell and the
+`save_slot`/`load_slot`/`delete_slot` meta verbs. `load_slot { slot }` resumes the slot it is asked
+for (threaded to `bootstrapWorld`'s injectable `readSave`/`readJournal` via `BootSequenceDeps.slot`);
+the journal cursor follows the loaded slot. The interim `SlotSummary`/`describeSave()` are gone — one
+`probeSlots()` read of meta rows feeds the title CONTINUE row and both screens.
+
+**Still open from this slice:**
+- **Slot NAMING** — deliberately not built. No DOM text-input island is wired and no rect is
+  reserved. An unnamed manual save keeps the slot's existing name across a re-save, else takes a
+  slot-derived default ("Slot 1"). Wiring it: reserve a rect, return it as `ShellDrawResult.island`
+  (the contract `drawMenu`/`renderUiSpec` already use), and generalise `kit/island-frame` rather than
+  adding a second island class.
+- **Slot THUMBNAILS are captured and stored but not drawn.** `kit/slot-tile` reserves the rect and
+  takes a `drawThumb(rect)` callback; nothing passes one yet, because decoding a JPEG data URL into
+  something the WebGPU UI can sample needs a texture path the kit does not have. `Game.captureThumbnail()`
+  already produces them, so this is a render-side slice, not a data one.
+
+## P3b (original brief, kept for reference)
 
 **Files:** `src/render/ui/shell/save-screen.ts` (new), `load-screen.ts` (new), `Shell.draw`/`describe`,
 `Game.handleMetaCommand` (`save_slot`/`delete_slot`/`rename_slot`/`load_slot`).

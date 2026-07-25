@@ -37,6 +37,24 @@ function clickAt(v: TitleView, x: number, y: number): TitleAction | null {
   return action;
 }
 
+/** Screen-space bounding box of every SOLID-page vertex (see the note in
+ *  shell-save-load-screens.test.ts): aggregate once, assert once. Per-vertex
+ *  `expect()` calls are what push these geometry tests past the 5 s timeout. */
+function screenBounds(groups: UiDrawGroup[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const g of groups) {
+    if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
+    for (let i = 0; i < g.vertexCount * 8; i += 8) {
+      const x = g.vertices[i], y = g.vertices[i + 1];
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return { minX, minY, maxX, maxY };
+}
+
 function totalVerts(groups: UiDrawGroup[]): number {
   return groups.reduce((s, g) => s + g.vertexCount, 0);
 }
@@ -108,15 +126,11 @@ describe('title screen — geometry and input', () => {
   it('paints the wordmark, the rows and the build line inside the target', () => {
     const { groups } = frame(view());
     expect(totalVerts(groups)).toBeGreaterThan(0);
-    for (const g of groups) {
-      if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
-      for (let i = 0; i < g.vertexCount * 8; i += 8) {
-        expect(g.vertices[i]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i]).toBeLessThanOrEqual(W);
-        expect(g.vertices[i + 1]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i + 1]).toBeLessThanOrEqual(H);
-      }
-    }
+    const b = screenBounds(groups);
+    expect(b.minX).toBeGreaterThanOrEqual(0);
+    expect(b.maxX).toBeLessThanOrEqual(W);
+    expect(b.minY).toBeGreaterThanOrEqual(0);
+    expect(b.maxY).toBeLessThanOrEqual(H);
   });
 
   it('registers one hit region per menu row', () => {
@@ -209,15 +223,11 @@ describe('title screen — geometry and input', () => {
         expect(hit.x, `row left edge at ${w}x${h}`).toBeGreaterThanOrEqual(0);
         expect(hit.x + hit.w, `row right edge at ${w}x${h}`).toBeLessThanOrEqual(w);
       }
-      for (const g of c.batcher.flush()) {
-        if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
-        for (let i = 0; i < g.vertexCount * 8; i += 8) {
-          expect(g.vertices[i], `x overflow at ${w}x${h}`).toBeGreaterThanOrEqual(0);
-          expect(g.vertices[i], `x overflow at ${w}x${h}`).toBeLessThanOrEqual(w);
-          expect(g.vertices[i + 1], `y overflow at ${w}x${h}`).toBeGreaterThanOrEqual(0);
-          expect(g.vertices[i + 1], `y overflow at ${w}x${h}`).toBeLessThanOrEqual(h);
-        }
-      }
+      const b = screenBounds(c.batcher.flush());
+      expect(b.minX, `x underflow at ${w}x${h}`).toBeGreaterThanOrEqual(0);
+      expect(b.maxX, `x overflow at ${w}x${h}`).toBeLessThanOrEqual(w);
+      expect(b.minY, `y underflow at ${w}x${h}`).toBeGreaterThanOrEqual(0);
+      expect(b.maxY, `y overflow at ${w}x${h}`).toBeLessThanOrEqual(h);
     }
   });
 
@@ -248,12 +258,8 @@ describe('title screen — geometry and input', () => {
     c.begin();
     drawTitleScreen(c, narrow, 640, S, view());
     c.end();
-    for (const g of c.batcher.flush()) {
-      if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
-      for (let i = 0; i < g.vertexCount * 8; i += 8) {
-        expect(g.vertices[i]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i]).toBeLessThanOrEqual(narrow);
-      }
-    }
+    const nb = screenBounds(c.batcher.flush());
+    expect(nb.minX).toBeGreaterThanOrEqual(0);
+    expect(nb.maxX).toBeLessThanOrEqual(narrow);
   });
 });

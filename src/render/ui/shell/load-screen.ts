@@ -33,7 +33,12 @@ export function loadRows(view: LoadScreenView): ScreenRow[] {
     if (data.empty) {
       return {
         id: `load.${data.slot}`, slot: data.slot, data,
-        enabled: false, deletable: false, reason: 'EMPTY SLOT',
+        // No reason line: the TILE already reads "EMPTY SLOT", so a caption
+        // repeating it below was pure duplication (seen live, 2026-07-25). This
+        // is exactly the "disabled for a reason too obvious to spell out" case
+        // `ScreenRow.reason` documents. The agent surface loses nothing — the
+        // choice still reports `enabled: false` with an "EMPTY SLOT" label.
+        enabled: false, deletable: false, reason: null,
       };
     }
     if (data.compat !== 'ok') {

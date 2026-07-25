@@ -15,6 +15,7 @@
 
 import type { UiContext } from '@/render/ui/ui-context';
 import { COLOR, FS, SPACING, STROKE } from '@/render/ui/ui-tokens';
+import { withAlpha } from '@/render/ui/ui-color';
 import type { Rect } from '@/render/ui/kit/rect';
 
 export interface SlotTileOpts {
@@ -30,6 +31,9 @@ export interface SlotTileOpts {
   /** Real playtime, PRE-FORMATTED by the caller (this module does no clock math). */
   playtimeLabel: string;
   deletable?: boolean;
+  /** True for a slot that holds no save at all. Distinguishes "nothing here"
+   *  from "a real save whose picture is missing" in the thumbnail well. */
+  empty?: boolean;
   drawThumb?: (rect: Rect) => void;
   scale?: number;
 }
@@ -57,8 +61,27 @@ export function slotTile(c: UiContext, opts: SlotTileOpts): 'activate' | 'delete
   c.batcher.border(thumb.x, thumb.y, thumb.w, thumb.h, STROKE.hairline, COLOR.inkDim);
   if (opts.drawThumb) {
     opts.drawThumb(thumb);
-  } else {
+  } else if (!opts.empty) {
+    // No image to show for a REAL save (either it predates thumbnails, or the
+    // decode path isn't wired yet). A flat grey fill read as a broken image in a
+    // live pass, so draw a deliberate placeholder instead: a recessed well with a
+    // centred divine sigil, which reads as "no picture" rather than "failed".
     c.rect(thumb.x, thumb.y, thumb.w, thumb.h, COLOR.ground);
+    const glyph = '✦';
+    const gw = c.measure(glyph, s);
+    const gh = c.lineHeight(s);
+    c.label(
+      glyph,
+      Math.round(thumb.x + (thumb.w - gw) / 2),
+      Math.round(thumb.y + (thumb.h - gh) / 2),
+      s,
+      withAlpha(COLOR.inkDim, 0.45),
+    );
+  } else {
+    // An empty slot has no world at all — leave the well as bare parchment so it
+    // reads as "nothing here", visibly different from a save whose picture is
+    // merely missing.
+    c.rect(thumb.x, thumb.y, thumb.w, thumb.h, withAlpha(COLOR.ground, 0.35));
   }
 
   const textX = thumb.x + thumb.w + SPACING.sm;

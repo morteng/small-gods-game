@@ -208,10 +208,12 @@ export function drawSlotsScreen(
       tierLabel: row.data.empty ? '—' : fit(row.data.tierLine),
       playtimeLabel: row.data.empty ? '—' : fit(row.data.playtimeLabel),
       deletable: row.deletable,
+      empty: row.data.empty,
       scale: fsTile,
-      // No `drawThumb` yet — the tile shows its default empty well. Decoding
-      // `row.data.thumbnail` into a blitted quad lands with the
-      // thumbnail-render slice; this screen only reserves the rect for it.
+      // No `drawThumb` yet — the tile draws its own placeholder (a sigil for a
+      // real save with no picture, bare parchment for an empty slot). Decoding
+      // `row.data.thumbnail` into a blitted quad lands with the thumbnail-render
+      // slice; this screen only reserves the rect for it.
     });
     if (clicked === 'activate' && row.enabled) outcome = { kind: 'activate', slot: row.slot };
     if (clicked === 'delete' && row.deletable) outcome = { kind: 'delete', slot: row.slot };

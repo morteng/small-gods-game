@@ -35,6 +35,27 @@ function emptyView(): SaveScreenView & LoadScreenView {
   return { rows: SLOTS.map((slot) => row({ slot, empty: true, name: '', dateLabel: '', tierLine: '', playtimeLabel: '' })) };
 }
 
+/** Screen-space bounding box of every SOLID-page vertex drawn.
+ *
+ *  Aggregating first and asserting ONCE matters: a full save screen emits tens of
+ *  thousands of quads (the pixel font is one quad per lit pixel), and calling
+ *  `expect()` per vertex pushed this file past vitest's 5 s per-test timeout on a
+ *  loaded machine. Same rigor, ~4 orders of magnitude fewer assertions. */
+function screenBounds(groups: UiDrawGroup[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const g of groups) {
+    if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
+    for (let i = 0; i < g.vertexCount * 8; i += 8) {
+      const x = g.vertices[i], y = g.vertices[i + 1];
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return { minX, minY, maxX, maxY };
+}
+
 function totalVerts(groups: UiDrawGroup[]): number {
   return groups.reduce((s, g) => s + g.vertexCount, 0);
 }
@@ -84,11 +105,14 @@ describe('save screen — row logic', () => {
 });
 
 describe('load screen — row logic', () => {
-  it('DISABLES an empty slot and says so, but never a save screen row', () => {
+  it('DISABLES an empty slot, but never a save screen row', () => {
     const view = emptyView();
     const load = loadRows(view).find((r) => r.slot === 'slot1')!;
     expect(load.enabled).toBe(false);
-    expect(load.reason).toBe('EMPTY SLOT');
+    // NO reason line: the tile itself already reads "EMPTY SLOT", so a caption
+    // repeating it below was visible duplication in a live pass. `reason` is for
+    // refusals that are NOT self-evident from the tile (a stale version).
+    expect(load.reason).toBeNull();
     expect(load.deletable).toBe(false);
     const save = saveRows(view).find((r) => r.slot === 'slot1')!;
     expect(save.enabled).toBe(true);
@@ -130,6 +154,30 @@ function frameLoad(v: LoadScreenView, w = W, h = H): { action: LoadAction | null
   const { hits } = c.end();
   return { action, hits, groups: c.batcher.flush() };
 }
+
+describe('slot tile — the thumbnail well', () => {
+  it('an EMPTY slot and a save with NO PICTURE draw differently', () => {
+    // A flat grey well read as a broken image in a live pass. A real save with no
+    // thumbnail now gets a deliberate sigil placeholder; an empty slot gets bare
+    // parchment. The two must be visually distinguishable, or "nothing here" and
+    // "picture missing" look like the same failure.
+    const emptyVerts = totalVerts(frameLoad(emptyView()).groups);
+    const occupiedVerts = totalVerts(frameLoad(fullView()).groups);
+    expect(occupiedVerts).not.toBe(emptyVerts);
+  });
+
+  it('the placeholder stays inside the tile at every viewport size', () => {
+    // The well is derived from the tile height, which the degradation ladder
+    // compresses — so the placeholder must not escape a squeezed tile.
+    for (const [w, h] of [[1280, 720], [420, 640], [360, 300]] as const) {
+      const b = screenBounds(frameLoad(fullView(), w, h).groups);
+      expect(b.minX, `${w}x${h}`).toBeGreaterThanOrEqual(0);
+      expect(b.maxX, `${w}x${h}`).toBeLessThanOrEqual(w);
+      expect(b.minY, `${w}x${h}`).toBeGreaterThanOrEqual(0);
+      expect(b.maxY, `${w}x${h}`).toBeLessThanOrEqual(h);
+    }
+  });
+});
 
 describe('save/load screens — geometry', () => {
   it('registers one hit region per slot body, one per DELETE affordance, and BACK', () => {
@@ -175,15 +223,11 @@ describe('save/load screens — geometry', () => {
         expect(hit.y, `hit top edge ${w}x${h}`).toBeGreaterThanOrEqual(0);
         expect(hit.y + hit.h, `hit bottom edge ${w}x${h}`).toBeLessThanOrEqual(h);
       }
-      for (const g of groups) {
-        if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
-        for (let i = 0; i < g.vertexCount * 8; i += 8) {
-          expect(g.vertices[i], `x overflow ${w}x${h}`).toBeGreaterThanOrEqual(0);
-          expect(g.vertices[i], `x overflow ${w}x${h}`).toBeLessThanOrEqual(w);
-          expect(g.vertices[i + 1], `y overflow ${w}x${h}`).toBeGreaterThanOrEqual(0);
-          expect(g.vertices[i + 1], `y overflow ${w}x${h}`).toBeLessThanOrEqual(h);
-        }
-      }
+      const b = screenBounds(groups);
+      expect(b.minX, `x underflow ${w}x${h}`).toBeGreaterThanOrEqual(0);
+      expect(b.maxX, `x overflow ${w}x${h}`).toBeLessThanOrEqual(w);
+      expect(b.minY, `y underflow ${w}x${h}`).toBeGreaterThanOrEqual(0);
+      expect(b.maxY, `y overflow ${w}x${h}`).toBeLessThanOrEqual(h);
     }
   });
 
@@ -346,7 +390,9 @@ describe('Shell — save/load screens', () => {
     shell.push('load');
     const byId = new Map(shell.describe().choices.map((c) => [c.id, c]));
     expect(byId.get('load.slot1.body')!.enabled).toBe(false);
-    expect(byId.get('load.slot1.body')!.note).toBe('EMPTY SLOT');
+    // Label still carries "EMPTY SLOT" for an agent; the redundant note is gone.
+    expect(byId.get('load.slot1.body')!.label).toBe('EMPTY SLOT');
+    expect(byId.get('load.slot1.body')!.note).toBeNull();
     expect(byId.get('load.slot2.body')!.enabled).toBe(false);
     expect(byId.get('load.slot2.body')!.note).toContain('117');
     expect(byId.get('load.slot3.body')!.enabled).toBe(true);

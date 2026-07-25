@@ -233,9 +233,18 @@ export class Shell implements LoadingSurface {
   // ── LoadingSurface (drives the WebGPU loading screen) ────────────────────
   show(): void {
     if (this.top() !== 'loading') {
-      // `replace`, not `push`: the title screen must not survive underneath the
-      // loading screen — once generation starts there is nothing to go back to.
-      this.replace('loading');
+      // `reset`, NOT `replace`: once a world starts loading there is nothing to
+      // go back to, so the loading screen must become the WHOLE stack — not just
+      // the top of it.
+      //
+      // `replace` (which this used to be) collapses only the topmost entry, so it
+      // was depth-dependent: from `['title']` it gave `['loading']` and `hide()`
+      // landed on the HUD correctly, but from `['title','load']` — the
+      // title → LOAD WORLD → pick-a-slot path — it gave `['title','loading']`, and
+      // `hide()` popped back to a title screen left drawn on top of the running
+      // world, with no HUD. Found in a live GPU pass (2026-07-25); pinned for all
+      // four entry paths by `tests/unit/shell-entry-paths.test.ts`.
+      this.reset(['loading']);
       this.shownAtMs = this.now();
     }
   }
@@ -255,9 +264,12 @@ export class Shell implements LoadingSurface {
   }
 
   hide(): void {
-    if (this.top() === 'loading') this.pop();
-    // Popping 'loading' off a stack that had nothing under it lands on the HUD,
-    // which is exactly right: the world is up and owns the frame.
+    // Clear the stack outright rather than popping one level: the world is up and
+    // owns the frame, so NO meta screen should survive — the same depth-
+    // independence `show()` needs (see its comment). A pop would be correct only
+    // while `show()` guarantees depth 1, and relying on that coupling is exactly
+    // what produced the title-over-the-world bug.
+    if (this.top() === 'loading') this.reset([]);
   }
 
   /** The loading screen's view for this frame (exposed for tests + the drawer). */
