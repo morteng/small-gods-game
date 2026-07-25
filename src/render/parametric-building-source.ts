@@ -164,7 +164,16 @@ export class ParametricBuildingSource {
       this.cache.set(k, null);
       return;
     }
-    if (!spec) { this.cache.set(k, null); return; }
+    if (!spec) {
+      // Unsupported plan — grey massing for this blueprint, all session. Warn once
+      // so it is attributable (same reasoning as the null-pack case below).
+      if (!this.warned.has(k)) {
+        console.warn('[parametric-building] blueprint produced no geometry — drawing grey massing this session');
+        this.warned.add(k);
+      }
+      this.cache.set(k, null);
+      return;
+    }
     this.inflight.add(k);
     // Content-addressed persistent key: hashes the COMPOSE INPUT (the spec, yaw
     // included), so any preset/param/recipe change misses automatically.
@@ -175,7 +184,16 @@ export class ParametricBuildingSource {
     const composeOffthread = (): Promise<void> =>
       composePayload(spec!, { surfaceTexture: true, ...(spec!.yaw ? { yaw: spec!.yaw } : {}) }, { priority: 'front' })
         .then((payload) => {
-          this.cache.set(k, payload ? this.packFromCache(payload) : null);
+          const pack = payload ? this.packFromCache(payload) : null;
+          // A null pack is cached for the SESSION, so this building draws as grey
+          // massing until reload. That used to happen SILENTLY when the worker
+          // returned no payload (only a thrown error warned), which made
+          // live-pass grey massing impossible to attribute — say so, once per key.
+          if (!pack && !this.warned.has(k)) {
+            console.warn('[parametric-building] compose returned no sprite — drawing grey massing this session', { idbKey });
+            this.warned.add(k);
+          }
+          this.cache.set(k, pack);
           // Write-behind persist: never blocks sprite availability, swallows failure.
           if (idbKey && payload) void writeParametricSprite(idbKey, payload);
         })

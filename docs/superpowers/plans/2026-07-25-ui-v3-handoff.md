@@ -83,6 +83,45 @@ the journal cursor follows the loaded slot. The interim `SlotSummary`/`describeS
 - Tests: a pixel/geometry test per screen; `describe()` enumerating slots with verdicts; a click on
   a stale slot firing nothing.
 
+## Triaged and CLOSED: grey massing on the resume path (2026-07-25)
+
+**Symptom (live pass):** resuming a save rendered a slab-roofed building and a wall run as flat grey
+massing, where the same world painted fully on a fresh-gen entry earlier the same day.
+
+**Verdict: known, load-dependent degradation — NOT a resume regression.** Do not re-investigate
+without new evidence. What was checked:
+
+1. **Both entry paths run the same hold and the same warms.** `bootstrapWorld` calls `onReady` in the
+   resume branch *and* the fresh branch, and `holdLoadingUntilArtSettled` warms the identical four
+   things (`parametricBuildingSource`, `generatedBuildingArtSource`, `buildingArtResolver` per
+   building; `parametricBarrierSource` per barrier). Flora prewarm happens before either branch.
+2. **A wedged sprite cache does NOT cause grey.** `ParametricBuildingSource.warm` explicitly degrades
+   `readParametricSprite` failure → compose (`.catch(() => composePath())`), so the persisted cache is
+   a pure optimisation. The `generated-art-cache` wedge messages in the console were a red herring for
+   *this* symptom.
+3. **Save/restore does NOT change art identity** — ruled out empirically by
+   `tests/unit/resume-art-identity.test.ts`: across a full `toSaveFile` → `applySaveFile` round-trip,
+   every structure keeps its blueprint and hashes to the same sprite key under **both** flavours (the
+   order-sensitive in-memory `JSON.stringify(rb)` and the order-insensitive persisted `canonicalJson`).
+   Had this failed, every cache/bundle lookup would miss after a resume — that would have been the
+   real regression.
+
+**The actual mechanism:** any compose failure — or a worker returning a null payload — does
+`cache.set(key, null)`, which is **session-permanent** for that blueprint, so it draws grey until
+reload. That is the documented "any failure / unsupported plan caches null → caller draws the flat
+fallback" contract. It is load-dependent (worker pool + main-thread churn), which is exactly why the
+same world painted on one entry and not another.
+
+**Degraded sources count as SETTLED by design.** `waitForArtSettled` keys on pending counts reaching
+zero, and a source that gives up decrements its pending count. That is deliberate — the alternative is
+a loading screen that hangs forever on a wedged store, which the no-wall-clock-cap rule would make
+unrecoverable.
+
+**Improvement made while triaging:** the two SILENT null paths now warn once per key
+(`[parametric-building] compose returned no sprite …` / `… blueprint produced no geometry …`). Only a
+*thrown* compose error warned before, so grey massing could appear with zero console evidence. Next
+time this is seen live, the console will attribute it.
+
 ## P4b — settings SCREEN (P4a services assumed landed)
 
 **Files:** `src/render/ui/shell/settings-screen.ts` (new), `Shell`, `Game.handleMetaCommand`
