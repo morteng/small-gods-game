@@ -326,18 +326,27 @@ export function drawSettingsScreen(
   // whether this tab's genuinely FIXED chrome (header/tabs/note/RESET/BACK)
   // fits at all, never the real (scrollable) drawn size — the list itself
   // contributes NO term here, exactly because it is allowed to clip.
-  const nonRowContentH = (p: Plan): number => {
-    if (view.tab === 'gameplay') return lh + p.gap + Math.round(40 * s);
-    if (view.tab === 'controls') return lhCaption + p.gap + backH; // note line + RESET button
+  const nonRowContentH = (tab: SettingsTab, p: Plan): number => {
+    if (tab === 'gameplay') return lh + p.gap + Math.round(40 * s);
+    if (tab === 'controls') return lhCaption + p.gap + backH; // note line + RESET button
     return 0;
   };
 
-  const measure = (p: Plan): number => {
-    const rowsH = rows.length
-      ? rows.reduce((sum, r) => sum + rowH(r.kind, p), 0) + (rows.length - 1) * p.gap
-      : nonRowContentH(p);
+  // Measured per TAB, and everything below anchors on the TALLEST tab, never
+  // the current one: the header and tab bar must sit at the SAME height on
+  // every tab (centring each tab on its own content height made the chrome
+  // jump as you navigated). The scale-rung and row-plan decisions share the
+  // tallest measure for the same reason — per-tab plans would give per-tab
+  // chrome gaps, which is the same jump by another route.
+  const measureTab = (tab: SettingsTab, p: Plan): number => {
+    const tabRows = tab === view.tab ? rows : settingsRows(view, tab);
+    const rowsH = tabRows.length
+      ? tabRows.reduce((sum, r) => sum + rowH(r.kind, p), 0) + (tabRows.length - 1) * p.gap
+      : nonRowContentH(tab, p);
     return headerH + p.gap + tabH + p.gap + rowsH + p.gap + backH;
   };
+  const measure = (p: Plan): number =>
+    Math.max(...SETTINGS_TABS.map((t) => measureTab(t.id as SettingsTab, p)));
 
   const budget = h - edge * 2;
   // As with the title/slot screens: if not even the floor plan fits at this UI
@@ -479,8 +488,14 @@ export function drawSettingsScreen(
     y += backH + plan.gap;
   }
 
+  // BACK is pinned to the screen bottom on EVERY tab — the stretch tabs
+  // (gameplay/controls) already land it there by construction; the row tabs
+  // used to let it trail their content, so it jumped between tabs. The max()
+  // keeps the old draw-after-content behaviour in the cramped case where the
+  // stretch floors pushed y past the bottom anchor.
+  const backY = Math.max(y, h - edge - backH);
   const backX = Math.round(cx - backW / 2);
-  if (c.button('settings.back', 'BACK', backX, y, backW, backH, { scale: fsBody })) {
+  if (c.button('settings.back', 'BACK', backX, backY, backW, backH, { scale: fsBody })) {
     fired = { kind: 'back' };
   }
 

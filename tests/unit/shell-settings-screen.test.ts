@@ -3,7 +3,7 @@ import { UiContext } from '@/render/ui/ui-context';
 import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import {
   drawSettingsScreen, settingsRows, formatRowValue, keymapRows, SETTINGS_TABS,
-  type SettingsScreenView, type SettingsAction,
+  type SettingsScreenView, type SettingsAction, type SettingsTab,
 } from '@/render/ui/shell/settings-screen';
 import { Shell } from '@/render/ui/shell/shell';
 import { isSettingsKey } from '@/game';
@@ -562,4 +562,32 @@ describe('isSettingsKey — set_setting validation', () => {
     expect(isSettingsKey('llmProviderConfig')).toBe(false);
     expect(isSettingsKey('pixellabApiKey')).toBe(false);
   });
+});
+
+// ── stable chrome across tabs ───────────────────────────────────────────────
+// The header, tab bar and BACK button must sit at the SAME screen height on
+// every tab (user defect 2026-07-25: centring each tab on its OWN content
+// height made the chrome jump as you navigated). The tab-bar hit rect pins the
+// header transitively (header y = tab y − headerH − gap, same terms every tab).
+
+describe('settings screen — chrome does not jump between tabs', () => {
+  const viewports: readonly (readonly [number, number])[] = [
+    [1280, 720], [1389, 934], [768, 1024], [2560, 1440],
+  ];
+  for (const [w, h] of viewports) {
+    it(`tab bar and BACK sit at one height across all tabs at ${w}x${h}`, () => {
+      const anchors = SETTINGS_TABS.map((t) => {
+        const { hits } = frame(view({ tab: t.id as SettingsTab }), w, h);
+        const tabHit = hits.find((r) => r.id === 'settings.tabs.audio');
+        const backHit = hits.find((r) => r.id === 'settings.back');
+        expect(tabHit, `tab bar missing on ${t.id}`).toBeDefined();
+        expect(backHit, `BACK missing on ${t.id}`).toBeDefined();
+        return { tab: t.id, tabY: tabHit!.y, backY: backHit!.y };
+      });
+      for (const a of anchors.slice(1)) {
+        expect(a.tabY, `tab bar y on ${a.tab} vs ${anchors[0].tab}`).toBe(anchors[0].tabY);
+        expect(a.backY, `BACK y on ${a.tab} vs ${anchors[0].tab}`).toBe(anchors[0].backY);
+      }
+    });
+  }
 });
