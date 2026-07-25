@@ -285,8 +285,10 @@ export function drawSettingsScreen(
   const colX = Math.round(cx - colW / 2);
   const fsHeader = fitScale(c, headerText, w - edge * 2, fsHeaderMax);
   const headerH = c.lineHeight(fsHeader);
-  const tabH = Math.round(30 * s);
-  const backH = Math.round(30 * s);
+  // Boxed-text heights floor at `buttonHeight` — the box must hold its text
+  // with real padding, same law as `buttonWidth` for widths.
+  const tabH = Math.max(Math.round(30 * s), c.buttonHeight(fsMenu));
+  const backH = Math.max(Math.round(30 * s), c.buttonHeight(fsMenu));
   const backW = Math.round(Math.min(Math.max(160 * s, c.buttonWidth('BACK', fsMenu)), colW));
 
   // CONTROLS tab only (P5): the shell's 10-foot interactive tier for every
@@ -296,14 +298,14 @@ export function drawSettingsScreen(
   // settings dialog — see `ui-tokens.ts`'s `FS` doc). A long action list
   // simply doesn't fit one screen at this scale; that's handled by scrolling
   // (`scrollList` below), never by a smaller font.
-  const controlsRowH = Math.max(Math.round(30 * s), lhMenu + Math.round(SPACING.sm * s) * 2);
+  const controlsRowH = Math.max(Math.round(30 * s), c.buttonHeight(fsMenu), lhMenu + Math.round(SPACING.sm * s) * 2);
 
   const rows = settingsRows(view, view.tab);
 
   interface Plan { gap: number; toggleH: number; sliderH: number }
   const gapFull = Math.round(SPACING.md * s);
   const gapTight = Math.round(SPACING.tight * s);
-  const toggleHFull = Math.max(Math.round(30 * s), lh + Math.round(SPACING.sm * s) * 2);
+  const toggleHFull = Math.max(Math.round(30 * s), c.buttonHeight(fsBody), lh + Math.round(SPACING.sm * s) * 2);
   const toggleHTight = Math.max(lh + Math.round(SPACING.tight * s) * 2, 18);
   const sliderHFull = lh + Math.round(28 * s);
   const sliderHTight = lh + Math.max(8, Math.round(10 * s));

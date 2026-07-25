@@ -148,7 +148,9 @@ export function drawSlotsScreen(
   const reasonGap = Math.round(SPACING.tight * s);
   const reasonH = reasonGap + lhMeta;
 
-  const backH = Math.round(30 * s);
+  // Floors at `buttonHeight` so the BACK label reads as padded, never poking
+  // at the strip's edges — same law as `buttonWidth` for widths.
+  const backH = Math.max(Math.round(30 * s), c.buttonHeight(fsTile));
   const backW = Math.round(Math.min(160 * s, colW));
 
   interface Plan { reason: boolean; tileH: number; gap: number }

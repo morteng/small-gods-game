@@ -591,3 +591,33 @@ describe('settings screen — chrome does not jump between tabs', () => {
     });
   }
 });
+
+// ── boxes hold their text ───────────────────────────────────────────────────
+// Vertical twin of the buttonWidth truncation guard: every boxed label (tabs,
+// BACK, REBIND rows) must be at least `buttonHeight` tall — line height plus
+// real padding both sides — never a bare height constant that large-tier text
+// outgrows (user defect 2026-07-25: tab labels poked past their strips).
+
+describe('settings screen — boxed text is padded, never poking at the edges', () => {
+  const viewports: readonly (readonly [number, number])[] = [
+    [1280, 720], [1389, 934], [2560, 1440],
+  ];
+  for (const [w, h] of viewports) {
+    it(`tab/BACK/REBIND boxes are at least buttonHeight at ${w}x${h}`, () => {
+      const c = new UiContext();
+      const minH = c.buttonHeight(shellTypeScaleFor(w, S).menu);
+      const { hits } = frame(view(), w, h);
+      for (const id of ['settings.tabs.audio', 'settings.tabs.controls', 'settings.back', 'settings.musicOn']) {
+        const r = hits.find((x) => x.id === id);
+        expect(r, `${id} missing`).toBeDefined();
+        expect(r!.h, `${id} box height`).toBeGreaterThanOrEqual(minH);
+      }
+      const controls = frame(view({ tab: 'controls' }), w, h);
+      const rebind = controls.hits.find((x) => x.id.startsWith('settings.controls.rebind.'));
+      const reset = controls.hits.find((x) => x.id === 'settings.controls.reset');
+      expect(rebind, 'rebind row missing').toBeDefined();
+      expect(rebind!.h, 'REBIND box height').toBeGreaterThanOrEqual(minH);
+      expect(reset!.h, 'RESET box height').toBeGreaterThanOrEqual(minH);
+    });
+  }
+});

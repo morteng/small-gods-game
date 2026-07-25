@@ -73,6 +73,15 @@ function buttonPadX(scale: number): number {
   return Math.ceil(4 * scale);
 }
 
+/** Vertical twin of `buttonPadX`: the breathing room a boxed label needs above
+ *  and below, per side. Same rule — SCALE-derived, and the ONLY definition.
+ *  A box sized from a bare height constant (`30 * s`) under large-tier text is
+ *  how the settings tab labels outgrew their strips. Use
+ *  `UiContext.buttonHeight`. */
+function buttonPadY(scale: number): number {
+  return Math.ceil(4 * scale);
+}
+
 export class UiContext {
   readonly batcher: UiBatcher;
   private readonly palette: UiPalette;
@@ -315,6 +324,15 @@ export class UiContext {
    *  widget itself uses. */
   buttonWidth(label: string, scale: number): number {
     return Math.ceil(this.font.measure(label, scale)) + 2 * buttonPadX(scale);
+  }
+
+  /** The height a button (or any box holding a line of text) needs at `scale`
+   *  for its label to read as padded rather than poking at the edges — line
+   *  height plus `buttonPadY` on both sides. Vertical twin of `buttonWidth`:
+   *  size boxes with `Math.max(<your minimum>, c.buttonHeight(scale))`, never
+   *  with a bare height constant next to a type tier. */
+  buttonHeight(scale: number): number {
+    return this.font.lineHeight(scale) + 2 * buttonPadY(scale);
   }
 
   /** Clip a run to `maxW` px, appending `…` when it doesn't fit (card choice

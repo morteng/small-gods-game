@@ -1,6 +1,25 @@
 import { Game } from './game';
 import { resolveAutostart } from './game/autostart';
 
+/** Fade out and remove the boot veil (index.html's contentful dark cover — see
+ *  the comment there for why it exists). `snap` skips the fade: on a FAILED
+ *  boot the veil must not sit over whatever error surface is trying to show.
+ *  Waits two animation frames first so the shell's first frame has actually
+ *  PRESENTED before the cover starts to lift — fading into an unpainted canvas
+ *  would just re-expose the compositor fallback the veil exists to hide. */
+function dismissBootVeil(snap = false): void {
+  const veil = document.getElementById('boot-veil');
+  if (!veil) return; // embed hosts have no veil
+  if (snap) { veil.remove(); return; }
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    veil.addEventListener('transitionend', () => veil.remove(), { once: true });
+    veil.style.opacity = '0';
+    // Fallback: if the transition never fires (display:none ancestors, reduced
+    // motion), the veil must still leave.
+    setTimeout(() => veil.remove(), 600);
+  }));
+}
+
 // Dev features (the Studio + the __game/__debug/__bus/__perf window surface) are
 // gated behind the build-time `__DEV_TOOLS__` flag and loaded by DYNAMIC import, so a
 // distribution build (`npm run build`) tree-shakes them out entirely — only the dev
@@ -9,7 +28,10 @@ const container = document.getElementById('app');
 if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('studio')) {
   // Studio (?studio=…): the unified Object/Gallery/Zoo/World authoring shell, reusing
   // the real render path. Dev-only.
-  void import('./studio/studio').then(({ mountStudio }) => mountStudio(container));
+  void import('./studio/studio').then(({ mountStudio }) => {
+    mountStudio(container);
+    dismissBootVeil(true); // the studio has its own chrome — no reveal to stage
+  });
 
   // Studio bus bridge (dev only): with ?studio…&bridge / &bridge=rw, carry the active
   // Object-studio control surface out to the dev broker so a CLI / MCP server can pick
@@ -33,8 +55,8 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
   // and rethrows, so without one here the page would just sit there on an
   // unhandled rejection.
   game.bootShell().then(
-    () => { console.log('Shell up'); },
-    (err: unknown) => { console.error('Boot failed', err); },
+    () => { console.log('Shell up'); dismissBootVeil(); },
+    (err: unknown) => { console.error('Boot failed', err); dismissBootVeil(true); },
   );
 
   if (__DEV_TOOLS__) {

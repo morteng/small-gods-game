@@ -9,10 +9,25 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; }
     #app { width: 100%; height: 100%; }
+    /* Boot veil: a CONTENTFUL dark cover painted before any JS runs. Without
+       content Chrome defers the document's first paint entirely (measured:
+       first-paint only fired when the first WebGPU frame presented, ~6.7s in
+       dev) and the compositor shows its bright fallback — the white flash.
+       The dim wordmark is what makes this count as contentful paint.
+       main.ts fades it out (snappy) once the first shell frame has presented. */
+    #boot-veil {
+      position: fixed; inset: 0; z-index: 10; background: #1a1a2e;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 1; transition: opacity 180ms ease-out; pointer-events: none;
+    }
+    #boot-veil span {
+      color: #2e2e4a; font: 700 14px ui-monospace, monospace; letter-spacing: 0.5em;
+    }
   </style>
 </head>
 <body>
   <div id="app"></div>
+  <div id="boot-veil"><span>SMALL GODS</span></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
