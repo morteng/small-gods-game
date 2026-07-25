@@ -206,13 +206,21 @@ export class UiContext {
    * presence orb) and uses this purely for hover/click + hit-registration.
    * Returns true on the frame the click completes, OR a keyboard/gamepad
    * ACTIVATE lands while this hotspot holds focus. Sets `hot()` while hovered.
-   * Registers into the focus ring via `focusable()`, same as `button()`.
+   * Registers into the focus ring via `focusable()`, same as `button()` —
+   * unless `opts.focusable` is explicitly `false` (P5): a region that only
+   * eats pointer clicks (a modal card's body, a world label, an alert pin)
+   * is NOT itself a control a keyboard/gamepad user should be able to Tab to.
+   * Hit-testing/click behavior is UNCHANGED either way — only nav-ring
+   * membership, and (since a non-focusable hotspot can never legitimately
+   * hold keyboard focus) hovering it no longer steals focus from whatever a
+   * keyboard/gamepad user was already on.
    */
-  hotspot(id: string, x: number, y: number, w: number, h: number): boolean {
+  hotspot(id: string, x: number, y: number, w: number, h: number, opts: { focusable?: boolean } = {}): boolean {
+    const wantsFocus = opts.focusable ?? true;
     const hot = pointIn(this.input.px, this.input.py, x, y, w, h);
-    if (hot) this.setFocus(id);
+    if (hot && wantsFocus) this.setFocus(id);
     if (hot) this.hotId = id;
-    const focused = this.focusable(id);
+    const focused = wantsFocus && this.focusable(id);
     this.hits.push({ id, x, y, w, h });
     return (hot && this.input.released) || (focused && this.activateThisFrame);
   }

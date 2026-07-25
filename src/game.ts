@@ -1182,8 +1182,13 @@ export class Game {
             // Pure Shell-local presentation state (which tab is selected) — a
             // direct call, not a bus round-trip. See `Shell.setSettingsTab`'s doc.
             this.shell.setSettingsTab(action.tab);
-            // Leaving the row a stale note referred to reads as a bug ("why is
+            // Navigating away mid-capture must not leave the capture-phase
+            // listener live — it would silently steal the NEXT keypress
+            // anywhere in the game (a rebind for a row the player can no
+            // longer even see) instead of doing whatever key that was meant
+            // to do. Leaving a stale note behind reads as a bug too ("why is
             // this still here") once the player has moved on.
+            this.cancelKeyCapture();
             this.keymapNote = null;
             break;
           case 'rebind_start':
@@ -1196,6 +1201,18 @@ export class Game {
             this.cancelKeyCapture();
             break;
           case 'reset_controls':
+            // DEVIATION (documented, not silent): every other settings mutation
+            // in this hook is a meta Command through the bus (spec §3.7's rule),
+            // but no `reset_keymap` verb exists in the registry — the brief
+            // scoped this slice to servicing `rebind_key` specifically, and
+            // adding a whole new registry verb (+ capability discovery + tests)
+            // for ONE button is out of scope here. `rebind_start`/`rebind_cancel`
+            // get the same direct-call treatment `Shell.setSettingsTab`'s 'tab'
+            // case already established as precedent (arming/disarming a local
+            // capture listener, not itself persisted game state). A future slice
+            // wanting RESET agent-drivable should add `reset_keymap` to the
+            // registry the same way `rebind_key` already is, then route this
+            // through `this.bus.emit` like `set_setting` does.
             this.keymap = DEFAULT_KEYMAP;
             settingsStore.setKeymap({});
             this.keymapNote = 'RESET TO DEFAULTS.';
@@ -2678,6 +2695,11 @@ export class Game {
    */
   async returnToTitle(): Promise<void> {
     try {
+      // A capture-phase rebind listener surviving a quit-to-title would
+      // silently eat the next keypress on the title screen — this bypasses
+      // `close_screen`'s own cancel (it resets the WHOLE stack directly), so
+      // it needs the same defensive cancel.
+      this.cancelKeyCapture();
       // No forced save here: autosave already persists on change and on
       // visibility-hidden/beforeunload, and an EXPLICIT "save" belongs on the
       // pause screen next to "quit", not silently inside the quit itself.

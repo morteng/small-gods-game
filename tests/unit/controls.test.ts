@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import { createCamera } from '@/render/camera';
+import { bind, DEFAULT_KEYMAP } from '@/game/input/keymap';
 
 function makeCanvas(): HTMLCanvasElement {
   const c = document.createElement('canvas');
@@ -283,6 +284,38 @@ describe('attachControls keyboard', () => {
     canvas.dispatchEvent(new MouseEvent('mouseup', { button: 2, clientX: 50, clientY: 50, bubbles: true }));
     expect(onTileRightClick).toHaveBeenCalledTimes(1);
     expect(onTileClick).not.toHaveBeenCalled();
+  });
+
+  it('P5: a rebound keymap relabels dispatch — the OLD key no longer fires, the NEW one does', () => {
+    const onToggleLabels = vi.fn();
+    const rebound = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyZ');
+    cleanup = attachControls(canvas, createCamera(), {
+      onRedraw: () => {},
+      onToggleLabels,
+      getKeymap: () => rebound,
+    });
+    fireKey('KeyL'); // the default — now unbound for this action
+    expect(onToggleLabels).not.toHaveBeenCalled();
+    fireKey('KeyZ'); // the rebound key
+    expect(onToggleLabels).toHaveBeenCalledTimes(1);
+  });
+
+  it('attachTimeKeys also routes through a rebound keymap', () => {
+    const onTogglePause = vi.fn();
+    const rebound = bind(DEFAULT_KEYMAP, 'toggle_pause', 'KeyP');
+    const detach = attachTimeKeys(window, {
+      onToggleTimeBar: () => {},
+      onTogglePause,
+      onSetRate: () => {},
+      timeBarOpen: () => false,
+      onEscape: () => {},
+      getKeymap: () => rebound,
+    });
+    fireKey('Space'); // no longer bound to toggle_pause
+    expect(onTogglePause).not.toHaveBeenCalled();
+    fireKey('KeyP');
+    expect(onTogglePause).toHaveBeenCalledTimes(1);
+    detach();
   });
 
   it('cleanup removes the key listener', () => {

@@ -1,28 +1,32 @@
 // src/render/ui/shell/settings-screen.ts
 //
-// The SETTINGS screen (UI v3 P4b) — a tabbed screen over `settings-store`. Pure
-// like every shell screen: state in, geometry out, actions reported back. It
-// knows nothing about `Game` or `settings-store` itself — the caller
-// (`Game.buildSettingsView`) hands it a prebuilt `SettingsScreenView` and
-// receives a `SettingsAction` to translate into either a direct Shell-local
-// tab switch or a `set_setting`/`close_screen` meta command (see `shell.ts`
-// and `Game`'s `onSettingsAction` hook).
+// The SETTINGS screen (UI v3 P4b/P5) — a tabbed screen over `settings-store`.
+// Pure like every shell screen: state in, geometry out, actions reported
+// back. It knows nothing about `Game` or `settings-store` itself — the
+// caller (`Game.buildSettingsView`) hands it a prebuilt `SettingsScreenView`
+// and receives a `SettingsAction` to translate into either a direct
+// Shell-local tab switch or a meta command (see `shell.ts` and `Game`'s
+// `onSettingsAction` hook).
 //
-// Four tabs (spec §6): AUDIO and VIDEO are plain toggle/slider rows read
+// Four tabs (spec §6/§7): AUDIO and VIDEO are plain toggle/slider rows read
 // straight off the view; GAMEPLAY reserves a DOM-island rect for the existing
 // provider/model/key form (`SettingsIsland`, `ui-settings-island.ts`) — the
 // SAME reserved-rect contract `drawMenu`'s settings panel already uses, not a
-// new island class; CONTROLS is READ-ONLY this slice (P5 does rebinding) — it
-// lists the current key bindings as `kit/key-chip` chips, sourced from a
-// placeholder constant IN THIS FILE (there is no `src/game/input/keymap.ts`
-// yet). That constant is marked below for wholesale deletion once P5's real
-// keymap module lands.
+// new island class; CONTROLS (P5) lists every `keymap.ts` `Action` as a row
+// (label + current binding + REBIND). Rebinding is a two-step, cross-module
+// handshake: this screen reports `{ kind: 'rebind_start', action }` when
+// REBIND is clicked; the RUNTIME (not this pure module — see `Game`'s
+// `capturingAction`) then listens for the next physical keydown/gamepad
+// button, resolves any conflict, persists, and feeds the updated
+// `SettingsScreenView.keymap`/`capturing`/`keymapNote` back in on the next
+// frame. The screen never touches `window`/`navigator` itself.
 
 import type { UiContext } from '@/render/ui/ui-context';
 import { COLOR, FS, SPACING } from '@/render/ui/ui-tokens';
 import { toggle, slider, tabbar, keyChip, type TabDef, type Rect } from '@/render/ui/kit';
 import { clamp01 } from '@/core/math';
 import type { Settings } from '@/services/settings-store';
+import { ACTIONS, promptFor, type Action, type Keymap } from '@/game/input/keymap';
 
 /** The four settings tabs, in display order. */
 export type SettingsTab = 'audio' | 'video' | 'gameplay' | 'controls';
@@ -36,16 +40,24 @@ export type SettingsKey = keyof Pick<
 >;
 
 /**
- * Everything the AUDIO/VIDEO rows need, PREBUILT by the caller — the screen
- * never reads `settings-store` itself. `tab` is the SHELL's own local view
- * state (which tab is selected), not game state; `Shell` overwrites whatever
- * this field the caller supplies with its own (see `shell.ts`'s
- * `buildSettingsView`), so a caller may leave it at any value.
+ * Everything the AUDIO/VIDEO/CONTROLS rows need, PREBUILT by the caller — the
+ * screen never reads `settings-store`/`keymap.ts`'s persistence itself. `tab`
+ * is the SHELL's own local view state (which tab is selected), not game
+ * state; `Shell` overwrites whatever this field the caller supplies with its
+ * own (see `shell.ts`'s `buildSettingsView`), so a caller may leave it at
+ * any value.
  *
  * `lighting`/`halfResWater` are booleans here even though `settings-store`
  * persists `lighting` as a 0/1 number — the caller resolves that (`Game`
  * reads the live `devMode.lighting` toggle, which is fundamentally binary).
  * `uiScale` is the real 1..3 integer rung, not a normalized slider fraction.
+ *
+ * `keymap`/`capturing`/`keymapNote` are CONTROLS-tab-only (P5): `keymap` is
+ * the live map (default merged with whatever the player rebound); `capturing`
+ * is the action currently waiting for its next keypress, or null; `keymapNote`
+ * is a one-line status from the LAST rebind (e.g. which action lost a key to
+ * a conflict), or null. All three live in `Game` (the runtime owns the actual
+ * capture listener — see this file's header doc), never derived here.
  */
 export interface SettingsScreenView {
   tab: SettingsTab;
@@ -57,15 +69,24 @@ export interface SettingsScreenView {
   halfResWater: boolean;
   uiScale: number;
   lighting: boolean;
+  keymap: Keymap;
+  capturing: Action | null;
+  keymapNote: string | null;
 }
 
 /** What the player asked for. `set` carries the NEW value the widget produced
  *  (already flipped/moved) — the caller writes it, never toggles/adds a delta
- *  itself. `tab` is Shell-local UI state; `back` closes the screen. */
+ *  itself. `tab` is Shell-local UI state; `back` closes the screen.
+ *  `rebind_start`/`rebind_cancel`/`reset_controls` are P5: the CONTROLS tab's
+ *  own affordances, serviced by the `rebind_key`/`set_setting` meta verbs
+ *  (see `Game.handleMetaCommand`). */
 export type SettingsAction =
   | { kind: 'set'; key: SettingsKey; value: boolean | number }
   | { kind: 'tab'; tab: SettingsTab }
-  | { kind: 'back' };
+  | { kind: 'back' }
+  | { kind: 'rebind_start'; action: Action }
+  | { kind: 'rebind_cancel' }
+  | { kind: 'reset_controls' };
 
 /** Paired with `island`: a settings-screen frame reserves a DOM rect on the
  *  GAMEPLAY tab regardless of whether an action fired, so the form stays
@@ -99,10 +120,10 @@ export interface SettingsRow {
 }
 
 /**
- * The rows for one tab. GAMEPLAY (the DOM island) and CONTROLS (read-only
- * key-chips) own their own layout and contribute no `set`-able rows — an
- * empty array here, matched by zero hit regions there, keeps `describe()`
- * and the draw path in lockstep for every tab.
+ * The rows for one tab. GAMEPLAY (the DOM island) and CONTROLS (its own
+ * `keymapRows` below) own their own layout and contribute no `set`-able rows
+ * here — an empty array, matched by zero `set` hit regions in THIS function's
+ * sense, keeps `describe()` and the draw path in lockstep for every tab.
  */
 export function settingsRows(view: SettingsScreenView, tab: SettingsTab = view.tab): SettingsRow[] {
   if (tab === 'audio') {
@@ -133,25 +154,49 @@ export function formatRowValue(row: SettingsRow): string {
   return `${Math.round((row.value as number) * 100)}%`;
 }
 
-/**
- * P5 PLACEHOLDER — DELETE WHOLESALE when `src/game/input/keymap.ts` lands
- * (see the P5 brief in `docs/superpowers/plans/2026-07-25-ui-v3-handoff.md`).
- * There is no keymap module yet, so the CONTROLS tab reads this constant
- * instead of a real binding table; it is display-only (no rebinding, no
- * conflict detection) — that is P5's job. Sourced from the current hardcoded
- * key handling in `src/ui/controls.ts`.
- */
-const PLACEHOLDER_KEYMAP: readonly { action: string; keys: readonly string[] }[] = [
-  { action: 'PAUSE MENU / BACK', keys: ['ESC'] },
-  { action: 'PAUSE / RESUME', keys: ['SPACE'] },
-  { action: 'TIME BAR', keys: ['T'] },
-  { action: 'SET RATE 1/2/4/8', keys: ['1', '2', '4', '8'] },
-  { action: 'TOGGLE LABELS', keys: ['L'] },
-  { action: 'TOGGLE MINIMAP', keys: ['M'] },
-  { action: 'TOGGLE FOLLOW', keys: ['F'] },
-  { action: 'SETTINGS', keys: ['K'] },
-  { action: 'DEBUG OVERLAY', keys: ['~'] },
-];
+/** Human labels for every `Action` — the CONTROLS tab's row text. Order-
+ *  independent of `ACTIONS` (that list owns row ORDER; this owns row TEXT). */
+const ACTION_LABELS: Readonly<Record<Action, string>> = {
+  toggle_labels: 'TOGGLE LABELS',
+  toggle_minimap: 'TOGGLE MINIMAP',
+  toggle_debug: 'DEBUG OVERLAY',
+  follow_selected: 'TOGGLE FOLLOW',
+  open_settings: 'OPEN SETTINGS',
+  open_tutorial: 'TUTORIAL',
+  toggle_time_bar: 'TIME BAR',
+  toggle_pause: 'PAUSE / RESUME',
+  rate_1: 'SET RATE 1X',
+  rate_2: 'SET RATE 2X',
+  rate_4: 'SET RATE 4X',
+  rate_8: 'SET RATE 8X',
+  menu_up: 'MENU UP',
+  menu_down: 'MENU DOWN',
+  menu_left: 'MENU LEFT',
+  menu_right: 'MENU RIGHT',
+  confirm: 'CONFIRM',
+  cancel: 'BACK / CANCEL',
+  photo_mode: 'PHOTO MODE',
+};
+
+/** One CONTROLS-tab row: the action, its label, and its current prompt —
+ *  exported so a test can assert row logic without geometry (same idiom as
+ *  `settingsRows`), and so `shell.ts`'s `describe()` walks the SAME list the
+ *  draw path does. */
+export interface KeymapRow {
+  id: string;
+  action: Action;
+  label: string;
+  prompt: string;
+}
+
+export function keymapRows(view: SettingsScreenView): KeymapRow[] {
+  return ACTIONS.map((action) => ({
+    id: `settings.controls.rebind.${action}`,
+    action,
+    label: ACTION_LABELS[action],
+    prompt: promptFor(action, view.keymap),
+  }));
+}
 
 /** The largest INTEGER scale at or below `preferred` at which `text` fits
  *  `maxW` — mirrors `title-screen.ts`/`save-screen.ts`'s `fitScale` (pixel-
@@ -172,7 +217,10 @@ function fitScale(c: UiContext, text: string, maxW: number, preferred: number): 
  * LAYOUT IS MEASURED BEFORE IT IS PLACED, same discipline as
  * `title-screen.ts`/`save-screen.ts`: a degradation ladder tightens gaps and
  * row heights before the whole screen steps down an integer UI-scale rung,
- * so a cramped viewport loses spacing, never overflows.
+ * so a cramped viewport loses spacing, never overflows. The CONTROLS tab
+ * (P5) never shrinks its TEXT to fit — its 19 rows are drawn at `FS.menu`
+ * (the shell's 10-foot interactive tier) regardless of viewport, and a short
+ * viewport gets a `scrollList` instead (see the `controls` branch below).
  */
 export function drawSettingsScreen(
   c: UiContext, w: number, h: number, s: number, view: SettingsScreenView,
@@ -187,12 +235,23 @@ export function drawSettingsScreen(
   const headerH = c.lineHeight(fsHeader);
 
   const fsBody = FS.body * s;
-  const fsSmall = FS.caption * s;
   const lh = c.lineHeight(fsBody);
-  const lhSmall = c.lineHeight(fsSmall);
   const tabH = Math.round(30 * s);
   const backH = Math.round(30 * s);
   const backW = Math.round(Math.min(160 * s, colW));
+
+  // CONTROLS tab only (P5): the shell's 10-foot interactive tier for every
+  // binding row, and its caption floor for the one instructional/conflict
+  // hint line — NEVER below `FS.caption`, and interactive text never below
+  // `FS.menu` (product direction, 2026-07-25: this is a game, not a desktop
+  // settings dialog — see `ui-tokens.ts`'s `FS` doc). A long action list
+  // simply doesn't fit one screen at this scale; that's handled by scrolling
+  // (`scrollList` below), never by a smaller font.
+  const fsMenu = FS.menu * s;
+  const fsCaption = FS.caption * s;
+  const lhMenu = c.lineHeight(fsMenu);
+  const lhCaption = c.lineHeight(fsCaption);
+  const controlsRowH = Math.max(Math.round(30 * s), lhMenu + Math.round(SPACING.sm * s) * 2);
 
   const rows = settingsRows(view, view.tab);
 
@@ -212,22 +271,19 @@ export function drawSettingsScreen(
     { gap: gapTight, toggleH: toggleHTight, sliderH: sliderHTight },
   ];
 
-  // GAMEPLAY (the DOM island) and CONTROLS (a `scrollList` of read-only
-  // key-chip rows) don't have a fixed content height — both STRETCH to fill
-  // whatever vertical space is left before BACK once drawn (see the draw path
-  // below), which is what actually guarantees neither can overflow a cramped
-  // viewport: a `scrollList` only ever draws rows that FULLY fit its rect, and
-  // the island rect IS the remaining space by construction. `nonRowContentH`
-  // below is therefore only a MINIMUM — enough to decide whether this tab's
-  // fixed chrome (header/tabs/note/BACK) fits at all, never the real drawn size.
-  // `keyChip`'s own height is `lineHeight(fsSmall) + 2*SPACING.hairline` (it does
-  // NOT scale its padding by `s`, only by the text scale — see `key-chip.ts`) —
-  // the row must be at least that tall or the chip's own bottom edge would clip
-  // past the row `scrollList` allotted it.
-  const controlsRowH = Math.max(lhSmall + Math.round(SPACING.tight * s), lhSmall + 2 * SPACING.hairline + 1, 16);
+  // GAMEPLAY (the DOM island) and CONTROLS (a `scrollList` of binding rows)
+  // don't have a fixed content height — both STRETCH to fill whatever
+  // vertical space is left before BACK once drawn (see the draw path below),
+  // which is what actually guarantees neither can overflow a cramped
+  // viewport: a `scrollList` only ever draws rows that FULLY fit its rect,
+  // and the island rect IS the remaining space by construction.
+  // `nonRowContentH` below is therefore only a MINIMUM — enough to decide
+  // whether this tab's genuinely FIXED chrome (header/tabs/note/RESET/BACK)
+  // fits at all, never the real (scrollable) drawn size — the list itself
+  // contributes NO term here, exactly because it is allowed to clip.
   const nonRowContentH = (p: Plan): number => {
     if (view.tab === 'gameplay') return lh + p.gap + Math.round(40 * s);
-    if (view.tab === 'controls') return lhSmall + p.gap + controlsRowH;
+    if (view.tab === 'controls') return lhCaption + p.gap + backH; // note line + RESET button
     return 0;
   };
 
@@ -242,7 +298,10 @@ export function drawSettingsScreen(
   // As with the title/slot screens: if not even the floor plan fits at this UI
   // scale, step the WHOLE screen down an integer scale rung and retry — done
   // BEFORE any drawing happens, so the failed attempt never leaves geometry
-  // behind for the retry to draw over.
+  // behind for the retry to draw over. NOTE: this is the pre-existing WHOLE-
+  // SCREEN mechanism (every tab shares it); it is not a CONTROLS-specific
+  // font-shrink tier — the controls branch itself never asks for less than
+  // `FS.menu`/`FS.caption` at whatever `s` this lands on.
   if (s > 1 && measure(plans[plans.length - 1]) > budget) {
     return drawSettingsScreen(c, w, h, s - 1, view);
   }
@@ -309,34 +368,64 @@ export function drawSettingsScreen(
     island = { x: colX, y, w: colW, h: islandH };
     y += islandH + plan.gap;
   } else if (view.tab === 'controls') {
-    const note = 'REBINDING ARRIVES IN A LATER PHASE';
-    c.label(c.ellipsize(note, fsSmall, colW), colX, y, fsSmall, COLOR.inkDim);
-    y += lhSmall + plan.gap;
-    // A `scrollList` rather than an unconditional loop: it only ever draws rows
-    // that FULLY fit its rect, so a long placeholder list can never push BACK
-    // (or anything else) past the viewport — the geometry-safety property this
-    // whole module otherwise gets from the measured degradation ladder. No
-    // wheel wiring lands this slice (pure module, no runtime attach), so on an
-    // overflowing list the `+` more-indicator is honest but inert until a
-    // caller wires `scrollBy` — acceptable for a P5-replaced placeholder.
+    // The note line: a conflict/status report from the LAST rebind (P5) reads
+    // at the same MENU tier as the rows it's reporting on (product direction:
+    // "conflict text" is interactive-adjacent, not a caption); the generic
+    // instructional hint (nothing has happened yet) is a genuine caption.
+    const hasNote = view.keymapNote !== null;
+    const noteScale = hasNote ? fsMenu : fsCaption;
+    const noteLh = hasNote ? lhMenu : lhCaption;
+    const noteColor = hasNote ? COLOR.ink : COLOR.inkDim;
+    const noteText = view.keymapNote ?? 'CLICK REBIND, THEN PRESS A KEY. ESC CANCELS.';
+    c.label(c.ellipsize(noteText, noteScale, colW), colX, y, noteScale, noteColor);
+    y += noteLh + plan.gap;
+
     const listY = y;
-    const listH = Math.max(controlsRowH, h - edge - plan.gap - backH - listY);
-    const labelMaxW = Math.round(colW * 0.58);
-    const chipsX = colX + Math.round(colW * 0.62);
+    // The list STRETCHES to fill whatever's left above RESET+BACK — see
+    // `nonRowContentH`'s doc for why that's what actually guarantees this tab
+    // never overflows regardless of how many rows exist. UNLIKE the other
+    // tabs' island/list floors, this one floors at 0, not `controlsRowH`: a
+    // floor of "at least one row" is exactly what caused a real overflow at
+    // a cramped viewport (a giant `FS.menu`-scale row forced past what was
+    // actually left) — an empty scrollList (0 visible rows) is an honest,
+    // never-overflowing degraded state; the geometry-safety guarantee wins
+    // over "always show at least one row" when they conflict.
+    const listH = Math.max(0, h - edge - plan.gap - backH /* RESET */ - plan.gap - backH /* BACK */ - listY);
+    const labelMaxW = Math.round(colW * 0.46);
+    const chipX = colX + Math.round(colW * 0.48);
+    const rebindW = Math.round(colW * 0.26);
+    const rebindX = colX + colW - rebindW;
+    const krows = keymapRows(view);
     c.scrollList(
       'settings.controls.list', { x: colX, y: listY, w: colW, h: listH },
-      controlsRowH, PLACEHOLDER_KEYMAP.length,
+      controlsRowH, krows.length,
       (i, rowY) => {
-        const binding = PLACEHOLDER_KEYMAP[i];
-        c.label(c.ellipsize(binding.action, fsSmall, labelMaxW), colX, rowY, fsSmall, COLOR.ink);
-        let chipX = chipsX;
-        for (const k of binding.keys) {
-          const r = keyChip(c, { text: k, x: chipX, y: rowY, scale: fsSmall });
-          chipX = r.x + r.w + Math.round(SPACING.tight * s);
+        const row = krows[i];
+        const capturingThis = view.capturing === row.action;
+        c.label(c.ellipsize(row.label, fsMenu, labelMaxW), colX, rowY, fsMenu, COLOR.ink);
+        if (capturingThis) {
+          c.label('PRESS A KEY', chipX, rowY, fsMenu, COLOR.gold);
+        } else {
+          keyChip(c, { text: row.prompt, x: chipX, y: rowY, scale: fsMenu });
+        }
+        // While ANY row is capturing, every OTHER row's REBIND is disabled —
+        // one capture at a time (a second REBIND click mid-capture would be
+        // ambiguous about which row the next keypress belongs to).
+        const disabled = view.capturing !== null && !capturingThis;
+        const btnLabel = capturingThis ? 'CANCEL' : 'REBIND';
+        if (c.button(`settings.controls.rebind.${row.action}`, btnLabel, rebindX, rowY, rebindW, controlsRowH,
+          { scale: fsMenu, disabled })) {
+          fired = capturingThis ? { kind: 'rebind_cancel' } : { kind: 'rebind_start', action: row.action };
         }
       },
     );
     y = listY + listH + plan.gap;
+
+    if (c.button('settings.controls.reset', 'RESET TO DEFAULTS', colX, y, colW, backH,
+      { scale: fsMenu, disabled: view.capturing !== null })) {
+      fired = { kind: 'reset_controls' };
+    }
+    y += backH + plan.gap;
   }
 
   const backX = Math.round(cx - backW / 2);

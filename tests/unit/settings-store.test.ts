@@ -34,6 +34,7 @@ describe('settings-store — defaults + round-trip', () => {
       llmSpend: null,
       firstRunSeen: false,
       dockLayout: {},
+      keymap: {},
     });
   });
 
@@ -54,6 +55,8 @@ describe('settings-store — defaults + round-trip', () => {
     store.setFirstRunSeen(true); expect(store.getFirstRunSeen()).toBe(true);
     const dock = { panelA: { dock: { kind: 'left', order: 0 }, open: true } };
     store.setDockLayout(dock); expect(store.getDockLayout()).toEqual(dock);
+    const keymap = { toggle_labels: ['KeyJ'] };
+    store.setKeymap(keymap); expect(store.getKeymap()).toEqual(keymap);
   });
 
   it('persists across a fresh read of the module state (survives a "reload")', () => {

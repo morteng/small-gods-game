@@ -66,6 +66,13 @@ export interface Settings {
   // Misc
   firstRunSeen: boolean;
   dockLayout: Record<string, unknown>;
+  // Controls (P5) — a DIFF against `keymap.ts`'s DEFAULT_KEYMAP (only the
+  // actions the player actually rebound), so a future default-binding change
+  // still reaches a player who never touched that action. Opaque here (same
+  // "this module doesn't know their shapes" treatment as `llmProviderConfig`/
+  // `dockLayout`) — `keymap.ts`'s `loadKeymap`/`diffFromDefault` own the
+  // typed merge/diff logic.
+  keymap: Record<string, readonly string[]>;
 }
 
 const DEFAULTS: Settings = {
@@ -82,6 +89,7 @@ const DEFAULTS: Settings = {
   llmSpend: null,
   firstRunSeen: false,
   dockLayout: {},
+  keymap: {},
 };
 
 // — storage seam (never let a settings read/write take the boot down) ————————
@@ -250,6 +258,9 @@ export function setFirstRunSeen(v: boolean): void { update({ firstRunSeen: v });
 
 export function getDockLayout(): Record<string, unknown> { return readAll().dockLayout; }
 export function setDockLayout(v: Record<string, unknown>): void { update({ dockLayout: v }); }
+
+export function getKeymap(): Record<string, readonly string[]> { return readAll().keymap; }
+export function setKeymap(v: Record<string, readonly string[]>): void { update({ keymap: v }); }
 
 /** Test-only escape hatch: forget the "storage is broken" latch + memory
  *  fallback between test cases that stub/unstub localStorage. Harmless to

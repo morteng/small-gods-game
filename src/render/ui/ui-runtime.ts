@@ -391,6 +391,48 @@ export class UiRuntime {
     return this.card !== null;
   }
 
+  /** Whether ANY modal UI surface currently owns the frame — a shell screen,
+   *  the legacy pause menu, or an open story/UiSpec card. The same condition
+   *  `consumesPointer` treats as "eat every click," extracted so P5's gamepad
+   *  polling can decide "route the stick/dpad to menu focus" vs. "route it to
+   *  the world camera" without probing pointer coordinates. */
+  isModalActive(): boolean {
+    return !!(this.shell?.isActive() || this.menuOpen || this.story || this.card);
+  }
+
+  /** Gamepad dpad → the SAME focus ring Tab/Shift+Tab would drive (§4) — menu
+   *  navigation has exactly one implementation, shared by keyboard and pad. */
+  focusNext(): void {
+    this.ctx.focusNext();
+    this.hooks.requestRender?.();
+  }
+  focusPrev(): void {
+    this.ctx.focusPrev();
+    this.hooks.requestRender?.();
+  }
+
+  /** Gamepad A → activate whatever currently holds focus (mirrors a keyboard
+   *  Enter, which nothing wires yet — this is gamepad's own entry point). */
+  activateFocus(): void {
+    this.ctx.activate();
+    this.hooks.requestRender?.();
+  }
+
+  /** Gamepad B → the SAME Esc stack the keyboard `Escape` handler below
+   *  drives (shell screen → open card → pause menu). One implementation. */
+  escape(): void {
+    this.handleEscape();
+  }
+
+  private handleEscape(): void {
+    // Esc stack, outermost first: a shell screen owns it (the host decides
+    // what "back" means for that screen — pop, or ignore on the title), then
+    // an open card, then the pause menu.
+    if (this.shell?.isActive()) this.hooks.onShellEscape?.();
+    else if (this.card) this.dismissCard();
+    else this.toggleMenu();
+  }
+
   /**
    * Present a declarative `UiSpec` as a modal card (the whisper card, P4). A chosen
    * option invokes `onChoose(choice)` — the game emits the choice's pre-paired
@@ -479,8 +521,7 @@ export class UiRuntime {
   consumesPointer(px: number, py: number): boolean {
     // A shell screen is the whole surface — and in meta mode there is no world
     // underneath to click at all, so it must swallow everything unconditionally.
-    if (this.shell?.isActive()) return true;
-    if (this.menuOpen || this.story || this.card) return true;
+    if (this.isModalActive()) return true;
     return this.lastHits.some((h) => px >= h.x && px < h.x + h.w && py >= h.y && py < h.y + h.h);
   }
 
@@ -644,12 +685,7 @@ export class UiRuntime {
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // Esc stack, outermost first: a shell screen owns it (the host decides
-        // what "back" means for that screen — pop, or ignore on the title), then
-        // an open card, then the pause menu.
-        if (this.shell?.isActive()) this.hooks.onShellEscape?.();
-        else if (this.card) this.dismissCard();
-        else this.toggleMenu();
+        this.handleEscape();
         e.stopPropagation(); // the UI owns Esc (supersedes time-bar dismiss)
         e.preventDefault();
       }
@@ -996,7 +1032,9 @@ export class UiRuntime {
       // click target in screen coords (== the label's own backing rect). Only
       // live while genuinely in-band — a fading-OUT ghost is display-only (the
       // band already left, so a click on it shouldn't refocus/fly).
-      if (!fadingOut && c.hotspot(`wlabel.${lb.poiId}`, bx, by, boxW, boxH)) clicked = lb.poiId;
+      // P5: world labels are map ambience, not a control — they must not join
+      // the keyboard/gamepad Tab ring (still fully clickable by pointer).
+      if (!fadingOut && c.hotspot(`wlabel.${lb.poiId}`, bx, by, boxW, boxH, { focusable: false })) clicked = lb.poiId;
     }
     if (clicked) {
       this.hooks.onWorldLabel?.(clicked);
@@ -1059,7 +1097,8 @@ export class UiRuntime {
       const gw = c.measure(glyph, fs);
       c.label(glyph, Math.round(x + (size - gw) / 2), Math.round(y + (size - c.lineHeight(fs)) / 2), fs, tint, UiSpace.World);
       // click target in screen coords (== the projected device-px marker rect).
-      if (c.hotspot(`alert.${p.id}`, x, y, size, size)) clicked = p.id;
+      // P5: same as world labels — a zoomed-out aggregate marker, not a Tab stop.
+      if (c.hotspot(`alert.${p.id}`, x, y, size, size, { focusable: false })) clicked = p.id;
     }
     if (clicked) {
       this.hooks.onAlertPin?.(clicked);
@@ -1085,7 +1124,8 @@ export class UiRuntime {
     const ch = 18 * s + nameLh + 6 * s + lh + 12 * s + barH + 10 * s + lh + 16 * s;
 
     c.panel(cx, cy, cw, ch);
-    c.hotspot('ui.sitecard', cx, cy, cw, ch); // eat clicks on the card body
+    // Pure click-eater, never a Tab stop (same rule as `card.body`).
+    c.hotspot('ui.sitecard', cx, cy, cw, ch, { focusable: false });
 
     const innerX = cx + 18 * s;
     const innerW = cw - 36 * s;
@@ -1128,7 +1168,8 @@ export class UiRuntime {
     const top = pad;
     const ph = h - pad * 2;
     c.panel(px, top, pw, ph);
-    c.hotspot('ui.inspector', px, top, pw, ph); // eat clicks on the body (no deselect)
+    // Pure click-eater (prevents deselect), never a Tab stop.
+    c.hotspot('ui.inspector', px, top, pw, ph, { focusable: false });
 
     const fsName = 3 * s;
     const fsBody = FS.body * s;
@@ -1588,7 +1629,9 @@ export class UiRuntime {
     const cy = Math.round((h - cardH) / 2);
     const cardRect: Rect = { x: cx, y: cy, w: cw, h: cardH };
     c.panel(cx, cy, cw, cardH);
-    c.hotspot('card.body', cx, cy, cw, cardH); // eat clicks inside the card body
+    // P5: this only eats stray clicks on the card body — it must not itself
+    // become a Tab stop ahead of the card's real choice buttons.
+    c.hotspot('card.body', cx, cy, cw, cardH, { focusable: false });
 
     const innerX = cx + 28 * s;
     const innerW = cw - 56 * s;
@@ -1643,7 +1686,9 @@ export class UiRuntime {
       const iy = bottom - inputH;
       c.rect(innerX, iy, innerW, inputH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.6));
       c.batcher.border(innerX, iy, innerW, inputH, Math.max(1, Math.round(s)), withAlpha(UI_PALETTE.textDim, 0.4));
-      c.hotspot('card.input', innerX, iy, innerW, inputH); // eat clicks; the DOM input types
+      // P5: same reasoning as card.body — the DOM input island is the real
+      // focus target here, not this eat-clicks rect.
+      c.hotspot('card.input', innerX, iy, innerW, inputH, { focusable: false });
       inputRect = { x: innerX, y: iy, w: innerW, h: inputH };
     }
 

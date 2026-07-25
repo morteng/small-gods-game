@@ -12,7 +12,7 @@
 // only in which slots are pickable and what picking one means (spec §5.4).
 
 import type { UiContext } from '@/render/ui/ui-context';
-import { COLOR, FS, SPACING } from '@/render/ui/ui-tokens';
+import { COLOR, SPACING, shellTypeScaleFor } from '@/render/ui/ui-tokens';
 import { slotTile } from '@/render/ui/kit/slot-tile';
 import type { SaveSlot, SlotCompat } from '@/services/save-store';
 
@@ -133,21 +133,27 @@ export function drawSlotsScreen(
   const colW = Math.round(Math.min(560 * s, Math.max(140, w - edge * 2)));
   const colX = Math.round(cx - colW / 2);
 
-  const fsHeader = fitScale(c, headerText, w - edge * 2, FS.title * s);
+  // Responsive 10-foot type: the header is a heading, slot NAMES and BACK are
+  // interactive rows (menu tier); only the date/tier/playtime metadata and
+  // refusal notes sit on the caption floor. Drawing the WHOLE tile at caption
+  // was the "settings/menus are too small" bug the user reported.
+  const T = shellTypeScaleFor(w, s);
+  const fsHeader = fitScale(c, headerText, w - edge * 2, T.heading);
   const headerH = c.lineHeight(fsHeader);
 
-  // Slot-tile body text rides FS.caption — captions/metadata scale, per the kit.
-  const fsTile = FS.caption * s;
+  const fsTile = T.menu;
+  const fsMeta = T.caption;
   const lhTile = c.lineHeight(fsTile);
+  const lhMeta = c.lineHeight(fsMeta);
   const reasonGap = Math.round(SPACING.tight * s);
-  const reasonH = reasonGap + lhTile;
+  const reasonH = reasonGap + lhMeta;
 
   const backH = Math.round(30 * s);
   const backW = Math.round(Math.min(160 * s, colW));
 
   interface Plan { reason: boolean; tileH: number; gap: number }
-  const tileHFull = Math.round(4 * lhTile + 2 * SPACING.sm * s);
-  const tileHTight = Math.round(2 * lhTile + 2 * SPACING.tight * s);
+  const tileHFull = Math.round(lhTile + 3 * lhMeta + 2 * SPACING.sm * s);
+  const tileHTight = Math.round(lhTile + lhMeta + 2 * SPACING.tight * s);
   const tileHMin = Math.max(Math.round(lhTile + 2 * SPACING.tight * s), 20);
   const gapFull = Math.round(SPACING.sm * s);
   const gapTight = Math.round(SPACING.tight * s);
@@ -210,6 +216,7 @@ export function drawSlotsScreen(
       deletable: row.deletable,
       empty: row.data.empty,
       scale: fsTile,
+      metaScale: fsMeta,
       // No `drawThumb` yet — the tile draws its own placeholder (a sigil for a
       // real save with no picture, bare parchment for an empty slot). Decoding
       // `row.data.thumbnail` into a blitted quad lands with the thumbnail-render
@@ -222,8 +229,8 @@ export function drawSlotsScreen(
     if (plan.reason && row.reason) {
       const reasonY = y + reasonGap;
       const maxW = colW - 2 * Math.round(SPACING.sm * s);
-      const reasonText = c.ellipsize(row.reason.toUpperCase(), fsTile, maxW);
-      c.label(reasonText, colX + Math.round(SPACING.sm * s), reasonY, fsTile, COLOR.inkDim);
+      const reasonText = c.ellipsize(row.reason.toUpperCase(), fsMeta, maxW);
+      c.label(reasonText, colX + Math.round(SPACING.sm * s), reasonY, fsMeta, COLOR.inkDim);
       y = reasonY + lhTile;
     }
     y += plan.gap;

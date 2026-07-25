@@ -185,6 +185,78 @@ describe('UiContext.activate() + button()/hotspot()', () => {
   });
 });
 
+describe('hotspot({ focusable: false }) — P5 opt-out from the nav ring', () => {
+  it('does NOT join the focus ring, but a focusable sibling still does', () => {
+    const c = ctx();
+    c.begin();
+    c.hotspot('label', 0, 0, 20, 20, { focusable: false });
+    c.hotspot('button-like', 100, 100, 20, 20);
+    c.end();
+    c.focusNext();
+    expect(c.focusId).toBe('button-like'); // 'label' never entered the ring
+    c.focusNext();
+    expect(c.focusId).toBe('button-like'); // only one entry — wraps to itself
+  });
+
+  it('is a no-op ring of exactly the non-focusable hotspots (empty ring stays inert)', () => {
+    const c = ctx();
+    c.begin();
+    c.hotspot('a', 0, 0, 10, 10, { focusable: false });
+    c.hotspot('b', 20, 20, 10, 10, { focusable: false });
+    c.end();
+    c.focusNext();
+    expect(c.focusId).toBeNull();
+  });
+
+  it('is STILL fully clickable by pointer (hit-testing/click behavior unchanged)', () => {
+    const c = ctx();
+    const inside: UiInput = { px: 5, py: 5, down: false, released: true };
+    c.begin(inside);
+    const clicked = c.hotspot('label', 0, 0, 20, 20, { focusable: false });
+    const { hits } = c.end();
+    expect(clicked).toBe(true);
+    expect(hits).toEqual([{ id: 'label', x: 0, y: 0, w: 20, h: 20 }]);
+  });
+
+  it('hovering it does NOT steal keyboard focus from whatever was already focused', () => {
+    const c = ctx();
+    c.begin();
+    c.hotspot('real-control', 100, 100, 20, 20);
+    c.end();
+    c.focusNext();
+    expect(c.focusId).toBe('real-control');
+
+    const overLabel: UiInput = { px: 5, py: 5, down: false, released: false };
+    c.begin(overLabel);
+    c.hotspot('label', 0, 0, 20, 20, { focusable: false });
+    c.hotspot('real-control', 100, 100, 20, 20);
+    c.end();
+    expect(c.focusId).toBe('real-control'); // unchanged — the label never called setFocus
+  });
+
+  it('a keyboard/gamepad ACTIVATE cannot fire it (it can never hold focus)', () => {
+    const c = ctx();
+    c.begin();
+    c.hotspot('label', 0, 0, 20, 20, { focusable: false });
+    c.end();
+    c.setFocus('label'); // force it, simulating a stale/foreign focusId
+    c.activate();
+    c.begin();
+    const clicked = c.hotspot('label', 0, 0, 20, 20, { focusable: false });
+    c.end();
+    expect(clicked).toBe(false);
+  });
+
+  it('omitting opts (default) behaves exactly as before — focusable', () => {
+    const c = ctx();
+    c.begin();
+    c.hotspot('x', 0, 0, 10, 10);
+    c.end();
+    c.focusNext();
+    expect(c.focusId).toBe('x');
+  });
+});
+
 describe('pointer hover and keyboard focus agree (setFocus)', () => {
   it('hovering a button sets focusId to that button — pointer and keyboard never disagree', () => {
     const c = ctx();

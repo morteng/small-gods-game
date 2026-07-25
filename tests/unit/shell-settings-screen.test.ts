@@ -1,12 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { UiContext } from '@/render/ui/ui-context';
 import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import {
-  drawSettingsScreen, settingsRows, formatRowValue, SETTINGS_TABS,
+  drawSettingsScreen, settingsRows, formatRowValue, keymapRows, SETTINGS_TABS,
   type SettingsScreenView, type SettingsAction,
 } from '@/render/ui/shell/settings-screen';
 import { Shell } from '@/render/ui/shell/shell';
 import { isSettingsKey } from '@/game';
+import { ACTIONS, DEFAULT_KEYMAP, bind } from '@/game/input/keymap';
+import { FS } from '@/render/ui/ui-tokens';
 
 const W = 1280, H = 720, S = 2;
 
@@ -17,6 +19,7 @@ function view(over: Partial<SettingsScreenView> = {}): SettingsScreenView {
     sfxOn: true, sfxVolume: 0.6,
     voiceOn: false,
     halfResWater: true, uiScale: 1, lighting: true,
+    keymap: DEFAULT_KEYMAP, capturing: null, keymapNote: null,
     ...over,
   };
 }
@@ -127,10 +130,87 @@ describe('settings screen — geometry', () => {
     }
   });
 
-  it('the CONTROLS tab draws only the tabs + BACK (read-only key-chips, no hit regions)', () => {
+  it('P5: the CONTROLS tab draws the tabs + RESET + BACK + at least one REBIND row', () => {
     const { hits } = frame(view({ tab: 'controls' }));
-    const ids = hits.map(h => h.id).sort();
-    expect(ids).toEqual(['settings.back', 'settings.tabs.audio', 'settings.tabs.controls', 'settings.tabs.gameplay', 'settings.tabs.video'].sort());
+    const ids = hits.map(h => h.id);
+    expect(ids).toContain('settings.back');
+    expect(ids).toContain('settings.controls.reset');
+    expect(ids.filter(id => id.startsWith('settings.tabs.'))).toHaveLength(4);
+    const rebindIds = ids.filter(id => id.startsWith('settings.controls.rebind.'));
+    expect(rebindIds.length).toBeGreaterThan(0);
+    // Every drawn rebind id names a REAL action.
+    for (const id of rebindIds) {
+      expect(ACTIONS.map(a => `settings.controls.rebind.${a}`)).toContain(id);
+    }
+  });
+
+  it('P5: every ACTION is reachable by scrolling the CONTROLS list (nothing promised that can never be drawn)', () => {
+    const c = new UiContext();
+    const seen = new Set<string>();
+    // Draw once per plausible offset, bumping the scroll between draws — enough
+    // to walk past every one of the 19 actions regardless of row height.
+    for (let offset = 0; offset < ACTIONS.length; offset++) {
+      c.begin();
+      if (offset > 0) c.scrollBy('settings.controls.list', 1);
+      drawSettingsScreen(c, W, H, S, view({ tab: 'controls' }));
+      const { hits } = c.end();
+      for (const h of hits) if (h.id.startsWith('settings.controls.rebind.')) seen.add(h.id);
+    }
+    const expected = new Set(ACTIONS.map(a => `settings.controls.rebind.${a}`));
+    expect(seen).toEqual(expected);
+  });
+
+  it('P5: even the STANDARD viewport scrolls the CONTROLS list instead of shrinking its text', () => {
+    // At `FS.menu` scale a 19-action list simply does not fit one screen —
+    // that's the product direction working as intended ("embrace it"). Proof
+    // it CLIPPED rather than shrank: a `scrollList` region exists, and not
+    // every action's row got a hit this frame (some genuinely didn't fit).
+    const c = new UiContext();
+    c.begin();
+    drawSettingsScreen(c, W, H, S, view({ tab: 'controls' }));
+    const { hits, scrollRegions } = c.end();
+    expect(scrollRegions.some(r => r.id === 'settings.controls.list')).toBe(true);
+    const rebindIds = hits.filter(h => h.id.startsWith('settings.controls.rebind.'));
+    expect(rebindIds.length).toBeGreaterThan(0);
+    expect(rebindIds.length).toBeLessThan(ACTIONS.length);
+  });
+
+  it('P5: a SHORTER-than-standard viewport clips harder still (never shrinking text to compensate)', () => {
+    // Cramped enough that even ONE FS.menu-scale row (~100px at S=2) may not
+    // fully fit — the list legitimately degrades to zero visible rows rather
+    // than shrinking. The geometry-safety invariant (nothing draws outside
+    // the target) is what actually matters here; it's covered exhaustively
+    // by the "draws nothing outside the target" test above across several
+    // sizes including this class of cramped viewport.
+    const c = new UiContext();
+    c.begin();
+    drawSettingsScreen(c, W, 400, S, view({ tab: 'controls' }));
+    const { scrollRegions } = c.end();
+    expect(scrollRegions.some(r => r.id === 'settings.controls.list')).toBe(true);
+  });
+
+  it('P5: no CONTENT text on the CONTROLS tab renders below FS.caption*s, and rows render at FS.menu*s', () => {
+    // `UiContext.scrollList` (shared kit code, not this screen's own logic)
+    // draws its own '+'/'-' overflow-position glyphs at a fixed scale of 2
+    // regardless of `s` — a pre-existing kit-level constant, not content this
+    // screen authors. Excluded by name so this test targets REAL row/label/
+    // button text, the thing the product direction is actually about.
+    const SCROLL_INDICATOR_GLYPHS = new Set(['+', '-']);
+    const scales: number[] = [];
+    const orig = UiContext.prototype.label;
+    const spy = vi.spyOn(UiContext.prototype, 'label')
+      .mockImplementation(function (this: UiContext, ...args: Parameters<typeof orig>) {
+        if (!SCROLL_INDICATOR_GLYPHS.has(args[0])) scales.push(args[3] ?? 1);
+        return orig.apply(this, args);
+      });
+    const c = new UiContext();
+    c.begin();
+    drawSettingsScreen(c, W, H, S, view({ tab: 'controls' }));
+    c.end();
+    spy.mockRestore();
+    expect(scales.length).toBeGreaterThan(0);
+    expect(Math.min(...scales)).toBeGreaterThanOrEqual(FS.caption * S);
+    expect(scales).toContain(FS.menu * S); // the binding rows really do use the menu tier
   });
 
   /** True rectangle overlap (both axes) — the tabbar's four tabs deliberately
@@ -257,6 +337,94 @@ describe('settings screen — input', () => {
   });
 });
 
+// ── P5: CONTROLS tab — rebinding UI ─────────────────────────────────────────
+
+describe('settings screen — CONTROLS tab rebinding', () => {
+  it('clicking REBIND on a row reports rebind_start with that action', () => {
+    const v = view({ tab: 'controls' });
+    const { hits } = frame(v);
+    const hit = hits.find(h => h.id === 'settings.controls.rebind.toggle_labels')!;
+    expect(clickHit(v, hit)).toEqual({ kind: 'rebind_start', action: 'toggle_labels' });
+  });
+
+  it('while capturing THAT action, the row shows "PRESS A KEY" and the button becomes CANCEL', () => {
+    const v = view({ tab: 'controls', capturing: 'toggle_labels' });
+    const { hits } = frame(v);
+    // The button id is unchanged (same row, same target) — clicking it now cancels.
+    const hit = hits.find(h => h.id === 'settings.controls.rebind.toggle_labels')!;
+    expect(clickHit(v, hit)).toEqual({ kind: 'rebind_cancel' });
+  });
+
+  it('while capturing a DIFFERENT action, that OTHER row\'s REBIND is disabled (no action fires)', () => {
+    // At this viewport only ONE row is visible per frame (FS.menu rows are
+    // tall — see the module doc), so reaching a row other than the one being
+    // captured (always index 0 here) means scrolling first. Scroll state is
+    // durable on a UiContext instance (never reset by begin()), so this walks
+    // the SAME context forward rather than using the `frame()`/`clickHit()`
+    // helpers (which each start a fresh, unscrolled context).
+    const target = 'toggle_minimap';
+    const v = view({ tab: 'controls', capturing: 'toggle_labels' });
+    const c = new UiContext();
+    let hit: { x: number; y: number; w: number; h: number } | undefined;
+    for (let i = 0; i < ACTIONS.length && !hit; i++) {
+      c.begin();
+      if (i > 0) c.scrollBy('settings.controls.list', 1);
+      drawSettingsScreen(c, W, H, S, v);
+      const { hits } = c.end();
+      hit = hits.find(h => h.id === `settings.controls.rebind.${target}`);
+    }
+    expect(hit).toBeDefined(); // reachable...
+    const cx = hit!.x + hit!.w / 2, cy = hit!.y + hit!.h / 2;
+    c.begin({ px: cx, py: cy, down: true, released: false });
+    drawSettingsScreen(c, W, H, S, v);
+    c.end();
+    c.begin({ px: cx, py: cy, down: false, released: true });
+    const res = drawSettingsScreen(c, W, H, S, v);
+    c.end();
+    expect(res.action).toBeNull(); // ...but disabled — no action fires
+  });
+
+  it('RESET TO DEFAULTS fires reset_controls', () => {
+    const v = view({ tab: 'controls' });
+    const { hits } = frame(v);
+    const hit = hits.find(h => h.id === 'settings.controls.reset')!;
+    expect(clickHit(v, hit)).toEqual({ kind: 'reset_controls' });
+  });
+
+  it('RESET is disabled while a capture is in progress', () => {
+    const v = view({ tab: 'controls', capturing: 'toggle_labels' });
+    const { hits } = frame(v);
+    const hit = hits.find(h => h.id === 'settings.controls.reset')!;
+    expect(clickHit(v, hit)).toBeNull();
+  });
+
+  it('a REBOUND key relabels its chip (promptFor reads the SAME keymap the view carries)', () => {
+    const rebound = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyZ');
+    const rows = keymapRows(view({ tab: 'controls', keymap: rebound }));
+    expect(rows.find(r => r.action === 'toggle_labels')!.prompt).toBe('Z');
+  });
+
+  it('a conflict note (keymapNote set) still paints something and does not crash geometry', () => {
+    const v = view({ tab: 'controls', keymapNote: 'Z REBOUND — TOGGLE MINIMAP LOST IT.' });
+    const { groups } = frame(v);
+    expect(totalVerts(groups)).toBeGreaterThan(0);
+  });
+
+  it('a keyboard ACTIVATE on a focused REBIND row fires rebind_start (gamepad/keyboard parity)', () => {
+    const v = view({ tab: 'controls' });
+    const c = new UiContext();
+    c.begin();
+    drawSettingsScreen(c, W, H, S, v);
+    c.end();
+    c.focusId = 'settings.controls.rebind.toggle_labels';
+    c.activate();
+    c.begin();
+    const res = drawSettingsScreen(c, W, H, S, v);
+    c.end();
+    expect(res.action).toEqual({ kind: 'rebind_start', action: 'toggle_labels' });
+  });
+});
+
 // ── Shell wiring ─────────────────────────────────────────────────────────
 
 describe('Shell — settings screen', () => {
@@ -298,9 +466,9 @@ describe('Shell — settings screen', () => {
     expect(byId.get('settings.back')).toEqual({ id: 'settings.back', label: 'BACK', enabled: true, note: null });
   });
 
-  it('describe() choices match what the DRAW path actually offers, on every tab', () => {
+  it('describe() choices match what the DRAW path actually offers, on AUDIO/VIDEO/GAMEPLAY', () => {
     const shell = new Shell({ now: () => 0, settingsView: () => view() });
-    for (const tab of ['audio', 'video', 'gameplay', 'controls'] as const) {
+    for (const tab of ['audio', 'video', 'gameplay'] as const) {
       shell.setSettingsTab(tab);
       const c = new UiContext();
       c.begin();
@@ -310,6 +478,30 @@ describe('Shell — settings screen', () => {
       const describedIds = shell.describe().choices.map(ch => ch.id).sort();
       expect(describedIds, tab).toEqual(drawnIds);
     }
+  });
+
+  it('describe() choices for CONTROLS are exactly the union of drawn ids across every scroll offset', () => {
+    // CONTROLS is the one deliberate exception to "described == drawn THIS frame"
+    // (see `describeSettingsScreen`'s doc in shell.ts): describe() enumerates every
+    // Action for agent discoverability, while the draw path only registers a hit
+    // for whatever the scrollList currently has visible. What must still hold:
+    // every id describe() names is SOMETHING the draw path can eventually produce
+    // a hit for (no phantom promises), and nothing draws that describe() didn't
+    // name (no undocumented affordances).
+    const shell = new Shell({ now: () => 0, settingsView: () => view() });
+    shell.setSettingsTab('controls');
+    const described = new Set(shell.describe().choices.map(ch => ch.id));
+
+    const drawn = new Set<string>();
+    const c = new UiContext();
+    for (let offset = 0; offset < ACTIONS.length; offset++) {
+      c.begin();
+      if (offset > 0) c.scrollBy('settings.controls.list', 1);
+      shell.draw(c, W, H, S);
+      const { hits } = c.end();
+      for (const h of hits) drawn.add(h.id);
+    }
+    expect(drawn).toEqual(described);
   });
 
   it('draw() reports the island rect on GAMEPLAY every frame, action or not', () => {

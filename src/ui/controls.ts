@@ -2,6 +2,7 @@ import type { Camera } from '@/core/types';
 import { pan, zoomAt, type ZoomQuantizer } from '@/render/camera';
 import { pickTile } from '@/ui/pick-tile';
 import type { IsoEnv } from '@/render/iso/lifted-projection';
+import { resolveAction, DEFAULT_KEYMAP, type Keymap } from '@/game/input/keymap';
 
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
@@ -29,6 +30,9 @@ export interface ControlsCallbacks {
   /** Optional zoom-in cap override (default = the game's 1:1 pixel-perfect max).
    *  The studio raises this to inspect detail past native resolution. */
   getMaxZoom?: () => number;
+  /** P5: the LIVE keybinding map — evaluated per keydown so a rebind takes
+   *  effect immediately, with no re-attach. Absent ⇒ `DEFAULT_KEYMAP`. */
+  getKeymap?: () => Keymap;
   onRedraw: () => void;
 }
 
@@ -210,13 +214,25 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     callbacks.onRedraw();
   }
 
+  /**
+   * P5: dispatch by ACTION, not by hardcoded key — `resolveAction` maps the
+   * physical code through the live keymap (default or player-rebound), so a
+   * rebind here and a rebind in the settings CONTROLS tab are literally the
+   * same map, never two copies to keep in sync. Time-control actions
+   * (toggle_time_bar/toggle_pause/rate_*), menu-navigation actions and
+   * `cancel` are `attachTimeKeys`'/the UI runtime's business, not this
+   * handler's — a code that resolves to one of those here is deliberately
+   * ignored (falls through the switch) rather than silently doing nothing;
+   * each of those has its own handler elsewhere in the input stack.
+   */
   function onKeyDown(e: KeyboardEvent) {
     if (isTextInputFocused()) return;
-    switch (e.code) {
-      case 'KeyL':
+    const action = resolveAction(e.code, callbacks.getKeymap?.() ?? DEFAULT_KEYMAP);
+    switch (action) {
+      case 'toggle_labels':
         callbacks.onToggleLabels?.();
         break;
-      case 'KeyM':
+      case 'toggle_minimap':
         // Toggle minimap (new) or POI markers (old) — check callback
         if (callbacks.onToggleMinimap) {
           callbacks.onToggleMinimap();
@@ -224,20 +240,19 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
           callbacks.onTogglePoiMarkers?.();
         }
         break;
-      case 'Backquote':
+      case 'toggle_debug':
         callbacks.onToggleDebug?.();
         break;
-      case 'KeyF':
+      case 'follow_selected':
         callbacks.onToggleFollow?.();
         break;
-      case 'KeyK':
+      case 'open_settings':
         callbacks.onToggleSettings?.();
         break;
-      case 'Slash':
-        // '?' key (Shift+/ = ?)
-        if (e.shiftKey) {
-          callbacks.onShowTutorial?.();
-        }
+      case 'open_tutorial':
+        callbacks.onShowTutorial?.();
+        break;
+      default:
         break;
     }
   }
@@ -271,27 +286,37 @@ export interface TimeKeyOptions {
   onSetRate(rate: number): void;
   timeBarOpen(): boolean;
   onEscape(): void;
+  /** P5: the LIVE keybinding map, same contract as `ControlsCallbacks.getKeymap`. */
+  getKeymap?: () => Keymap;
 }
+
+/** `rate_1`/`rate_2`/`rate_4`/`rate_8` → the numeric rate `onSetRate` expects. */
+const RATE_FOR_ACTION: Readonly<Record<string, number>> = {
+  rate_1: 1, rate_2: 2, rate_4: 4, rate_8: 8,
+};
 
 export function attachTimeKeys(target: HTMLElement | Window, opts: TimeKeyOptions): () => void {
   const handler = (e: KeyboardEvent): void => {
     if (isTextInputFocused()) return;
-    if (e.key === 't' || e.key === 'T') {
+    const action = resolveAction(e.code, opts.getKeymap?.() ?? DEFAULT_KEYMAP);
+    if (!action) return;
+    if (action === 'toggle_time_bar') {
       e.preventDefault();
       opts.onToggleTimeBar();
       return;
     }
-    if (e.key === ' ') {
+    if (action === 'toggle_pause') {
       e.preventDefault();
       opts.onTogglePause();
       return;
     }
-    if (['1', '2', '4', '8'].includes(e.key) && opts.timeBarOpen()) {
+    const rate = RATE_FOR_ACTION[action];
+    if (rate !== undefined && opts.timeBarOpen()) {
       e.preventDefault();
-      opts.onSetRate(Number(e.key));
+      opts.onSetRate(rate);
       return;
     }
-    if (e.key === 'Escape') {
+    if (action === 'cancel') {
       e.preventDefault();
       opts.onEscape();
       return;

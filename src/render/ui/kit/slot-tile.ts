@@ -35,11 +35,18 @@ export interface SlotTileOpts {
    *  from "a real save whose picture is missing" in the thumbnail well. */
   empty?: boolean;
   drawThumb?: (rect: Rect) => void;
+  /** Scale for the tile's PRIMARY text (the slot name) and the DELETE button —
+   *  this is an interactive row, so callers pass the `menu` tier. */
   scale?: number;
+  /** Scale for the three METADATA lines (date / tier / playtime). Defaults to
+   *  `scale`; callers pass the `caption` tier so metadata is smaller-but-never-
+   *  below-the-floor while the name stays at full menu size. */
+  metaScale?: number;
 }
 
 export function slotTile(c: UiContext, opts: SlotTileOpts): 'activate' | 'delete' | null {
-  const s = opts.scale ?? FS.body;
+  const s = opts.scale ?? FS.menu;
+  const ms = opts.metaScale ?? s;
   const bodyId = `${opts.id}.body`;
   const deleteId = `${opts.id}.delete`;
 
@@ -84,12 +91,15 @@ export function slotTile(c: UiContext, opts: SlotTileOpts): 'activate' | 'delete
     c.rect(thumb.x, thumb.y, thumb.w, thumb.h, withAlpha(COLOR.ground, 0.35));
   }
 
+  // Name at the interactive tier, metadata at the caption tier beneath it. The
+  // metadata rows advance by their OWN line height, not the name's.
   const textX = thumb.x + thumb.w + SPACING.sm;
   const textY = opts.y + SPACING.sm;
+  const mlh = c.lineHeight(ms);
   c.label(opts.name.toUpperCase(), textX, textY, s, COLOR.ink);
-  c.label(opts.dateLabel.toUpperCase(), textX, textY + lh, s, COLOR.inkDim);
-  c.label(opts.tierLabel.toUpperCase(), textX, textY + 2 * lh, s, COLOR.inkDim);
-  c.label(opts.playtimeLabel.toUpperCase(), textX, textY + 3 * lh, s, COLOR.inkDim);
+  c.label(opts.dateLabel.toUpperCase(), textX, textY + lh, ms, COLOR.inkDim);
+  c.label(opts.tierLabel.toUpperCase(), textX, textY + lh + mlh, ms, COLOR.inkDim);
+  c.label(opts.playtimeLabel.toUpperCase(), textX, textY + lh + 2 * mlh, ms, COLOR.inkDim);
 
   let result: 'activate' | 'delete' | null = bodyClicked ? 'activate' : null;
   if (opts.deletable) {

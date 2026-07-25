@@ -29,9 +29,10 @@ import {
   drawLoadScreen, loadRows, type LoadAction, type LoadScreenView,
 } from '@/render/ui/shell/load-screen';
 import {
-  drawSettingsScreen, settingsRows, formatRowValue, SETTINGS_TABS,
+  drawSettingsScreen, settingsRows, formatRowValue, keymapRows, SETTINGS_TABS,
   type SettingsAction, type SettingsScreenView, type SettingsTab,
 } from '@/render/ui/shell/settings-screen';
+import { DEFAULT_KEYMAP } from '@/game/input/keymap';
 
 /** A device-px rect (a DOM island's reserved region). Mirrors `ui-runtime`'s. */
 interface Rect { x: number; y: number; w: number; h: number }
@@ -144,6 +145,7 @@ const EMPTY_SETTINGS_VIEW: SettingsScreenView = {
   tab: 'audio',
   musicOn: true, musicVolume: 0.35, sfxOn: true, sfxVolume: 0.6, voiceOn: false,
   halfResWater: true, uiScale: 1, lighting: true,
+  keymap: DEFAULT_KEYMAP, capturing: null, keymapNote: null,
 };
 
 const realNow = (): number =>
@@ -174,10 +176,21 @@ function describeSlotScreen(rows: readonly ScreenRow[], backId: string): ShellCh
 /** `describe()`'s choices for the settings screen — mirrors exactly what
  *  `drawSettingsScreen` draws: one choice per tab (via the SAME `SETTINGS_TABS`
  *  list the tabbar walks), then one per row on the ACTIVE tab (via the SAME
- *  `settingsRows` the draw path uses), then BACK. GAMEPLAY/CONTROLS
- *  contribute no rows here because they draw none (the DOM island and the
- *  read-only key-chips aren't `set`-able choices) — keeping "described ids
- *  equal drawn hit ids" true for every tab, not just audio/video. */
+ *  `settingsRows` the draw path uses), then BACK. GAMEPLAY contributes no
+ *  rows here because it draws none (the DOM island isn't a `set`-able
+ *  choice) — keeping "described ids equal drawn hit ids" true for audio/
+ *  video/gameplay.
+ *
+ *  CONTROLS is the one deliberate exception (P5): it enumerates every
+ *  `Action` via `keymapRows` regardless of the current scroll position,
+ *  because an external agent needs to discover the FULL rebindable action
+ *  set to do anything useful with `rebind_key` — but the draw path only
+ *  registers a hit region for whatever the `scrollList` currently has
+ *  visible. Every id `describe()` reports for CONTROLS is still something
+ *  the draw path WILL eventually produce a hit for (just possibly after a
+ *  scroll) — `tests/unit/shell-settings-screen.test.ts` proves that by
+ *  unioning hit ids across every scroll offset, rather than asserting
+ *  single-frame equality the way the other tabs can. */
 function describeSettingsScreen(view: SettingsScreenView): ShellChoice[] {
   const choices: ShellChoice[] = [];
   for (const t of SETTINGS_TABS) {
@@ -188,6 +201,21 @@ function describeSettingsScreen(view: SettingsScreenView): ShellChoice[] {
   }
   for (const row of settingsRows(view, view.tab)) {
     choices.push({ id: row.id, label: row.label, enabled: true, note: formatRowValue(row) });
+  }
+  if (view.tab === 'controls') {
+    for (const row of keymapRows(view)) {
+      const capturingThis = view.capturing === row.action;
+      choices.push({
+        id: row.id,
+        label: `${row.label}: ${row.prompt}`,
+        enabled: view.capturing === null || capturingThis,
+        note: capturingThis ? 'PRESS A KEY' : null,
+      });
+    }
+    choices.push({
+      id: 'settings.controls.reset', label: 'RESET TO DEFAULTS',
+      enabled: view.capturing === null, note: null,
+    });
   }
   choices.push({ id: 'settings.back', label: 'BACK', enabled: true, note: null });
   return choices;
