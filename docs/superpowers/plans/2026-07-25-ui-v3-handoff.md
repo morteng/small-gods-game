@@ -11,7 +11,19 @@ picked up cold.
 | `3dc3a9c6` | the spec |
 | `aad4c604` | **P1** foundations — meta-mode render path + sky backdrop, screen stack, WebGPU loading screen, UI kit + tokens + focus model, 87-glyph pixel font, 12 meta capability verbs, `resetState` + parity guard |
 | `8850e1a3` | **P2** boot restructure — `bootShell()`/`startWorld()`, instant title, generation on demand, autostart resolution, in-process `returnToTitle()`, agent-drivable meta commands |
-| (see git log) | **P3a/P4a** save services + audio/settings services, if their commits follow |
+| `889a707d` | **P3a** save services — slots, `save-meta` store, append-only event journal, `SAVE_VERSION` 4, journal wired into the resume path |
+| `717d9535` | docs — CLAUDE.md shell/boot section, ROADMAP entry, stale `SAVE_VERSION 2` line retired |
+| `4aade89e` | **P4a** audio + persistence services — independent SFX bus (CC7; see the finding in `audio-buses.ts`), UI tick/confirm cues, a hand-authored title cue, and `settings-store.ts` consolidating seven localStorage keys with migration |
+
+**Not yet done:** P3b (save/load screens), P4b (settings screen), P5 (controls/gamepad/game-over/
+photo), P6 (legacy retirement L1–L6), P7 (final CI + push of later work). Two loose ends worth
+knowing:
+
+- **`TITLE_CUE` is authored but not played.** It is deliberately NOT in `BASE_CUES`/`CueLibrary`
+  (that would break the "calm baseline = silence" contract). Wiring it means having the shell ask
+  the presentation director for cue id `bed_title` while the `title` screen is up.
+- **`Game.captureThumbnail()` and `saveMetaInput()` exist and are wired into the autosave**, so
+  slots already carry real metadata; P3b only has to render it.
 
 **The load-bearing facts a successor needs:**
 
