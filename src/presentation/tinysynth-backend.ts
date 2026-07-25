@@ -8,14 +8,22 @@
  * eval time) and never costs anything until music is actually wanted. We give it
  * our OWN AudioContext + master GainNode so we control volume, muting, and the
  * gesture-gated resume — the synth's internal output just feeds our gain node.
+ *
+ * Music/SFX bus split (§6.1, audio-buses.ts): the master GainNode above is a
+ * single ctx-level node — see audio-buses.ts's header for why a true two-
+ * GainNode split isn't possible with this library. The two buses are instead
+ * per-channel MIDI CC7 channel-volume, layered under that master gain.
  */
 import type { MusicBackend, NoteEvent } from './music-backend';
+import { MUSIC_CHANNELS, SFX_CHANNELS, applyBusVolume } from './audio-buses';
 
 /** The slice of the webaudio-tinysynth API we drive. */
 interface TinySynth {
   setAudioContext(ctx: BaseAudioContext, dest?: AudioNode): void;
   setProgram(channel: number, program: number): void;
   setReverbLev(v: number): void;
+  /** MIDI CC7 channel-volume (0..127); the bus mechanism (see module header). */
+  setChVol(channel: number, value: number, when?: number): void;
   noteOn(channel: number, note: number, velocity: number, when: number): void;
   noteOff(channel: number, note: number, when: number): void;
 }
@@ -27,6 +35,10 @@ export class TinySynthBackend implements MusicBackend {
   private starting: Promise<void> | null = null;
   private volume = 0.35;
   private muted = false;
+  private musicVolume = 1;
+  private musicMuted = false;
+  private sfxVolume = 1;
+  private sfxMuted = false;
   started = false;
 
   now(): number {
@@ -78,6 +90,10 @@ export class TinySynthBackend implements MusicBackend {
     this.master = master;
     this.synth = synth;
     this.started = ctx.state === 'running';
+    // Apply whatever bus state was set (or defaulted) before boot completed —
+    // setMusicVolume/setSfxVolume are no-ops pre-boot (this.synth was null).
+    this.applyBus(MUSIC_CHANNELS, this.musicVolume, this.musicMuted);
+    this.applyBus(SFX_CHANNELS, this.sfxVolume, this.sfxMuted);
   }
 
   setProgram(channel: number, gmProgram: number): void {
@@ -106,6 +122,32 @@ export class TinySynthBackend implements MusicBackend {
     if (this.master) this.master.gain.value = muted ? 0 : this.volume;
   }
 
+  setMusicVolume(v: number): void {
+    this.musicVolume = clamp01(v);
+    this.applyBus(MUSIC_CHANNELS, this.musicVolume, this.musicMuted);
+  }
+
+  setSfxVolume(v: number): void {
+    this.sfxVolume = clamp01(v);
+    this.applyBus(SFX_CHANNELS, this.sfxVolume, this.sfxMuted);
+  }
+
+  setMusicMuted(muted: boolean): void {
+    this.musicMuted = muted;
+    this.applyBus(MUSIC_CHANNELS, this.musicVolume, muted);
+  }
+
+  setSfxMuted(muted: boolean): void {
+    this.sfxMuted = muted;
+    this.applyBus(SFX_CHANNELS, this.sfxVolume, muted);
+  }
+
+  /** No-op until boot() has produced a synth (state is retained and reapplied then). */
+  private applyBus(channels: readonly number[], volume: number, muted: boolean): void {
+    if (!this.synth) return;
+    applyBusVolume(this.synth, channels, volume, muted, this.ctx?.currentTime);
+  }
+
   dispose(): void {
     this.synth = null;
     this.master?.disconnect();
@@ -115,4 +157,8 @@ export class TinySynthBackend implements MusicBackend {
     this.started = false;
     this.starting = null;
   }
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
 }

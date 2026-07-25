@@ -7,12 +7,18 @@ class FakeBackend implements MusicBackend {
   started = true;
   notes: NoteEvent[] = [];
   programs: Record<number, number> = {};
+  sfxVolume = 1;
+  sfxMuted = false;
   now(): number { return this.t; }
   ensureStarted(): void {}
   setProgram(c: number, p: number): void { this.programs[c] = p; }
   scheduleNote(ev: NoteEvent): void { this.notes.push(ev); }
   setMasterVolume(): void {}
   setMuted(): void {}
+  setMusicVolume(): void {}
+  setSfxVolume(v: number): void { this.sfxVolume = v; }
+  setMusicMuted(): void {}
+  setSfxMuted(m: boolean): void { this.sfxMuted = m; }
   dispose(): void {}
 }
 

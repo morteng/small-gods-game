@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createWelcomeModal, ONBOARDED_KEY } from '@/ui/welcome-modal';
+import { loadProviderConfig } from '@/llm/provider-factory';
 
 beforeEach(() => { localStorage.clear(); document.body.innerHTML = ''; });
 
@@ -22,7 +23,9 @@ describe('welcome modal', () => {
     const onComplete = vi.fn();
     createWelcomeModal(c, { onComplete });
     getBtn(c, 'Skip — no AI').click();
-    expect(JSON.parse(localStorage.getItem('small-gods-llm-provider')!).type).toBe('mock');
+    // Persistence moved from a bare 'small-gods-llm-provider' key to
+    // settings-store (§6.1) — read through provider-factory's public API.
+    expect(loadProviderConfig().type).toBe('mock');
     expect(localStorage.getItem(ONBOARDED_KEY)).toBe('true');
     expect(onComplete).toHaveBeenCalledTimes(1);
     expect(onComplete.mock.calls[0][0].type).toBe('mock');
@@ -34,7 +37,7 @@ describe('welcome modal', () => {
     createWelcomeModal(c, { onComplete });
     (c.querySelector('input[type="password"]') as HTMLInputElement).value = 'sk-or-begin';
     getBtn(c, 'Begin').click();
-    const saved = JSON.parse(localStorage.getItem('small-gods-llm-provider')!);
+    const saved = loadProviderConfig();
     expect(saved.type).toBe('openrouter');
     expect(saved.openrouterApiKey).toBe('sk-or-begin');
     expect(localStorage.getItem(ONBOARDED_KEY)).toBe('true');
@@ -42,11 +45,14 @@ describe('welcome modal', () => {
   });
 
   it('Begin with a blank key does not save or complete', () => {
+    // Persistence moved from a bare 'small-gods-llm-provider' key to
+    // settings-store (§6.1) — compare before/after through the public API.
+    const before = loadProviderConfig();
     const c = document.createElement('div'); document.body.appendChild(c);
     const onComplete = vi.fn();
     createWelcomeModal(c, { onComplete });
     getBtn(c, 'Begin').click();
-    expect(localStorage.getItem('small-gods-llm-provider')).toBeNull();
+    expect(loadProviderConfig()).toEqual(before);
     expect(onComplete).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,7 @@ import type { ProviderConfig } from '@/llm/provider-factory';
 import { mountNpcAttentionPanel, type NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import { mountBuildingInfoPanel, type BuildingInfoPanelHandle } from '@/ui/building-info-panel';
 import type { NpcAttentionStore } from '@/llm/npc-attention-store';
+import { setFirstRunSeen } from '@/services/settings-store';
 
 export interface GameUiCallbacks {
   onSelectRival: (rivalId: string) => void;
@@ -160,11 +161,11 @@ export class GameUi {
     // ── NEW: Tutorial System ──────────────────────────────
     this.tutorial = createTutorial(container, {
       onComplete: () => {
-        localStorage.setItem('small-gods-tutorial-seen', 'true');
+        setFirstRunSeen(true);
         console.log('[tutorial] Completed');
       },
       onSkip: () => {
-        localStorage.setItem('small-gods-tutorial-seen', 'true');
+        setFirstRunSeen(true);
         console.log('[tutorial] Skipped');
       },
     });

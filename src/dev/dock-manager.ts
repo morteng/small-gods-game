@@ -1,3 +1,5 @@
+import { getDockLayout, setDockLayout } from '@/services/settings-store';
+
 export type DockState =
   | { kind: 'float'; x: number; y: number }
   | { kind: 'left'; order: number }
@@ -31,7 +33,12 @@ interface Entry { panel: DockedPanel; dock: DockState; open: boolean; }
 
 export function createDockManager(opts: DockManagerOptions): DockManager {
   const container = opts.container;
-  const storageKey = opts.storageKey ?? 'small-gods-dev-layout';
+  // The DEFAULT layout (no override) lives in settings-store (§6.1, one of the
+  // seven consolidated keys); a caller-supplied storageKey (dev-panel tests,
+  // any future second dock) keeps using its own raw localStorage key as before
+  // — settings-store owns exactly one slot, not an arbitrary family of them.
+  const storageKey = opts.storageKey;
+  const usesSettingsStore = storageKey === undefined;
   const edgeThreshold = opts.edgeThreshold ?? 32;
   const railWidth = opts.railWidth ?? 230;
 
@@ -39,15 +46,23 @@ export function createDockManager(opts: DockManagerOptions): DockManager {
   const persisted = readPersisted();
 
   function readPersisted(): Record<string, { dock: DockState; open: boolean }> {
+    if (usesSettingsStore) {
+      try { return getDockLayout() as Record<string, { dock: DockState; open: boolean }>; }
+      catch { return {}; }
+    }
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = localStorage.getItem(storageKey!);
       return raw ? JSON.parse(raw) : {};
     } catch { return {}; }
   }
   function persist(): void {
     const out: Record<string, { dock: DockState; open: boolean }> = {};
     for (const [id, e] of entries) out[id] = { dock: e.dock, open: e.open };
-    try { localStorage.setItem(storageKey, JSON.stringify(out)); } catch { /* ignore */ }
+    if (usesSettingsStore) {
+      try { setDockLayout(out); } catch { /* ignore */ }
+      return;
+    }
+    try { localStorage.setItem(storageKey!, JSON.stringify(out)); } catch { /* ignore */ }
   }
   function nextOrder(kind: 'left' | 'right'): number {
     let max = -1;

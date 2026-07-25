@@ -10,6 +10,8 @@ class FakeBackend implements MusicBackend {
   clock = 1; // seconds; >0 so the sequencer treats audio as running
   volume = 1;
   muted = false;
+  musicVolume = 1;
+  sfxVolume = 1;
   programs = new Map<number, number>();
   notes: NoteEvent[] = [];
   now() { return this.clock; }
@@ -18,6 +20,10 @@ class FakeBackend implements MusicBackend {
   scheduleNote(ev: NoteEvent) { this.notes.push(ev); }
   setMasterVolume(v: number) { this.volume = v; }
   setMuted(m: boolean) { this.muted = m; }
+  setMusicVolume(v: number) { this.musicVolume = v; }
+  setSfxVolume(v: number) { this.sfxVolume = v; }
+  setMusicMuted() {}
+  setSfxMuted() {}
   dispose() {}
 }
 
@@ -55,7 +61,8 @@ describe('CueSequencer', () => {
   it('sets voice programs and schedules an eligible bed on update', () => {
     const b = new FakeBackend();
     const seq = new CueSequencer(b, { volume: 0.4 });
-    expect(b.volume).toBe(0.4);
+    // Music/one-shots ride the MUSIC bus (§6.1), not the ctx-level master.
+    expect(b.musicVolume).toBe(0.4);
     seq.setMood(LIVELY);
     expect(seq.debugState().bed).toBe('bed_lively');
     seq.update(16);

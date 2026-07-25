@@ -23,8 +23,9 @@ import { VoiceDirector } from './voice-director';
 import type { MusicBackend } from './music-backend';
 import { NullMusicBackend } from './music-backend';
 import { TinySynthBackend } from './tinysynth-backend';
+import { installUiCues, uninstallUiCues } from './ui-cues';
+import * as settingsStore from '@/services/settings-store';
 
-const STORAGE_KEY = 'small-gods-music';
 const MOOD_INTERVAL_MS = 750;
 const BASE_VOLUME = 0.35;
 const DUCK_VOLUME = 0.12; // while a story card is up
@@ -34,6 +35,12 @@ export interface PresentationDirectorOptions {
   backend?: MusicBackend;
   /** Override the persisted enabled flag. */
   enabled?: boolean;
+  /** Override the persisted music-bus volume (§6.1; else settings-store). */
+  musicVolume?: number;
+  /** Override the persisted SFX-bus volume (§6.1; else settings-store). */
+  sfxVolume?: number;
+  /** Override the persisted SFX on/off flag (§6.1; else settings-store). */
+  sfxEnabled?: boolean;
   /** Current viewport (CSS px) — needed to frame cinematic camera targets. */
   viewport?: () => { width: number; height: number };
   /**
@@ -63,7 +70,8 @@ export class PresentationDirector {
   private readonly viewport: () => { width: number; height: number };
   private enabled: boolean;
   private cameraEnabled = true;
-  private musicVolume = BASE_VOLUME;
+  private musicVolume: number;
+  private sfxEnabled: boolean;
 
   // Mood smoothing (moved up from the old MusicDirector). `target` is sampled on
   // a throttle; `smoothed` eases toward it every frame; `accent` is a decaying
@@ -84,11 +92,19 @@ export class PresentationDirector {
   constructor(state: GameState, opts: PresentationDirectorOptions = {}) {
     this.state = state;
     this.backend = opts.backend ?? defaultBackend();
+    this.musicVolume = opts.musicVolume ?? settingsStore.getMusicVolume();
+    this.sfxEnabled = opts.sfxEnabled ?? settingsStore.getSfxOn();
     this.seq = new CueSequencer(this.backend, { volume: this.musicVolume });
-    this.sfx = new SfxDirector(this.backend);
+    this.sfx = new SfxDirector(this.backend, { volume: opts.sfxVolume ?? settingsStore.getSfxVolume() });
+    this.backend.setSfxMuted(!this.sfxEnabled);
     this.viewport = opts.viewport ?? (() => ({ width: 0, height: 0 }));
     this.composer = opts.composer ?? null;
     this.enabled = opts.enabled ?? loadEnabled();
+    // Share this backend's AudioContext with uiTick()/uiConfirm() (ui-cues.ts) —
+    // one context, gesture-unlocked once, no separate title-screen context here
+    // (the pre-GameState title screen is a later boot-shell phase; it wires its
+    // own call once it owns a backend of its own).
+    installUiCues(this.backend);
   }
 
   /** Subscribe to events + arm the audio-unlock + cinematic-cancel listeners. */
@@ -213,15 +229,32 @@ export class PresentationDirector {
   setCameraEnabled(on: boolean): void { this.cameraEnabled = on; if (!on) this.camera.cancel(); }
   setVoiceEnabled(on: boolean): void { this.voice.setEnabled(on); }
 
-  /** Master volume 0..1. */
-  setVolume(v: number): void { this.musicVolume = v; this.seq.setVolume(v); }
+  /** Music-bus volume 0..1 (§6.1). Persists through settings-store. */
+  setVolume(v: number): void {
+    this.musicVolume = v;
+    this.seq.setVolume(v);
+    settingsStore.setMusicVolume(v);
+  }
+
+  /** SFX-bus volume 0..1 (§6.1). Independent of music. Persists through settings-store. */
+  setSfxVolume(v: number): void {
+    this.sfx.setVolume(v);
+    settingsStore.setSfxVolume(v);
+  }
+
+  /** SFX on/off (§6.1). Independent of music. Persists through settings-store. */
+  setSfxEnabled(on: boolean): void {
+    this.sfxEnabled = on;
+    this.sfx.setMuted(!on);
+    settingsStore.setSfxOn(on);
+  }
 
   /** Diagnostics for the dev overlay / __debug. */
   debug(): object {
     return {
       enabled: this.enabled, started: this.backend.started,
       camera: this.cameraEnabled, cameraActive: this.camera.isActive(),
-      voice: this.voice.isEnabled(),
+      voice: this.voice.isEnabled(), sfx: this.sfxEnabled,
       ...this.seq.debugState(),
     };
   }
@@ -232,6 +265,7 @@ export class PresentationDirector {
     this.removeGesture();
     this.removeCancel();
     this.voice.cancel();
+    uninstallUiCues();
     this.backend.dispose();
   }
 
@@ -298,14 +332,9 @@ function moodAxes(m: { tension: number; reverence: number; liveliness: number })
 }
 
 function loadEnabled(): boolean {
-  if (typeof localStorage === 'undefined') return true;
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    return v === null ? true : v === '1';
-  } catch { return true; }
+  return settingsStore.getMusicOn();
 }
 
 function saveEnabled(on: boolean): void {
-  if (typeof localStorage === 'undefined') return;
-  try { localStorage.setItem(STORAGE_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+  settingsStore.setMusicOn(on);
 }

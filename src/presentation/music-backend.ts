@@ -38,10 +38,18 @@ export interface MusicBackend {
   setProgram(channel: number, gmProgram: number): void;
   /** Schedule a note. No-op if not started. */
   scheduleNote(ev: NoteEvent): void;
-  /** Master gain, 0..1. */
+  /** Master gain, 0..1. Sits ABOVE the music/sfx buses (§6.1) — scales both. */
   setMasterVolume(v: number): void;
-  /** Mute without tearing down (used during scrub/past-veil). */
+  /** Mute without tearing down (used during scrub/past-veil). Mutes both buses. */
   setMuted(muted: boolean): void;
+  /** Music-bus volume, 0..1 (cue-sequencer.ts's bed/one-shots). Independent of SFX. */
+  setMusicVolume(v: number): void;
+  /** SFX-bus volume, 0..1 (sfx-director.ts's stingers, ui-cues.ts's tick/confirm). */
+  setSfxVolume(v: number): void;
+  /** Mute the music bus without touching SFX. */
+  setMusicMuted(muted: boolean): void;
+  /** Mute the SFX bus without touching music. */
+  setSfxMuted(muted: boolean): void;
   /** Release resources. */
   dispose(): void;
 }
@@ -59,5 +67,9 @@ export class NullMusicBackend implements MusicBackend {
   scheduleNote(): void { /* no-op */ }
   setMasterVolume(): void { /* no-op */ }
   setMuted(): void { /* no-op */ }
+  setMusicVolume(): void { /* no-op */ }
+  setSfxVolume(): void { /* no-op */ }
+  setMusicMuted(): void { /* no-op */ }
+  setSfxMuted(): void { /* no-op */ }
   dispose(): void { /* no-op */ }
 }

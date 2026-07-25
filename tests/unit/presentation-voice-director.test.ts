@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { VoiceDirector } from '@/presentation/voice-director';
+import { getVoiceOn } from '@/services/settings-store';
 
 // jsdom has no Web Speech API — install a minimal stub.
 class FakeUtterance {
@@ -56,7 +57,9 @@ describe('VoiceDirector', () => {
     const synth = installSynth();
     const v = new VoiceDirector({ enabled: true });
     v.setEnabled(false);
-    expect(localStorage.getItem('small-gods-voice')).toBe('0');
+    // Persistence moved from a bare 'small-gods-voice' key to settings-store
+    // (§6.1, the seven-key consolidation) — assert through its public API.
+    expect(getVoiceOn()).toBe(false);
     expect(synth.cancels).toBeGreaterThanOrEqual(1);
     v.speak('quiet');
     expect(synth.spoken).toEqual([]);

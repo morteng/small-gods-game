@@ -11,10 +11,10 @@ import type {
 import { assetUrl } from '@/core/asset-url';
 import { matchesAsset } from './asset-match';
 import { withIdbTimeout } from './idb-guard';
+import { getPixellabApiKey, setPixellabApiKey, clearPixellabApiKey } from './settings-store';
 
 const API_BASE = 'https://api.pixellab.ai/v2';
 const PALETTE_URL = assetUrl('sprites/palette/lpc-anchor.png');
-const LS_KEY = 'smallgods.pixellab.apiKey';
 
 const DB_NAME = 'smallgods.pixellab';
 const DB_STORE = 'assets';
@@ -208,15 +208,15 @@ async function cacheClear(): Promise<void> {
 // ─── Key storage ──────────────────────────────────────────────────────────────
 
 export function loadApiKey(): string | null {
-  try { return localStorage.getItem(LS_KEY); } catch { return null; }
+  return getPixellabApiKey();
 }
 
 export function saveApiKey(key: string): void {
-  try { localStorage.setItem(LS_KEY, key); } catch { /* ignore */ }
+  setPixellabApiKey(key);
 }
 
 export function clearApiKey(): void {
-  try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ }
+  clearPixellabApiKey();
 }
 
 // ─── Cache key construction ───────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createLLMSettings } from '@/ui/llm-settings-new';
 import { VERIFIED_CHAT_MODELS, clearCatalogCache } from '@/llm/openrouter-catalog';
+import { loadProviderConfig } from '@/llm/provider-factory';
 
 beforeEach(() => {
   localStorage.clear();
@@ -45,7 +46,10 @@ describe('createLLMSettings', () => {
     selectProvider(handle.element, 'openrouter');
     (handle.element.querySelector('input[type="password"]') as HTMLInputElement).value = 'sk-or-1';
     ([...handle.element.querySelectorAll('button')].find(b => b.textContent === 'Save') as HTMLButtonElement).click();
-    const saved = JSON.parse(localStorage.getItem('small-gods-llm-provider')!);
+    // Persistence moved from a bare 'small-gods-llm-provider' key to
+    // settings-store (§6.1, the seven-key consolidation) — read through
+    // provider-factory's own public API rather than the old raw key.
+    const saved = loadProviderConfig();
     expect(saved.openrouterModelCapable).toBeTruthy();
     handle.destroy();
   });
@@ -88,6 +92,12 @@ describe('createLLMSettings — model picker + advanced', () => {
 
 describe('createLLMSettings — blank key guard', () => {
   it('does not save or fire onSave when openrouter is chosen with a blank key', () => {
+    // Persistence moved from a bare 'small-gods-llm-provider' key to
+    // settings-store (§6.1) — merely READING config (createLLMSettings does,
+    // to prefill the form) now writes a migrated settings blob as a side
+    // effect, so "the raw key stays null" no longer detects "nothing was
+    // saved." Compare before/after through the public API instead.
+    const before = loadProviderConfig();
     const onSave = vi.fn();
     const handle = createLLMSettings({ onSave });
     document.body.appendChild(handle.element);
@@ -95,7 +105,7 @@ describe('createLLMSettings — blank key guard', () => {
     // leave key blank
     ([...handle.element.querySelectorAll('button')].find(b => b.textContent === 'Save') as HTMLButtonElement).click();
     expect(onSave).not.toHaveBeenCalled();
-    expect(localStorage.getItem('small-gods-llm-provider')).toBeNull();
+    expect(loadProviderConfig()).toEqual(before);
     handle.destroy();
   });
 });

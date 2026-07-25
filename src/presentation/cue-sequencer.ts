@@ -15,7 +15,7 @@ import { CueLibrary } from './cue-library';
 import type { MusicCue, VoiceName, CueNote } from './cue-types';
 import { loopBeats, DEFAULT_BEATS_PER_BAR } from './cue-types';
 
-/** Voice → reserved GM channel (0–5; SFX owns 6–8) + General-MIDI program. */
+/** Voice → reserved GM channel (0–5; SFX owns 6–9, see audio-buses.ts) + program. */
 const VOICE: Record<VoiceName, { ch: number; gm: number }> = {
   pad: { ch: 0, gm: 89 }, // Pad 2 (warm)
   bass: { ch: 1, gm: 32 }, // Acoustic Bass
@@ -28,7 +28,7 @@ const VOICE: Record<VoiceName, { ch: number; gm: number }> = {
 const LOOKAHEAD_SEC = 0.25;
 
 export interface CueSequencerOptions {
-  /** Master volume 0..1. Default 0.32 (subtle — the score sits under play). */
+  /** Music-bus volume 0..1 (§6.1). Default 0.32 (subtle — the score sits under play). */
   volume?: number;
   /** Inject a library (tests/Composer); defaults to the hand-authored base set. */
   library?: CueLibrary;
@@ -47,7 +47,7 @@ export class CueSequencer {
   constructor(backend: MusicBackend, opts: CueSequencerOptions = {}) {
     this.backend = backend;
     this.lib = opts.library ?? new CueLibrary();
-    this.backend.setMasterVolume(opts.volume ?? 0.32);
+    this.backend.setMusicVolume(opts.volume ?? 0.32);
   }
 
   /** Select the bed for a mood (or silence). Smoothing is the caller's job. */
@@ -81,7 +81,7 @@ export class CueSequencer {
   }
 
   setVolume(v: number): void {
-    this.backend.setMasterVolume(v);
+    this.backend.setMusicVolume(v);
   }
 
   /** Merge in cues (Composer-produced JSON / on-demand); ids replace. */

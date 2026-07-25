@@ -6,7 +6,11 @@
  * hits cost nothing and are counted separately. UI telemetry only — this is NOT
  * sim code, so wall-clock `new Date()` is fine here (the determinism rules apply
  * to src/sim/ alone). The `now` seam exists purely for deterministic tests.
+ *
+ * Persists through settings-store (§6.1) — was a bare `small-gods-llm-spend`
+ * localStorage key, now one field of the consolidated settings blob.
  */
+import { getLlmSpend, setLlmSpend } from '@/services/settings-store';
 
 export interface SpendSnapshot {
   sessionUsd: number;
@@ -17,7 +21,6 @@ export interface SpendSnapshot {
   month: string; // 'YYYY-MM'
 }
 
-const SPEND_KEY = 'small-gods-llm-spend';
 interface Persisted { month: string; monthUsd: number; allTimeUsd: number }
 
 export class CostTracker {
@@ -85,19 +88,10 @@ export class CostTracker {
   }
 
   private load(): Persisted | null {
-    try {
-      const raw = localStorage.getItem(SPEND_KEY);
-      return raw ? (JSON.parse(raw) as Persisted) : null;
-    } catch {
-      return null;
-    }
+    return getLlmSpend();
   }
 
   private persist(): void {
-    try {
-      localStorage.setItem(SPEND_KEY, JSON.stringify({ month: this.month, monthUsd: this.monthUsd, allTimeUsd: this.allTimeUsd }));
-    } catch {
-      // ignore unavailable/quota-exceeded storage
-    }
+    setLlmSpend({ month: this.month, monthUsd: this.monthUsd, allTimeUsd: this.allTimeUsd });
   }
 }

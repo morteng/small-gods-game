@@ -8,6 +8,7 @@
 import type { LLMProvider } from './llm-client';
 import { MockLLMProvider, OpenAIProvider, OpenRouterProvider, type OpenAIConfig, type OpenRouterConfig } from './llm-client';
 import { DEFAULT_CHAT_MODEL, DEFAULT_CAPABLE_MODEL, DEAD_MODEL_IDS } from './openrouter-catalog';
+import { getLlmProviderConfig, setLlmProviderConfig } from '@/services/settings-store';
 
 export type ProviderType = 'mock' | 'openai' | 'openrouter';
 
@@ -112,10 +113,10 @@ export function createProvider(config: ProviderConfig): LLMProvider {
  * Load provider config from localStorage.
  */
 export function loadProviderConfig(): ProviderConfig {
-  const saved = localStorage.getItem('small-gods-llm-provider');
+  const saved = getLlmProviderConfig();
   if (saved) {
     try {
-      return migrateDeadModels(JSON.parse(saved) as ProviderConfig);
+      return migrateDeadModels(saved as ProviderConfig);
     } catch {
       // fall through
     }
@@ -156,7 +157,7 @@ export function migrateDeadModels(config: ProviderConfig): ProviderConfig {
  * Save provider config to localStorage.
  */
 export function saveProviderConfig(config: ProviderConfig): void {
-  localStorage.setItem('small-gods-llm-provider', JSON.stringify(config));
+  setLlmProviderConfig(config);
 }
 
 /**

@@ -6,8 +6,11 @@
  * utterance at a time, cancellable.
  *
  * Browser-guarded — a no-op anywhere `speechSynthesis` is absent (Node/SSR).
+ *
+ * Persists through settings-store (§6.1) — was a bare `small-gods-voice`
+ * localStorage key, now one field of the consolidated settings blob.
  */
-const STORAGE_KEY = 'small-gods-voice';
+import { getVoiceOn, setVoiceOn } from '@/services/settings-store';
 
 export interface VoiceDirectorOptions {
   enabled?: boolean;
@@ -65,11 +68,9 @@ export class VoiceDirector {
 }
 
 function loadEnabled(): boolean {
-  if (typeof localStorage === 'undefined') return false;
-  try { return localStorage.getItem(STORAGE_KEY) === '1'; } catch { return false; }
+  return getVoiceOn();
 }
 
 function saveEnabled(on: boolean): void {
-  if (typeof localStorage === 'undefined') return;
-  try { localStorage.setItem(STORAGE_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+  setVoiceOn(on);
 }

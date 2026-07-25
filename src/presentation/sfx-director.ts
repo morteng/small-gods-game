@@ -2,7 +2,11 @@
  * SfxDirector — one-shot stingers keyed to sim events, the percussive half of
  * the score (design doc §4, slice P-B). It shares the MusicBackend (one
  * AudioContext, already gesture-unlocked) and plays on reserved channels 6–8 so
- * it never collides with the MusicDirector's voices (0–4). GM timbre, embraced.
+ * it never collides with the MusicDirector's voices (0–5). GM timbre, embraced.
+ *
+ * Rides the SFX bus (§6.1, audio-buses.ts): its notes land on channels 6–8,
+ * which the backend scales/mutes independently of the music bus (0–5) — so
+ * turning music off never silences stingers and vice versa.
  *
  * Pure scheduling against the backend clock — testable with a fake backend.
  */
@@ -65,12 +69,28 @@ function patchFor(type: SimEvent['type']): Hit[] | null {
   }
 }
 
+export interface SfxDirectorOptions {
+  /** SFX-bus volume 0..1 (§6.1). Default 0.6 — stingers accent over the score. */
+  volume?: number;
+}
+
 export class SfxDirector {
   private readonly backend: MusicBackend;
   private programsSet = false;
 
-  constructor(backend: MusicBackend) {
+  constructor(backend: MusicBackend, opts: SfxDirectorOptions = {}) {
     this.backend = backend;
+    this.backend.setSfxVolume(opts.volume ?? 0.6);
+  }
+
+  /** SFX-bus volume 0..1. Independent of the music bus. */
+  setVolume(v: number): void {
+    this.backend.setSfxVolume(v);
+  }
+
+  /** Mute the SFX bus without touching music. */
+  setMuted(muted: boolean): void {
+    this.backend.setSfxMuted(muted);
   }
 
   /** Schedule the stinger for `type`, if any. No-op when audio isn't running. */
