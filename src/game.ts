@@ -1206,8 +1206,8 @@ export class Game {
             // P5b: NEW WORLD lands on the new-world screen (random OR a pasted
             // seed-share code) rather than firing `new_game` straight away —
             // see `newgame-screen.ts`'s header. `open_screen` is the SAME
-            // meta-verb path every other shell navigation takes.
-            this.newGameError = null; // a stale refusal from a PREVIOUS visit must not reappear
+            // meta-verb path every other shell navigation takes (and clears
+            // any stale refusal from a PREVIOUS visit — see its own case).
             this.bus.emit({ verb: 'open_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { screen: 'newgame' } });
             break;
           case 'demo':
@@ -2118,7 +2118,15 @@ export class Game {
         break;
       case 'open_screen': {
         const screen = str('screen');
-        if (screen && isScreenId(screen)) { this.shell.push(screen); this.requestRender(); }
+        if (screen && isScreenId(screen)) {
+          // A stale refusal from a PREVIOUS visit to the new-world screen must
+          // never reappear on a fresh one — cleared here (the one true entry
+          // point, whether the click came from the title screen or an agent's
+          // `open_screen` over the bus), not per-caller.
+          if (screen === 'newgame') this.newGameError = null;
+          this.shell.push(screen);
+          this.requestRender();
+        }
         break;
       }
       case 'close_screen':
