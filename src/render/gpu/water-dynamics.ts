@@ -520,6 +520,37 @@ export class WaterDynamics implements WeatherStepper {
     }
   }
 
+  /** Seed cloud over an arbitrary disc (abilities-v1 B5 — the raincloud
+   *  placement effect): the visible-cloud sibling of `floodArea`, so a placed
+   *  raincloud actually READS as a cloud over its target rather than a global
+   *  overcast (`seedClouds` is global-only). Purely a VISUAL seeding — the
+   *  water/belief effect still goes entirely through `floodArea`/`summonStormAt`.
+   *  Not part of the `WeatherStepper` sim contract: the sim never calls this,
+   *  only the cast UI decorating a placed cloud does, so it stays a
+   *  `WaterDynamics`-only method rather than widening the sim-facing interface.
+   *  Returns the number of cells seeded. */
+  cloudArea(tileX: number, tileY: number, radius: number, amount = 0.6): number {
+    const { W, H } = this;
+    const r = Math.max(0, Math.round(radius));
+    const cx = Math.round(tileX), cy = Math.round(tileY);
+    const r2 = r * r;
+    let n = 0;
+    for (let dy = -r; dy <= r; dy++) {
+      const ny = cy + dy;
+      if (ny < 0 || ny >= H) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        const nx = cx + dx;
+        if (nx < 0 || nx >= W) continue;
+        const i = ny * W + nx;
+        if (this.elev[i] < ELEVATION_SEA_LEVEL) continue;   // no cloud seeding over the sea
+        this.cloud[i] = Math.min(1, this.cloud[i] + amount);
+        n++;
+      }
+    }
+    return n;
+  }
+
   /** Index of the largest lake body, or −1 if the world has no lakes. */
   largestBody(): number {
     let best = -1, bestArea = 0;

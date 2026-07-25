@@ -19,6 +19,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { BusClient } from './bus-client';
+import { targetShape, buildTarget } from './target-shape';
 
 const client = new BusClient({ url: process.env.BUS_URL });
 let connected = false;
@@ -198,23 +199,6 @@ server.registerTool('studio_regen_reference',
   (a) => run(() => client.query('studio_regen_reference', a.kind, a.slug, a.model, a.prompt)));
 
 // ── Write tools (require ?bridge=rw) ─────────────────────────────────────────
-
-const targetShape = {
-  targetKind: z.enum(['npc', 'entity', 'settlement', 'tile', 'none']).optional().describe('Defaults to none'),
-  npcId: z.string().optional().describe('Required when targetKind is npc'),
-  entityId: z.string().optional().describe('Required when targetKind is entity (any World entity)'),
-  poiId: z.string().optional().describe('Required when targetKind is settlement'),
-  x: z.number().optional().describe('Required when targetKind is tile'),
-  y: z.number().optional().describe('Required when targetKind is tile'),
-};
-
-function buildTarget(a: { targetKind?: string; npcId?: string; entityId?: string; poiId?: string; x?: number; y?: number }): unknown {
-  if (a.targetKind === 'npc') return { kind: 'npc', npcId: a.npcId };
-  if (a.targetKind === 'entity') return { kind: 'entity', id: a.entityId };
-  if (a.targetKind === 'settlement') return { kind: 'settlement', poiId: a.poiId };
-  if (a.targetKind === 'tile') return { kind: 'tile', x: a.x, y: a.y };
-  return { kind: 'none' };
-}
 
 server.registerTool('preview_command',
   { description: 'Dry-run a command: returns null if it would apply, or a rejection reason. No state change.',
