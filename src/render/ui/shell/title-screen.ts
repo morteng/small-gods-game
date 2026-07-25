@@ -15,7 +15,7 @@
 // player a freshly generated world they did not ask for (spec §5.2).
 
 import type { UiContext } from '@/render/ui/ui-context';
-import { COLOR, FS, SPACING, STROKE } from '@/render/ui/ui-tokens';
+import { COLOR, SPACING, STROKE, shellTypeScaleFor, minHitSize } from '@/render/ui/ui-tokens';
 import { withAlpha } from '@/render/ui/ui-color';
 
 /** Why CONTINUE cannot be offered, or `null` when it can. Prose, already
@@ -131,17 +131,27 @@ function fitScale(c: UiContext, text: string, maxW: number, preferred: number): 
 export function drawTitleScreen(
   c: UiContext, w: number, h: number, s: number, view: TitleView,
 ): TitleAction | null {
-  const fsBody = FS.body * s;
-  const fsSmall = FS.small * s;
+  // Responsive 10-foot type: menu rows are sized for the viewing distance this
+  // viewport implies, captions sit on the floor tier. Never `FS.body` here — the
+  // shell is not the HUD, and menus at HUD size read too small (user, 2026-07-25).
+  const T = shellTypeScaleFor(w, s);
+  const fsBody = T.menu;
+  const fsSmall = T.caption;
 
   const cx = Math.round(w / 2);
   const edge = SPACING.xxl * s;
   const rowW = Math.round(Math.min(360 * s, Math.max(80, w - edge * 2)));
-  let rowH = Math.round(34 * s);
+  // Row height follows the TYPE and the class's minimum hit target — big type
+  // with a small row would be both ugly and hard to hit on touch/TV.
+  let rowH = Math.max(
+    Math.round(34 * s),
+    c.lineHeight(T.menu) + SPACING.md * 2 * s,
+    minHitSize(T.cls, s),
+  );
   const rows = titleRows(view);
 
   // The wordmark steps down whole scale rungs until it fits the window width.
-  const fsWord = fitScale(c, WORDMARK, w - edge, FS.display * s);
+  const fsWord = fitScale(c, WORDMARK, w - edge, T.display);
   // The epigraph is a single unbreakable line; same treatment.
   const fsEpi = fitScale(c, EPIGRAPH, w - edge, fsSmall);
 

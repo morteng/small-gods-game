@@ -248,6 +248,43 @@ documented.
 gold accent reserved for interactive-and-divine, restrained motion (short fades in the existing
 150 ms `LABEL_FADE_MS` language). Integer pixel scales throughout; nothing fractional.
 
+### 4.0 Typography: a RESPONSIVE 10-foot type scale (user product direction, 2026-07-25)
+
+**This is a game, and its meta screens must read like a console game's** — not like a desktop app.
+But the same UI runs on a phone held at 30 cm, a desktop at arm's length, and a TV across a room, so
+the answer is a responsive scale, not a flat multiplier.
+
+**The rules, all enforced in `ui-tokens.ts` and pinned by `tests/unit/ui-type-scale.test.ts`:**
+
+1. **Four tiers, strict hierarchy:** `display` (wordmark) > `heading` (screen titles) > `menu`
+   (**every interactive row** — menu items, settings rows and values, slot names, key bindings,
+   dialog choices) > `caption` (metadata and hints only).
+2. **`caption` is the FLOOR.** Nothing in the shell or kit may render below it. Secondary text gets
+   *dimmer* (`COLOR.inkDim`), never *smaller*.
+3. **Scroll, never shrink.** A dense screen absorbs overflow with `UiContext.scrollList` or
+   pagination. A degradation ladder may drop gaps, notes and secondary lines — it may **never** step
+   the font down. The deleted `FS.small = 1` tier was exactly that mistake: it rendered captions at
+   half body size and let the controls list silently shrink to fit.
+4. **Size derives from the effective viewport width AND dpr — never dpr alone**, which knows nothing
+   about viewing distance. `sizeClassFor(cssWidth)` → `compact` (<700, phones: needs wrapping and big
+   touch targets more than big glyphs) / `regular` (<1400, desktop) / `large` (1080p+, assumed couch
+   distance). One centralized step function, never a per-screen judgement call.
+5. **Integer scales only** (the pixel-perfect rule) at every breakpoint and dpr.
+6. **Hit targets grow with the type**, with a touch-comfortable floor on `compact`
+   (`minHitSize`) — good for TV pointers, touch and gamepad focus alike.
+7. **Fewer rows per screen is the correct trade**, not a problem to solve by shrinking.
+8. The **UI SCALE setting adjusts from a base that is already comfortable** — it is for outliers, not
+   a crutch for a too-small default.
+9. **Nothing may assume a wide viewport** (iPhone 12 mini is a real target on the iOS port track).
+   Build the scale/reflow seams soundly; don't build speculative mobile layout beyond that.
+
+Screens call `shellTypeScaleFor(wDev, s)`. `FS.body`/`FS.title` remain, but are now **in-game HUD
+only** — the HUD overlays the world at normal viewing distance and the 10-foot rule deliberately does
+not govern it.
+
+**Known limitation:** the 5×7 font doubled at these sizes is chunky. Acceptable for now; a
+2×-designed glyph set is noted as possible future work rather than a blocker.
+
 - `src/render/ui/ui-tokens.ts` — the single source: colour ramp (oklch, built on `ui-palette.ts`,
   which stays and is re-exported), spacing scale, stroke weights, type scale (`FS_*` move here),
   motion durations. No module hardcodes a colour after this lands.

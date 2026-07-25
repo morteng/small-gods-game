@@ -136,8 +136,8 @@ export function drawSlotsScreen(
   const fsHeader = fitScale(c, headerText, w - edge * 2, FS.title * s);
   const headerH = c.lineHeight(fsHeader);
 
-  // Slot-tile body text rides FS.small — captions/metadata scale, per the kit.
-  const fsTile = FS.small * s;
+  // Slot-tile body text rides FS.caption — captions/metadata scale, per the kit.
+  const fsTile = FS.caption * s;
   const lhTile = c.lineHeight(fsTile);
   const reasonGap = Math.round(SPACING.tight * s);
   const reasonH = reasonGap + lhTile;

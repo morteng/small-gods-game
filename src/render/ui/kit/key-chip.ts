@@ -18,7 +18,7 @@ export interface KeyChipOpts {
 }
 
 export function keyChip(c: UiContext, opts: KeyChipOpts): Rect {
-  const s = opts.scale ?? FS.small;
+  const s = opts.scale ?? FS.caption;
   const label = opts.text.toUpperCase();
   const tw = c.measure(label, s);
   const th = c.lineHeight(s);

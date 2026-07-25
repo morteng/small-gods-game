@@ -187,7 +187,7 @@ export function drawSettingsScreen(
   const headerH = c.lineHeight(fsHeader);
 
   const fsBody = FS.body * s;
-  const fsSmall = FS.small * s;
+  const fsSmall = FS.caption * s;
   const lh = c.lineHeight(fsBody);
   const lhSmall = c.lineHeight(fsSmall);
   const tabH = Math.round(30 * s);
