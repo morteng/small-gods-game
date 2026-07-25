@@ -64,6 +64,12 @@ export interface WeatherStepper {
    *  metres of standing water over a `radius`-tile disc at the POI. Returns the number
    *  of cells flooded (0 if the POI is unknown). */
   floodPoi(poiId: string, radius: number, depthM: number): number;
+  /** Flood an ARBITRARY disc of ground (abilities-v1 B2 — the area-target
+   *  `summon_storm` effect, `summonStormAt`): lay `depthM` metres of standing
+   *  water over a `radius`-tile disc centred at (tileX, tileY). The
+   *  location-generic sibling `floodPoi` delegates to (it just resolves a
+   *  POI's centre first). Returns the number of cells flooded. */
+  floodArea(tileX: number, tileY: number, radius: number, depthM: number): number;
   /** Clear all dynamic state back to the resting world. */
   reset(): void;
 }

@@ -16,7 +16,7 @@ import type { CommandQueue } from '@/sim/command/command-queue';
 import type { GameState } from '@/core/state';
 import type { AppendedEvent } from '@/core/events';
 import { previewCommand } from '@/sim/command/command-system';
-import { listCapabilities, acceptedTargetKinds, isMetaVerb } from '@/sim/command/registry';
+import { listCapabilities, acceptedTargetKinds, capFootprint, isMetaVerb } from '@/sim/command/registry';
 import type { GameQuery } from './game-query';
 
 /** The capability registry projected to plain, serializable data. The MCP tool
@@ -30,6 +30,10 @@ export interface CapabilityView {
   targetKind: CommandTargetKind;
   /** Full set of accepted target shapes (⊇ {targetKind}); e.g. smite → npc/entity/tile. */
   targetKinds: readonly CommandTargetKind[];
+  /** Reticle shape (abilities-v1 B3): 'point' highlights one cell/entity; 'area'
+   *  brushes a radius. Lets the UI/agents discover drag-radius verbs (e.g. an
+   *  area `summon_storm`) without re-deriving it from `targetKinds`. */
+  footprint: 'point' | 'area';
   implemented: boolean;
 }
 
@@ -79,6 +83,7 @@ export function createGameBus(deps: GameBusDeps): GameBus {
         cost: c.cost,
         targetKind: c.targetKind,
         targetKinds: acceptedTargetKinds(c),
+        footprint: capFootprint(c),
         implemented: c.implemented,
       }));
     },

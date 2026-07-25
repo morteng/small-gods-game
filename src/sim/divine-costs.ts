@@ -33,3 +33,22 @@ export const MIRACLE_COST = 10;
 export const ANSWER_PRAYER_COST = 2;
 export const SMITE_COST = 8;
 export const SUMMON_STORM_COST = 12;
+
+/** summon_storm's today-fixed disc radius (tiles) — the r=6 reference the
+ *  area-neutral cost formula below scales against. */
+export const SUMMON_STORM_RADIUS = 6;
+
+/**
+ * Area-neutral summon_storm cost (abilities-v1 B3): a settlement cast (radius
+ * === SUMMON_STORM_RADIUS, today's fixed disc) costs exactly SUMMON_STORM_COST;
+ * an area cast scales as the SQUARE of the radius ratio (cost ∝ flooded area —
+ * a r=12 storm costs 4× a r=6 one). A true leaf function: no clamp, no I/O.
+ * Callers pass an ALREADY-CLAMPED radius (`clampAreaRadius`,
+ * sim/command/types.ts) — this lives beside the other costs (not in
+ * registry.ts / divine-actions.ts, both of which need it and would cycle
+ * importing from each other) so the capability registry's `costFor` and
+ * `summonStormAt`'s own effect price the exact same number.
+ */
+export function summonStormCost(radius: number): number {
+  return SUMMON_STORM_COST * (radius / SUMMON_STORM_RADIUS) ** 2;
+}

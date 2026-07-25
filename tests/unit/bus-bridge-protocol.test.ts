@@ -10,7 +10,7 @@ function mockBus(): BusLike & { emitted: unknown[] } {
       npc: (id: string) => (id === 'npc:1' ? { id, name: 'Ada' } : null),
       npcs: (filter?: unknown) => [{ id: 'npc:1', filter }],
     },
-    capabilities: () => [{ verb: 'whisper', tier: 'divine', cost: 1, targetKind: 'npc', implemented: true }],
+    capabilities: () => [{ verb: 'whisper', tier: 'divine', cost: 1, targetKind: 'npc', footprint: 'point', implemented: true }],
     preview: (cmd: unknown) => (cmd ? null : 'invalid_payload'),
     emit(cmd: unknown) { emitted.push(cmd); },
   };

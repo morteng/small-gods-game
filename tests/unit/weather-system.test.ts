@@ -26,6 +26,7 @@ class StubStepper implements WeatherStepper {
   hasFlood(): boolean { return this.field.some((v) => v > 0); }
   lakeOffsetM(): Float32Array { return new Float32Array(0); }
   floodPoi(): number { return 0; }
+  floodArea(): number { return 0; }
   serialize(): WeatherSnapshot { return { bodyOffsetM: [], floodM: Array.from(this.field), humidity: [], cloud: [], temp: [], timeOfDaySec: 0 }; }
   hydrate(): void {}
   reset(): void { this.field.fill(0); }

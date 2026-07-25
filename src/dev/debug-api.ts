@@ -289,10 +289,10 @@ export function createDebugApi(deps: DebugApiDeps): DebugApi {
     },
 
     flood(x: number, y: number, radius = 6, depthM = 3): number {
-      // floodArea lives on the concrete WaterDynamics, not the sim-side WeatherStepper
-      // interface — narrow to the flood-capable shape rather than widening the contract.
-      const w = state.weather as { floodArea?: (x: number, y: number, r: number, d: number) => number } | null;
-      const n = w?.floodArea?.(Math.round(x), Math.round(y), radius, depthM) ?? 0;
+      // floodArea is now part of the WeatherStepper contract itself (abilities-v1
+      // B2 — the same method the area-target summon_storm effect uses), so no
+      // more narrowing to the concrete WaterDynamics shape.
+      const n = state.weather?.floodArea(Math.round(x), Math.round(y), radius, depthM) ?? 0;
       deps.requestRender();
       return n;
     },

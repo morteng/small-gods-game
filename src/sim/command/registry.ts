@@ -11,15 +11,17 @@
 import type { Entity } from '@/core/types';
 import { getNpc, npcProps } from '@/world/npc-helpers';
 import {
-  whisper, omen, dream, miracle, answerPrayer, smite, smiteLocation, summonStorm,
+  whisper, omen, dream, miracle, answerPrayer, smite, smiteLocation, summonStorm, summonStormAt,
   proclaimPeace, bindOath, devotionPoolAt,
   PROCLAIM_PEACE_DEVOTION_COST, BIND_OATH_DEVOTION_COST,
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST, ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
 } from '@/sim/divine-actions';
+import { summonStormCost as summonStormCostForRadius } from '@/sim/divine-costs';
 import { assemblySeatIdsAt } from '@/sim/lord';
 import { aggregateDomain, DOMAIN_DEFS } from '@/sim/belief-domains';
 import { mindProbeCost, probeMind } from '@/sim/mind-probe';
 import type { Command, CommandCtx, ApplyCtx, CommandVerb, CommandTargetKind, RejectionReason } from './types';
+import { clampAreaRadius } from './types';
 import {
   removePrecondition, removeApply,
   spawnPrecondition, spawnApply,
@@ -66,6 +68,20 @@ export interface CapabilityDef {
    * chosen content changes the outcome; keep visceral verbs (smite) as leaves.
    */
   shape?: 'leaf' | 'branch';
+  /**
+   * Optional radius/footprint-scaled cost override (abilities-v1 B3 — area
+   * effects). When present, `effectiveCost` (below) uses THIS instead of the
+   * static `cost` for every power gate: `previewCommand`'s own check AND the
+   * UI's `derivePreview`. That means a variable-footprint cast can never see a
+   * preview that lied about what it will actually spend. `cost` still carries
+   * the base/default figure for JSON-serializable projections
+   * (`CapabilityView`) that cannot ship a function.
+   *
+   * Do NOT copy the `probe_mind` pattern (declared `cost: 0`, the real cost
+   * hidden inside the precondition) — that preview lies about affordability.
+   * `costFor` exists so a variable cost never has to hide.
+   */
+  costFor?(cmd: Command): number;
   /** false ⇒ executor rejects with 'not_implemented'. */
   implemented: boolean;
   /** Read-only gate (cooldown, worship-state, …). Returns a reason or null. */
@@ -90,8 +106,30 @@ function targetLabel(cmd: Command): string {
     case 'entity': return cmd.target.id;
     case 'settlement': return cmd.target.poiId;
     case 'tile': return `(${cmd.target.x}, ${cmd.target.y})`;
+    case 'area': return `the ground around (${cmd.target.x}, ${cmd.target.y})`;
     default: return 'world';
   }
+}
+
+/**
+ * summon_storm's radius-scaled cost (B3): a settlement cast prices at the
+ * static base (SUMMON_STORM_RADIUS's own disc); an area cast re-derives the
+ * SAME clamp (`clampAreaRadius`) the apply effect (`summonStormAt`) uses, so
+ * preview and apply can never disagree about what a hand-built or agent-issued
+ * Command actually costs.
+ */
+function summonStormCost(cmd: Command): number {
+  const r = cmd.target.kind === 'area' ? clampAreaRadius(cmd.target.radius) : undefined;
+  return r === undefined ? SUMMON_STORM_COST : summonStormCostForRadius(r);
+}
+
+/** The power a command would ACTUALLY spend — `costFor` when the verb declares
+ *  one (radius-scaled casts), else the static `cost`. Every power gate (the
+ *  executor's `previewCommand`, the UI's `derivePreview`) MUST read cost
+ *  through this, never `def.cost` directly, or a variable-footprint verb's
+ *  preview can lie about affordability. */
+export function effectiveCost(def: CapabilityDef, cmd: Command): number {
+  return def.costFor?.(cmd) ?? def.cost;
 }
 
 export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
@@ -196,12 +234,22 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   },
 
   summon_storm: {
-    verb: 'summon_storm', tier: 'divine', cost: SUMMON_STORM_COST, targetKind: 'settlement', implemented: true,
+    verb: 'summon_storm', tier: 'divine', cost: SUMMON_STORM_COST, targetKind: 'settlement',
+    // B1/B3: a settlement stays the primary/default target (labels, castPower
+    // defaults, the MCP view's `targetKind`), but the verb ALSO accepts an
+    // arbitrary disc — the raincloud-placement MVP (plan §3 decision 3: widen
+    // summon_storm rather than mint a new verb). `footprint: 'area'` is what
+    // lets the UI/agents discover the drag-radius cast.
+    targetKinds: ['settlement', 'area'], footprint: 'area', implemented: true,
+    costFor: summonStormCost,
     precondition(cmd, ctx) {
-      if (cmd.target.kind !== 'settlement') return 'invalid_target';
+      // Target kind is validated by previewCommand (acceptedTargetKinds); this
+      // defensive re-check only matters for a caller invoking precondition
+      // directly (some tests do, bypassing the central gate).
+      if (cmd.target.kind !== 'settlement' && cmd.target.kind !== 'area') return 'invalid_target';
       const spirit = ctx.spirits.get(cmd.source);
       if (!spirit) return 'invalid_target';
-      if (spirit.power < SUMMON_STORM_COST) return 'insufficient_power';
+      if (spirit.power < summonStormCost(cmd)) return 'insufficient_power';
       // Belief-CONTENT gate: the congregation must believe you command the rains.
       const def = DOMAIN_DEFS.flood;
       const agg = aggregateDomain(ctx.world, cmd.source, 'flood');
@@ -209,8 +257,11 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
       return null;
     },
     apply(cmd, ctx) {
-      const poiId = (cmd.target as { poiId: string }).poiId;
-      return summonStorm(ctx.spirits.get(cmd.source)!, poiId, ctx.log, ctx.weather);
+      const sp = ctx.spirits.get(cmd.source)!;
+      const t = cmd.target;
+      if (t.kind === 'settlement') return summonStorm(sp, t.poiId, ctx.log, ctx.weather);
+      if (t.kind === 'area') return summonStormAt(sp, t.x, t.y, t.radius, ctx.log, ctx.weather);
+      return false;
     },
     describe: (cmd) => `summon a deluge over ${targetLabel(cmd)}`,
   },

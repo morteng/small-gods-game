@@ -255,8 +255,15 @@ export function eventFactLine(a: AppendedEvent, world?: World | null): string {
       return 'A fated beat came to pass.';
     case 'portent_planted':
       return `An omen (a ${ev.kind}) gathered over the place — a portent of things building.`;
-    case 'summon_storm':
-      return `A storm was summoned, ${ev.depthM.toFixed(1)}m deep over ${ev.cells} cells.`;
+    case 'summon_storm': {
+      // abilities-v1 B2: an area-target storm has no poiId — fall back to the
+      // coordinates it actually fell on rather than dropping the place entirely
+      // (mirrors `road_adopted`'s optional-endpoint fallback just above).
+      const place = ev.poiId
+        ? resolvePoiName(world, ev.poiId)
+        : ev.x !== undefined && ev.y !== undefined ? `(${ev.x}, ${ev.y})` : 'the land';
+      return `A storm was summoned over ${place}, ${ev.depthM.toFixed(1)}m deep over ${ev.cells} cells.`;
+    }
     case 'place_flooded':
       return `The waters rose over ${ev.name}, ${ev.depthM.toFixed(1)}m deep, covering ${Math.round(ev.coverage * 100)}%.`;
     case 'place_receded':

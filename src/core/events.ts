@@ -100,7 +100,12 @@ export type SimEvent =
   // foreshadowing that gates heavy beats. Emitted by the Fate brain (off-tick,
   // same seam as LLM writeback); consumed by the inbox (a tiding) + the chronicler.
   | { type: 'portent_planted';    arcId: number; kind: string; poiId: string; beatId: BeatId }
-  | { type: 'summon_storm';       spiritId: SpiritId; poiId: string; depthM: number; cells: number }
+  // abilities-v1 B2: `poiId` is now OPTIONAL — an AREA-target storm
+  // (`summonStormAt`) has no settlement, just a centre + the clamped radius it
+  // actually laid. Exactly the shape `smite` already took above (npcId/poiId/x/y
+  // all optional) — widening rather than a new event type, so this stays one
+  // SimEvent variant with one emit family (sim-event-boundary.test.ts).
+  | { type: 'summon_storm';       spiritId: SpiritId; poiId?: string; x?: number; y?: number; radius?: number; depthM: number; cells: number }
   | { type: 'place_flooded';      poiId: string; name: string; depthM: number; coverage: number }
   | { type: 'place_receded';      poiId: string; name: string }
   | { type: 'site_born';          siteId: string; kind: string; name: string; x: number; y: number; depthM: number; cells: number }

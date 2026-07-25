@@ -1,7 +1,7 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
 import {
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST,
-  ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
+  ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST, SUMMON_STORM_RADIUS, summonStormCost,
 } from '@/sim/divine-costs';
 import type { Entity } from '@/core/types';
 import type { EventLog } from '@/core/events';
@@ -12,6 +12,7 @@ import { addDomainBelief, isOminous } from '@/sim/belief-domains';
 import { isSilenced } from '@/sim/god-tier';
 import { isWaterTile } from '@/world/land-snap';
 import type { WeatherStepper } from '@/sim/water/weather-stepper';
+import { clampAreaRadius } from '@/sim/command/types';
 import type { CausalSite } from '@/world/causal-site';
 import {
   armedMenOf, peaceActive, assemblySeatIdsAt,
@@ -25,11 +26,13 @@ import {
 
 export {
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST,
-  ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
+  ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST, SUMMON_STORM_RADIUS,
 } from '@/sim/divine-costs';
 
-// summon_storm: how much water the storm lays, and how far.
-const SUMMON_STORM_RADIUS = 6;   // tiles
+// summon_storm: how far the storm lays water. SUMMON_STORM_RADIUS + the
+// area-neutral cost formula (`summonStormCost`) live in divine-costs.ts — the
+// leaf module registry.ts's `costFor` and this file's `summonStormAt` both
+// price a radius-scaled cast from, so they can never disagree (B3).
 const SUMMON_STORM_DEPTH_M = 3;  // metres of standing water over the disc
 /** Flood-domain belief seeded in a believer when the waters rise at their home — the
  *  attribution that both unlocks `summon_storm` (a god who floods) and reinforces it. */
@@ -558,6 +561,39 @@ export function summonStorm(
   spirit.power -= SUMMON_STORM_COST;
   const cells = weather?.floodPoi(poiId, SUMMON_STORM_RADIUS, SUMMON_STORM_DEPTH_M) ?? 0;
   log.append({ type: 'summon_storm', spiritId: spirit.id, poiId, depthM: SUMMON_STORM_DEPTH_M, cells });
+  return true;
+}
+
+/**
+ * summonStormAt (B2) — the AREA-target sibling of `summonStorm`: lay the same
+ * deluge over an arbitrary disc rather than a settlement's authored footprint.
+ * Mirrors `smiteLocation`'s "no soul to convert" shape — a bare spot has no
+ * congregation to seed `flood` belief in directly via `seedFloodBelief`;
+ * that attribution rides the CAUSAL-SITE path instead (`seedSiteBelief`,
+ * fired by `WeatherSystem` when the newly-wet land isn't covered by a
+ * settlement's `FloodWatch` — already location-generic, see registry.ts).
+ *
+ * The power cost is the RADIUS-SCALED figure (registry.ts `summonStormCost`,
+ * read through `costFor`/`effectiveCost` by the preview gate that already ran
+ * before this is called) — this function re-derives the SAME number via the
+ * SAME `clampAreaRadius` so a hand-built or replayed Command can never spend
+ * something other than what was previewed, even if it skipped the gate.
+ */
+export function summonStormAt(
+  spirit: Spirit,
+  x: number,
+  y: number,
+  radius: number,
+  log: EventLog,
+  weather: WeatherStepper | null | undefined,
+): boolean {
+  if (isSilenced(spirit, 'summon_storm')) return false;
+  const r = clampAreaRadius(radius);
+  const cost = summonStormCost(r);
+  if (spirit.power < cost) return false;
+  spirit.power -= cost;
+  const cells = weather?.floodArea(x, y, r, SUMMON_STORM_DEPTH_M) ?? 0;
+  log.append({ type: 'summon_storm', spiritId: spirit.id, x, y, radius: r, depthM: SUMMON_STORM_DEPTH_M, cells });
   return true;
 }
 

@@ -8,7 +8,7 @@
  * registered FIRST in the scheduler so queued commands apply at the top of a tick.
  */
 import type { System, SystemContext } from '@/core/scheduler';
-import { getCapability, acceptedTargetKinds } from './registry';
+import { getCapability, acceptedTargetKinds, effectiveCost } from './registry';
 import { getNpc } from '@/world/npc-helpers';
 import { SilentEventLog } from '@/core/events';
 import type { Command, CommandCtx, ApplyCtx, CommandResult, RejectionReason } from './types';
@@ -38,8 +38,19 @@ export function previewCommand(cmd: Command, ctx: CommandCtx): RejectionReason |
   if (!acceptedTargetKinds(def).includes(cmd.target.kind)) return 'invalid_target';
   if (cmd.target.kind === 'npc' && !getNpc(ctx.world, cmd.target.npcId)) return 'invalid_target';
   if (cmd.target.kind === 'entity' && !ctx.world.registry.get(cmd.target.id)) return 'invalid_target';
+  // Area targets (B1): reject a broken centre or a non-finite radius outright
+  // (an agent typo, NaN arithmetic) — but the radius itself is NEVER rejected
+  // merely for landing outside the 2..12 playable band. Every reader (the
+  // cost formula, the apply effect) clamps it via `clampAreaRadius`
+  // (sim/command/types.ts), so an over- or under-eager agent call still does
+  // something sane instead of bouncing off `invalid_target`.
+  if (cmd.target.kind === 'area') {
+    const { x, y, radius } = cmd.target;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(radius)) return 'invalid_target';
+    if (x < 0 || y < 0 || x >= ctx.world.tiles.width || y >= ctx.world.tiles.height) return 'invalid_target';
+  }
 
-  if (ctx.spirits.get(cmd.source)!.power < def.cost) return 'insufficient_power';
+  if (ctx.spirits.get(cmd.source)!.power < effectiveCost(def, cmd)) return 'insufficient_power';
 
   return def.precondition?.(cmd, ctx) ?? null;
 }

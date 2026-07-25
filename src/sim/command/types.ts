@@ -52,10 +52,37 @@ export type CommandTarget =
   | { kind: 'entity'; id: string }            // any World entity (flora/prop/animal)
   | { kind: 'settlement'; poiId: string }
   | { kind: 'tile'; x: number; y: number }    // a point on the ground
+  // A disc on the ground: centre (x,y) + radius in tiles — the area-effect
+  // counterpart to 'tile' (agent-driven-UI P2 / abilities-v1 B1). `radius` is
+  // ADVISORY: nobody trusts it raw — every reader (the cost formula, the
+  // apply effect) re-derives the same clamp via `clampAreaRadius` below, so a
+  // hand-built Command or a stale bus/MCP call can never see preview and
+  // effect disagree about what actually got cast.
+  | { kind: 'area'; x: number; y: number; radius: number }
   | { kind: 'none' };
 
 /** The discriminant of every CommandTarget — the vocabulary a verb can accept. */
 export type CommandTargetKind = CommandTarget['kind'];
+
+/**
+ * Clamp an area-target radius into the playable band (2..12 tiles) — narrower
+ * is pointless (a point/tile target is cheaper and more precise), wider
+ * outruns the area-neutral cost formula's headroom (registry.ts). This is a
+ * CLAMP, never a rejection — `previewCommand` (command-system.ts) rejects a
+ * command only for a non-finite radius or an out-of-bounds centre, so a
+ * sloppy agent call still does something sane rather than bouncing. Every
+ * reader of an area radius — the cost formula, `summonStormAt`'s effect, the
+ * preview's own gate — MUST go through this one function, never clamp
+ * independently, or preview and apply could disagree about the disc actually
+ * cast. Lives here (not registry.ts / divine-actions.ts, both of which need
+ * it) because `types.ts` carries zero RUNTIME imports of its own (everything
+ * above is `import type`) — the leaf-module pattern (CLAUDE.md) without a new
+ * file, exactly like `divine-costs.ts` for the cost constants.
+ */
+export function clampAreaRadius(radius: number): number {
+  const r = Number.isFinite(radius) ? radius : 2;
+  return Math.round(Math.max(2, Math.min(12, r)));
+}
 
 export interface Command {
   verb: CommandVerb;
