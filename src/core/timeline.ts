@@ -62,6 +62,24 @@ export class TimelineController {
     return this.liveSnapshot ? this.liveSnapshot.tick : this.state.clock.now();
   }
 
+  /**
+   * Drop ALL recorded history — the snapshot ring, the live snapshot, the
+   * discarded-future tails, and any in-flight scrub.
+   *
+   * Used by in-process quit-to-title (UI v3 §3.4): the ring holds full snapshots
+   * of the world being abandoned, so leaving them in place would both leak that
+   * world and let a scrub in the NEXT world jump into the previous one's state.
+   * `SnapshotStore.reset()` already existed for the time-skip rebaseline; this is
+   * the whole-controller equivalent.
+   */
+  reset(): void {
+    this.store.reset();
+    this.liveSnapshot = null;
+    this.lastSnapshotEventCount = 0;
+    this._isScrubbed = false;
+    this.discardedFutures = [];
+  }
+
   /** Called by game.ts after every live (non-scrubbed) scheduler.tick. */
   onAfterLiveTick(): void {
     if (this._isScrubbed) return;

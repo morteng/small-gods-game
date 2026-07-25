@@ -24,6 +24,8 @@ import { WhisperInputIsland } from '@/render/ui/ui-whisper-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice, CloudTone } from '@/story/uispec';
+import type { Shell } from '@/render/ui/shell/shell';
+import type { TitleAction } from '@/render/ui/shell/title-screen';
 import { validateUiSpec } from '@/story/uispec';
 import { layoutMindCloud } from '@/render/ui/mind-cloud-layout';
 import type { Rgba } from '@/render/ui/ui-color';
@@ -154,6 +156,14 @@ export interface UiRuntimeHooks {
   timeStatus?: () => TimeStatus;
   /** Dispatch a transport command (rate change / pause toggle / seek / cancel). */
   onTimeCommand?: (cmd: TimeCommand) => void;
+
+  // ── UI v3: the meta SHELL (title / loading / save / settings / …) ──
+  /** A title-screen choice was made. The host translates it into a meta command
+   *  (`new_game`, `load_slot`, …) — the runtime never emits commands itself. */
+  onTitleAction?: (action: TitleAction) => void;
+  /** Esc pressed while a shell screen is up. The host decides what "back" means
+   *  for that screen (pop, or ignore on the title). */
+  onShellEscape?: () => void;
 }
 
 // ── Round 9: time transport (fastforward + jump-to-next-event) ──────────────
@@ -278,6 +288,12 @@ export class UiRuntime {
 
   private menuOpen = false;
   private section: Section = null;
+
+  /** UI v3: the meta screen stack (title / loading / save / settings / …), or
+   *  null before `setShell`. When a screen is up it OWNS the frame — it draws
+   *  instead of the HUD/menu/card chain, and it can be up with no world at all
+   *  (the whole point: the title screen exists before worldgen). */
+  private shell: Shell | null = null;
 
   /** The story card currently on screen (modal narrative beat), or null. */
   private story: StorySession | null = null;
@@ -448,12 +464,22 @@ export class UiRuntime {
     this.presentUiSpec(spec, () => {});
   }
 
-  /** Whether a pointer at (px,py device) should be eaten by the UI. The menu and
-   *  an open story card are modal (eat everything); the HUD only eats taps on its
-   *  own widgets. */
+  /** Whether a pointer at (px,py device) should be eaten by the UI. A shell
+   *  screen, the menu and an open story card are modal (eat everything); the HUD
+   *  only eats taps on its own widgets. */
   consumesPointer(px: number, py: number): boolean {
+    // A shell screen is the whole surface — and in meta mode there is no world
+    // underneath to click at all, so it must swallow everything unconditionally.
+    if (this.shell?.isActive()) return true;
     if (this.menuOpen || this.story || this.card) return true;
     return this.lastHits.some((h) => px >= h.x && px < h.x + h.w && py >= h.y && py < h.y + h.h);
+  }
+
+  /** Attach the meta shell (UI v3). Until this is called the runtime behaves
+   *  exactly as before — the shell branch in `frame()` is inert, so every
+   *  existing test and the studio (which never mounts a shell) are unaffected. */
+  setShell(shell: Shell): void {
+    this.shell = shell;
   }
 
   /** Hit regions claimed by the last built frame (for an external router / tests). */
@@ -609,9 +635,13 @@ export class UiRuntime {
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (this.card) this.dismissCard(); // Esc cancels the card before it reaches the menu
+        // Esc stack, outermost first: a shell screen owns it (the host decides
+        // what "back" means for that screen — pop, or ignore on the title), then
+        // an open card, then the pause menu.
+        if (this.shell?.isActive()) this.hooks.onShellEscape?.();
+        else if (this.card) this.dismissCard();
         else this.toggleMenu();
-        e.stopPropagation(); // pause menu owns Esc (supersedes time-bar dismiss)
+        e.stopPropagation(); // the UI owns Esc (supersedes time-bar dismiss)
         e.preventDefault();
       }
     };
@@ -666,7 +696,17 @@ export class UiRuntime {
     const s = uiScaleFor(dpr);
     let r: Rect | null = null; // settings island target (menu)
     let whisperRect: Rect | null = null; // whisper input island target (conversation card)
-    if (this.menuOpen) {
+    // UI v3: a shell screen wins over EVERYTHING. It is the outermost layer (you
+    // are at the title, or the world is loading), and in meta mode there is no
+    // world/HUD to fall through to at all. Placed as the first arm of the same
+    // chain so it inherits the hit/scroll/island bookkeeping below unchanged.
+    if (this.shell?.isActive()) {
+      const res = this.shell.draw(c, wDev, hDev, s);
+      // The runtime reports; the host dispatches. Keeping command emission out of
+      // here is what lets a screen be unit-tested with no bus and no world.
+      if (res.title) this.hooks.onTitleAction?.(res.title);
+      r = res.island;
+    } else if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
     } else if (this.card) {

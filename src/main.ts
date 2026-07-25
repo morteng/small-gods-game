@@ -1,4 +1,5 @@
 import { Game } from './game';
+import { resolveAutostart } from './game/autostart';
 
 // Dev features (the Studio + the __game/__debug/__bus/__perf window surface) are
 // gated behind the build-time `__DEV_TOOLS__` flag and loaded by DYNAMIC import, so a
@@ -21,21 +22,19 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
     if (flag) startBridgeClient({ bus: makeStudioBus(flag.allowWrite), allowWrite: flag.allowWrite });
   });
 } else if (container) {
-  const game = new Game(container);
-  // `?genome=<name>` runs a generated terrain GENOME through the real engine — a
-  // valid, buildings-free `WorldSeed` built to a stated need (e.g. a small grass
-  // island for terrain-shader work), rendered by the shipped path with no bespoke
-  // harness. The genome world is ephemeral (Game skips autosave under `?genome`).
-  const genomeName = __DEV_TOOLS__ ? new URLSearchParams(location.search).get('genome') : null;
-  const boot = genomeName
-    ? import('./world/genome').then(({ terrainGenomeByName }) => game.generateWorld(terrainGenomeByName(genomeName)))
-    : game.generateWorld();
-  // The catch is load-bearing: `generateWorld` names the failure on the loading
-  // overlay and rethrows, so without one here a failed boot is an unhandled
-  // rejection — and the page just sits there.
-  boot.then(
-    () => { console.log('World generated'); },
-    (err: unknown) => { console.error('World generation failed', err); },
+  const autostart = resolveAutostart(location.search, __DEV_TOOLS__);
+  const game = new Game(container, { ...(autostart ? { autostart } : {}) });
+
+  // `bootShell()` brings up the GPU device + scene and puts the TITLE on screen,
+  // then honours `autostart`. Worldgen no longer happens on page load unless
+  // something asked for it — that is the whole point of the phase.
+  //
+  // The catch is load-bearing: a failed boot names itself on the loading surface
+  // and rethrows, so without one here the page would just sit there on an
+  // unhandled rejection.
+  game.bootShell().then(
+    () => { console.log('Shell up'); },
+    (err: unknown) => { console.error('Boot failed', err); },
   );
 
   if (__DEV_TOOLS__) {
@@ -45,6 +44,10 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
     // Bus bridge (dev only): with ?bridge / ?bridge=rw, carry the GameBus seam out
     // to the dev broker so a CLI / MCP server can drive & inspect this tab. Loaded
     // lazily so it's inert (and tree-shaken from the prod hot path) by default.
+    //
+    // Attached regardless of whether a world exists: the meta verbs (new_game,
+    // load_slot, open_screen, …) are serviced in meta mode too, so an agent can
+    // drive the game from the title screen (spec §3.7).
     void import('./dev/bus-bridge-client').then(({ readBridgeFlag, startBridgeClient }) => {
       const flag = readBridgeFlag(location.search);
       if (flag) startBridgeClient({ bus: game.bus, allowWrite: flag.allowWrite });

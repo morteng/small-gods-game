@@ -1,4 +1,4 @@
-import { createState, type GameState } from '@/core/state';
+import { createState, resetState, type GameState } from '@/core/state';
 import type { RenderFn, MetaRenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
@@ -65,7 +65,13 @@ import { runBootSequence } from '@/game/boot-sequence';
 import { kickOffSheets } from '@/game/bootstrap-world';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
-import { clearSave } from '@/services/save-store';
+import { clearSave, readSave } from '@/services/save-store';
+import { SAVE_VERSION, type SaveFile } from '@/core/save-file';
+import { WORLD_CONTENT_VERSION } from '@/core/content-version';
+import { Shell, type LoadingSurface } from '@/render/ui/shell/shell';
+import type { ScreenId } from '@/render/ui/shell/shell-state';
+import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
+import { selectRenderer } from '@/render/select-renderer';
 import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
 import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
@@ -91,7 +97,7 @@ import { FrameRenderer } from '@/game/frame-renderer';
 import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
-import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
+import { calendarLabel, TICKS_PER_DAY, TICKS_PER_HOUR } from '@/core/calendar';
 
 /** How long the per-frame HUD sim-read memo (belief/powers/inbox) stays fresh.
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
@@ -113,16 +119,74 @@ const WORLD_CONTEST_TTL_MS = 1000;
  *  Births are rare; the scan is a Map.has per NPC, so slow is plenty. */
 const SHEET_REKICK_MS = 5000;
 
+/**
+ * UI v3: what to do once the shell is up.
+ *
+ * `{ kind: 'auto' }` is today's behaviour verbatim — resume the autosave if one
+ * is valid, else generate the pinned world — and it is what every dev flag
+ * (`?genseed`, `?genome`, `?bridge`, `?studio`) and the embed API resolve to, so
+ * those paths skip the title and boot straight in exactly as before.
+ * Omitting `autostart` entirely is the NEW default: show the title and generate
+ * nothing until the player (or an agent) asks.
+ */
+export type Autostart =
+  | { kind: 'auto' }
+  | { kind: 'fresh'; genSeed?: number; genome?: string; worldSeed?: WorldSeed; ephemeral?: boolean }
+  | { kind: 'resume'; slot?: string };
+
 export interface GameOptions {
   width?: number;
   height?: number;
   seed?: number;
+  /** Skip the title and boot a world immediately (dev flags, embeds, tests).
+   *  Absent ⇒ the title screen is shown and nothing is generated until asked. */
+  autostart?: Autostart;
+  /** Throwaway world: never autosave over the player's slot. Defaults from
+   *  `?genome` (a generated terrain study is always throwaway) but is now a real
+   *  parameter, because the Demo World needs it without being a genome. */
+  ephemeral?: boolean;
+  /** Set false to suppress the meta shell entirely (studio / embed harnesses
+   *  that want the world surface and nothing else). Defaults true. */
+  shell?: boolean;
 }
 
 /** `?flag` present in the URL (used to opt back into the dev UI, etc.). */
 function hasQueryFlag(flag: string): boolean {
   try { return new URLSearchParams(window.location.search).has(flag); }
   catch { return false; }
+}
+
+/**
+ * What the title screen knows about the autosave. Deliberately narrow: the
+ * richer per-slot metadata store (spec §5.1) replaces the reader behind this,
+ * not the shape the screen consumes.
+ */
+interface SlotSummary {
+  exists: boolean;
+  compat: 'ok' | 'stale-save' | 'stale-world';
+  /** One-line summary for the CONTINUE row, or null when there is nothing to say. */
+  line: string | null;
+  /** The save's own contentVersion, when that is what makes it unreadable. */
+  otherVersion?: number;
+}
+
+/** The shell screen ids an `open_screen` command may name. Validated rather than
+ *  cast, because this value arrives from OUTSIDE (an agent over the bus) and an
+ *  unknown screen must be refused, not pushed onto the stack. */
+const SCREEN_IDS = new Set<ScreenId>([
+  'title', 'newgame', 'load', 'save', 'settings', 'controls', 'loading', 'pause', 'gameover', 'photo',
+]);
+function isScreenId(v: string): v is ScreenId {
+  return SCREEN_IDS.has(v as ScreenId);
+}
+
+/** A one-line "what is in this save" summary for the title's CONTINUE row.
+ *  Fiction time only — never a raw tick (a standing UI rule). */
+function describeSave(save: SaveFile): string {
+  const day = Math.floor(save.snapshot.tick / TICKS_PER_DAY) + 1;
+  const believers = save.snapshot.spirits?.find((s) => s.isPlayer)?.beliefMass;
+  const mass = typeof believers === 'number' ? ` · BELIEF ${believers.toFixed(1)}` : '';
+  return `DAY ${day}${mass}`;
 }
 
 export class Game {
@@ -218,9 +282,12 @@ export class Game {
   /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
    *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
   private readonly barebones = !hasQueryFlag('legacyui');
-  /** Ephemeral world: a generated genome (`?genome=…`) is a throwaway terrain study,
-   *  so it must NOT autosave over the player's real save slot. */
-  private readonly ephemeral = hasQueryFlag('genome');
+  /** Ephemeral world: never autosave over the player's slot. A generated genome
+   *  (`?genome=…`) is always throwaway, and the Demo World sets it explicitly —
+   *  which is why this is no longer `readonly`-bound to the query flag (UI v3
+   *  §3.5): `startWorld` sets it per world, since one session can now go
+   *  title → demo → title → real game without a reload. */
+  private ephemeral = hasQueryFlag('genome');
   /** Interior reveal (epic I-1…I-6): the SELECTED building renders as a roof-off cutaway
    *  (interior rooms, rood screen, stacked storeys, crypt). ON by default now that the cutaway
    *  is verified coherent in-game; `?noInterior` opts back to the solid-exterior render. (The
@@ -296,11 +363,9 @@ export class Game {
   private timeBar: TimeBarHandle | null = null;
   private detachTimeKeys: (() => void) | null = null;
   private renderMap: RenderFn | null = null;
-  /** The world-less meta-mode entry (sky backdrop + UI, no sim/terrain/camera) —
-   *  P1-C builds it alongside `renderMap` but nothing calls it yet; a LATER phase
-   *  (spec 3.1's `bootShell()` + `onRender`'s `state.map == null` branch) wires
-   *  it into the frame loop for the title screen. Captured now so boot-sequence
-   *  can hand it straight to the Game the moment the GPU scene exists. */
+  /** The world-less meta-mode entry (sky backdrop + UI, no sim/terrain/camera).
+   *  `onRender` uses it whenever `state.map` is null — that is what lets the
+   *  title screen exist before any world does (UI v3 §3.1). */
   private renderMeta: MetaRenderFn | null = null;
   private dev!: DevModeController;
   private renderer!: FrameRenderer;
@@ -308,9 +373,32 @@ export class Game {
   private input!: InteractionController;
   private presentation!: PresentationDirector;
 
-  constructor(container: HTMLElement, _options: GameOptions = {}) {
+  /** UI v3: the meta screen stack. Constructed eagerly (it is pure state + draw
+   *  dispatch), attached to the UI runtime during construction, and driven by
+   *  `bootShell`/`startWorld`/`returnToTitle`. */
+  private readonly shell: Shell;
+  /** Whether the shell is used at all (`options.shell !== false`). */
+  private readonly shellEnabled: boolean;
+  /** What to boot once the shell is up, or null to stay on the title. */
+  private readonly autostart: Autostart | null;
+  /** Cached save probe for the title screen's CONTINUE row, refreshed by
+   *  `bootShell`/`returnToTitle`. Null = not probed YET (the title never blocks
+   *  on IndexedDB — it draws immediately and the row fills in when this lands). */
+  private slotProbe: SlotSummary | null = null;
+  /** Real playtime accrued in THIS world (ms, real time). Persisted with the
+   *  save; meta state, deliberately outside the deterministic sim stream. */
+  private playtimeMs = 0;
+
+  constructor(container: HTMLElement, options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
+    this.shellEnabled = options.shell !== false;
+    this.autostart = options.autostart ?? null;
+    if (options.ephemeral !== undefined) this.ephemeral = options.ephemeral;
+    this.shell = new Shell({
+      requestRender: () => this.requestRender(),
+      titleView: () => this.buildTitleView(),
+    });
 
     this.scheduler = new Scheduler();
     // R9: TimeController owns the requested rate + seek state and advances the
@@ -915,7 +1003,40 @@ export class Game {
             break;
         }
       },
+
+      // ── UI v3: the meta shell ──
+      // Every title choice becomes a META COMMAND rather than a direct method
+      // call, so the exact path a player's click takes is the path a connected
+      // agent's `emit_command` takes (spec §3.7). One route, one set of bugs.
+      onTitleAction: (action: TitleAction) => {
+        switch (action.kind) {
+          case 'continue':
+            this.bus.emit({ verb: 'load_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: 'autosave' } });
+            break;
+          case 'new_world':
+            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+          case 'demo':
+            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { demo: 1 } });
+            break;
+          case 'load':
+            this.bus.emit({ verb: 'open_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { screen: 'load' } });
+            break;
+          case 'settings':
+            this.bus.emit({ verb: 'open_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { screen: 'settings' } });
+            break;
+        }
+      },
+      onShellEscape: () => {
+        // "Back" on the title is nothing (there is nowhere further out); on any
+        // deeper screen it pops one level.
+        const top = this.shell.top();
+        if (top !== null && top !== 'title' && top !== 'loading') {
+          this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+        }
+      },
     });
+    if (this.shellEnabled) ui.setShell(this.shell);
     this.cleanupUi = ui.attach(this.canvas);
 
     // ── Barebones: the WebGPU HUD + pause menu ARE the chrome ──
@@ -1607,6 +1728,10 @@ export class Game {
       const n = typeof v === 'string' ? Number(v) : v;
       return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
     };
+    const str = (k: string): string | undefined => {
+      const v = cmd.params?.[k] ?? (cmd.payload?.[k] as unknown);
+      return typeof v === 'string' && v.length > 0 ? v : undefined;
+    };
     switch (cmd.verb) {
       case 'set_time_rate': {
         const rate = num('rate');
@@ -1622,6 +1747,54 @@ export class Game {
         this.suppressLandingCard = true;
         this.timeController.cancelSeek();
         this.requestRender();
+        break;
+
+      // ── UI v3 shell verbs (spec §3.6/§3.7) ──
+      // These are the SAME entry point for a player's click and for a connected
+      // agent's `emit_command` over the bus — including with no world loaded,
+      // which is why they must never assume `state.map` exists. Long-running ones
+      // are fire-and-forget with a logged rejection: a meta command must not be
+      // able to take the frame down.
+      case 'new_game': {
+        const genSeed = num('genSeed');
+        const genome = str('genome');
+        const demo = cmd.params?.demo !== undefined || cmd.payload?.demo !== undefined;
+        void this.newWorld({
+          ...(genSeed !== undefined ? { genSeed } : {}),
+          ...(genome !== undefined ? { genome } : {}),
+          ...(demo ? { demo: true } : {}),
+        }).catch((err) => console.error('[shell] new_game failed', err));
+        break;
+      }
+      case 'load_slot':
+        // Today only the autosave slot exists as a readable world; the multi-slot
+        // reader lands with the save phase. `startWorld({})` takes the ordinary
+        // resume path (bootstrapWorld rehydrates a valid autosave).
+        void this.startWorld({}).catch((err) => console.error('[shell] load_slot failed', err));
+        break;
+      case 'quit_to_title':
+        void this.returnToTitle().catch((err) => console.error('[shell] quit_to_title failed', err));
+        break;
+      case 'open_screen': {
+        const screen = str('screen');
+        if (screen && isScreenId(screen)) { this.shell.push(screen); this.requestRender(); }
+        break;
+      }
+      case 'close_screen':
+        this.shell.pop();
+        this.requestRender();
+        break;
+      case 'save_slot':
+      case 'delete_slot':
+      case 'rename_slot':
+      case 'set_setting':
+      case 'rebind_key':
+      case 'capture_photo':
+      case 'copy_world_code':
+        // Declared in the registry (so the vocabulary + `capabilities` discovery
+        // are stable from the start) but serviced by their own phases. An honest
+        // log beats a silent no-op: an agent that calls one early can tell.
+        console.info(`[shell] '${cmd.verb}' is declared but not yet serviced`);
         break;
     }
   }
@@ -1795,15 +1968,106 @@ export class Game {
     }
   }
 
-  async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
-    // The orchestration (engine → renderer → art library → flora prewarm →
-    // worldgen → art-settle hold) lives in boot-sequence.ts; the Game supplies
-    // the surfaces it fills in and the world-ready chrome wiring.
+  /**
+   * UI v3 §3.1 — bring the SHELL up: GPU device + scene, then the title screen.
+   * NO world is generated, no art library is loaded, no flora is prewarmed. This
+   * is the fast path whose whole job is to put something real on screen within a
+   * second or two of page load.
+   *
+   * Then, per `options.autostart`, either boot a world immediately (every dev
+   * flag and the embed API resolve to that, so those paths behave exactly as
+   * before) or sit on the title until the player — or a connected agent, over the
+   * bus — asks for one.
+   *
+   * Idempotent: calling it twice does not rebuild the scene.
+   */
+  async bootShell(): Promise<void> {
+    if (!this.renderMap) {
+      const renderers = await selectRenderer(this.canvas);
+      this.renderMap = renderers.render;
+      this.renderMeta = renderers.renderMeta;
+    }
+    if (this.shellEnabled) {
+      this.shell.reset(['title']);
+      // Probe the save slot WITHOUT blocking the title: the point of this whole
+      // phase is that the first frame is quick, and an IndexedDB open can be slow
+      // (or wedged — idb-guard times it out at 4s). The title draws immediately
+      // with CONTINUE pending, and the row fills itself in when the probe lands.
+      void this.probeSaves();
+    }
+    // The loop must run even with no world: the sky backdrop animates, and the
+    // shell is render-on-demand for everything else.
+    this.startLoop();
+    if (this.autostart) await this.startFromAutostart(this.autostart);
+  }
+
+  /** Resolve an autostart descriptor into an actual world boot. */
+  private async startFromAutostart(a: Autostart): Promise<void> {
+    if (a.kind === 'fresh') {
+      await this.startWorld({
+        fresh: true, genSeed: a.genSeed, genome: a.genome,
+        worldSeed: a.worldSeed, ephemeral: a.ephemeral,
+      });
+      return;
+    }
+    // 'auto' and 'resume' both take the ordinary path: bootstrapWorld resumes a
+    // valid autosave and otherwise generates. That IS today's behaviour, which is
+    // why every existing entry point maps onto it unchanged.
+    await this.startWorld({});
+  }
+
+  /**
+   * Generate or resume a world and enter it. The orchestration (engine → renderer
+   * → art library → flora prewarm → worldgen → art-settle hold) lives in
+   * boot-sequence.ts; the Game supplies the surfaces it fills in and the
+   * world-ready chrome wiring.
+   *
+   * The ART-SETTLE HOLD IS UNCHANGED: the loading screen still outlives
+   * worldgen-ready until every building/barrier/sheet has settled, with no
+   * wall-clock cap. Only WHERE it draws changed (the WebGPU shell instead of the
+   * DOM overlay).
+   */
+  async startWorld(opts: {
+    fresh?: boolean;
+    genSeed?: number;
+    genome?: string;
+    worldSeed?: WorldSeed;
+    ephemeral?: boolean;
+  } = {}): Promise<GameMap> {
+    if (opts.ephemeral !== undefined) this.ephemeral = opts.ephemeral;
+    // A genome world is a throwaway terrain study by definition.
+    if (opts.genome) this.ephemeral = true;
+    this.playtimeMs = 0;
+    const worldSeed = opts.worldSeed
+      ?? (opts.genome ? await this.genomeSeed(opts.genome) : undefined);
+    return this.generateWorld(worldSeed, undefined, {
+      fresh: opts.fresh, genSeed: opts.genSeed,
+    });
+  }
+
+  /** Resolve a named terrain genome to a WorldSeed (dev worlds only). */
+  private async genomeSeed(name: string): Promise<WorldSeed | undefined> {
+    try {
+      const { terrainGenomeByName } = await import('@/world/genome');
+      return terrainGenomeByName(name);
+    } catch (err) {
+      console.warn('[boot] unknown genome', name, err);
+      return undefined;
+    }
+  }
+
+  async generateWorld(
+    worldSeed?: WorldSeed,
+    _terrainOptions?: Partial<TerrainOptions>,
+    boot: { fresh?: boolean; genSeed?: number } = {},
+  ): Promise<GameMap> {
     // Ground-flora atlas: one fetch, kicked alongside boot so herb/grass/fern
     // billboards are sliceable by frame one (misses degrade to flat billboards).
     void this.clutterFloraSource.warm();
     const map = await this.bootOrSayWhyNot({
-      canvas: this.canvas, state: this.state, loading: this.ui.loadingScreen,
+      canvas: this.canvas, state: this.state, loading: this.loadingSurface(),
+      renderersReady: this.renderMap !== null,
+      forceFresh: boot.fresh, genSeedOverride: boot.genSeed,
       assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),
       parametricPlantSource: this.parametricPlantSource,
@@ -1838,13 +2102,136 @@ export class Game {
     return map;
   }
 
-  /** Abandon the current world: stop autosaving, clear the slot, reload fresh.
-   *  Reload is the simplest correct reset — boot then finds no save and seeds. */
-  async newWorld(): Promise<void> {
+  /** Where boot progress draws: the WebGPU shell when it is enabled, else the
+   *  legacy DOM overlay (studio/embed harnesses that pass `shell: false`, which
+   *  keeps that path alive until the L-retirement phase deletes it). */
+  private loadingSurface(): LoadingSurface {
+    return this.shellEnabled ? this.shell : this.ui.loadingScreen;
+  }
+
+  /**
+   * Probe the autosave for the title screen's CONTINUE row.
+   *
+   * Deliberately honest about staleness (spec §5.2): a save written by an older
+   * SAVE_VERSION or against an older WORLD_CONTENT_VERSION is REPORTED as such
+   * and refused, never silently replaced by a freshly generated world the player
+   * did not ask for. Never throws — a wedged IndexedDB just means "no save".
+   */
+  private async probeSaves(): Promise<void> {
+    try {
+      const save = await readSave();
+      if (!save) {
+        this.slotProbe = { exists: false, compat: 'ok', line: null };
+      } else if (save.version !== SAVE_VERSION) {
+        this.slotProbe = { exists: true, compat: 'stale-save', line: null };
+      } else if (save.contentVersion !== WORLD_CONTENT_VERSION) {
+        this.slotProbe = {
+          exists: true, compat: 'stale-world', line: null,
+          otherVersion: save.contentVersion,
+        };
+      } else {
+        this.slotProbe = { exists: true, compat: 'ok', line: describeSave(save) };
+      }
+    } catch (err) {
+      console.warn('[shell] save probe failed', err);
+      this.slotProbe = { exists: false, compat: 'ok', line: null };
+    }
+    this.requestRender();
+  }
+
+  /** Build the title screen's view from the (possibly still-pending) probe. */
+  private buildTitleView(): TitleView {
+    const p = this.slotProbe;
+    if (!p) {
+      // Still probing. Say so rather than claiming there is no save — the row
+      // resolves itself a frame or two later.
+      return {
+        continueLine: null,
+        continueBlocked: { reason: 'none', text: 'Looking for a saved world…' },
+        hasAnySave: false,
+        buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
+      };
+    }
+    const blocked: TitleView['continueBlocked'] =
+      !p.exists ? { reason: 'none', text: 'No saved world yet' }
+      : p.compat === 'stale-save' ? { reason: 'stale-save', text: 'Saved by an older version of the game — it cannot be opened' }
+      : p.compat === 'stale-world' ? {
+          reason: 'stale-world',
+          text: `Saved under an older world (${p.otherVersion ?? '?'}; this build is ${WORLD_CONTENT_VERSION}) — it cannot be opened`,
+        }
+      : null;
+    return {
+      continueLine: p.line,
+      continueBlocked: blocked,
+      hasAnySave: p.exists && p.compat === 'ok',
+      buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
+    };
+  }
+
+  /**
+   * UI v3 §3.4 — leave this world and return to the title, IN PROCESS.
+   *
+   * A `location.reload()` would tear down the shell just to rebuild it (and would
+   * be impossible for an agent driving over the bus to survive), so the world is
+   * dismantled in place: `resetState` clears `GameState` while PRESERVING the
+   * container identities every collaborator built in the constructor holds
+   * (guarded by `tests/unit/state-reset-parity.test.ts`, which also pins that a
+   * post-reset RNG stream matches a cold boot).
+   *
+   * Reload survives only as the last-resort fallback if this throws — logged,
+   * never silent.
+   */
+  async returnToTitle(): Promise<void> {
+    try {
+      // No forced save here: autosave already persists on change and on
+      // visibility-hidden/beforeunload, and an EXPLICIT "save" belongs on the
+      // pause screen next to "quit", not silently inside the quit itself.
+      this.persistence?.destroy();
+      this.timeController.cancelSeek();
+      this.scheduler.setRate(0);
+      // Drop the world itself, then every per-world runtime cache that is NOT
+      // part of GameState (so `resetState` cannot know about them). These are
+      // cleared IN PLACE rather than reassigned, because collaborators built in
+      // the constructor hold direct references to them — the same rule
+      // `resetState`'s identity-stable half follows.
+      resetState(this.state);
+      this.timeline.reset();
+      this.sheets.clear();
+      this.attentionStore.clearAll();
+      this.speechBubbles.clear();
+      this.fateTrigger?.reset();
+      this.fatePulse?.reset();
+      this.zoomBandState = 'soul';
+      this.lastDiscoveredNpcId = null;
+      this.lastSoulFocusSelection = null;
+      this.soulFocusFiredAt.clear();
+      this.playtimeMs = 0;
+      this.scheduler.setRate(1);
+      this.shell.reset(['title']);
+      void this.probeSaves();
+      this.requestRender();
+    } catch (err) {
+      // A failed teardown must not strand the player in a half-dismantled world.
+      console.error('[shell] in-process return-to-title failed; reloading', err);
+      this.stopLoop();
+      location.reload();
+    }
+  }
+
+  /** Abandon the current world and start a brand-new one, without a reload.
+   *  Kept as the public name the pause menu + embed API already call. */
+  async newWorld(opts: { genSeed?: number; genome?: string; demo?: boolean } = {}): Promise<void> {
     this.persistence?.destroy();
-    await clearSave();
-    this.stopLoop();
-    location.reload();
+    if (!opts.demo) await clearSave();
+    if (this.state.map) await this.returnToTitle();
+    await this.startWorld({
+      fresh: true,
+      ...(opts.genSeed !== undefined ? { genSeed: opts.genSeed } : {}),
+      ...(opts.genome !== undefined ? { genome: opts.genome } : {}),
+      // The Demo World is the pinned default world with autosave suppressed —
+      // it must never write over the player's real save.
+      ...(opts.demo ? { ephemeral: true } : {}),
+    });
   }
 
   /** True when visible animated water is on screen — keeps the frame loop drawing
@@ -1873,7 +2260,17 @@ export class Game {
    *  pause: no sim advance, no presentation, no ambient water — the driver renders one pending
    *  frame then idles. */
   private onFrame(_now: number, deltaMs: number, paused: boolean): FrameAnimating {
+    // META MODE: no world to advance. The sky backdrop is wall-clock animated, so
+    // report "animating" to keep the loop drawing — but at the reduced 'ambient'
+    // cadence, because a slowly drifting cloud band does not need display rate
+    // (and the title screen must not spin a laptop fan).
+    if (!this.state.map) return paused ? false : 'ambient';
+
     const live = !paused && this.scheduler.getRate() > 0 && this.state.world && !this.timeline.isScrubbed;
+    // Real playtime, accrued only while the world actually runs (meta mode and a
+    // pause do not count). Meta state — deliberately outside the deterministic
+    // sim stream, so it rides the SaveFile top-level, never the snapshot.
+    if (live) this.playtimeMs += deltaMs;
     // Presentation runs every frame (keeps the audio scheduler fed); ducks on scrub. Skipped
     // while hard-paused (audio is muted and the loop is about to idle).
     if (!paused) this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
@@ -1931,6 +2328,16 @@ export class Game {
   /** The expensive scene render + UI refresh — only invoked when onFrame reported animating
    *  or a one-shot requestRender is pending. */
   private onRender(deltaMs: number): void {
+    // ── META MODE (UI v3 §3.1) ──
+    // No world exists (title screen, or between worlds after quit-to-title), so
+    // there is no camera, no terrain, no entities and no 2D overlay to draw —
+    // just the animated sky backdrop and the UI pass. Branching here rather than
+    // in a second loop keeps ONE frame driver for both modes.
+    if (!this.state.map) {
+      this.renderMeta?.({ nowMs: performance.now() });
+      return;
+    }
+
     // Camera authority order: a cinematic owns the view; else an in-flight P5 fly
     // (alert-pin click) tweens to the anchor; else the normal NPC follow.
     if (this.lastCinematic) {

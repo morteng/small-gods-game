@@ -7,7 +7,7 @@ import type { GameMap, WorldSeed } from '@/core/types';
 import type { GameState } from '@/core/state';
 import type { AssetManager } from '@/render/asset-manager';
 import type { ArtImageCache } from '@/render/decoration-image-cache';
-import type { LoadingScreenHandle } from '@/ui/loading-screen';
+import type { LoadingSurface } from '@/render/ui/shell/shell';
 import type { ParametricBuildingSource } from '@/render/parametric-building-source';
 import type { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import type { ParametricPlantSource } from '@/render/parametric-plant-source';
@@ -29,7 +29,11 @@ import { bootstrapWorld } from '@/game/bootstrap-world';
 export interface BootSequenceDeps {
   canvas: HTMLCanvasElement;
   state: GameState;
-  loading: LoadingScreenHandle;
+  /** The progress surface. Satisfied BOTH by the WebGPU shell (UI v3) and by the
+   *  legacy DOM loading overlay, which is exactly why the type is the structural
+   *  `LoadingSurface` — swapping one for the other is a type change here, not a
+   *  rewrite of this orchestration. */
+  loading: LoadingSurface;
   assets: AssetManager;
   sheets: Map<string, HTMLCanvasElement>;
   decorationImages: ArtImageCache;
@@ -43,6 +47,14 @@ export interface BootSequenceDeps {
    *  title-screen entry — captured now, wired into the frame loop by a later
    *  phase, spec 3.1's meta-mode `onRender` branch). */
   setRenderMap: (renderers: SelectedRenderers) => void;
+  /** UI v3: true when `Game.bootShell()` already brought the GPU scene up (so the
+   *  renderer step is skipped — see the comment at its call site). */
+  renderersReady?: boolean;
+  /** UI v3: forwarded to `bootstrapWorld` — the explicit, URL-free route for
+   *  "start a brand-new world (at this seed)", which is how a `new_game` command
+   *  from the title screen or a connected agent expresses itself. */
+  forceFresh?: boolean;
+  genSeedOverride?: number;
   /** The loaded art library + resolvers land back on the Game (renderDeps reads them). */
   setArt: (art: { assetLibrary: AssetLibrary; artResolver: ArtResolver; buildingArtResolver: ArtResolver }) => void;
   /** Game-side world-ready wiring (HUD, dev inspector, autosave) — runs inside
@@ -57,8 +69,16 @@ export async function runBootSequence(deps: BootSequenceDeps, worldSeed?: WorldS
   loading.setProgress(0.08, 'Summoning the engine…');
   initManifoldWasm();
   bootMark('engine');
-  loading.setProgress(0.22, 'Preparing the canvas…');
-  deps.setRenderMap(await selectRenderer(deps.canvas));
+  // UI v3: the GPU scene may ALREADY be up — `Game.bootShell()` brings the device
+  // and the renderer online before any world exists, so the title screen can be
+  // on screen within a second or two. Re-running `selectRenderer` would build a
+  // second GpuScene (and all its pipelines) for nothing, so skip it when the
+  // caller says it already has one. A cold boot (studio, embed, tests) still
+  // takes this step exactly as before.
+  if (!deps.renderersReady) {
+    loading.setProgress(0.22, 'Preparing the canvas…');
+    deps.setRenderMap(await selectRenderer(deps.canvas));
+  }
   bootMark('renderer');
   loading.setProgress(0.38, 'Loading the art library…');
   const baseLibrary = await loadBaseLibrary();
@@ -81,6 +101,8 @@ export async function runBootSequence(deps: BootSequenceDeps, worldSeed?: WorldS
     state, assets: deps.assets, sheets: deps.sheets,
     decorationImages: deps.decorationImages, getViewport: deps.getViewport,
     worldSeed,
+    ...(deps.forceFresh !== undefined ? { forceFresh: deps.forceFresh } : {}),
+    ...(deps.genSeedOverride !== undefined ? { genSeedOverride: deps.genSeedOverride } : {}),
     onProgress: (msg) => {
       const update = worldgenProgress.next(msg);
       if (update) loading.setProgress(update.fraction, update.label);

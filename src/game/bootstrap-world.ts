@@ -36,6 +36,16 @@ export interface BootstrapDeps {
   onProgress?: (message: string) => void;
   /** Fired after the world is ready, before the caller starts the loop. */
   onReady?: () => void;
+  /** UI v3: force a fresh generation regardless of any existing autosave. The URL
+   *  flags (`?genseed`, `?genome`) still force it on their own; this is the
+   *  EXPLICIT, programmatic route — the one a `new_game` command from the title
+   *  screen (or from a connected agent over the bus) travels, since an agent has
+   *  no URL to set. */
+  forceFresh?: boolean;
+  /** UI v3: terrain gen seed, overriding both `?genseed` and the pinned default.
+   *  Same reasoning as `forceFresh`: `new_game { genSeed }` must be expressible
+   *  without a page reload. */
+  genSeedOverride?: number;
   /** Injectable for tests; defaults to the IndexedDB save-store reader. */
   readSave?: () => Promise<SaveFile | null>;
   /** Injectable for tests; defaults to applySaveFile. Returns false on version mismatch. */
@@ -55,6 +65,12 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   // resume branch — an explicit genseed must force a fresh deterministic gen, or an
   // existing autosave silently wins and the param does nothing (user-reported).
   const genseedOverride = ((): number | null => {
+    // An explicit caller-supplied seed wins over the URL: a `new_game { genSeed }`
+    // command must be able to pick a world without touching `location`.
+    if (deps.genSeedOverride !== undefined
+      && Number.isFinite(deps.genSeedOverride) && deps.genSeedOverride > 0) {
+      return deps.genSeedOverride;
+    }
     try {
       const p = Number(new URLSearchParams(window.location.search).get('genseed'));
       if (Number.isFinite(p) && p > 0) return p;
@@ -73,7 +89,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
     try { return new URLSearchParams(window.location.search).has('genome'); }
     catch { return false; }
   })();
-  const forceFresh = genseedOverride !== null || genomeFresh;
+  const forceFresh = deps.forceFresh === true || genseedOverride !== null || genomeFresh;
   progress(forceFresh ? 'Fresh world...' : 'Looking for a saved world...');
   const saved = forceFresh ? null : await readSaveFn();
   if (saved && applySaveFn(state, saved)) {
