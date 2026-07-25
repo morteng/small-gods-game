@@ -22,7 +22,7 @@
 // frame. The screen never touches `window`/`navigator` itself.
 
 import type { UiContext } from '@/render/ui/ui-context';
-import { COLOR, FS, SPACING } from '@/render/ui/ui-tokens';
+import { COLOR, SPACING, shellTypeScaleFor } from '@/render/ui/ui-tokens';
 import { toggle, slider, tabbar, keyChip, type TabDef, type Rect } from '@/render/ui/kit';
 import { clamp01 } from '@/core/math';
 import type { Settings } from '@/services/settings-store';
@@ -227,15 +227,53 @@ export function drawSettingsScreen(
 ): SettingsDrawResult {
   const edge = Math.round(SPACING.lg * s);
   const cx = Math.round(w / 2);
-  const colW = Math.round(Math.min(560 * s, Math.max(160, w - edge * 2)));
-  const colX = Math.round(cx - colW / 2);
+  // ── TYPE FIRST, THEN LAYOUT ─────────────────────────────────────────────
+  // Layout metrics MUST derive from the same tokens as the type tier. Growing
+  // the type while leaving hardcoded widths behind is what made every CONTROLS
+  // label truncate ("TOGGLE LA…") and every button read "REB…" — worse than the
+  // small version it replaced. Nothing below may use a bare px constant for a
+  // width that has to hold text.
+  const T = shellTypeScaleFor(w, s);
+  const fsHeaderMax = T.heading;
+  const fsMenu = T.menu;
+  const fsCaption = T.caption;
+  const lhMenu = c.lineHeight(fsMenu);
+  const lhCaption = c.lineHeight(fsCaption);
+  // ALL settings rows share the interactive tier — AUDIO/VIDEO sitting at the
+  // old body scale while CONTROLS sat at menu tier looked broken on one screen.
+  const fsBody = fsMenu;
+  const lh = lhMenu;
 
   const headerText = 'SETTINGS';
-  const fsHeader = fitScale(c, headerText, w - edge * 2, FS.title * s);
-  const headerH = c.lineHeight(fsHeader);
 
-  const fsBody = FS.body * s;
-  const lh = c.lineHeight(fsBody);
+  // The widest thing any row must show, measured at the tier it will be drawn
+  // at — the panel is sized to its CONTENT, then clamped to the viewport.
+  const rebindLabelW = Math.max(c.measure('REBIND', fsMenu), c.measure('CANCEL', fsMenu));
+  const rebindW = Math.ceil(rebindLabelW) + Math.round(SPACING.md * 2 * s);
+  let widestLabel = 0;
+  let widestChip = Math.max(c.measure('OFF', fsMenu), c.measure('1.5X', fsMenu));
+  for (const r of settingsRows(view, view.tab)) {
+    widestLabel = Math.max(widestLabel, c.measure(r.label, fsMenu));
+  }
+  // The CONTROLS tab's rows come from `keymapRows`, not `settingsRows` — measure
+  // them too, or the panel is sized for the wrong tab's content.
+  if (view.tab === 'controls') {
+    for (const r of keymapRows(view)) {
+      widestLabel = Math.max(widestLabel, c.measure(r.label, fsMenu));
+      widestChip = Math.max(widestChip, c.measure(r.prompt, fsMenu));
+    }
+  }
+  const chipW = Math.ceil(widestChip) + Math.round(SPACING.md * 2 * s);
+  const gutter = Math.round(SPACING.lg * s);
+  const naturalW = Math.ceil(widestLabel) + gutter + chipW + gutter + rebindW
+    + Math.round(SPACING.lg * 2 * s);
+  const colW = Math.round(Math.max(
+    Math.min(560 * s, Math.max(160, w - edge * 2)),   // never NARROWER than before
+    Math.min(naturalW, w - edge * 2),                  // but widen to fit the type
+  ));
+  const colX = Math.round(cx - colW / 2);
+  const fsHeader = fitScale(c, headerText, w - edge * 2, fsHeaderMax);
+  const headerH = c.lineHeight(fsHeader);
   const tabH = Math.round(30 * s);
   const backH = Math.round(30 * s);
   const backW = Math.round(Math.min(160 * s, colW));
@@ -247,10 +285,6 @@ export function drawSettingsScreen(
   // settings dialog — see `ui-tokens.ts`'s `FS` doc). A long action list
   // simply doesn't fit one screen at this scale; that's handled by scrolling
   // (`scrollList` below), never by a smaller font.
-  const fsMenu = FS.menu * s;
-  const fsCaption = FS.caption * s;
-  const lhMenu = c.lineHeight(fsMenu);
-  const lhCaption = c.lineHeight(fsCaption);
   const controlsRowH = Math.max(Math.round(30 * s), lhMenu + Math.round(SPACING.sm * s) * 2);
 
   const rows = settingsRows(view, view.tab);
@@ -391,9 +425,14 @@ export function drawSettingsScreen(
     // never-overflowing degraded state; the geometry-safety guarantee wins
     // over "always show at least one row" when they conflict.
     const listH = Math.max(0, h - edge - plan.gap - backH /* RESET */ - plan.gap - backH /* BACK */ - listY);
-    const labelMaxW = Math.round(colW * 0.46);
+    // The label takes whatever the fixed-width controls leave — never a fraction
+    // guessed independently of them, which is how the label ended up too narrow
+    // for its own text at the larger tier.
+    const labelMaxW = Math.max(
+      Math.round(colW * 0.25),
+      colW - rebindW - chipW - gutter * 2,
+    );
     const chipX = colX + Math.round(colW * 0.48);
-    const rebindW = Math.round(colW * 0.26);
     const rebindX = colX + colW - rebindW;
     const krows = keymapRows(view);
     c.scrollList(

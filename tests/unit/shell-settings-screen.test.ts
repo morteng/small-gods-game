@@ -8,7 +8,7 @@ import {
 import { Shell } from '@/render/ui/shell/shell';
 import { isSettingsKey } from '@/game';
 import { ACTIONS, DEFAULT_KEYMAP, bind } from '@/game/input/keymap';
-import { FS } from '@/render/ui/ui-tokens';
+import { shellTypeScaleFor } from '@/render/ui/ui-tokens';
 
 const W = 1280, H = 720, S = 2;
 
@@ -209,8 +209,12 @@ describe('settings screen — geometry', () => {
     c.end();
     spy.mockRestore();
     expect(scales.length).toBeGreaterThan(0);
-    expect(Math.min(...scales)).toBeGreaterThanOrEqual(FS.caption * S);
-    expect(scales).toContain(FS.menu * S); // the binding rows really do use the menu tier
+    // Tiers are RESPONSIVE now (ui-tokens.shellTypeScale) — assert against the
+    // tier this viewport actually resolves to, not a flat FS constant, or the
+    // test re-pins the very hardcoding the responsive scale removed.
+    const T = shellTypeScaleFor(W, S);
+    expect(Math.min(...scales)).toBeGreaterThanOrEqual(T.caption);
+    expect(scales).toContain(T.menu); // the binding rows really do use the menu tier
   });
 
   /** True rectangle overlap (both axes) — the tabbar's four tabs deliberately

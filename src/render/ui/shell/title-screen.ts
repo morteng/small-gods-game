@@ -140,7 +140,19 @@ export function drawTitleScreen(
 
   const cx = Math.round(w / 2);
   const edge = SPACING.xxl * s;
-  const rowW = Math.round(Math.min(360 * s, Math.max(80, w - edge * 2)));
+  // Column width derives from the CONTENT at its own tier: a caption that
+  // ellipsizes has defeated its own purpose, and after the type grew both the
+  // CONTINUE metadata and the demo note were being cut. Widen to fit, then clamp
+  // to the viewport (the degradation ladder handles a genuinely too-narrow one).
+  let widestRow = 0;
+  for (const r of titleRows(view)) {
+    widestRow = Math.max(widestRow, c.measure(r.label, T.menu));
+    if (r.note) widestRow = Math.max(widestRow, c.measure(r.note.toUpperCase(), T.caption));
+  }
+  const rowW = Math.round(Math.min(
+    Math.max(360 * s, Math.ceil(widestRow) + SPACING.lg * 2 * s),
+    Math.max(80, w - edge * 2),
+  ));
   // Row height follows the TYPE and the class's minimum hit target — big type
   // with a small row would be both ugly and hard to hit on touch/TV.
   let rowH = Math.max(

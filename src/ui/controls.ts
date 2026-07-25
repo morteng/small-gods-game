@@ -2,7 +2,7 @@ import type { Camera } from '@/core/types';
 import { pan, zoomAt, type ZoomQuantizer } from '@/render/camera';
 import { pickTile } from '@/ui/pick-tile';
 import type { IsoEnv } from '@/render/iso/lifted-projection';
-import { resolveAction, DEFAULT_KEYMAP, type Keymap } from '@/game/input/keymap';
+import { resolveActionFromEvent, DEFAULT_KEYMAP, type Keymap } from '@/game/input/keymap';
 
 export interface ControlsCallbacks {
   onTileClick?: (x: number, y: number) => void;
@@ -227,7 +227,7 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
    */
   function onKeyDown(e: KeyboardEvent) {
     if (isTextInputFocused()) return;
-    const action = resolveAction(e.code, callbacks.getKeymap?.() ?? DEFAULT_KEYMAP);
+    const action = resolveActionFromEvent(e, callbacks.getKeymap?.() ?? DEFAULT_KEYMAP);
     switch (action) {
       case 'toggle_labels':
         callbacks.onToggleLabels?.();
@@ -298,7 +298,7 @@ const RATE_FOR_ACTION: Readonly<Record<string, number>> = {
 export function attachTimeKeys(target: HTMLElement | Window, opts: TimeKeyOptions): () => void {
   const handler = (e: KeyboardEvent): void => {
     if (isTextInputFocused()) return;
-    const action = resolveAction(e.code, opts.getKeymap?.() ?? DEFAULT_KEYMAP);
+    const action = resolveActionFromEvent(e, opts.getKeymap?.() ?? DEFAULT_KEYMAP);
     if (!action) return;
     if (action === 'toggle_time_bar') {
       e.preventDefault();

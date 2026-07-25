@@ -232,3 +232,41 @@ export function diffFromDefault(map: Keymap): Record<string, readonly string[]> 
   }
   return diff;
 }
+
+/** Best-effort `KeyboardEvent.code` for an event that only carries `key`.
+ *
+ *  Real browsers always populate `code`, and resolving by PHYSICAL key is the
+ *  right call for a game (WASD stays put on AZERTY). But synthetic events —
+ *  tests, automation drivers, the dev bus — routinely dispatch `{ key: 'T' }`
+ *  with no `code` at all, and before this those silently did nothing. Mapping the
+ *  common cases back keeps those paths working without giving up physical
+ *  binding for real input. */
+export function codeFromKey(key: string): string | null {
+  if (!key) return null;
+  if (key.length === 1) {
+    const ch = key.toUpperCase();
+    if (ch >= 'A' && ch <= 'Z') return `Key${ch}`;
+    if (ch >= '0' && ch <= '9') return `Digit${ch}`;
+    const PUNCT: Record<string, string> = {
+      '`': 'Backquote', '~': 'Backquote', '?': 'Slash', '/': 'Slash',
+      '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight',
+      ' ': 'Space', ',': 'Comma', '.': 'Period', ';': 'Semicolon', "'": 'Quote',
+    };
+    return PUNCT[key] ?? null;
+  }
+  // Multi-char `key` values that ARE their own code (Escape, ArrowUp, Tab, …).
+  if (/^[A-Z][A-Za-z]+$/.test(key)) return key;
+  return null;
+}
+
+/** Resolve an action from a real or synthetic keyboard event. Prefers `code`
+ *  (physical), falls back to deriving one from `key` — see `codeFromKey`. */
+export function resolveActionFromEvent(
+  e: { code?: string; key?: string },
+  map: Keymap,
+): Action | null {
+  const direct = e.code ? resolveAction(e.code, map) : null;
+  if (direct) return direct;
+  const derived = e.key ? codeFromKey(e.key) : null;
+  return derived ? resolveAction(derived, map) : null;
+}
