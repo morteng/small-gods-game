@@ -76,6 +76,8 @@ import type { ScreenId } from '@/render/ui/shell/shell-state';
 import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
 import type { SaveAction, SaveScreenView, SlotRow } from '@/render/ui/shell/save-screen';
 import type { LoadAction } from '@/render/ui/shell/load-screen';
+import type { SettingsAction, SettingsScreenView, SettingsKey } from '@/render/ui/shell/settings-screen';
+import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
 import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
@@ -103,6 +105,7 @@ import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
+import { clamp01 } from '@/core/math';
 
 /** How long the per-frame HUD sim-read memo (belief/powers/inbox) stays fresh.
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
@@ -178,6 +181,46 @@ function isScreenId(v: string): v is ScreenId {
  *  refused on an unknown slot, not cast and trusted. */
 function isSaveSlot(v: string): v is SaveSlot {
   return (SAVE_SLOTS as readonly string[]).includes(v);
+}
+
+/** Validates a bus-supplied `set_setting` key the same way `isScreenId`/
+ *  `isSaveSlot` validate theirs — an agent's key arrives from OUTSIDE and an
+ *  unknown one must be refused, never cast and trusted. Restricted to the
+ *  keys the settings SCREEN actually edits (`SettingsKey`), not every key
+ *  `Settings` happens to declare (e.g. `llmProviderConfig` goes through the
+ *  DOM island's own `onSaveLlmConfig` path, never `set_setting`). */
+const SETTINGS_KEYS = new Set<SettingsKey>([
+  'musicOn', 'musicVolume', 'sfxOn', 'sfxVolume', 'voiceOn', 'halfResWater', 'uiScale', 'lighting',
+]);
+/** Exported (unlike `isScreenId`/`isSaveSlot`, its siblings) so
+ *  `tests/unit/shell-settings-screen.test.ts` can pin the refusal LOGIC
+ *  directly, per the P4b brief: "test the predicate you add, not `Game`". */
+export function isSettingsKey(v: string): v is SettingsKey {
+  return (SETTINGS_KEYS as Set<string>).has(v);
+}
+
+/** Parse a bus param into a boolean, accepting the shapes a `Command.params`/
+ *  `.payload` value can realistically arrive as (a real boolean from an
+ *  in-process caller, or a string/number from the wire). Returns `undefined`
+ *  on anything else — the caller refuses rather than guessing. */
+function toBoolParam(v: unknown): boolean | undefined {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  if (typeof v === 'string') {
+    if (v === 'true' || v === '1') return true;
+    if (v === 'false' || v === '0') return false;
+  }
+  return undefined;
+}
+
+/** Same shape as `toBoolParam`, for a numeric setting (volumes, UI scale). */
+function toNumParam(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
 }
 
 /** A manual save's default name when the player didn't type one (no naming
@@ -430,6 +473,7 @@ export class Game {
       titleView: () => this.buildTitleView(),
       saveView: () => this.buildSlotsView(),
       loadView: () => this.buildSlotsView(),
+      settingsView: () => this.buildSettingsView(),
     });
 
     this.scheduler = new Scheduler();
@@ -1084,6 +1128,30 @@ export class Game {
             break;
           case 'delete':
             this.bus.emit({ verb: 'delete_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: action.slot } });
+            break;
+          case 'back':
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+        }
+      },
+      onSettingsAction: (action: SettingsAction) => {
+        switch (action.kind) {
+          case 'set':
+            // Always a meta command, even though `Game` owns `this.shell` directly
+            // — the point is that a player's click and an agent's `emit_command`
+            // for `set_setting` are the SAME path (spec §3.7). `Command.params`
+            // is `string | number` only, so a boolean value rides as a string —
+            // `toBoolParam`/`applySetting` on the receiving end already accepts
+            // that shape (a bus-connected agent's value arrives the same way).
+            this.bus.emit({
+              verb: 'set_setting', source: PLAYER_SPIRIT_ID, target: { kind: 'none' },
+              params: { key: action.key, value: typeof action.value === 'boolean' ? String(action.value) : action.value },
+            });
+            break;
+          case 'tab':
+            // Pure Shell-local presentation state (which tab is selected) — a
+            // direct call, not a bus round-trip. See `Shell.setSettingsTab`'s doc.
+            this.shell.setSettingsTab(action.tab);
             break;
           case 'back':
             this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
@@ -1882,8 +1950,21 @@ export class Game {
           .catch((err) => console.error('[shell] delete_slot failed', err));
         break;
       }
+      case 'set_setting': {
+        // Same entry point for the settings SCREEN's own clicks and an agent's
+        // `emit_command` (spec §3.7) — the key arrives from OUTSIDE either way,
+        // so it is validated exactly like `open_screen`'s screen id and
+        // `load_slot`'s slot, never cast and trusted.
+        const key = str('key');
+        if (!key || !isSettingsKey(key)) {
+          console.info(`[shell] 'set_setting' refused — unknown key '${key ?? ''}'`);
+          break;
+        }
+        const raw = cmd.params?.value ?? cmd.payload?.value;
+        this.applySetting(key, raw);
+        break;
+      }
       case 'rename_slot':
-      case 'set_setting':
       case 'rebind_key':
       case 'capture_photo':
       case 'copy_world_code':
@@ -1893,6 +1974,102 @@ export class Game {
         console.info(`[shell] '${cmd.verb}' is declared but not yet serviced`);
         break;
     }
+  }
+
+  /**
+   * Write ONE validated setting through `settings-store` and, where a live
+   * apply path already exists, apply it immediately (no reload) — same
+   * "persist + live-apply" contract `applyLlmConfig` follows for the provider
+   * form. Where no apply path exists yet, this ONLY persists and says so; the
+   * brief for this slice is explicit that inventing new apply plumbing is out
+   * of scope (`halfResWater`/`uiScale` — see the case comments for exactly
+   * what reads them today, which is nothing).
+   */
+  private applySetting(key: SettingsKey, raw: unknown): void {
+    switch (key) {
+      case 'musicOn': {
+        const v = toBoolParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting musicOn' refused — not a boolean"); return; }
+        this.presentation.setEnabled(v); // persists via settings-store internally
+        break;
+      }
+      case 'musicVolume': {
+        const v = toNumParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting musicVolume' refused — not a number"); return; }
+        this.presentation.setVolume(clamp01(v)); // persists via settings-store internally
+        break;
+      }
+      case 'sfxOn': {
+        const v = toBoolParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting sfxOn' refused — not a boolean"); return; }
+        this.presentation.setSfxEnabled(v); // persists via settings-store internally
+        break;
+      }
+      case 'sfxVolume': {
+        const v = toNumParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting sfxVolume' refused — not a number"); return; }
+        this.presentation.setSfxVolume(clamp01(v)); // persists via settings-store internally
+        break;
+      }
+      case 'voiceOn': {
+        const v = toBoolParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting voiceOn' refused — not a boolean"); return; }
+        this.presentation.setVoiceEnabled(v); // persists via settings-store internally
+        break;
+      }
+      case 'halfResWater': {
+        const v = toBoolParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting halfResWater' refused — not a boolean"); return; }
+        settingsStore.setHalfResWater(v);
+        // NO live apply path: `gpu-render-frame.ts`'s `halfWaterEnabled()` still
+        // reads the `?fullwater` URL flag, not this store (settings-store.ts's
+        // own doc calls this field "schema only — wiring is a later slice").
+        // Persisted honestly; effective on a future slice, not even on reload yet.
+        console.info("[shell] 'halfResWater' saved — no render-side apply path exists yet");
+        break;
+      }
+      case 'uiScale': {
+        const v = toNumParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting uiScale' refused — not a number"); return; }
+        settingsStore.setUiScale(Math.round(v));
+        // NO live apply path: `ui-layer.ts`'s `uiScaleFor(dpr)` derives the HUD
+        // scale from device pixel ratio alone, never this store. Persisted
+        // honestly; effective on a future slice, not even on reload yet.
+        console.info("[shell] 'uiScale' saved — no render-side apply path exists yet");
+        break;
+      }
+      case 'lighting': {
+        const v = toBoolParam(raw);
+        if (v === undefined) { console.info("[shell] 'set_setting lighting' refused — not a boolean"); return; }
+        settingsStore.setLighting(v ? 1 : 0);
+        // Live apply: the SAME toggle `drawMenu`'s settings panel already flips
+        // (`getLighting`/`onToggleLighting` hooks) — set outright here rather
+        // than toggled, since `set_setting` carries the target value, not a delta.
+        this.dev.devMode.lighting = v ? 'banded' : 'off';
+        break;
+      }
+    }
+    this.requestRender();
+  }
+
+  /** The settings screen's AUDIO/VIDEO values, read fresh from `settings-store`
+   *  every frame (so a `set_setting` from ANY path — a click, the bus, another
+   *  tab via a future cross-tab sync — shows up immediately). `tab` is a filler
+   *  value the Shell always overwrites with its own local selection (see
+   *  `ShellDeps.settingsView`'s doc) — never read here. */
+  private buildSettingsView(): SettingsScreenView {
+    const s = settingsStore.getAll();
+    return {
+      tab: 'audio',
+      musicOn: s.musicOn,
+      musicVolume: s.musicVolume,
+      sfxOn: s.sfxOn,
+      sfxVolume: s.sfxVolume,
+      voiceOn: s.voiceOn,
+      halfResWater: s.halfResWater,
+      uiScale: s.uiScale,
+      lighting: this.dev.devMode.lighting !== 'off',
+    };
   }
 
   /** Public seam for the WebGPU UI (WP-B) to drive time controls through the same

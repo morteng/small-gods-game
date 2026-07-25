@@ -28,6 +28,10 @@ import {
 import {
   drawLoadScreen, loadRows, type LoadAction, type LoadScreenView,
 } from '@/render/ui/shell/load-screen';
+import {
+  drawSettingsScreen, settingsRows, formatRowValue, SETTINGS_TABS,
+  type SettingsAction, type SettingsScreenView, type SettingsTab,
+} from '@/render/ui/shell/settings-screen';
 
 /** A device-px rect (a DOM island's reserved region). Mirrors `ui-runtime`'s. */
 interface Rect { x: number; y: number; w: number; h: number }
@@ -39,10 +43,11 @@ export interface ShellDrawResult {
   title: TitleAction | null;
   save: SaveAction | null;
   load: LoadAction | null;
+  settings: SettingsAction | null;
 }
 
 /** Nothing drawn, nothing triggered — shared so the common case allocates once. */
-const INERT_DRAW: ShellDrawResult = { island: null, title: null, save: null, load: null };
+const INERT_DRAW: ShellDrawResult = { island: null, title: null, save: null, load: null, settings: null };
 
 /**
  * The surface `boot-sequence.ts` drives while a world loads.
@@ -105,6 +110,13 @@ export interface ShellDeps {
    *  screens read the identical per-slot metadata; only what picking a row
    *  MEANS differs) — `Game` builds one probe and feeds both. */
   loadView?: () => LoadScreenView;
+  /** Supplies the settings screen's persisted values (audio/video). Absent ⇒
+   *  the honest all-defaults view (mirroring `settings-store.ts`'s own
+   *  `DEFAULTS`). The `tab` field this returns is IGNORED — the selected tab
+   *  is Shell-local UI state (see `setSettingsTab`), never game state, so the
+   *  Shell always overwrites it with its own before handing the view to the
+   *  screen or to `describe()`. */
+  settingsView?: () => SettingsScreenView;
 }
 
 /** The title view used when no provider is wired — the honest empty state, never
@@ -124,6 +136,15 @@ const EMPTY_SLOT_ROWS: readonly SlotRow[] = (['autosave', 'slot1', 'slot2', 'slo
 }));
 const EMPTY_SAVE_VIEW: SaveScreenView = { rows: [...EMPTY_SLOT_ROWS] };
 const EMPTY_LOAD_VIEW: LoadScreenView = { rows: [...EMPTY_SLOT_ROWS] };
+
+/** The settings view used when no provider is wired — matches
+ *  `settings-store.ts`'s own `DEFAULTS`, so an unwired Shell reads exactly
+ *  like a freshly-migrated store rather than an arbitrary placeholder. */
+const EMPTY_SETTINGS_VIEW: SettingsScreenView = {
+  tab: 'audio',
+  musicOn: true, musicVolume: 0.35, sfxOn: true, sfxVolume: 0.6, voiceOn: false,
+  halfResWater: true, uiScale: 1, lighting: true,
+};
 
 const realNow = (): number =>
   typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -150,6 +171,28 @@ function describeSlotScreen(rows: readonly ScreenRow[], backId: string): ShellCh
   return choices;
 }
 
+/** `describe()`'s choices for the settings screen — mirrors exactly what
+ *  `drawSettingsScreen` draws: one choice per tab (via the SAME `SETTINGS_TABS`
+ *  list the tabbar walks), then one per row on the ACTIVE tab (via the SAME
+ *  `settingsRows` the draw path uses), then BACK. GAMEPLAY/CONTROLS
+ *  contribute no rows here because they draw none (the DOM island and the
+ *  read-only key-chips aren't `set`-able choices) — keeping "described ids
+ *  equal drawn hit ids" true for every tab, not just audio/video. */
+function describeSettingsScreen(view: SettingsScreenView): ShellChoice[] {
+  const choices: ShellChoice[] = [];
+  for (const t of SETTINGS_TABS) {
+    choices.push({
+      id: `settings.tabs.${t.id}`, label: t.label, enabled: true,
+      note: t.id === view.tab ? 'CURRENT TAB' : null,
+    });
+  }
+  for (const row of settingsRows(view, view.tab)) {
+    choices.push({ id: row.id, label: row.label, enabled: true, note: formatRowValue(row) });
+  }
+  choices.push({ id: 'settings.back', label: 'BACK', enabled: true, note: null });
+  return choices;
+}
+
 export class Shell implements LoadingSurface {
   private state: ShellState = EMPTY_SHELL;
   private readonly requestRender: () => void;
@@ -157,6 +200,13 @@ export class Shell implements LoadingSurface {
   private readonly titleView: () => TitleView;
   private readonly saveView: () => SaveScreenView;
   private readonly loadView: () => LoadScreenView;
+  private readonly settingsValuesView: () => SettingsScreenView;
+  /** The settings screen's SELECTED TAB — pure presentation state, not game
+   *  state (see `ShellDeps.settingsView`'s doc), so it lives here rather than
+   *  in `Game`. Set by `Game`'s `onSettingsAction` hook on a `{kind:'tab'}`
+   *  action, via `setSettingsTab` below — never by the screen module itself
+   *  (screens are pure; the Shell is the one stateful piece). */
+  private settingsTab: SettingsTab = 'audio';
 
   // Boot-progress state. `shownAtMs` anchors the chronicle rotation to when the
   // loading screen appeared, not to process start, so the first excerpt gets a
@@ -172,6 +222,24 @@ export class Shell implements LoadingSurface {
     this.titleView = deps.titleView ?? ((): TitleView => EMPTY_TITLE_VIEW);
     this.saveView = deps.saveView ?? ((): SaveScreenView => EMPTY_SAVE_VIEW);
     this.loadView = deps.loadView ?? ((): LoadScreenView => EMPTY_LOAD_VIEW);
+    this.settingsValuesView = deps.settingsView ?? ((): SettingsScreenView => EMPTY_SETTINGS_VIEW);
+  }
+
+  /** The settings screen's full view: the caller's persisted values, with the
+   *  Shell's OWN selected tab spliced in (see the `settingsTab` field doc). */
+  private buildSettingsView(): SettingsScreenView {
+    return { ...this.settingsValuesView(), tab: this.settingsTab };
+  }
+
+  /** Switch the settings screen's active tab. Called by `Game`'s
+   *  `onSettingsAction` hook in response to a `{kind:'tab'}` action — a
+   *  direct method call, not a bus round-trip, because the selected tab is
+   *  pure Shell-local presentation state (see the field doc), not something
+   *  an agent needs a stable verb to drive yet. */
+  setSettingsTab(tab: SettingsTab): void {
+    if (tab === this.settingsTab) return;
+    this.settingsTab = tab;
+    this.requestRender();
   }
 
   /**
@@ -194,8 +262,10 @@ export class Shell implements LoadingSurface {
       choices = describeSlotScreen(saveRows(this.saveView()), 'save.back');
     } else if (screen === 'load') {
       choices = describeSlotScreen(loadRows(this.loadView()), 'load.back');
+    } else if (screen === 'settings') {
+      choices = describeSettingsScreen(this.buildSettingsView());
     }
-    // Screens beyond title/loading/save/load contribute their choices as they
+    // Screens beyond title/loading/save/load/settings contribute their choices as they
     // land (P4+); an unimplemented screen honestly reports none rather than
     // guessing.
     return {
@@ -304,15 +374,23 @@ export class Shell implements LoadingSurface {
         return INERT_DRAW;
       case 'title': {
         const title = drawTitleScreen(c, w, h, s, this.titleView());
-        return title ? { island: null, title, save: null, load: null } : INERT_DRAW;
+        return title ? { island: null, title, save: null, load: null, settings: null } : INERT_DRAW;
       }
       case 'save': {
         const save = drawSaveScreen(c, w, h, s, this.saveView());
-        return save ? { island: null, title: null, save, load: null } : INERT_DRAW;
+        return save ? { island: null, title: null, save, load: null, settings: null } : INERT_DRAW;
       }
       case 'load': {
         const load = drawLoadScreen(c, w, h, s, this.loadView());
-        return load ? { island: null, title: null, save: null, load } : INERT_DRAW;
+        return load ? { island: null, title: null, save: null, load, settings: null } : INERT_DRAW;
+      }
+      case 'settings': {
+        // Unlike the other screens, this can't collapse to `INERT_DRAW` when no
+        // action fired: the GAMEPLAY tab's island rect must be reported EVERY
+        // frame it's on screen, or the DOM form loses its position the instant
+        // nothing was clicked (see `SettingsDrawResult`'s doc).
+        const res = drawSettingsScreen(c, w, h, s, this.buildSettingsView());
+        return { island: res.island, title: null, save: null, load: null, settings: res.action };
       }
       case null:
         return INERT_DRAW;

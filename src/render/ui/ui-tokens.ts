@@ -83,16 +83,15 @@ export const STROKE = {
  * Fractional scales are never allowed (1.5 is explicitly NOT a value here);
  * `small` is the smallest legible integer step below `body`, not a half-step.
  *
- * NOTE: `ui-runtime.ts` still declares its own local `FS_TITLE = 4` /
- * `FS_BODY = 2` and is deliberately left untouched this phase (the brief for
- * P1-A is additive-only — `ui-runtime.ts` is out of scope). `FS.title` /
- * `FS.body` below duplicate those two values on purpose; a later phase
- * repoints `ui-runtime.ts`'s usages at `FS.*` and deletes its local consts.
+ * `ui-runtime.ts` used to declare its own local `FS_TITLE = 4` / `FS_BODY = 2`
+ * duplicating `title`/`body` below (P1-A left it untouched deliberately, out
+ * of scope for that phase); P4b repointed every usage at `FS.title`/`FS.body`
+ * and deleted the local consts — this is now the only definition.
  */
 export const FS = {
   small: 1, // captions, timestamps, secondary chip text
-  body: 2, // standard HUD/menu/screen text — == ui-runtime.ts's FS_BODY
-  title: 4, // screen/section titles — == ui-runtime.ts's FS_TITLE
+  body: 2, // standard HUD/menu/screen text
+  title: 4, // screen/section titles
   display: 6, // the title-screen wordmark (paired with a future font `bold` option)
 } as const satisfies Record<string, number>;
 

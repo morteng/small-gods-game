@@ -28,6 +28,8 @@ import type { Shell } from '@/render/ui/shell/shell';
 import type { TitleAction } from '@/render/ui/shell/title-screen';
 import type { SaveAction } from '@/render/ui/shell/save-screen';
 import type { LoadAction } from '@/render/ui/shell/load-screen';
+import type { SettingsAction } from '@/render/ui/shell/settings-screen';
+import { FS } from '@/render/ui/ui-tokens';
 import { validateUiSpec } from '@/story/uispec';
 import { layoutMindCloud } from '@/render/ui/mind-cloud-layout';
 import type { Rgba } from '@/render/ui/ui-color';
@@ -38,11 +40,6 @@ import type { SpeechBubbleView } from '@/game/affordance/speech-bubbles';
 import type { Command } from '@/sim/command/types';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { TICKS_PER_HOUR } from '@/core/calendar';
-
-/** Bigger-font multipliers (× the integer DPR scale). The S1 demo drew at 1×s
- *  which read tiny; the HUD/menu want chunky, legible pixel text. */
-const FS_TITLE = 4;
-const FS_BODY = 2;
 
 // Dev perf-pill palette (WebGPU-native replacement for the old Canvas2D overlay).
 // Normalised RGBA; rate colour ramps green ≥50 / amber ≥30 / red below, matching the
@@ -168,6 +165,11 @@ export interface UiRuntimeHooks {
   onSaveAction?: (action: SaveAction) => void;
   /** A load-screen choice was made (load/delete/back). */
   onLoadAction?: (action: LoadAction) => void;
+  /** A settings-screen choice was made (set a value / switch tab / back). A
+   *  `{kind:'tab'}` is handled by the host calling `Shell.setSettingsTab`
+   *  directly (pure presentation state); `set`/`back` become meta commands,
+   *  same translation contract as `onTitleAction`. */
+  onSettingsAction?: (action: SettingsAction) => void;
   /** Esc pressed while a shell screen is up. The host decides what "back" means
    *  for that screen (pop, or ignore on the title). */
   onShellEscape?: () => void;
@@ -714,6 +716,7 @@ export class UiRuntime {
       if (res.title) this.hooks.onTitleAction?.(res.title);
       if (res.save) this.hooks.onSaveAction?.(res.save);
       if (res.load) this.hooks.onLoadAction?.(res.load);
+      if (res.settings) this.hooks.onSettingsAction?.(res.settings);
       r = res.island;
     } else if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
@@ -769,7 +772,7 @@ export class UiRuntime {
   private drawPerfPill(c: UiContext, s: number): void {
     const p = this.perf;
     if (!p) return;
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const label = `${Math.round(p.fps)} FPS  PX ${p.px}${p.fixed ? ' FIXED' : ''}`;
     const padX = 6 * s;
     const lh = c.lineHeight(fs);
@@ -811,8 +814,8 @@ export class UiRuntime {
     c.batcher.border(ox, oy, orb, orb, Math.max(1, Math.round(s * (hot ? 2 : 1))), accent);
 
     // tiny "MENU" hint to the orb's right so the affordance is discoverable.
-    c.label('MENU', ox + orb + 10 * s, oy + (orb - c.lineHeight(FS_BODY * s)) / 2,
-      FS_BODY * s, hot ? UI_PALETTE.text : UI_PALETTE.textDim);
+    c.label('MENU', ox + orb + 10 * s, oy + (orb - c.lineHeight(FS.body * s)) / 2,
+      FS.body * s, hot ? UI_PALETTE.text : UI_PALETTE.textDim);
 
     if (clicked) this.setMenu(true);
 
@@ -827,16 +830,16 @@ export class UiRuntime {
     const powers = this.hooks.getBeliefPowers?.() ?? [];
     const unlocked = powers.filter((p) => p.unlocked).length;
     const pLabel = `⚡ POWERS${unlocked > 0 ? ` (${unlocked})` : ''}`;
-    const pw = Math.ceil(c.measure(pLabel, FS_BODY * s)) + 24 * s;
-    if (c.button('ui.powers', pLabel, bx, by, pw, bh, { scale: FS_BODY * s })) {
+    const pw = Math.ceil(c.measure(pLabel, FS.body * s)) + 24 * s;
+    if (c.button('ui.powers', pLabel, bx, by, pw, bh, { scale: FS.body * s })) {
       this.panel = this.panel === 'powers' ? null : 'powers';
     }
     bx += pw + 10 * s;
 
     const inbox = (this.hooks.getInbox?.() ?? []).filter((it) => !this.ignoredInbox.has(it.id));
     const iLabel = `✉ INBOX${inbox.length > 0 ? ` (${inbox.length})` : ''}`;
-    const iw = Math.ceil(c.measure(iLabel, FS_BODY * s)) + 24 * s;
-    if (c.button('ui.inbox', iLabel, bx, by, iw, bh, { scale: FS_BODY * s })) {
+    const iw = Math.ceil(c.measure(iLabel, FS.body * s)) + 24 * s;
+    if (c.button('ui.inbox', iLabel, bx, by, iw, bh, { scale: FS.body * s })) {
       this.panel = this.panel === 'inbox' ? null : 'inbox';
     }
     bx += iw + 10 * s;
@@ -846,8 +849,8 @@ export class UiRuntime {
     // symbol set — no new glyph, per the epic's rule).
     const pantheon = this.hooks.getPantheon?.() ?? [];
     const sLabel = `SPIRITS${pantheon.length > 0 ? ` (${pantheon.length})` : ''}`;
-    const sw = Math.ceil(c.measure(sLabel, FS_BODY * s)) + 24 * s;
-    if (c.button('ui.pantheon', sLabel, bx, by, sw, bh, { scale: FS_BODY * s })) {
+    const sw = Math.ceil(c.measure(sLabel, FS.body * s)) + 24 * s;
+    if (c.button('ui.pantheon', sLabel, bx, by, sw, bh, { scale: FS.body * s })) {
       this.panel = this.panel === 'pantheon' ? null : 'pantheon';
     }
 
@@ -871,7 +874,7 @@ export class UiRuntime {
     // ── verb-first targeting: a top-centre reticle hint while aiming a cast ──
     const aim = this.hooks.getTargeting?.() ?? null;
     if (aim) {
-      const fs = FS_BODY * s;
+      const fs = FS.body * s;
       const msg = `◎ CHOOSE A TARGET — ${aim.label.toUpperCase()}   ·   right-click to cancel`;
       const tw = Math.ceil(c.measure(msg, fs)) + 32 * s;
       const th = 34 * s;
@@ -889,7 +892,7 @@ export class UiRuntime {
    *  A castable chip fires its verb; locked / unaffordable chips render disabled. */
   private drawHover(c: UiContext, w: number, h: number, s: number): void {
     const pop = this.hover!;
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const pad = 10 * s;
     const rowH = 26 * s;
     const gap = 4 * s;
@@ -958,7 +961,7 @@ export class UiRuntime {
     // the cosmetic ramp), only its paint eases up over the next ~150ms.
     if (fadingOut && fadeAlpha <= 0) return;
 
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const fsSub = fs * 0.75; // contested-by: a smaller second line
     const pad = 6 * s;
     let clicked: string | null = null;
@@ -1009,7 +1012,7 @@ export class UiRuntime {
     if (this.panel !== null) return;
     const bubbles = this.hooks.getSpeechBubbles?.() ?? null;
     if (!bubbles || bubbles.length === 0) return;
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const pad = 5 * s;
     for (const b of bubbles) {
       if (b.alpha <= 0) continue;
@@ -1037,7 +1040,7 @@ export class UiRuntime {
     if (!pins || pins.length === 0) return;
     const size = Math.max(12, Math.round(18 * s));
     const half = Math.round(size / 2);
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const t = Math.max(1, Math.round(2 * s));
     // Draw order (bottom→top): plain, Fate-surfaced, then the selection pin.
     const rank = (p: AlertPinView): number => (p.kind === 'selection' ? 2 : p.surfaced ? 1 : 0);
@@ -1075,7 +1078,7 @@ export class UiRuntime {
     const cx = Math.round((w - cw) / 2);
     const cy = pad;
     const fsName = 3 * s;
-    const fsBody = FS_BODY * s;
+    const fsBody = FS.body * s;
     const nameLh = c.lineHeight(fsName);
     const lh = c.lineHeight(fsBody);
     const barH = 8 * s;
@@ -1128,7 +1131,7 @@ export class UiRuntime {
     c.hotspot('ui.inspector', px, top, pw, ph); // eat clicks on the body (no deselect)
 
     const fsName = 3 * s;
-    const fsBody = FS_BODY * s;
+    const fsBody = FS.body * s;
     const lh = c.lineHeight(fsBody);
     const innerX = px + 20 * s;
     const innerW = pw - 40 * s;
@@ -1227,11 +1230,11 @@ export class UiRuntime {
     const innerX = px + 20 * s;
     const innerW = pw - 40 * s;
     let y = top + 20 * s;
-    c.label('POWERS', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
-    y += c.lineHeight(FS_BODY * s) + 14 * s;
+    c.label('POWERS', innerX, y, FS.body * s, UI_PALETTE.textDim);
+    y += c.lineHeight(FS.body * s) + 14 * s;
 
     if (powers.length === 0) {
-      c.label('No powers yet. Make them believe.', innerX, y, FS_BODY * s, UI_PALETTE.textDim);
+      c.label('No powers yet. Make them believe.', innerX, y, FS.body * s, UI_PALETTE.textDim);
       return;
     }
 
@@ -1241,8 +1244,8 @@ export class UiRuntime {
     c.scrollList('ui.powers.list', { x: px, y, w: pw, h: bottom - y }, rowH, powers.length, (i, rowY) => {
       const p = powers[i];
       const accent = p.unlocked ? UI_PALETTE.accent : UI_PALETTE.textDim;
-      c.label(c.ellipsize(p.label.toUpperCase(), FS_BODY * s, innerW), innerX, rowY, FS_BODY * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
-      let ry = rowY + c.lineHeight(FS_BODY * s) + 6 * s;
+      c.label(c.ellipsize(p.label.toUpperCase(), FS.body * s, innerW), innerX, rowY, FS.body * s, p.unlocked ? UI_PALETTE.text : UI_PALETTE.textDim);
+      let ry = rowY + c.lineHeight(FS.body * s) + 6 * s;
 
       // progress bar: conviction vs threshold
       const barW = innerW;
@@ -1260,12 +1263,12 @@ export class UiRuntime {
       if (p.unlocked) {
         const bw = 110 * s;
         const bh = 26 * s;
-        c.label(c.ellipsize(`believed by ${p.reach} — ${pct}%`, FS_BODY * s, innerW - bw - 8 * s), innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
-        if (c.button(`power.cast.${p.verb}`, 'CAST ⚡', innerX + innerW - bw, ry - 4 * s, bw, bh, { scale: FS_BODY * s })) {
+        c.label(c.ellipsize(`believed by ${p.reach} — ${pct}%`, FS.body * s, innerW - bw - 8 * s), innerX, ry, FS.body * s, UI_PALETTE.textDim);
+        if (c.button(`power.cast.${p.verb}`, 'CAST ⚡', innerX + innerW - bw, ry - 4 * s, bw, bh, { scale: FS.body * s })) {
           this.hooks.onCastPower?.(p.verb);
         }
       } else {
-        c.label(c.ellipsize(`not yet believed — ${pct}% of ${need}% needed`, FS_BODY * s, innerW), innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
+        c.label(c.ellipsize(`not yet believed — ${pct}% of ${need}% needed`, FS.body * s, innerW), innerX, ry, FS.body * s, UI_PALETTE.textDim);
       }
     });
   }
@@ -1283,7 +1286,7 @@ export class UiRuntime {
 
     const innerX = px + 20 * s;
     const innerW = pw - 40 * s;
-    const fsBody = FS_BODY * s;
+    const fsBody = FS.body * s;
     let y = top + 20 * s;
 
     // ── TIDINGS / ANNALS toggle row ──
@@ -1329,23 +1332,23 @@ export class UiRuntime {
       const tag = it.surfaced ? UI_PALETTE.accent : kindColor(it.kind);
       // kind dot + title
       c.rect(innerX, rowY + 4 * s, 8 * s, 8 * s, tag);
-      c.label(c.ellipsize(it.title, FS_BODY * s, innerW - 16 * s), innerX + 16 * s, rowY, FS_BODY * s, UI_PALETTE.text);
-      let ry = rowY + c.lineHeight(FS_BODY * s) + 4 * s;
-      c.label(c.ellipsize(it.detail, FS_BODY * s, innerW), innerX, ry, FS_BODY * s, UI_PALETTE.textDim);
-      ry += c.lineHeight(FS_BODY * s) + 8 * s;
+      c.label(c.ellipsize(it.title, FS.body * s, innerW - 16 * s), innerX + 16 * s, rowY, FS.body * s, UI_PALETTE.text);
+      let ry = rowY + c.lineHeight(FS.body * s) + 4 * s;
+      c.label(c.ellipsize(it.detail, FS.body * s, innerW), innerX, ry, FS.body * s, UI_PALETTE.textDim);
+      ry += c.lineHeight(FS.body * s) + 8 * s;
 
       // triage row: ACT · LOOK · IGNORE
       const bh = 24 * s;
       const gap = 8 * s;
       const bw = (innerW - 2 * gap) / 3;
       if (it.target.kind !== 'none' &&
-          c.button(`inbox.act.${it.id}`, 'ACT', innerX, ry, bw, bh, { scale: FS_BODY * s })) {
+          c.button(`inbox.act.${it.id}`, 'ACT', innerX, ry, bw, bh, { scale: FS.body * s })) {
         this.hooks.onInboxAct?.(it);
       }
-      if (c.button(`inbox.look.${it.id}`, 'LOOK', innerX + (bw + gap), ry, bw, bh, { scale: FS_BODY * s })) {
+      if (c.button(`inbox.look.${it.id}`, 'LOOK', innerX + (bw + gap), ry, bw, bh, { scale: FS.body * s })) {
         this.hooks.onInboxInvestigate?.(it);
       }
-      if (c.button(`inbox.ignore.${it.id}`, 'IGNORE', innerX + 2 * (bw + gap), ry, bw, bh, { scale: FS_BODY * s })) {
+      if (c.button(`inbox.ignore.${it.id}`, 'IGNORE', innerX + 2 * (bw + gap), ry, bw, bh, { scale: FS.body * s })) {
         this.ignoredInbox.add(it.id);
         this.hooks.requestRender?.();
       }
@@ -1359,7 +1362,7 @@ export class UiRuntime {
   private drawAnnals(
     c: UiContext, px: number, pw: number, innerX: number, innerW: number, y: number, bottom: number, s: number,
   ): void {
-    const fsBody = FS_BODY * s;
+    const fsBody = FS.body * s;
     const annals = this.hooks.getAnnals?.() ?? [];
     if (annals.length === 0) {
       c.label('NO ANNALS YET', innerX, y, fsBody, UI_PALETTE.textDim);
@@ -1401,7 +1404,7 @@ export class UiRuntime {
 
     const innerX = px + 20 * s;
     const innerW = pw - 40 * s;
-    const fsBody = FS_BODY * s;
+    const fsBody = FS.body * s;
     let y = top + 20 * s;
     c.label('SPIRITS', innerX, y, fsBody, UI_PALETTE.textDim);
     y += c.lineHeight(fsBody) + 14 * s;
@@ -1460,8 +1463,8 @@ export class UiRuntime {
     // dim the world so the beat reads as the focus
     c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.45));
 
-    const fsBody = FS_BODY * s;
-    const fsName = FS_BODY * s;
+    const fsBody = FS.body * s;
+    const fsName = FS.body * s;
     const lh = c.lineHeight(fsBody);
 
     // bottom-anchored card spanning most of the width
@@ -1575,7 +1578,7 @@ export class UiRuntime {
     c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.55));
 
     const fsTitle = 3 * s;
-    const fsBody = FS_BODY * s;
+    const fsBody = FS.body * s;
     const lh = c.lineHeight(fsBody);
 
     // centred card
@@ -1724,7 +1727,7 @@ export class UiRuntime {
     const status = this.hooks.timeStatus?.();
     if (!status) return;
     const seeking = status.seeking !== null;
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const pad = 16 * s;
     const rowH = 26 * s;
     const gap = 6 * s;
@@ -1825,7 +1828,7 @@ export class UiRuntime {
     const bw = 38 * s;
     const bh = 32 * s;
     const gap = 4 * s;
-    const fs = FS_BODY * s;
+    const fs = FS.body * s;
     const rows: Array<[string, string, () => void]> = [
       ['cam.in', '+', onZoomIn],
       ['cam.out', '-', onZoomOut],
@@ -1852,8 +1855,8 @@ export class UiRuntime {
     // full-screen dim so the world reads as "paused behind glass"
     c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.62));
 
-    const fsBody = FS_BODY * s;
-    const fsTitle = FS_TITLE * s;
+    const fsBody = FS.body * s;
+    const fsTitle = FS.title * s;
 
     // title
     c.label('SMALL GODS', 48 * s, 40 * s, fsTitle, UI_PALETTE.text);
