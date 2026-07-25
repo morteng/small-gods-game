@@ -16,8 +16,16 @@ import { WORLD_CONTENT_VERSION } from '@/core/content-version';
  *  v3: COMPACT TILE CODEC — `map.tiles` is persisted as `EncodedTiles` (typed
  *  arrays + sparse exceptions, `core/tile-codec.ts`) instead of ~171k Tile
  *  objects, so IDB put()'s synchronous structured clone stops walking the
- *  grid object-by-object (was the dominant ~720 ms of the autosave task). */
-export const SAVE_VERSION = 3;
+ *  grid object-by-object (was the dominant ~720 ms of the autosave task).
+ *  v4: EVENT JOURNAL — `events` (the O(total history) array that grew without
+ *  bound on a 24h-realtime world — see the removed KNOWN GROWTH note this
+ *  replaces) is gone from the blob. `eventCursor` (the journal high-water
+ *  mark) and `playtimeMs` (real playtime; meta state, outside the
+ *  deterministic stream, same reasoning as `savedAt`) take its place. The
+ *  actual event history now lives in the `event-journal` IDB store
+ *  (`services/save-store.ts`), appended incrementally per save and read back
+ *  via `readJournal(slot, save.eventCursor)` on resume. */
+export const SAVE_VERSION = 4;
 
 export interface SaveView {
   camera: Camera;
@@ -44,6 +52,15 @@ export interface SaveFile {
   contentVersion: number;
   /** Wall-clock ms at save time. Passed in by the caller; the sim stays Date.now-free. */
   savedAt: number;
+  /** Real playtime accrued in this world (ms, real time), stamped at save
+   *  time. Top-level, not inside `snapshot` — meta state outside the
+   *  deterministic sim stream, same reasoning as `savedAt`. */
+  playtimeMs: number;
+  /** Journal high-water mark: the highest event id captured as of this save
+   *  (`EventLog.lastId()`). The events themselves no longer ride the blob —
+   *  `readJournal(slot, eventCursor)` (`services/save-store.ts`) reconstructs
+   *  this save's exact event history from the `event-journal` IDB store. */
+  eventCursor: number;
   worldSeed: WorldSeed | null;
   /** Stored verbatim (not regenerated) so saves survive generator code changes;
    *  tiles ride the compact codec (see SavedGameMap). */
@@ -52,13 +69,11 @@ export interface SaveFile {
   biomeMap: BiomeMap | null;
   /** The full live-world snapshot: tick, rng, entities, spirits, activeEvents. */
   snapshot: Snapshot;
-  /** The canonical event log (the time-history strip depends on it). */
-  events: AppendedEvent[];
   view: SaveView;
 }
 
-export function toSaveFile(state: GameState, savedAt: number): SaveFile {
-  return buildSaveFile(state, savedAt, true);
+export function toSaveFile(state: GameState, savedAt: number, playtimeMs = 0): SaveFile {
+  return buildSaveFile(state, savedAt, playtimeMs, true);
 }
 
 /**
@@ -74,11 +89,11 @@ export function toSaveFile(state: GameState, savedAt: number): SaveFile {
  * task — hand it to a synchronous consumer (IDB `put`) before yielding to the
  * event loop; never hold it across an await or a frame.
  */
-export function toSaveFileLive(state: GameState, savedAt: number): SaveFile {
-  return buildSaveFile(state, savedAt, false);
+export function toSaveFileLive(state: GameState, savedAt: number, playtimeMs = 0): SaveFile {
+  return buildSaveFile(state, savedAt, playtimeMs, false);
 }
 
-function buildSaveFile(state: GameState, savedAt: number, deep: boolean): SaveFile {
+function buildSaveFile(state: GameState, savedAt: number, playtimeMs: number, deep: boolean): SaveFile {
   if (!state.world || !state.map) {
     throw new Error('toSaveFile: world/map not initialized');
   }
@@ -97,23 +112,18 @@ function buildSaveFile(state: GameState, savedAt: number, deep: boolean): SaveFi
     version: SAVE_VERSION,
     contentVersion: WORLD_CONTENT_VERSION,
     savedAt,
+    playtimeMs,
+    // The event ARRAY no longer rides the blob (see the v4 note on
+    // SAVE_VERSION — this used to be an O(total history) `structuredClone`
+    // of `eventLog.since(0)`, unbounded on a 24h-realtime world). The blob
+    // only stamps where the log currently stands; `services/save-store.ts`
+    // journals the actual events incrementally, in the same IDB transaction
+    // as this blob, keyed off this same cursor.
+    eventCursor: state.eventLog.lastId(),
     worldSeed: deep && state.worldSeed ? structuredClone(state.worldSeed) : state.worldSeed,
     map,
     biomeMap: deep && state.biomeMap ? structuredClone(state.biomeMap) : state.biomeMap,
     snapshot: deep ? captureSnapshot(state) : captureSnapshotLive(state),
-    // `since(0)` returns a fresh array; in live mode the EVENT objects stay
-    // aliased (append-only + immutable once appended, so safe under the contract).
-    //
-    // KNOWN GROWTH (design note, 2026-07-13): this is O(total history) per save
-    // — the array AND put()'s clone of it grow without bound on a 24h-realtime
-    // world. Fixing it cleanly means moving events OUT of the SaveFile blob
-    // into an append-only IDB journal (one row per event batch, save stores a
-    // cursor; rewrite-compaction on clearSave/newWorld) so each autosave
-    // persists only the delta since the last one. That touches save-store's
-    // slot semantics + the resume path's EventLog.hydrate and deserves its own
-    // round; NOT half-done here. Until then the tile codec removes the
-    // dominant cost, and events stay correct-but-linear.
-    events: deep ? structuredClone(state.eventLog.since(0)) : state.eventLog.since(0),
     view: {
       camera: { ...state.camera },
       selectedNpcId: state.selectedNpcId,
@@ -130,8 +140,15 @@ function buildSaveFile(state: GameState, savedAt: number, deep: boolean): SaveFi
 /**
  * Rehydrate a saved game into `state`. Returns false (mutating nothing) on a
  * version mismatch so the caller can discard the save and boot fresh.
+ *
+ * `events` is the save's event HISTORY, read separately from the blob (v4: it
+ * no longer lives on `SaveFile` — see `services/save-store.ts#readJournal`,
+ * keyed by `save.eventCursor`). Defaults to `[]` so a caller that hasn't
+ * wired the journal read yet (or a save with no journaled history) still
+ * resumes — an empty event log degrades the annals strip, not the load; same
+ * philosophy as a journal read failure (never fail the load over history).
  */
-export function applySaveFile(state: GameState, save: SaveFile): boolean {
+export function applySaveFile(state: GameState, save: SaveFile, events: AppendedEvent[] = []): boolean {
   if (save.version !== SAVE_VERSION) return false;
   if (save.contentVersion !== WORLD_CONTENT_VERSION) return false;
 
@@ -146,7 +163,7 @@ export function applySaveFile(state: GameState, save: SaveFile): boolean {
   state.blobMap = computeBlobMap(state.map.tiles, state.map.width, state.map.height);
 
   restoreSnapshot(state, save.snapshot);
-  state.eventLog.hydrate(structuredClone(save.events));
+  state.eventLog.hydrate(structuredClone(events));
 
   const v = save.view;
   Object.assign(state.camera, v.camera);

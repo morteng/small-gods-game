@@ -8,6 +8,7 @@ import type { GameState } from '@/core/state';
 import type { AssetManager } from '@/render/asset-manager';
 import type { ArtImageCache } from '@/render/decoration-image-cache';
 import type { LoadingSurface } from '@/render/ui/shell/shell';
+import type { SaveFile } from '@/core/save-file';
 import type { ParametricBuildingSource } from '@/render/parametric-building-source';
 import type { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import type { ParametricPlantSource } from '@/render/parametric-plant-source';
@@ -60,6 +61,9 @@ export interface BootSequenceDeps {
   /** Game-side world-ready wiring (HUD, dev inspector, autosave) — runs inside
    *  bootstrap's onReady, before the art hold starts. */
   onWorldReady: () => void;
+  /** Forwarded from `bootstrapWorld`: fired only when a save was RESUMED, so the
+   *  caller can continue the event journal from that save's cursor. */
+  onResumed?: (save: SaveFile) => void;
 }
 
 export async function runBootSequence(deps: BootSequenceDeps, worldSeed?: WorldSeed): Promise<GameMap> {
@@ -103,6 +107,7 @@ export async function runBootSequence(deps: BootSequenceDeps, worldSeed?: WorldS
     worldSeed,
     ...(deps.forceFresh !== undefined ? { forceFresh: deps.forceFresh } : {}),
     ...(deps.genSeedOverride !== undefined ? { genSeedOverride: deps.genSeedOverride } : {}),
+    ...(deps.onResumed ? { onResumed: deps.onResumed } : {}),
     onProgress: (msg) => {
       const update = worldgenProgress.next(msg);
       if (update) loading.setProgress(update.fraction, update.label);

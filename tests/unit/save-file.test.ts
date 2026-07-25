@@ -45,26 +45,35 @@ function seededState() {
 }
 
 describe('save-file', () => {
-  it('toSaveFile captures snapshot, map, events, and view', () => {
+  it('toSaveFile captures snapshot, map, cursor, and view', () => {
     const save = toSaveFile(seededState(), 9999);
     expect(save.version).toBe(SAVE_VERSION);
     expect(save.savedAt).toBe(9999);
     expect(save.snapshot.tick).toBe(123);
     expect(save.snapshot.entities).toHaveLength(1);
-    expect(save.events.length).toBeGreaterThanOrEqual(1);
+    // events no longer ride the blob (v4) — the cursor stands in for them.
+    expect(save.eventCursor).toBeGreaterThanOrEqual(1);
+    expect(save.playtimeMs).toBe(0);
     expect(save.view.camera.zoom).toBe(0.5);
     expect(save.view.selectedNpcId).toBe('n1');
   });
 
-  it('round-trip restores tick, entities, eventLog, and camera into a fresh state', () => {
-    const save = toSaveFile(seededState(), 1);
+  it('stamps a passed playtimeMs onto the blob', () => {
+    const save = toSaveFile(seededState(), 1, 42_000);
+    expect(save.playtimeMs).toBe(42_000);
+  });
+
+  it('round-trip restores tick, entities, eventLog (given the events separately), and camera into a fresh state', () => {
+    const state = seededState();
+    const save = toSaveFile(state, 1);
+    const events = state.eventLog.since(0);
     const fresh = createState();
     fresh.map = miniMap();
     fresh.world = new World(fresh.map);
-    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(applySaveFile(fresh, save, events)).toBe(true);
     expect(fresh.clock.now()).toBe(123);
     expect(fresh.world!.query({ kind: 'npc' })).toHaveLength(1);
-    expect(fresh.eventLog.size()).toBe(save.events.length);
+    expect(fresh.eventLog.size()).toBe(events.length);
     expect(fresh.camera.zoom).toBe(0.5);
     expect(fresh.selectedNpcId).toBe('n1');
     // visual/blob maps are derived, not stored
@@ -72,14 +81,27 @@ describe('save-file', () => {
     expect(fresh.blobMap).not.toBeNull();
   });
 
+  it('applySaveFile defaults to an empty event log when no events are passed', () => {
+    // A caller that hasn't wired the journal read yet (or genuinely has no
+    // history) still resumes — this is the "degrade the annals strip, never
+    // the load" contract from the events-removed-from-the-blob note.
+    const save = toSaveFile(seededState(), 1);
+    const fresh = createState();
+    fresh.map = miniMap();
+    fresh.world = new World(fresh.map);
+    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(fresh.eventLog.size()).toBe(0);
+  });
+
   it('restores into a fresh state whose world is still null (the real resume path)', () => {
     // bootstrapWorld's resume branch calls applySaveFile on the freshly-created
     // GameState, where createState() leaves world AND map null. restoreSnapshot
     // builds the world from the save's map, so it must not require a pre-existing one.
-    const save = toSaveFile(seededState(), 1);
+    const state = seededState();
+    const save = toSaveFile(state, 1);
     const fresh = createState();
     expect(fresh.world).toBeNull();
-    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(applySaveFile(fresh, save, state.eventLog.since(0))).toBe(true);
     expect(fresh.world).not.toBeNull();
     expect(fresh.world!.query({ kind: 'npc' })).toHaveLength(1);
     expect(fresh.clock.now()).toBe(123);
@@ -140,11 +162,12 @@ describe('save-file — live (single-clone) autosave path', () => {
   it('toSaveFileLive round-trips through applySaveFile identically to toSaveFile', () => {
     const state = seededState();
     const save = toSaveFileLive(state, 1);
+    const events = state.eventLog.since(0);
     const fresh = createState();
-    expect(applySaveFile(fresh, save)).toBe(true);
+    expect(applySaveFile(fresh, save, events)).toBe(true);
     expect(fresh.clock.now()).toBe(123);
     expect(fresh.world!.query({ kind: 'npc' })).toHaveLength(1);
-    expect(fresh.eventLog.size()).toBe(save.events.length);
+    expect(fresh.eventLog.size()).toBe(events.length);
     // applySaveFile deep-copies on the way IN, so the restored state never
     // aliases the save (nor, transitively, the source state).
     expect(fresh.map).not.toBe(state.map);

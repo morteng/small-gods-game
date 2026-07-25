@@ -19,8 +19,9 @@ import { loadDecorations } from '@/services/decoration-store';
 import { WaterDynamics } from '@/render/gpu/water-dynamics';
 import { buildFloodWatchForMap, watchedPlaceSpecs } from '@/world/flood-watch';
 import { CausalSiteStore } from '@/world/causal-site';
-import { readSave as readSaveDefault } from '@/services/save-store';
+import { readSave as readSaveDefault, readJournal as readJournalDefault } from '@/services/save-store';
 import { applySaveFile, type SaveFile } from '@/core/save-file';
+import type { AppendedEvent } from '@/core/events';
 import { tickAtSolarHour, WORLD_START_HOUR } from '@/core/calendar';
 import { PINNED_GEN_SEED } from '@/core/constants';
 
@@ -36,6 +37,11 @@ export interface BootstrapDeps {
   onProgress?: (message: string) => void;
   /** Fired after the world is ready, before the caller starts the loop. */
   onReady?: () => void;
+  /** Fired ONLY when an existing save was successfully resumed, with that save.
+   *  The caller needs it to know the journal cursor the autosave should continue
+   *  from — the events just hydrated into the log are already persisted, so
+   *  appending them again would duplicate the world's history. */
+  onResumed?: (save: SaveFile) => void;
   /** UI v3: force a fresh generation regardless of any existing autosave. The URL
    *  flags (`?genseed`, `?genome`) still force it on their own; this is the
    *  EXPLICIT, programmatic route — the one a `new_game` command from the title
@@ -48,13 +54,32 @@ export interface BootstrapDeps {
   genSeedOverride?: number;
   /** Injectable for tests; defaults to the IndexedDB save-store reader. */
   readSave?: () => Promise<SaveFile | null>;
+  /** Injectable for tests; defaults to `readJournal`. The event history no longer
+   *  rides the SaveFile blob (it was O(total history) per autosave on a world
+   *  where a real day is a real day) — it lives in an append-only IDB journal and
+   *  is read back separately, up to the cursor the save recorded. */
+  readJournal?: (upTo: number) => Promise<AppendedEvent[]>;
   /** Injectable for tests; defaults to applySaveFile. Returns false on version mismatch. */
-  applySave?: (state: GameState, save: SaveFile) => boolean;
+  applySave?: (state: GameState, save: SaveFile, events: AppendedEvent[]) => boolean;
 }
 
 /** Yield one macrotask so a just-updated progress label can actually paint before
  *  the next synchronous block (visualMap/blobMap/seedWorld) grabs the thread. */
 const yieldToPaint = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** Read the event journal, degrading to an EMPTY history on any failure. The
+ *  journal is flavour (the annals strip); the world is the thing worth saving. */
+async function readJournalSafely(
+  read: (upTo: number) => Promise<AppendedEvent[]>,
+  upTo: number,
+): Promise<AppendedEvent[]> {
+  try {
+    return await read(upTo);
+  } catch (err) {
+    console.warn('[boot] event journal unreadable — restoring without history', err);
+    return [];
+  }
+}
 
 export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const { state, assets, sheets, decorationImages, getViewport } = deps;
@@ -82,6 +107,7 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   // generate/seed path. The saved world already has its entities, spirits,
   // rivals, clock, event history, and camera.
   const readSaveFn = deps.readSave ?? readSaveDefault;
+  const readJournalFn = deps.readJournal ?? ((upTo: number) => readJournalDefault('autosave', upTo));
   const applySaveFn = deps.applySave ?? applySaveFile;
   // A generated genome (`?genome=…`) is an explicit fresh terrain study — an existing
   // autosave must NOT shadow it (same reasoning as the genseed override).
@@ -92,7 +118,13 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   const forceFresh = deps.forceFresh === true || genseedOverride !== null || genomeFresh;
   progress(forceFresh ? 'Fresh world...' : 'Looking for a saved world...');
   const saved = forceFresh ? null : await readSaveFn();
-  if (saved && applySaveFn(state, saved)) {
+  // The chronicle/history comes from the journal, read up to the cursor this save
+  // recorded. A journal read that fails degrades to NO HISTORY — the world still
+  // loads and the annals strip is simply short. Losing the world because its
+  // history could not be read would be a far worse trade.
+  const events = saved ? await readJournalSafely(readJournalFn, saved.eventCursor) : [];
+  if (saved && applySaveFn(state, saved, events)) {
+    deps.onResumed?.(saved);
     progress('Waking your saved world...');
     await assets.loadAll();
     state.generatedDecorations = loadDecorations(state.worldSeed?.name ?? '');

@@ -65,7 +65,7 @@ import { runBootSequence } from '@/game/boot-sequence';
 import { kickOffSheets } from '@/game/bootstrap-world';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
-import { clearSave, readSave } from '@/services/save-store';
+import { clearSave, readSave, type SaveMetaInput } from '@/services/save-store';
 import { SAVE_VERSION, type SaveFile } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 import { Shell, type LoadingSurface } from '@/render/ui/shell/shell';
@@ -476,6 +476,11 @@ export class Game {
       state: this.state,
       timeline: this.timeline,
       now: () => Date.now(),
+      // The event history rides an append-only journal now, so each autosave
+      // appends only the delta since this slot's cursor. `initialCursor` is set
+      // from the resumed save in `onWorldReady` — before that a fresh world
+      // legitimately starts at 0.
+      meta: () => this.saveMetaInput(),
     });
 
 
@@ -1887,6 +1892,53 @@ export class Game {
     return tmp.toDataURL('image/png');
   }
 
+  /**
+   * A small JPEG data URL of the current view, for a save slot's thumbnail.
+   *
+   * Deliberately NOT `captureFrame()`: that returns a full-resolution PNG data
+   * URL (megabytes on a hidpi display), and one of those per slot would sit in
+   * IndexedDB forever and be structured-cloned on every write. A 320×180 JPEG is
+   * a couple of tens of kB and is all a menu tile can show anyway.
+   *
+   * Returns null with no world (nothing to picture) or if the 2D context is
+   * unavailable — a missing thumbnail is cosmetic, never a save failure.
+   */
+  private captureThumbnail(w = 320, h = 180): string | null {
+    if (!this.renderMap || !this.state.map) return null;
+    try {
+      const tmp = document.createElement('canvas');
+      tmp.width = w;
+      tmp.height = h;
+      const t = tmp.getContext('2d');
+      if (!t) return null;
+      // Draw the LAST rendered frame rather than forcing a fresh render: this runs
+      // inside the autosave path, which is already the heaviest main-thread task
+      // in the game — re-rendering the scene to decorate a menu would be perverse.
+      t.drawImage(this.canvas, 0, 0, w, h);
+      return tmp.toDataURL('image/jpeg', 0.7);
+    } catch (err) {
+      console.warn('[save] thumbnail capture failed', err);
+      return null;
+    }
+  }
+
+  /** The slot metadata a save is listed by. Read-only over live state, so the
+   *  save store never has to know about `Game`. */
+  private saveMetaInput(name = 'Autosave'): SaveMetaInput {
+    const tick = this.state.clock.now();
+    const player = this.state.spirits.get(PLAYER_SPIRIT_ID);
+    return {
+      name,
+      tick,
+      // Fiction time, prebuilt — a raw tick must never reach the UI.
+      dateLabel: calendarLabel(tick),
+      godTier: player?.tier ?? 'unknown',
+      beliefMass: player?.beliefMass ?? 0,
+      playtimeMs: this.playtimeMs,
+      thumbnail: this.captureThumbnail(),
+    };
+  }
+
   /** Stable debug surface for console/Playwright/MCP (see src/dev/debug-api.ts). */
   debug(): DebugApi {
     return createDebugApi({
@@ -2079,6 +2131,13 @@ export class Game {
         this.assetLibrary = art.assetLibrary;
         this.artResolver = art.artResolver;
         this.buildingArtResolver = art.buildingArtResolver;
+      },
+      onResumed: (save) => {
+        // Continue the event journal where that save left off. Without this the
+        // first autosave after a resume would re-append the entire hydrated
+        // history, duplicating the world's annals.
+        this.persistence.setCursor('autosave', save.eventCursor);
+        this.playtimeMs = save.playtimeMs ?? 0;
       },
       onWorldReady: () => {
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it

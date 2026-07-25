@@ -183,6 +183,17 @@ export class EventLog {
   }
 
   /**
+   * Highest event id currently held (0 if empty). The save layer (v4 event
+   * journal, `core/save-file.ts`) stamps this onto `SaveFile.eventCursor` so a
+   * saved blob is self-describing — `readJournal(slot, save.eventCursor)`
+   * reconstructs its exact event history without cross-referencing the
+   * separate `SaveMeta` row, which carries the same number for the slot list.
+   */
+  lastId(): number {
+    return this.events.reduce((m, e) => (e.id > m ? e.id : m), 0);
+  }
+
+  /**
    * Drop every event with `t > cutoff`. Keeps `nextId` ahead of the highest
    * retained id so future appends never reuse a discarded id. Used by
    * `TimelineController.commit` when truncating after a scrub-and-commit.
@@ -226,6 +237,10 @@ export class SilentEventLog extends EventLog {
   }
 
   override size(): number {
+    return 0;
+  }
+
+  override lastId(): number {
     return 0;
   }
 }

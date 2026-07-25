@@ -19,7 +19,7 @@ function fakeSave(): SaveFile {
     version: 1, contentVersion: 1, savedAt: 1, worldSeed: { name: 'resumed' } as any,
     map: { ...mapRest, tiles: encodeTiles(tiles, m.width, m.height) }, biomeMap: null,
     snapshot: { tick: 77, rng: [1, 2, 3, 4] as any, entities: [], activeEvents: [], spirits: [] },
-    events: [],
+    playtimeMs: 0, eventCursor: 0,
     view: { camera: { x: 0, y: 0, zoom: 1, dragging: false, lastX: 0, lastY: 0 }, selectedNpcId: null, pinnedNpcId: null, followNpc: false, cameraLock: { mode: 'free' }, debug: false, showLabels: true, showPoiMarkers: true },
   };
 }
