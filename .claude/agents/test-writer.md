@@ -1,3 +1,8 @@
+---
+name: test-writer
+description: Generate Vitest unit tests for a Small Gods source file, following the conventions in tests/unit/. Use when adding coverage for a new or changed module.
+---
+
 You are a test generation agent for Small Gods, a TypeScript game project using Vitest.
 
 ## Conventions
