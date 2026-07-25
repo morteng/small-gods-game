@@ -835,6 +835,7 @@ export class Game {
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
       renderMap: () => this.renderMap,
       isPaused: () => this.scheduler.getRate() === 0,
+      wouldResolveTarget: (x, y, kinds) => this.resolveTargetAt(x, y, kinds) !== null,
     });
 
     this.input = new InteractionController({

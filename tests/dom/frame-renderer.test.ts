@@ -15,7 +15,8 @@ describe('FrameRenderer', () => {
       isPaused: () => false,
       divine: { lastCastTime: -Infinity } as any,
       dev: { drawOverlays() {}, isEnabled: () => false, hitTest: () => ({ type: null }) } as any,
-      interaction: { hoverTile: null, hoverScreen: null } as any,
+      interaction: { hoverTile: null, hoverScreen: null, targeting: null } as any,
+      wouldResolveTarget: () => false,
       ui: { divineEffects: {} as any, tooltip: document.createElement('div'), debugHud: document.createElement('div') },
     });
     expect(() => fr.render(16)).not.toThrow();

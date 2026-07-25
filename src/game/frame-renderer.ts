@@ -12,6 +12,9 @@ import { fillTiles } from '@/render/selection-outline';
 import { formatDebugHud } from '@/ui/debug-hud';
 import { TILE_SIZE } from '@/core/constants';
 import type { Entity } from '@/core/types';
+import type { CommandTargetKind } from '@/sim/command/types';
+import { isoEnvForMap } from '@/render/iso/iso-env';
+import { projectCastReticle, renderCastReticle } from '@/render/cast-reticle';
 
 export interface FrameRendererUi {
   divineEffects: DivineEffects;
@@ -30,6 +33,13 @@ export interface FrameRendererDeps {
   getViewport: () => Viewport;
   renderMap: () => RenderFn | null;
   isPaused: () => boolean;
+  /** abilities-v1 A2: does the CURRENTLY HOVERED tile resolve to a target the
+   *  armed verb accepts? A live read on hover (mirrors `Game.resolveTargetAt`,
+   *  the exact resolution the click will run) — deliberately NOT
+   *  `hoverFrozen`/`inspectorFrozen`, which only update on dwell/draw and would
+   *  lag the cursor while aiming. Only consulted while `interaction.targeting`
+   *  is armed; tints the reticle gold (accepted) vs dim ink (not). */
+  wouldResolveTarget: (x: number, y: number, kinds: readonly CommandTargetKind[]) => boolean;
 }
 
 export class FrameRenderer {
@@ -56,6 +66,21 @@ export class FrameRenderer {
       this.deps.ui.divineEffects.update(deltaMs);
       this.deps.ui.divineEffects.render(this.deps.ctx as any, this.deps.state.camera, TILE_SIZE);
     }
+
+    // abilities-v1 A2: the cast reticle — same overlay layer as divine effects
+    // above, visible only while a verb-first cast is armed. `isoEnvForMap`
+    // binds the live terrain's lift so the ring lands on the tile the click
+    // would ACTUALLY hit on a slope (`heightField` inside is memoised, so
+    // rebuilding this closure per frame while aiming is cheap).
+    const aim = this.deps.interaction.targeting;
+    const hoverTile = this.deps.interaction.hoverTile;
+    if (aim && hoverTile && this.deps.state.map) {
+      const env = isoEnvForMap(this.deps.state.map);
+      const geo = projectCastReticle(hoverTile, this.deps.state.camera, env);
+      const valid = this.deps.wouldResolveTarget(hoverTile.x, hoverTile.y, aim.targetKinds);
+      renderCastReticle(this.deps.ctx, geo, valid);
+    }
+
 
     // Draw debug overlays if dev mode is enabled (with the hovered target so the
     // dev outline layer can show a faint hover preview).
