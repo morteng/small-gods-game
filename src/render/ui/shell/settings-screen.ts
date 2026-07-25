@@ -265,8 +265,17 @@ export function drawSettingsScreen(
   }
   const chipW = Math.ceil(widestChip) + Math.round(SPACING.md * 2 * s);
   const gutter = Math.round(SPACING.lg * s);
-  const naturalW = Math.ceil(widestLabel) + gutter + chipW + gutter + rebindW
-    + Math.round(SPACING.lg * 2 * s);
+  // The TAB ROW is content too: four equal tabs across a too-narrow panel cut
+  // "GAMEPLAY" to "GAMEP…". Its natural width must feed the panel's.
+  // `tabbar` divides the row EVENLY, so the panel must fit N x the WIDEST tab —
+  // summing their natural widths still starves the longest one ("GAMEPLAY").
+  let widestTab = 0;
+  for (const t of SETTINGS_TABS) widestTab = Math.max(widestTab, c.measure(t.label, fsMenu));
+  const tabsW = SETTINGS_TABS.length * (Math.ceil(widestTab) + Math.round(SPACING.md * 2 * s));
+  const naturalW = Math.max(
+    Math.ceil(widestLabel) + gutter + chipW + gutter + rebindW + Math.round(SPACING.lg * 2 * s),
+    tabsW + Math.round(SPACING.lg * 2 * s),
+  );
   const colW = Math.round(Math.max(
     Math.min(560 * s, Math.max(160, w - edge * 2)),   // never NARROWER than before
     Math.min(naturalW, w - edge * 2),                  // but widen to fit the type
@@ -457,6 +466,7 @@ export function drawSettingsScreen(
           fired = capturingThis ? { kind: 'rebind_cancel' } : { kind: 'rebind_start', action: row.action };
         }
       },
+      fsCaption,   // overflow marks ride the caption tier, never below the floor
     );
     y = listY + listH + plan.gap;
 

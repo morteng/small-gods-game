@@ -323,6 +323,7 @@ export class UiContext {
     rowH: number,
     rowCount: number,
     drawRow: (i: number, rowY: number) => void,
+    indicatorScale?: number,
   ): void {
     const { x, y, w, h } = rect;
     const visibleRows = rowH > 0 ? Math.max(0, Math.floor(h / rowH)) : 0;
@@ -337,7 +338,10 @@ export class UiContext {
     if (rowCount <= visibleRows) return; // nothing to indicate — the whole list fits
 
     // more-indicators: a small dim glyph tucked in the region's right corners.
-    const fs = 2; // fixed — independent of the caller's row/text scale
+    // Scale is CALLER-SUPPLIED: a hardcoded 2 sat below the shell's caption floor
+    // once the responsive type scale landed, so a screen at menu tier grew tiny
+    // scroll marks. Defaults to 2 for the in-game HUD lists, which are unaffected.
+    const fs = indicatorScale ?? 2;
     const gw = this.font.measure('+', fs);
     const gh = this.font.lineHeight(fs);
     const pad = 4;
