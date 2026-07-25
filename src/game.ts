@@ -1772,6 +1772,23 @@ export class Game {
     this.requestRender();  // a resized canvas is blank until the next draw
   }
 
+  /** `runBootSequence`, but a THROW reaches the player instead of hanging them.
+   *
+   *  The loading overlay is held (by design) until the world is fully displayed —
+   *  which means a boot that rejects holds it forever, with nothing to show for it
+   *  but an unhandled rejection in a console nobody has open. Name the failure on
+   *  the overlay, then rethrow so callers and tests still see the real error. */
+  private async bootOrSayWhyNot(deps: Parameters<typeof runBootSequence>[0], worldSeed?: WorldSeed): Promise<GameMap> {
+    try {
+      return await runBootSequence(deps, worldSeed);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      this.ui.loadingScreen.setProgress(1, `World generation failed — ${why}`);
+      console.error('[boot] world generation failed', err);
+      throw err;
+    }
+  }
+
   async generateWorld(worldSeed?: WorldSeed, _terrainOptions?: Partial<TerrainOptions>): Promise<GameMap> {
     // The orchestration (engine → renderer → art library → flora prewarm →
     // worldgen → art-settle hold) lives in boot-sequence.ts; the Game supplies
@@ -1779,7 +1796,7 @@ export class Game {
     // Ground-flora atlas: one fetch, kicked alongside boot so herb/grass/fern
     // billboards are sliceable by frame one (misses degrade to flat billboards).
     void this.clutterFloraSource.warm();
-    const map = await runBootSequence({
+    const map = await this.bootOrSayWhyNot({
       canvas: this.canvas, state: this.state, loading: this.ui.loadingScreen,
       assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),

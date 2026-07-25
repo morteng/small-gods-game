@@ -229,8 +229,13 @@ export function kickOffSheets(state: GameState, sheets: Map<string, HTMLCanvasEl
     if (sheets.has(e.id)) continue;
     const p = npcProps(e);
     const spec = buildCharacterSpec(p.role, p.seed);
-    getOrGenerateSheet(spec).then(canvas => {
-      if (canvas) sheets.set(e.id, canvas);
-    });
+    // A sheet that fails to generate is survivable — that NPC renders as the
+    // fallback circle. What is NOT survivable is letting it reject unhandled:
+    // this runs on a repeating timer, so one broken spec would spray the console
+    // (and, under a strict host, take the page down) every re-kick.
+    getOrGenerateSheet(spec).then(
+      canvas => { if (canvas) sheets.set(e.id, canvas); },
+      err => { console.warn('[sheets] generation failed for', e.id, err); },
+    );
   }
 }

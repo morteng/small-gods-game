@@ -30,7 +30,13 @@ if (container && __DEV_TOOLS__ && new URLSearchParams(location.search).has('stud
   const boot = genomeName
     ? import('./world/genome').then(({ terrainGenomeByName }) => game.generateWorld(terrainGenomeByName(genomeName)))
     : game.generateWorld();
-  boot.then(() => { console.log('World generated'); });
+  // The catch is load-bearing: `generateWorld` names the failure on the loading
+  // overlay and rethrows, so without one here a failed boot is an unhandled
+  // rejection — and the page just sits there.
+  boot.then(
+    () => { console.log('World generated'); },
+    (err: unknown) => { console.error('World generation failed', err); },
+  );
 
   if (__DEV_TOOLS__) {
     // Attach the dev/debug window globals (excluded from distribution builds).
