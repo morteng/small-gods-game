@@ -1,4 +1,8 @@
 import type { Spirit, SpiritId } from '@/core/spirit';
+import {
+  WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST,
+  ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
+} from '@/sim/divine-costs';
 import type { Entity } from '@/core/types';
 import type { EventLog } from '@/core/events';
 import { npcProps, forEachNpc, queryNpcs, rememberEvent, getNpc } from '@/world/npc-helpers';
@@ -15,14 +19,14 @@ import {
 } from '@/sim/lord';
 
 // ─── Power costs ──────────────────────────────────────────────────────────────
+// The numbers themselves live in `@/sim/divine-costs` — a leaf module with no
+// imports — and are re-exported here so every existing `from '@/sim/divine-actions'`
+// call site keeps working. See divine-costs.ts for why they had to move out.
 
-export const WHISPER_COST = 1;
-export const OMEN_COST = 3;
-export const DREAM_COST = 4;
-export const MIRACLE_COST = 10;
-export const ANSWER_PRAYER_COST = 2;
-export const SMITE_COST = 8;
-export const SUMMON_STORM_COST = 12;
+export {
+  WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST,
+  ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST,
+} from '@/sim/divine-costs';
 
 // summon_storm: how much water the storm lays, and how far.
 const SUMMON_STORM_RADIUS = 6;   // tiles

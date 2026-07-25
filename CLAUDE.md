@@ -59,9 +59,14 @@ npm run lint        # oxlint over src/tests/tools/scripts (~2s) — MUST stay at
 worth blocking a commit for; taste-only rules are off *with a written reason*, so a
 non-empty run always means something. Two rules are off because they are actively wrong
 here — `unicorn/no-useless-spread` (the flagged `[...x]` are deliberate snapshots of
-collections the loop then mutates) and `import/no-cycle` (24 real cycles exist; they work
-only because every cyclic binding is read inside a function, and unwinding them is its
-own refactor). Don't "fix" code to satisfy a rule — turn the rule off and say why.
+collections the loop then mutates) and `import/no-cycle` (10 real cycles remain in
+render/world/assetgen; they work only because every cyclic binding is read inside a
+function). Don't "fix" code to satisfy a rule — turn the rule off and say why.
+
+**`src/sim/` is import-cycle-free — keep it that way.** The pattern for breaking one is
+`src/sim/divine-costs.ts`: pull the pure leaf values into a module that imports nothing,
+then **repoint the importer at it** — a re-export from the original module does *not* cut
+the edge.
 
 **Dev bus bridge (out-of-process control).** With the game on `?bridge` (read-only) or `?bridge=rw` (writes), the in-browser `GameBus` seam is published over a WebSocket broker (Vite plugin on `/__bus`) so a CLI (`tools/bus-cli.ts`) or a stdio **MCP server** (`tools/mcp-server.ts`) can drive + inspect a live game. The tab is the *game peer* and does all dispatch (inherits the bus's gating/replay). **DEV ONLY — Fate and the WebGPU UI call `GameBus` in-process and must never round-trip through the bridge.**
 

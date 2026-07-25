@@ -40,7 +40,9 @@ import type { Rng } from '@/core/rng';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
 import { BELIEVER_THRESHOLD, PLAYER_SPIRIT_ID } from '@/sim/believers';
 import { cohortBelievers, type SettlementCohorts } from '@/sim/cohorts';
-import { ANSWER_PRAYER_COST } from '@/sim/divine-actions';
+// From the leaf cost module, NOT from divine-actions: importing it from there closes
+// a lord -> rival-claims -> divine-actions -> lord cycle. See sim/divine-costs.ts.
+import { ANSWER_PRAYER_COST } from '@/sim/divine-costs';
 import { TICKS_PER_DAY } from '@/core/calendar';
 
 /** A plea unanswered for this long becomes claimable by a rival — HALF A DAY

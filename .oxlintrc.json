@@ -32,11 +32,17 @@
     ],
     "import/no-self-import": "error",
 
-    // OFF — 24 real value-import cycles exist today (sim/lord <-> rival-claims <->
-    // divine-actions, world/claims <-> connectome-diagnostics, render/gpu/feature-geometry
-    // <-> world/road-deformation, assetgen/geometry/solids <-> arch). They work because
-    // every cyclic binding is read inside a function, never at module scope — but they are
-    // fragile. Breaking them is its own refactor; flip this to "error" when it lands.
+    // OFF — 10 real value-import cycles remain, all in render/world/assetgen:
+    //   world/claims <-> claims-diagnostics <-> connectome-diagnostics
+    //   render/gpu/feature-geometry <-> world/road-deformation, <-> world/render-water
+    //   assetgen/geometry/solids <-> arch
+    //   world/connectome/crossing-openings
+    // They work only because every cyclic binding is read INSIDE a function rather than
+    // at module scope; read one at module scope and you get a TDZ error whose stack
+    // points nowhere near the cycle. `src/sim/` is cycle-free as of the divine-costs
+    // extraction (see src/sim/divine-costs.ts for the pattern: pull the pure leaf values
+    // into their own module and repoint the importer at it — re-exporting is NOT enough,
+    // the edge survives). Clear the rest the same way, then flip this to "error".
     "import/no-cycle": "off",
 
     // OFF — fights the deliberate `import type {…}` / `import {…}` split from one module.
