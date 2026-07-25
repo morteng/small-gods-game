@@ -136,6 +136,52 @@ time this is seen live, the console will attribute it.
 - Also repoint `ui-runtime.ts`'s local `FS_TITLE`/`FS_BODY` at `ui-tokens.FS` and delete them —
   P1-A deliberately left that duplication, with a comment saying so.
 
+## STATUS as of 40ece8a9 — read this first
+
+**Shipped and LIVE-VERIFIED on real GPU** (five coordinator passes): title, WebGPU loading screen,
+save/load screens, settings (all four tabs), the responsive type scale, keymap + rebinding + gamepad.
+The rebind capture flow was walked end to end (PRESS A KEY → CANCEL → rebound → RESET TO DEFAULTS).
+No open defects.
+
+### Typography rules that are now ENFORCED — obey them in every new screen
+- `ui-tokens.shellTypeScaleFor(wDev, s)` gives the four tiers. **Never** reach for `FS.body` in a
+  shell screen (that is the in-game HUD's tier); interactive rows use `menu`, metadata uses
+  `caption`, and `caption` is a hard floor.
+- **Dense content SCROLLS, never shrinks.** A degradation ladder may drop gaps and secondary lines;
+  it may not step the font down.
+- **Size every computed button box with `c.buttonWidth(label, scale)`** — not a spacing token. The
+  widget clips against its own scale-derived padding, and using a different constant outside is what
+  produced "REBI…". Same rule for any container that must hold text: derive it from a measure at the
+  tier it will be drawn at.
+- Guards you must keep passing: `ui-type-scale`, `ui-scale-setting`, `ui-no-truncation` (asserts the
+  button-width INVARIANT across four viewports and every tab — assert invariants, not symptoms; a
+  fixture that sits on exact equality is false confidence).
+
+### Two hard-won debugging lessons
+1. **`| tail` on `ci-on-server.sh` swallows its exit code** — the pipeline reports `tail`'s status.
+   Redirect to a file and check `$?`, or a FAILED run looks green.
+2. **A guard you have never seen fail is not yet a guard.** Both the shell-stack fix and the
+   button-width fix were verified by restoring the broken code and watching the new test fail.
+
+## P5b — NEXT SLICE (not started)
+
+Game-over screen, photo mode, seed share, tutorial toasts. Detail in the P5 section below; the parts
+P5a did NOT cover:
+
+- **Game-over / fade screen** — when the player god crosses into `fading` (`src/sim/god-tier.ts`),
+  push the `gameover` screen. A canon moment, not a failure box: the sim keeps running behind it (the
+  world outlives its god) and the choices are *keep watching* (pop, whisper-only) or *begin again*
+  (`new_game`). Wants a live pass.
+- **Photo mode** — `capture_photo` verb + the `photo_mode` keymap action already exist; the screen
+  does not. Chrome-free capture via the existing `captureFrame()` seam (note: that returns a
+  full-resolution PNG data URL — fine for a deliberate photo, unlike a slot thumbnail).
+- **Seed share** — `copy_world_code` verb exists and is stubbed. Short base36 of
+  `{ genSeed, worldSeed.name, contentVersion }`, copyable from pause, pasteable into New Game via a
+  text island.
+- **Tutorial toasts** — first-run guidance as `tiding`-kind inbox items gated on
+  `settings.firstRunSeen` (the flag already exists in `settings-store`). Retires `src/ui/tutorial.ts`
+  (382 lines) as part of P6.
+
 ## P5 — controls, gamepad, game-over, photo mode, tutorial toasts
 
 **Files:** `src/game/input/keymap.ts` (new), `gamepad.ts` (new), `src/ui/controls.ts`,
