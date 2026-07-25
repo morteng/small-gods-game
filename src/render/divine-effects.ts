@@ -4,6 +4,8 @@
  */
 
 import type { CanvasRenderingContext2D } from 'canvas';
+import { worldToScreen } from '@/render/iso/iso-projection';
+import { isoStageTransform } from '@/render/iso/entity-draw-list';
 
 export interface Effect {
   type: 'whisper' | 'omen' | 'miracle' | 'curse' | 'dream' | 'smite';
@@ -100,52 +102,78 @@ export class DivineEffects {
 
   /**
    * Render all active effects to the canvas.
-   * @param ctx - Canvas 2D context
+   *
+   * abilities-v1 A2 bugfix: this used to draw at the flat `effect.x * tileSize`
+   * mapping with only `ctx.scale(camera.zoom)` applied — no camera translate at
+   * all. The live camera pans in ISO-SCREEN space (CLAUDE.md's documented
+   * gotcha), so that flat mapping landed every effect somewhere near the map
+   * origin regardless of where the target actually was, and panning the camera
+   * never moved it (there was no `camera.x/y` term anywhere in this branch —
+   * `renderParticles` below applied camera.x/y as a flat offset too, a
+   * DIFFERENT wrong space from the main shape, so a bolt and its own spark
+   * burst didn't even agree with each other). Fixed by projecting the effect's
+   * world anchor through the SAME `worldToScreen` + `isoStageTransform` idiom
+   * `alert-pins.ts` uses for the WebGPU pin layer, then `ctx.translate`-ing to
+   * that CSS-px point — every renderX below keeps drawing the exact shapes it
+   * always drew, just around a local (0,0) origin instead of `(x*tileSize,
+   * y*tileSize)`. Effect anchors here are entities' own continuous positions
+   * (`Game.targetWorldPos`, no `+0.5`) — the same convention `npcItems` uses to
+   * place the NPC sprite itself, so a smite lands exactly on the target.
+   *
+   * @param ctx - Canvas 2D context (the overlay — already dpr-scaled by
+   *   `Game.resize`'s `ctx.setTransform(dpr,...)`, so everything here is CSS px)
    * @param camera - Camera state for coordinate transform
-   * @param tileSize - Size of a tile in pixels
+   * @param tileSize - Size of a tile in pixels (local shape scale, unchanged)
    */
   render(ctx: CanvasRenderingContext2D, camera: { x: number; y: number; zoom: number }, tileSize: number): void {
     const now = performance.now();
+    const t = isoStageTransform(camera);
 
     for (const effect of this.effects) {
       const age = now - effect.startTime;
       const progress = age / effect.duration;
 
+      const iso = worldToScreen(effect.x, effect.y, 0, 0, 0);
+      const cx = iso.sx * t.scale + t.x;
+      const cy = iso.sy * t.scale + t.y;
+
       ctx.save();
+      ctx.translate(cx, cy);
       ctx.scale(camera.zoom, camera.zoom);
 
       switch (effect.type) {
         case 'whisper':
-          this.renderWhisper(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          this.renderWhisper(ctx, progress, tileSize, effect.color);
           break;
         case 'omen':
-          this.renderOmen(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          this.renderOmen(ctx, progress, tileSize, effect.color);
           break;
         case 'miracle':
-          this.renderMiracle(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          this.renderMiracle(ctx, progress, tileSize, effect.color);
           break;
         case 'curse':
-          this.renderCurse(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          this.renderCurse(ctx, progress, tileSize, effect.color);
           break;
         case 'dream':
-          this.renderDream(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          this.renderDream(ctx, progress, tileSize, effect.color);
           break;
         case 'smite':
-          this.renderSmite(ctx, effect.x, effect.y, progress, tileSize, effect.color);
+          this.renderSmite(ctx, progress, tileSize, effect.color);
           break;
       }
 
       ctx.restore();
     }
 
-    // Render particles
-    this.renderParticles(ctx, camera, tileSize);
+    // Render particles — same projection fix (see above); particles keep
+    // drifting in the same per-frame increments they always did (untouched —
+    // this slice fixes WHERE they're drawn, not their motion), just projected
+    // through the correct iso space each frame instead of a flat offset.
+    this.renderParticles(ctx, camera, t);
   }
 
   private renderWhisper(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     progress: number,
     tileSize: number,
     color: string,
@@ -154,7 +182,7 @@ export class DivineEffects {
     const radius = (4 + progress * 12) * (tileSize / 32);
 
     ctx.beginPath();
-    ctx.arc(x * tileSize, y * tileSize, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.strokeStyle = color;
     ctx.globalAlpha = alpha * 0.8;
     ctx.lineWidth = 2;
@@ -162,7 +190,7 @@ export class DivineEffects {
 
     // Glow
     ctx.beginPath();
-    ctx.arc(x * tileSize, y * tileSize, radius * 0.6, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * 0.6, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.globalAlpha = alpha * 0.3;
     ctx.fill();
@@ -170,8 +198,6 @@ export class DivineEffects {
 
   private renderOmen(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     progress: number,
     tileSize: number,
     color: string,
@@ -184,8 +210,8 @@ export class DivineEffects {
     ctx.globalAlpha = alpha;
     ctx.lineWidth = 2;
 
-    const cx = x * tileSize;
-    const cy = y * tileSize;
+    const cx = 0;
+    const cy = 0;
 
     ctx.beginPath();
     ctx.moveTo(cx - size * 0.3, cy - size * 0.5);
@@ -207,14 +233,12 @@ export class DivineEffects {
    *  zigzag (fixed offsets) — no RNG on the render path. */
   private renderSmite(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     progress: number,
     tileSize: number,
     color: string,
   ): void {
-    const cx = x * tileSize;
-    const cy = y * tileSize;
+    const cx = 0;
+    const cy = 0;
 
     // The bolt draws in the first third, then fades out over the rest.
     const boltAlpha = progress < 0.33 ? 1 : Math.max(0, 1 - (progress - 0.33) / 0.4);
@@ -269,8 +293,6 @@ export class DivineEffects {
 
   private renderMiracle(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     progress: number,
     tileSize: number,
     color: string,
@@ -280,8 +302,8 @@ export class DivineEffects {
 
     // Radial gradient
     const gradient = ctx.createRadialGradient(
-      x * tileSize, y * tileSize, 0,
-      x * tileSize, y * tileSize, radius,
+      0, 0, 0,
+      0, 0, radius,
     );
     gradient.addColorStop(0, color + '80');
     gradient.addColorStop(0.5, color + '40');
@@ -289,15 +311,15 @@ export class DivineEffects {
 
     ctx.fillStyle = gradient;
     ctx.globalAlpha = alpha;
-    ctx.fillRect(x * tileSize - radius, y * tileSize - radius, radius * 2, radius * 2);
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
 
     // Sparkle ring
     const ringRadius = tileSize * (0.3 + progress * 1.5);
     const sparkleCount = 8;
     for (let i = 0; i < sparkleCount; i++) {
       const angle = (Math.PI * 2 * i) / sparkleCount + progress * Math.PI;
-      const sx = x * tileSize + Math.cos(angle) * ringRadius;
-      const sy = y * tileSize + Math.sin(angle) * ringRadius;
+      const sx = Math.cos(angle) * ringRadius;
+      const sy = Math.sin(angle) * ringRadius;
 
       ctx.fillStyle = '#fff';
       ctx.globalAlpha = alpha * 0.8;
@@ -309,8 +331,6 @@ export class DivineEffects {
 
   private renderCurse(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     progress: number,
     tileSize: number,
     color: string,
@@ -321,7 +341,7 @@ export class DivineEffects {
     ctx.fillStyle = color;
     ctx.globalAlpha = alpha * 0.3;
     ctx.beginPath();
-    ctx.arc(x * tileSize, y * tileSize, tileSize * (0.5 + progress * 0.8), 0, Math.PI * 2);
+    ctx.arc(0, 0, tileSize * (0.5 + progress * 0.8), 0, Math.PI * 2);
     ctx.fill();
 
     // Swirl
@@ -331,15 +351,13 @@ export class DivineEffects {
     for (let i = 0; i < 3; i++) {
       ctx.beginPath();
       const r = tileSize * (0.3 + i * 0.2) * (1 + progress * 0.5);
-      ctx.arc(x * tileSize, y * tileSize, r, progress * Math.PI * 4, progress * Math.PI * 4 + Math.PI * 1.5);
+      ctx.arc(0, 0, r, progress * Math.PI * 4, progress * Math.PI * 4 + Math.PI * 1.5);
       ctx.stroke();
     }
   }
 
   private renderDream(
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     progress: number,
     tileSize: number,
     color: string,
@@ -356,27 +374,28 @@ export class DivineEffects {
       const offsetY = i * tileSize * 0.4 - progress * tileSize * 2;
       const offsetX = Math.sin(progress * Math.PI * 2 + i) * tileSize * 0.3;
       ctx.globalAlpha = alpha * (1 - i * 0.3);
-      ctx.fillText('Z', x * tileSize + offsetX, y * tileSize + offsetY);
+      ctx.fillText('Z', offsetX, offsetY);
     }
   }
 
+  /** `t` = `isoStageTransform(camera)`, computed once in `render()` and shared
+   *  across every particle — same iso projection as the main effect shapes
+   *  (see `render()`'s doc comment); particle drift itself (`p.x`/`p.y`
+   *  accumulation in `update()`) is untouched, only WHERE it's drawn changed. */
   private renderParticles(
     ctx: CanvasRenderingContext2D,
     camera: { x: number; y: number; zoom: number },
-    tileSize: number,
+    t: { scale: number; x: number; y: number },
   ): void {
     for (const p of this.particles) {
       const alpha = p.life / p.maxLife;
+      const iso = worldToScreen(p.x, p.y, 0, 0, 0);
+      const px = iso.sx * t.scale + t.x;
+      const py = iso.sy * t.scale + t.y;
       ctx.fillStyle = p.color;
       ctx.globalAlpha = alpha;
       ctx.beginPath();
-      ctx.arc(
-        (p.x * tileSize - camera.x) * camera.zoom,
-        (p.y * tileSize - camera.y) * camera.zoom,
-        p.size * camera.zoom,
-        0,
-        Math.PI * 2,
-      );
+      ctx.arc(px, py, p.size * camera.zoom, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
