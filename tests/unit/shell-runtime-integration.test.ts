@@ -123,4 +123,113 @@ describe('UiRuntime × Shell — a screen owns the frame', () => {
       }
     }
   });
+
+  it('a gameover choice reaches the host through onGameOverAction', () => {
+    const onGameOverAction = vi.fn();
+    const { rt, shell } = runtimeWithShell();
+    rt.configure({ onGameOverAction });
+    shell.push('gameover');
+    rt.frame(W, H, DPR);
+    const row = rt.hitRegions().find(h => h.id === 'gameover.begin_again')!;
+    const cx = row.x + row.w / 2, cy = row.y + row.h / 2;
+    rt.pointerDown(cx, cy);
+    rt.frame(W, H, DPR);
+    rt.pointerUp(cx, cy);
+    rt.frame(W, H, DPR);
+    expect(onGameOverAction).toHaveBeenCalledWith({ kind: 'begin_again' });
+  });
+
+  it('photo mode draws chrome-free and consumes pointer input anyway', () => {
+    const { rt, shell } = runtimeWithShell();
+    shell.push('photo');
+    const groups = rt.frame(W, H, DPR);
+    expect(totalVerts(groups)).toBe(0); // no hint wired -> nothing painted
+    expect(rt.hitRegions()).toEqual([]);
+    expect(rt.consumesPointer(5, 5)).toBe(true); // still modal — no world underneath
+  });
+
+  it('a new-world RANDOM WORLD choice reaches onNewGameAction', () => {
+    const onNewGameAction = vi.fn();
+    const { rt, shell } = runtimeWithShell();
+    rt.configure({ onNewGameAction });
+    shell.push('newgame');
+    rt.frame(W, H, DPR);
+    const row = rt.hitRegions().find(h => h.id === 'newgame.random')!;
+    const cx = row.x + row.w / 2, cy = row.y + row.h / 2;
+    rt.pointerDown(cx, cy);
+    rt.frame(W, H, DPR);
+    rt.pointerUp(cx, cy);
+    rt.frame(W, H, DPR);
+    expect(onNewGameAction).toHaveBeenCalledWith({ kind: 'random' });
+  });
+});
+
+// ── P5b: the world-code paste island routes to the RIGHT screen only ────────
+// SETTINGS' GAMEPLAY tab and NEWGAME's paste field share the same generic
+// `ShellDrawResult.island` slot (only one shell screen is ever on top), so a
+// regression here would show the wrong DOM form over the wrong screen.
+
+function mountedCanvas(): { canvas: HTMLCanvasElement; container: HTMLElement } {
+  const container = document.createElement('div');
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  container.appendChild(canvas);
+  document.body.appendChild(container);
+  return { canvas, container };
+}
+const worldCodeField = (c: HTMLElement) => c.querySelector('input[aria-label="World code"]') as HTMLInputElement | null;
+
+describe('UiRuntime × Shell — the world-code island routes to NEWGAME only', () => {
+  it('shows over NEWGAME, hides on every other shell screen', () => {
+    const { canvas, container } = mountedCanvas();
+    const shell = new Shell({ now: () => 0, titleView: () => TITLE });
+    const rt = new UiRuntime();
+    rt.setShell(shell);
+    const teardown = rt.attach(canvas);
+
+    const field = worldCodeField(container)!;
+    expect(field).toBeTruthy();
+
+    shell.push('title');
+    rt.frame(W, H, DPR);
+    expect(field.parentElement!.style.display).toBe('none');
+
+    shell.replace('newgame');
+    rt.frame(W, H, DPR);
+    expect(field.parentElement!.style.display).toBe('flex');
+    expect(parseInt(field.parentElement!.style.width)).toBeGreaterThan(0);
+
+    // GAMEPLAY is the one settings tab that ALSO reserves a non-null island
+    // rect (the LLM provider form) through the exact same generic
+    // `ShellDrawResult.island` slot — the meaningful case to guard against
+    // cross-contamination is this one, not an audio/video tab where `r` is
+    // null anyway (and would hide the world-code field regardless of routing).
+    shell.replace('settings');
+    shell.setSettingsTab('gameplay');
+    rt.frame(W, H, DPR);
+    expect(field.parentElement!.style.display).toBe('none'); // NOT the settings tab's rect
+
+    teardown();
+    expect(worldCodeField(container)).toBeNull();
+  });
+
+  it('Enter on the paste field reaches onWorldCodeSubmit with the trimmed text', () => {
+    const { canvas, container } = mountedCanvas();
+    const shell = new Shell({ now: () => 0 });
+    const rt = new UiRuntime();
+    const submitted: string[] = [];
+    rt.configure({ onWorldCodeSubmit: (t) => submitted.push(t) });
+    rt.setShell(shell);
+    const teardown = rt.attach(canvas);
+    shell.push('newgame');
+    rt.frame(W, H, DPR);
+
+    const field = worldCodeField(container)!;
+    field.value = '  3tx.default.3a  ';
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(submitted).toEqual(['3tx.default.3a']);
+
+    teardown();
+  });
 });

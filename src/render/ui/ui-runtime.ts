@@ -21,6 +21,7 @@ import { clamp01 } from '@/core/math';
 import { UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
 import { SettingsIsland } from '@/render/ui/ui-settings-island';
 import { WhisperInputIsland } from '@/render/ui/ui-whisper-island';
+import { WorldCodeIsland } from '@/render/ui/kit/world-code-island';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice, CloudTone } from '@/story/uispec';
@@ -29,6 +30,8 @@ import type { TitleAction } from '@/render/ui/shell/title-screen';
 import type { SaveAction } from '@/render/ui/shell/save-screen';
 import type { LoadAction } from '@/render/ui/shell/load-screen';
 import type { SettingsAction } from '@/render/ui/shell/settings-screen';
+import type { GameOverAction } from '@/render/ui/shell/gameover-screen';
+import type { NewGameAction } from '@/render/ui/shell/newgame-screen';
 import { FS } from '@/render/ui/ui-tokens';
 import { validateUiSpec } from '@/story/uispec';
 import { layoutMindCloud } from '@/render/ui/mind-cloud-layout';
@@ -170,6 +173,18 @@ export interface UiRuntimeHooks {
    *  directly (pure presentation state); `set`/`back` become meta commands,
    *  same translation contract as `onTitleAction`. */
   onSettingsAction?: (action: SettingsAction) => void;
+  /** A game-over choice was made (keep watching / begin again), same
+   *  translation contract as `onTitleAction`. */
+  onGameOverAction?: (action: GameOverAction) => void;
+  /** A new-world screen choice was made (random / back). Pasting a world code
+   *  is a SEPARATE event (`onWorldCodeSubmit`) — the DOM island, not this
+   *  GPU-button action, carries the typed text (same split `onCardFreeText`
+   *  uses for the whisper island). */
+  onNewGameAction?: (action: NewGameAction) => void;
+  /** The new-world screen's paste island submitted raw text (Enter or its own
+   *  BEGIN button). The host decodes it (`@/game/world-code`) and either
+   *  starts that world or reports back why not via `newGameView().error`. */
+  onWorldCodeSubmit?: (text: string) => void;
   /** Esc pressed while a shell screen is up. The host decides what "back" means
    *  for that screen (pop, or ignore on the title). */
   onShellEscape?: () => void;
@@ -341,6 +356,13 @@ export class UiRuntime {
   /** DOM input island for the conversation card's free-text field. Its target region
    *  is returned by `renderUiSpec` each frame (only for `keepOpen` conversation cards). */
   private whisperIsland: WhisperInputIsland | null = null;
+
+  /** DOM input island for the new-world screen's world-code paste field. Its
+   *  target region is `Shell.draw`'s `island` when the top screen is
+   *  `newgame` — see `frame()`'s island-routing block below (the same
+   *  reserved rect the GAMEPLAY settings tab's island uses, routed to whichever
+   *  physical DOM island the current screen actually wants). */
+  private worldCodeIsland: WorldCodeIsland | null = null;
 
   /** The frozen hover popover currently on screen (dwell → freeze), or null. */
   private hover: HoverPopover | null = null;
@@ -661,6 +683,9 @@ export class UiRuntime {
     if (container && !this.whisperIsland) {
       this.whisperIsland = new WhisperInputIsland(container, (text) => this.hooks.onCardFreeText?.(text));
     }
+    if (container && !this.worldCodeIsland) {
+      this.worldCodeIsland = new WorldCodeIsland(container, (text) => this.hooks.onWorldCodeSubmit?.(text));
+    }
     const toDevice = (e: { clientX: number; clientY: number }): [number, number] => {
       const r = canvas.getBoundingClientRect();
       const sx = ((e.clientX - r.left) / Math.max(1, r.width)) * canvas.width;
@@ -717,6 +742,8 @@ export class UiRuntime {
       this.island = null;
       this.whisperIsland?.destroy();
       this.whisperIsland = null;
+      this.worldCodeIsland?.destroy();
+      this.worldCodeIsland = null;
     };
   }
 
@@ -741,6 +768,12 @@ export class UiRuntime {
     const s = uiScaleFor(dpr);
     let r: Rect | null = null; // settings island target (menu)
     let whisperRect: Rect | null = null; // whisper input island target (conversation card)
+    // Which shell screen a non-null `r` this frame belongs to — SETTINGS'
+    // GAMEPLAY tab and NEWGAME's paste field both reserve a rect through the
+    // SAME generic `ShellDrawResult.island` slot (only one shell screen is
+    // ever on top at once), so routing it to the right physical DOM island
+    // below needs to know which screen actually asked for it.
+    let shellIslandOwner: 'settings' | 'newgame' | null = null;
     // UI v3: a shell screen wins over EVERYTHING. It is the outermost layer (you
     // are at the title, or the world is loading), and in meta mode there is no
     // world/HUD to fall through to at all. Placed as the first arm of the same
@@ -753,7 +786,11 @@ export class UiRuntime {
       if (res.save) this.hooks.onSaveAction?.(res.save);
       if (res.load) this.hooks.onLoadAction?.(res.load);
       if (res.settings) this.hooks.onSettingsAction?.(res.settings);
+      if (res.gameover) this.hooks.onGameOverAction?.(res.gameover);
+      if (res.newgame) this.hooks.onNewGameAction?.(res.newgame);
       r = res.island;
+      const top = this.shell.top();
+      shellIslandOwner = top === 'settings' ? 'settings' : top === 'newgame' ? 'newgame' : null;
     } else if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;
       r = this.drawMenu(c, wDev, hDev, s, clickAt);
@@ -775,9 +812,12 @@ export class UiRuntime {
 
     // Position/show the DOM input islands over their GPU targets (device→css px):
     // the provider form over the settings panel, the free-text field over the
-    // conversation card's input row. Each hides when its target isn't on screen.
+    // conversation card's input row, the world-code field over the new-world
+    // screen's paste rect. Each hides when its target isn't on screen THIS
+    // frame — including when `r` is non-null but belongs to the OTHER shell
+    // island (see `shellIslandOwner`'s doc above).
     if (this.island) {
-      if (r) {
+      if (r && shellIslandOwner === 'settings') {
         this.island.layout({ x: r.x / dpr, y: r.y / dpr, w: r.w / dpr, h: r.h / dpr });
         this.island.show();
       } else {
@@ -790,6 +830,14 @@ export class UiRuntime {
         this.whisperIsland.show();
       } else {
         this.whisperIsland.hide();
+      }
+    }
+    if (this.worldCodeIsland) {
+      if (r && shellIslandOwner === 'newgame') {
+        this.worldCodeIsland.layout({ x: r.x / dpr, y: r.y / dpr, w: r.w / dpr, h: r.h / dpr });
+        this.worldCodeIsland.show();
+      } else {
+        this.worldCodeIsland.hide();
       }
     }
     return c.batcher.flush();
