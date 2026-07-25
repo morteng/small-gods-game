@@ -2462,12 +2462,15 @@ export class Game {
   /** Build the title screen's view from the (possibly still-pending) probe. */
   private buildTitleView(): TitleView {
     if (!this.slotsProbed) {
-      // Still probing. Say so rather than claiming there is no save — the row
-      // resolves itself a frame or two later.
+      // Still probing. Say so on EVERY row rather than claiming anything — an
+      // IndexedDB open can take many seconds on a cold profile (~10 s seen
+      // live), and "NO SAVED WORLDS YET" that flips to real metadata moments
+      // later is a false statement, not just a stale one.
       return {
         continueLine: null,
         continueBlocked: { reason: 'none', text: 'Looking for a saved world…' },
         hasAnySave: false,
+        probing: true,
         buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
       };
     }

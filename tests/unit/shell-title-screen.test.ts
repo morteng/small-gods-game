@@ -105,6 +105,51 @@ describe('title screen — rows and refusal logic', () => {
     expect(load.note).toBe('NO SAVED WORLDS YET');
   });
 
+  it('claims NOTHING about saves while the probe is still in flight', () => {
+    // An IndexedDB open can take many seconds on a cold profile (~10s seen live).
+    // Until it resolves, "NO SAVED WORLDS YET" is a FALSE statement that flips to
+    // real metadata moments later — so both save-reading rows must say "looking",
+    // not assert an absence. `probing` is deliberately distinct from
+    // `hasAnySave: false`, which is a positive finding.
+    const rows = titleRows(view({
+      probing: true,
+      continueLine: null,
+      continueBlocked: { reason: 'none', text: 'Looking for a saved world…' },
+      hasAnySave: false,
+    }));
+    const cont = rows.find(r => r.id === 'title.continue')!;
+    const load = rows.find(r => r.id === 'title.load')!;
+
+    expect(cont.enabled).toBe(false);
+    expect(load.enabled).toBe(false);
+    // Neither row may assert an absence...
+    expect(cont.note).toMatch(/looking/i);
+    expect(load.note).toMatch(/looking/i);
+    for (const r of [cont, load]) {
+      expect(r.note ?? '', `${r.id} asserted an absence while probing`).not.toMatch(/NO SAVED/i);
+    }
+  });
+
+  it('once the probe resolves empty, the rows DO state the absence', () => {
+    // The flip side: "looking" must not persist after the answer is known.
+    const rows = titleRows(view({
+      probing: false,
+      continueLine: null,
+      continueBlocked: { reason: 'none', text: 'No saved world yet' },
+      hasAnySave: false,
+    }));
+    const load = rows.find(r => r.id === 'title.load')!;
+    expect(load.note).toBe('NO SAVED WORLDS YET');
+    expect(load.note).not.toMatch(/looking/i);
+  });
+
+  it('a resolved probe WITH saves enables LOAD and drops the note', () => {
+    const load = titleRows(view({ probing: false, hasAnySave: true }))
+      .find(r => r.id === 'title.load')!;
+    expect(load.enabled).toBe(true);
+    expect(load.note).toBeNull();
+  });
+
   it('always offers NEW WORLD, DEMO WORLD and SETTINGS', () => {
     // The anti-softlock guarantee for the shell: whatever state the save store is
     // in, the player can always start something.

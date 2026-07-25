@@ -35,6 +35,13 @@ export interface TitleView {
   continueBlocked: ContinueBlock;
   /** Whether any named slot holds a save (drives LOAD WORLD's enabled state). */
   hasAnySave: boolean;
+  /** True while the save probe is STILL IN FLIGHT — nothing is known yet about
+   *  any slot. Distinct from `hasAnySave: false`, which is a positive finding.
+   *  Both CONTINUE and LOAD must say "looking…" until this clears: an IndexedDB
+   *  open can take many seconds on a cold profile (~10 s seen live), and a
+   *  definitive "NO SAVED WORLDS YET" that flips to real metadata moments later
+   *  is a false statement, not merely a stale one. */
+  probing?: boolean;
   /** Build/version line for the bottom corner (dim, informational). */
   buildLine: string;
 }
@@ -78,7 +85,12 @@ export function titleRows(view: TitleView): Row[] {
     { id: 'title.new', label: 'NEW WORLD', action: { kind: 'new_world' }, enabled: true, note: null },
     {
       id: 'title.load', label: 'LOAD WORLD', action: { kind: 'load' },
-      enabled: view.hasAnySave, note: view.hasAnySave ? null : 'NO SAVED WORLDS YET',
+      // Disabled while probing (there is genuinely nothing to open yet) but the
+      // note must not CLAIM anything — see `TitleView.probing`.
+      enabled: !view.probing && view.hasAnySave,
+      note: view.probing
+        ? 'LOOKING FOR SAVED WORLDS…'
+        : view.hasAnySave ? null : 'NO SAVED WORLDS YET',
     },
     {
       id: 'title.demo', label: 'DEMO WORLD', action: { kind: 'demo' }, enabled: true,
