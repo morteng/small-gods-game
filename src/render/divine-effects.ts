@@ -111,10 +111,6 @@ export class DivineEffects {
       const age = now - effect.startTime;
       const progress = age / effect.duration;
 
-      // World to screen coordinates
-      const screenX = (effect.x * tileSize - camera.x) * camera.zoom;
-      const screenY = (effect.y * tileSize - camera.y) * camera.zoom;
-
       ctx.save();
       ctx.scale(camera.zoom, camera.zoom);
 

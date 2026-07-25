@@ -1,9 +1,8 @@
-import type { Camera, NpcSimState, NpcInstance, Entity } from '@/core/types';
+import type { Camera, NpcInstance } from '@/core/types';
 import type { World } from '@/world/world';
 import { worldToScreen } from '@/render/camera';
 import { TILE_SIZE } from '@/core/constants';
 import { forEachNpc, npcProps } from '@/world/npc-helpers';
-import { getBuildingTemplate } from '@/map/building-templates';
 
 export interface DebugOverlayOptions {
   showBeliefHeatmap: boolean;

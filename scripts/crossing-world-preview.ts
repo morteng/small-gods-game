@@ -94,7 +94,7 @@ async function main(): Promise<void> {
     const sb = blueprintOf(e);
     if (!sb) continue;
     const spec = toGeometry(sb.rb);
-    const r = await composeStructure(spec, undefined, { ...(spec.yaw ? { yaw: spec.yaw } : {}) });
+    const r = await composeStructure(spec, undefined, (spec.yaw ? { yaw: spec.yaw } : {}));
     // Opaque bbox crop.
     let minX = r.size, minY = r.size, maxX = 0, maxY = 0;
     for (let y = 0; y < r.size; y++) for (let x = 0; x < r.size; x++) {

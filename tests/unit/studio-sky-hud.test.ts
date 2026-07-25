@@ -5,7 +5,7 @@ import {
 } from '@/studio/sky-hud';
 import { groundOffset } from '@/assetgen/render/ground-shadow';
 import { worldToScreen } from '@/render/iso/iso-projection';
-import { clockLabel, sunDirFromAngles, AZ_OFFSET } from '@/render/solar';
+import { clockLabel, sunDirFromAngles } from '@/render/solar';
 
 // Expected screen bearing for a world tile-space direction, derived through the REAL iso
 // projection (not a hardcoded magic angle) — this is the contract the rose must satisfy.

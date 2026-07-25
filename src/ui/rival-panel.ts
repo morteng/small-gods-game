@@ -3,7 +3,7 @@
  * Includes personality, strategy, power, followers, and recent actions.
  */
 
-import type { RivalSpirit, RivalPersonality, RivalAction } from '@/sim/rival-spirit';
+import type { RivalSpirit } from '@/sim/rival-spirit';
 import type { NpcSimState } from '@/core/types';
 
 const STYLE = `

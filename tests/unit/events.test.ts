@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { EventLog, type SimEvent } from '@/core/events';
+import { EventLog } from '@/core/events';
 import { SimClock } from '@/core/clock';
 
 function makeLog(): { log: EventLog; clock: SimClock } {

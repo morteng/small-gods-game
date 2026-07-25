@@ -1,7 +1,7 @@
 import type { NpcSimState } from '@/core/types';
 import { npcStatusHint } from '@/sim/believers';
 import { mountWhisperInput, type WhisperInputHandle } from '@/ui/npc-whisper-mode';
-import { mountMindMode, type MindModeHandle } from '@/ui/npc-mind-mode';
+import { mountMindMode } from '@/ui/npc-mind-mode';
 import { mindProbeCost } from '@/sim/mind-probe';
 import type { MindPage } from '@/llm/npc-attention-store';
 

@@ -19,7 +19,7 @@ import { defenseRingContracts } from '@/world/connectome/defense-contracts';
 import { describeWorldQualityForFate } from '@/game/fate/fate-context';
 import { TrampleGrid, TRAMPLE, isTrampleEligible } from '@/sim/trample';
 import { heightMetresAt } from '@/world/heightfield';
-import type { GameMap, WorldSeed } from '@/core/types';
+import type { WorldSeed } from '@/core/types';
 
 function makeWs(size: number): WorldSeed {
   return {

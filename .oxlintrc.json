@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  // Lint gate for the repo: `npm run lint` (~0.3s over 139k LOC).
+  //
+  // House rule — every rule left ON is one worth blocking a commit for. This is
+  // a bug gate, not a style gate: taste-only rules are turned off below WITH a
+  // reason, so the run stays at zero and a new warning always means something.
+
+  "ignorePatterns": [
+    "dist",
+    "release",
+    "node_modules",
+    // Design handoff artefacts + the vendored LPC character builder: not our code, not our style.
+    "docs",
+    "src/render/lpc/**/*.js",
+    "src/render/lpc/**/*.mjs"
+  ],
+
+  "plugins": ["import", "typescript", "unicorn", "oxc"],
+
+  "categories": {
+    "correctness": "error"
+  },
+
+  "rules": {
+    // Dead imports/locals are how a half-finished refactor leaves a trace.
+    // `_`-prefixed names opt out (intentionally-ignored params/catch bindings).
+    "eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }
+    ],
+    "import/no-self-import": "error",
+
+    // OFF — 24 real value-import cycles exist today (sim/lord <-> rival-claims <->
+    // divine-actions, world/claims <-> connectome-diagnostics, render/gpu/feature-geometry
+    // <-> world/road-deformation, assetgen/geometry/solids <-> arch). They work because
+    // every cyclic binding is read inside a function, never at module scope — but they are
+    // fragile. Breaking them is its own refactor; flip this to "error" when it lands.
+    "import/no-cycle": "off",
+
+    // OFF — fights the deliberate `import type {…}` / `import {…}` split from one module.
+    "import/no-duplicates": "off",
+
+    // OFF — every hit is explicit arithmetic kept for readability: `0 * TICKS_PER_DAY`
+    // (day 0), `(0*8+0)*4` (pixel index), `dy = 0` spelled out in a rotation formula.
+    "oxc/erasing-op": "off",
+
+    // OFF — `new Array(n)` for a known-length buffer is intentional in terrain/codec.
+    "unicorn/no-new-array": "off",
+
+    // OFF — `...(x ?? {})` is defensive and reads fine; not worth a commit block.
+    "unicorn/no-useless-fallback-in-spread": "off",
+
+    // OFF, and this one is not taste — the rule is actively WRONG here. Every remaining
+    // hit is a deliberate snapshot taken because the loop MUTATES what it iterates:
+    // materialization-system pruneDead (`this.live.delete` inside the loop),
+    // entity-registry removeByPoi (`this.remove` re-enters byPoi),
+    // desire-line-adoption (`graph.edges.splice` inside the loop).
+    // Taking oxlint's advice there would turn working code into iterator-invalidation bugs.
+    "unicorn/no-useless-spread": "off"
+  }
+}

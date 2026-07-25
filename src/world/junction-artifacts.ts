@@ -27,8 +27,7 @@
 import type { GameMap, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import { ClaimsLedger, buildClaimsFromWorld, type SpatialConflict } from '@/world/claims';
-import { WATER_TYPES } from '@/core/constants';
-import { barrierFootprintTiles, gateFootprintTiles } from '@/world/barrier';
+import { gateFootprintTiles } from '@/world/barrier';
 
 // ── The artifact taxonomy ─────────────────────────────────────────────────────────────
 
@@ -137,7 +136,6 @@ const sortCells = (cells: [number, number][]): [number, number][] =>
 
 // ── Built-junction derivation (C-2) ─────────────────────────────────────────────────────
 
-const isWaterType = (t: string | undefined): boolean => !!t && WATER_TYPES.has(t);
 const isCrossingEntity = (e: Entity): boolean => typeof e.kind === 'string' && e.kind.startsWith('bridge_');
 
 /** Contiguous 4-connected runs of `bridge`-typed tiles — each is one crossing. */

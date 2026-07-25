@@ -1,5 +1,4 @@
-import type { Entity, NpcRole } from '@/core/types';
-import type { World } from '@/world/world';
+import type { NpcRole } from '@/core/types';
 
 export interface SpawnOptions {
   kind: string;

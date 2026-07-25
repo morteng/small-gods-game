@@ -5,7 +5,7 @@
 
 import type { ProviderConfig } from '@/llm/provider-factory';
 import { clearApiKey, fetchBalance, saveApiKey, loadApiKey } from '@/services/pixellab';
-import { createLLMSettings, type LLMSettingsHandle } from './llm-settings-new';
+import { createLLMSettings } from './llm-settings-new';
 
 export interface SettingsOptions {
   onClose?: () => void;
@@ -308,7 +308,7 @@ function createGameSettings(opts: SettingsOptions): HTMLElement {
   return section;
 }
 
-function createPixelLabSettings(opts: SettingsOptions): HTMLElement {
+function createPixelLabSettings(_opts: SettingsOptions): HTMLElement {
   const section = document.createElement('div');
   section.className = 'sg-settings-section';
 

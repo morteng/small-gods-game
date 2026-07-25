@@ -414,7 +414,7 @@ function spawnAnnexBridgeStructure(
     bankCells: [[banks[0].x, banks[0].y], [banks[1].x, banks[1].y]],
     axis: [ux, uy],
   };
-  const { width, height } = map;
+  const { width } = map;
   const style = worldStyleOf(map.worldSeed ?? undefined);
   // The COMPOSED heightfield (base ⊕ river incision ⊕ road cuts) — the ground the renderer lifts
   // terrain by. The raw seed field carries no channel, so a deck sized against it reads a bank→bed

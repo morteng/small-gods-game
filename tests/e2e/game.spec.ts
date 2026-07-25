@@ -6,10 +6,10 @@
  */
 import { test, expect } from '@playwright/test';
 import {
-  openGame, waitForWorld,
+  openGame,
   getRate, getZoom, getCameraPos, getNpcCount,
   getSimTick, getPlayerPower, isPaused, getEventCount,
-  checkCanvas, tickSim, waitForNpcs,
+  checkCanvas,
   waitForVisible, pressKey,
 } from './utils/harness';
 

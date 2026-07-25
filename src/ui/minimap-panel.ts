@@ -5,7 +5,6 @@
 
 import type { GameMap, NpcInstance } from '@/core/types';
 import { TILE_SIZE } from '@/core/constants';
-import type { RenderContext } from '@/core/types';
 
 export interface MinimapOptions {
   onToggle?: (visible: boolean) => void;
@@ -189,9 +188,6 @@ export function createMinimapPanel(
     ctx.fillRect(0, 0, mapW, mapH);
 
     // Draw tiles (simplified - just color based on type)
-    const scaleX = mapW / displayW;
-    const scaleY = mapH / displayH;
-
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const tile = map.tiles[y]?.[x];

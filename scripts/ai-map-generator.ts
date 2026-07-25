@@ -9,13 +9,6 @@
  * - Stability AI (if you have community license)
  */
 
-// Provider configuration
-interface ProviderConfig {
-  name: string;
-  apiKey: string;
-  endpoint: string;
-}
-
 // Generation request
 interface MapGenerationRequest {
   segmentMapBase64: string;  // PNG of segment color map

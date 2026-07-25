@@ -314,7 +314,7 @@ describe('sampleTiles spatial coherence', () => {
 describe('recomputeRegion', () => {
   it('recomputed sub-region tiles match full-map generation', () => {
     const config = { seed: 99, width: 32, height: 32 };
-    const { fields, biomeMap, tiles } = generateTerrain(config);
+    const { fields, tiles } = generateTerrain(config);
 
     // Re-generate a 4x4 sub-region in a fresh copy
     const { biomeMap: freshBiomeMap, tiles: freshTiles, fields: freshFields } = generateTerrain(config);

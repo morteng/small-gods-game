@@ -34,7 +34,7 @@ import {
   heightAt,
   type Deformation,
 } from '@/world/terrain-deformation';
-import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresAt, heightMetresBilinearAt } from '@/world/heightfield';
+import { getHeightfield, ELEVATION_SEA_LEVEL, heightMetresBilinearAt } from '@/world/heightfield';
 import { styledIslandSpec } from '@/terrain/island-mask';
 import { styledShapeSpec, shapeSignature } from '@/terrain/terrain-shape';
 import { worldStyleOf } from '@/core/world-style';

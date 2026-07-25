@@ -38,17 +38,6 @@ function imageToBase64(filePath) {
 }
 
 /**
- * Save base64 image data to file
- */
-function saveBase64Image(base64Data, outputPath) {
-  // Remove data URL prefix if present
-  const base64 = base64Data.replace(/^data:image\/\w+;base64,/, '');
-  const buffer = Buffer.from(base64, 'base64');
-  fs.writeFileSync(outputPath, buffer);
-  console.log(`Saved painted map to: ${outputPath}`);
-}
-
-/**
  * Download image from URL and save to file
  */
 async function downloadImage(url, outputPath) {

@@ -11,7 +11,7 @@
  * Uses real WFC module imports (no duplicated test implementations).
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { Cell } from '../../src/wfc/cell';
 import { TileSet } from '../../src/wfc/tile';
 import { Grid } from '../../src/wfc/grid';

@@ -56,7 +56,7 @@ describe('BeliefPropagationSystem', () => {
     const map = makeMap();
     const world = new World(map);
     const a = makeNpc(world, 'a', 'farmer', 'village_1', 'house_1', { personality: { assertiveness: 0.5, skepticism: 0.5, piety: 0.3, sociability: 0 } });
-    const b = makeNpc(world, 'b', 'priest', 'village_1', 'house_1', { personality: { assertiveness: 0.5, skepticism: 0.1, piety: 0.3, sociability: 1 }, beliefs: { player: { faith: 0.8, understanding: 0.5, devotion: 0.3 } } });
+    makeNpc(world, 'b', 'priest', 'village_1', 'house_1', { personality: { assertiveness: 0.5, skepticism: 0.1, piety: 0.3, sociability: 1 }, beliefs: { player: { faith: 0.8, understanding: 0.5, devotion: 0.3 } } });
     const all = [...world.query({ kind: 'npc' })];
     seedSocialGraph(all, 42);
 

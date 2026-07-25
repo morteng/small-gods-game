@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import type { RivalSpirit, RivalStrategy, RivalAction } from '@/sim/rival-spirit';
+import type { RivalSpirit, RivalAction } from '@/sim/rival-spirit';
 import {
   createRivalSpirit,
   generateRivalSpirits,
@@ -268,8 +268,8 @@ describe('Apply Rival Actions', () => {
     expect(() => {
       applyRivalAction(
         action,
-        (id: string) => undefined,
-        (id: string, updates: any) => {}
+        (_id: string) => undefined,
+        (_id: string, _updates: any) => {}
       );
     }).not.toThrow();
   });

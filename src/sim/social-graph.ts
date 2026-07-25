@@ -5,7 +5,7 @@
  * the social graph with trust derived from personality compatibility.
  */
 
-import type { Entity, NpcProperties, Relationship } from '@/core/types';
+import type { Entity, Relationship } from '@/core/types';
 import { npcProps } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
 

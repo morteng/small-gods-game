@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TimeController, SEEK_CHUNK_SIM_MS } from '@/game/time-controller';
 import { Scheduler, type System, type SystemContext } from '@/core/scheduler';
-import { SimClock } from '@/core/clock';
-import { EventLog, type SimEvent } from '@/core/events';
+import { type SimEvent } from '@/core/events';
 import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
 import { createState, type GameState } from '@/core/state';

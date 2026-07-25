@@ -50,9 +50,18 @@ Rendering internals are documented in [`src/render/CLAUDE.md`](src/render/CLAUDE
 npm run bus -- ping # drive a running game from the CLI (needs the tab on ?bridge)
 npm run mcp         # stdio MCP server over the running game (.mcp.json → `small-gods`)
 npm run lint:world  # evaluate connectome contracts on the default world
+npm run lint        # oxlint over src/tests/tools/scripts (~2s) — MUST stay at zero
 ```
 
 (`npm run dev` on port 3000, `npm run build`, `npm test` are the standard invocations — see `package.json`.)
+
+**Lint is a bug gate, not a style gate** (`.oxlintrc.json`). Every rule left on is one
+worth blocking a commit for; taste-only rules are off *with a written reason*, so a
+non-empty run always means something. Two rules are off because they are actively wrong
+here — `unicorn/no-useless-spread` (the flagged `[...x]` are deliberate snapshots of
+collections the loop then mutates) and `import/no-cycle` (24 real cycles exist; they work
+only because every cyclic binding is read inside a function, and unwinding them is its
+own refactor). Don't "fix" code to satisfy a rule — turn the rule off and say why.
 
 **Dev bus bridge (out-of-process control).** With the game on `?bridge` (read-only) or `?bridge=rw` (writes), the in-browser `GameBus` seam is published over a WebSocket broker (Vite plugin on `/__bus`) so a CLI (`tools/bus-cli.ts`) or a stdio **MCP server** (`tools/mcp-server.ts`) can drive + inspect a live game. The tab is the *game peer* and does all dispatch (inherits the bus's gating/replay). **DEV ONLY — Fate and the WebGPU UI call `GameBus` in-process and must never round-trip through the bridge.**
 

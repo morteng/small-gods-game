@@ -14,7 +14,7 @@ import { createRng, type Rng } from '@/core/rng';
 import { CohortSystem } from '@/sim/systems/cohort-system';
 import { BirthSystem } from '@/sim/systems/birth-system';
 import { MortalitySystem } from '@/sim/systems/mortality-system';
-import { queryNpcs, npcProps } from '@/world/npc-helpers';
+import { queryNpcs } from '@/world/npc-helpers';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { Entity } from '@/core/types';

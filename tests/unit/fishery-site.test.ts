@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { WaterType } from '@/core/types';
 import type { Tile } from '@/core/types';
 import type { WaterBody } from '@/terrain/river-network';
-import { getFisherySites, fisherySitesNear, computeFisherySitesFromLakes } from '@/world/fishery-site-store';
+import { fisherySitesNear, computeFisherySitesFromLakes } from '@/world/fishery-site-store';
 import {
   planSettlement, subdivideLots, widenMarket, planCivics, CIVIC_RULES,
   type FisheryPlacement, type SettlementPlan,
@@ -159,7 +159,7 @@ describe('CIVIC_RULES.fishery + planCivics', () => {
     // generously east of it — the exact seated origin doesn't matter, only that SOME origin
     // among the tried slides finds dry ground with its east flank wet.
     const hint = { x: 35, y: 24, face: 'east' as const };
-    const isWater = (x: number, y: number): boolean => x >= 36;
+    const isWater = (x: number, _y: number): boolean => x >= 36;
     const fishery: FisheryPlacement = { hints: [hint], isWater };
     const civics = planCivics(plan, tiles, 7, 0, undefined, fishery);
     const found = civics.find((c) => c.type === 'fishery');

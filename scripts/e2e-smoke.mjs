@@ -39,7 +39,7 @@ await page.waitForFunction(() => window.__game?.state?.world && window.__game.st
 
 const inv = await page.evaluate(() => {
   const w = window.__game.state.world, b = w.query({ tag: 'building' }), byKind = {};
-  for (const e of b) (byKind[e.kind] ||= 0), byKind[e.kind]++;
+  for (const e of b) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
   return { world: window.__game.state.worldSeed?.name, buildings: b.length, byKind, veg: w.query({ tag: 'vegetation' }).length };
 });
 console.log('INVENTORY:', JSON.stringify(inv, null, 2));

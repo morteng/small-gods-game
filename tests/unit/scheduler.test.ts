@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { Scheduler, type System, type SystemContext } from '@/core/scheduler';
+import { Scheduler, type SystemContext } from '@/core/scheduler';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { World } from '@/world/world';

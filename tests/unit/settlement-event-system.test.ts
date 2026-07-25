@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SettlementEventSystem } from '@/sim/systems/settlement-event-system';
-import { initNpcProps, npcProps, forEachNpc } from '@/world/npc-helpers';
+import { initNpcProps, npcProps } from '@/world/npc-helpers';
 import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
 import { SilentEventLog } from '@/core/events';

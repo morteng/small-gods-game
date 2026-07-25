@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   registerPartType, getPartType, listPartTypes,
-  registerFeatureType, getFeatureType, _resetRegistryForTest, type PartType,
+  getFeatureType, _resetRegistryForTest, type PartType,
 } from '@/blueprint/registry';
 
 const stub: PartType = {

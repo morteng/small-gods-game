@@ -16,7 +16,7 @@
 // (`scheduleCompose` + `composeToPayload`) so ordering/yield behaviour — and the ~3900
 // existing tests — stay byte-identical. The inline scheduler (`compose-scheduler.ts`) is
 // kept intact and re-exported for any remaining direct callers.
-import { composeStructure, type StructureSpec } from '@/assetgen/compose';
+import type { StructureSpec } from '@/assetgen/compose';
 import type { CachedSpritePayload } from '@/render/parametric-sprite-cache';
 import { composeToPayload, type ComposePayloadOpts } from '@/render/compose-payload';
 import {

@@ -15,7 +15,7 @@ import { EventLog, type SimEvent, type AppendedEvent } from '@/core/events';
 import { createRng } from '@/core/rng';
 import { createState } from '@/core/state';
 import { captureSnapshot, restoreSnapshot } from '@/core/snapshot';
-import { initNpcProps, queryNpcs, npcProps } from '@/world/npc-helpers';
+import { initNpcProps, queryNpcs } from '@/world/npc-helpers';
 import {
   apportion, seedStatisticalCohorts, cohortPopulation, cohortBelievers,
   cohortContributionTotals, totalCohortBelievers, dominantCohortBelief,

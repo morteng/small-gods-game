@@ -3,7 +3,7 @@ import { World } from '@/world/world';
 import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { createRng } from '@/core/rng';
-import { initNpcProps, npcProps, getParents, getChildren, lineageMembers } from '@/world/npc-helpers';
+import { initNpcProps, getParents, getChildren, lineageMembers } from '@/world/npc-helpers';
 import { birthNpc, killNpc } from '@/world/npc-lifecycle';
 import type { GameMap, Entity } from '@/core/types';
 

@@ -12,7 +12,7 @@
 //     lines visibly present at steady state (target band ~40–120 promoted cells), trunk routes
 //     widened to 2–3 tiles by spill, side paths still single-file, hysteresis intact.
 import { describe, it, expect } from 'vitest';
-import { TrampleGrid, TRAMPLE } from '@/sim/trample';
+import { TrampleGrid } from '@/sim/trample';
 import { TrampleDepositSystem } from '@/sim/systems/trample-system';
 import { findPath } from '@/sim/pathfinding';
 import { World } from '@/world/world';

@@ -314,7 +314,7 @@ export class MaterializationSystem implements System, SerializableSystem {
     }
 
     // Reconcile each source (union of desired + currently-live), deterministic order.
-    const srcs = new Set<string>([...targets.keys()]);
+    const srcs = new Set<string>(targets.keys());
     for (const v of this.visitors.values()) srcs.add(v.srcPoi);
     for (const src of [...srcs].sort()) {
       if (budget <= 0) break;

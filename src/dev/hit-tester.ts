@@ -1,4 +1,4 @@
-import type { RenderContext, HitResult, Tile, Entity, NpcInstance, GeneratedDecoration } from '@/core/types';
+import type { RenderContext, HitResult } from '@/core/types';
 import { getEntitySortY } from '@/render/entity-sort';
 import { pickTile } from '@/ui/pick-tile';
 import { isoEnvForMap } from '@/render/iso/iso-env';

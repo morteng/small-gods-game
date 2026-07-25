@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildNpcPrompt, createInteractionSummary, type NpcPromptContext, type BuiltPrompt } from '@/llm/npc-prompt-builder';
+import { buildNpcPrompt, createInteractionSummary, type NpcPromptContext } from '@/llm/npc-prompt-builder';
 import type { Entity, NpcRole, SettlementEventType } from '@/core/types';
 import { initNpcProps } from '@/world/npc-helpers';
 

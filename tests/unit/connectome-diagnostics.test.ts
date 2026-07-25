@@ -343,7 +343,7 @@ describe('connectome diagnostics', () => {
 // every emitted stair_anchor port must be consumed by exactly one flight (orphan = error).
 describe('stair.connected diagnostic', () => {
   // A 10×10 world with a single north-south road down column x=3.
-  const roadTiles = () => Array.from({ length: 10 }, (_, y) =>
+  const roadTiles = () => Array.from({ length: 10 }, () =>
     Array.from({ length: 10 }, (_, x) => ({ type: x === 3 ? 'dirt_road' : 'grass' })));
 
   /** A stair_flight entity carrying the lint's read fields. */

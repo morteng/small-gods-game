@@ -5,7 +5,7 @@ import {
   registerPartType, registerFeatureType, _resetRegistryForTest,
   type PartType, type FeatureType,
 } from '@/blueprint/registry';
-import { BLUEPRINT_VERSION, type Blueprint, type BlueprintPatch } from '@/blueprint/types';
+import { BLUEPRINT_VERSION, type Blueprint } from '@/blueprint/types';
 
 const body: PartType = {
   type: 'body',

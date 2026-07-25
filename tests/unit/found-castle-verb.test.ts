@@ -10,8 +10,6 @@ import { describe, it, expect } from 'vitest';
 import { generateWithNoise } from '@/map/map-generator';
 import { createState } from '@/core/state';
 import { createRng } from '@/core/rng';
-import { SimClock } from '@/core/clock';
-import { EventLog } from '@/core/events';
 import { World } from '@/world/world';
 import { captureSnapshot, restoreSnapshot } from '@/core/snapshot';
 import { executeCommand, previewCommand } from '@/sim/command/command-system';

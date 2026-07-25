@@ -113,11 +113,9 @@ export function mountMapEditorPanel(
 
   body.appendChild(infoSection);
 
-  let currentMap: GameMap | null = null;
   let selectedTile: { x: number; y: number } | null = null;
 
   function update(map: GameMap | null, tile: { x: number; y: number } | null): void {
-    currentMap = map;
     selectedTile = tile;
 
     if (!fp.isVisible()) return;

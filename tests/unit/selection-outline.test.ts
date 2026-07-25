@@ -5,7 +5,6 @@ import {
   type OutlineWorld,
 } from '@/render/selection-outline';
 import { createCamera } from '@/render/camera';
-import type { Selection } from '@/dev/inspector/selection';
 
 // Minimal duck-typed world: the resolver only calls registry.get / getByPoi.
 function fakeWorld(opts: {

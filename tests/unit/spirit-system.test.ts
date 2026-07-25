@@ -5,7 +5,7 @@ import { SimClock } from '@/core/clock';
 import { EventLog } from '@/core/events';
 import { initNpcProps } from '@/world/npc-helpers';
 import { createRng } from '@/core/rng';
-import type { Entity, GameMap, NpcProperties } from '@/core/types';
+import type { Entity, GameMap } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 
 function makeSpirit(id: string, isPlayer = false, power = 1): Spirit {
