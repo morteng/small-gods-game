@@ -31,6 +31,7 @@ import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
 import { simStateFromEntity, getNpc, forEachNpc, npcProps } from '@/world/npc-helpers';
+import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
 import { sendWhisper } from '@/game/whisper-orchestrator';
 import { openMindPage, pathKey } from '@/game/mind-orchestrator';
 import { buildMindCard } from '@/game/affordance/mind-card';
@@ -292,6 +293,14 @@ function staleReasonText(meta: Pick<SaveMeta, 'version' | 'contentVersion'>): st
     return `Saved under an older world (content ${meta.contentVersion}; this build is ${WORLD_CONTENT_VERSION})`;
   }
   return null;
+}
+
+/** L1: NPC mood word for the hover tooltip (ported from the deleted
+ *  `src/ui/npc-tooltip.ts` — same three-band thresholds). */
+function npcMoodLabel(mood: number): string {
+  if (mood >= 0.75) return 'content';
+  if (mood >= 0.40) return 'uneasy';
+  return 'miserable';
 }
 
 export class Game {
@@ -1058,6 +1067,7 @@ export class Game {
       getTargeting: () => this.interaction.targeting ? { label: this.interaction.targeting.label } : null,
       getHoverAffordances: () => this.hoverAffordances(),
       onHoverChip: (verb) => this.castHoverChip(verb),
+      getHoverTooltip: () => this.hoverTooltip(),
       // ── P3.8: the target-first inspector (reads the live selection) ──
       getInspector: () => this.inspectorView(),
       onInspectorCast: (verb) => this.castInspector(verb),
@@ -1511,6 +1521,35 @@ export class Game {
     const ctx = { world, spirits: this.state.spirits, log: this.state.eventLog };
     const chips = hoverChips(target, PLAYER_SPIRIT_ID, ctx, this.query.beliefPowers());
     return chips.length ? { chips } : null;
+  }
+
+  /**
+   * L1 (legacy chrome retirement): the plain hover tooltip's text — an NPC's
+   * "Name · role · mood", else a hovered building's "Title · WxH · door Face".
+   * Null over empty ground, while aiming a cast, or over the current selection
+   * (its own inspector already shows it — no need to double it under the cursor).
+   * Ported 1:1 from the deleted `FrameRenderer.updateTooltip`'s normal-mode branch.
+   */
+  private hoverTooltip(): string | null {
+    if (this.interaction.targeting) return null;
+    const world = this.state.world;
+    const tile = this.interaction.hoverTile;
+    if (!world || !tile) return null;
+    const npc = world.query({ kind: 'npc' })
+      .find((e) => Math.floor(e.x) === tile.x && Math.floor(e.y) === tile.y);
+    if (npc && npc.id !== this.state.selectedNpcId) {
+      const p = npcProps(npc);
+      return `${p.name} · ${p.role} · ${npcMoodLabel(p.mood)}`;
+    }
+    const building = findBuildingAtTile(world, tile.x, tile.y);
+    if (building && building.id !== this.state.selectedBuildingId) {
+      const info = buildingInfoOf(building);
+      if (info) {
+        const door = info.facts.find((f) => f.label === 'Door')?.value ?? '';
+        return `${info.title} · ${info.footprint.w}×${info.footprint.h}${door ? ` · door ${door}` : ''}`;
+      }
+    }
+    return null;
   }
 
   /** The meaningful hover target under a tile: an NPC → else a building's settlement. */

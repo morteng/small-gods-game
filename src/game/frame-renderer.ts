@@ -13,8 +13,7 @@ import { buildRenderContext } from './render-context';
 import { getNpc, simStateFromEntity } from '@/world/npc-helpers';
 import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
 import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
-import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
-import { formatNpcTooltip } from '@/ui/npc-tooltip';
+import { buildingInfoOf } from '@/world/building-helpers';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
 import { fillTiles } from '@/render/selection-outline';
@@ -212,7 +211,7 @@ export class FrameRenderer {
       drawPowerHud(this.deps.ctx, player.power, regenPerSec);
     }
 
-    this.updateTooltip(npcEntities);
+    this.updateTooltip();
 
     if (this.deps.state.debug) {
       this.deps.ui.debugHud.textContent = formatDebugHud({
@@ -257,10 +256,15 @@ export class FrameRenderer {
     this.deps.ui.buildingInfoPanel.show();
   }
 
-  private updateTooltip(npcEntities: readonly Entity[]): void {
-    // The DOM hover tooltip is legacy chrome — suppressed in the barebones game
-    // (dev mode keeps it for inspection).
-    if (!this.deps.legacyChrome && !this.deps.dev.isEnabled()) {
+  /**
+   * The DOM hover tooltip now serves ONLY the dev hit-test overlay (`?dev` —
+   * `debugHud`'s own kind of DOM-stays-in-dev-mode surface); the ordinary
+   * NPC/building identity tooltip is the GPU tooltip (L1 —
+   * `Game.hoverTooltip()` / `UiRuntime.drawTooltip`), which tracks the cursor
+   * every frame on its own and needs nothing from here.
+   */
+  private updateTooltip(): void {
+    if (!this.deps.dev.isEnabled()) {
       this.deps.ui.tooltip.style.display = 'none';
       return;
     }
@@ -268,48 +272,14 @@ export class FrameRenderer {
       this.deps.ui.tooltip.style.display = 'none';
       return;
     }
-
-    // In dev mode: show tooltips for ALL objects (tiles, entities, NPCs, decorations)
-    if (this.deps.dev.isEnabled()) {
-      const hit = this.deps.dev.hitTest(this.deps.interaction.hoverScreen.x, this.deps.interaction.hoverScreen.y);
-      if (hit.type === null) {
-        this.deps.ui.tooltip.style.display = 'none';
-        return;
-      }
-      this.deps.ui.tooltip.textContent = formatDevTooltip(hit);
-      this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen.x}px`;
-      this.deps.ui.tooltip.style.top  = `${this.deps.interaction.hoverScreen.y}px`;
-      this.deps.ui.tooltip.style.display = 'block';
+    const hit = this.deps.dev.hitTest(this.deps.interaction.hoverScreen.x, this.deps.interaction.hoverScreen.y);
+    if (hit.type === null) {
+      this.deps.ui.tooltip.style.display = 'none';
       return;
     }
-
-    // Normal mode: NPC tooltips take priority, then buildings.
-    const { x, y } = this.deps.interaction.hoverTile;
-    const hovered = npcEntities.find(e => Math.floor(e.x) === x && Math.floor(e.y) === y);
-    if (hovered && hovered.id !== this.deps.state.selectedNpcId) {
-      const p = hovered.properties as unknown as NpcProperties;
-      this.showTooltip(formatNpcTooltip({ name: p.name, role: p.role, mood: p.mood }));
-      return;
-    }
-
-    // No NPC — a building under the cursor (skip the one whose panel is open).
-    const building = findBuildingAtTile(this.deps.state.world, x, y);
-    if (building && building.id !== this.deps.state.selectedBuildingId) {
-      const info = buildingInfoOf(building);
-      if (info) {
-        const door = info.facts.find((f) => f.label === 'Door')?.value ?? '';
-        this.showTooltip(`${info.title} · ${info.footprint.w}×${info.footprint.h}${door ? ` · door ${door}` : ''}`);
-        return;
-      }
-    }
-
-    this.deps.ui.tooltip.style.display = 'none';
-  }
-
-  private showTooltip(text: string): void {
-    this.deps.ui.tooltip.textContent = text;
-    this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen!.x}px`;
-    this.deps.ui.tooltip.style.top = `${this.deps.interaction.hoverScreen!.y}px`;
+    this.deps.ui.tooltip.textContent = formatDevTooltip(hit);
+    this.deps.ui.tooltip.style.left = `${this.deps.interaction.hoverScreen.x}px`;
+    this.deps.ui.tooltip.style.top  = `${this.deps.interaction.hoverScreen.y}px`;
     this.deps.ui.tooltip.style.display = 'block';
   }
 }

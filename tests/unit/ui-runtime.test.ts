@@ -287,6 +287,58 @@ describe('UiRuntime — hover popover', () => {
   });
 });
 
+// ── hover tooltip (L1): the GPU heir to the deleted DOM `npc-tooltip.ts` ─────
+describe('UiRuntime — hover tooltip (L1)', () => {
+  it('draws a panel + label anchored near the cursor when the game reports one', () => {
+    const rtBase = new UiRuntime();
+    rtBase.configure({ getHoverTooltip: () => null });
+    rtBase.pointerMove(400, 400);
+    const baseline = rtBase.frame(W, H, DPR);
+
+    const rt = new UiRuntime();
+    rt.configure({ getHoverTooltip: () => 'Cwen · farmer · content' });
+    rt.pointerMove(400, 400);
+    const withTip = rt.frame(W, H, DPR);
+
+    // more geometry overall: the panel rect PLUS the pixel-font's per-glyph
+    // quads (the built-in font emits each lit pixel as its own Solid quad —
+    // there is no separate Bitmap/glyph-atlas page for HUD text).
+    expect(totalVerts(withTip)).toBeGreaterThan(totalVerts(baseline));
+
+    // a filled panel quad (Solid) lands lower-right of the cursor
+    const solidNearCursor = withTip.some((g) => g.space === UiSpace.Screen && g.page === UiPage.Solid
+      && Array.from({ length: g.vertexCount }, (_, i) => g.vertices[i * 8])
+        .some((x) => x >= 400 && x < 400 + 260));
+    expect(solidNearCursor).toBe(true);
+  });
+
+  it('draws nothing extra when the game reports no tooltip (empty ground / selection)', () => {
+    const rt = new UiRuntime();
+    rt.configure({ getHoverTooltip: () => null });
+    rt.pointerMove(400, 400);
+    const groups = rt.frame(W, H, DPR);
+    expect(totalVerts(groups)).toBeGreaterThan(0); // the barebones HUD still draws
+  });
+
+  it('is suppressed while the dwell hover-chip popover owns the same cursor spot', () => {
+    const rt = new UiRuntime(manualTimers().timers);
+    let tooltipCalls = 0;
+    rt.configure({
+      getHoverAffordances: () => ({ chips: CHIPS }),
+      getHoverTooltip: () => { tooltipCalls++; return 'should not show'; },
+    });
+    rt.pointerMove(400, 400);
+    rt.frame(W, H, DPR); // before dwell: no frozen chip popover yet
+    expect(tooltipCalls).toBeGreaterThan(0);
+
+    tooltipCalls = 0;
+    rt.handleDwell(); // dwell elapses -> chips freeze and take the cursor's real estate
+    rt.frame(W, H, DPR);
+    expect(tooltipCalls).toBe(0);
+    expect(rt.hitRegions().some((h) => h.id.startsWith('hover.chip.'))).toBe(true);
+  });
+});
+
 // ── inspector (P3.8): target-first panel with state, domains + affordance casts ──
 const INSPECTOR = {
   kind: 'npc' as const,

@@ -93,6 +93,12 @@ export interface UiRuntimeHooks {
   getHoverAffordances?: () => { chips: HoverChipView[] } | null;
   /** Fire a hover-popover chip (the game acts on its frozen hover target). */
   onHoverChip?: (verb: string) => void;
+  /** L1 (legacy chrome retirement): a plain, no-dwell identity line for whatever's
+   *  under the cursor — an NPC's "Name · role · mood" or a building's
+   *  "Title · WxH · door Face" — or null over empty ground / the current
+   *  selection. The GPU heir to the old DOM `npc-tooltip.ts`; queried every frame
+   *  (no freeze) so it tracks the cursor exactly like the DOM tooltip did. */
+  getHoverTooltip?: () => string | null;
 
   // ── P3.8: the target-first inspector (zoom-in focus surface) ──
   /** The inspector payload for the current selection, or null (no selection). */
@@ -975,7 +981,32 @@ export class UiRuntime {
     }
 
     // ── hover popover: top ranked affordance chips at the cursor (dwell → freeze) ──
-    if (this.hover && !aim) this.drawHover(c, w, h, s);
+    if (!aim) {
+      if (this.hover) this.drawHover(c, w, h, s);
+      else {
+        // L1: the plain identity tooltip only shows when the richer dwell chip
+        // popover isn't up (same cursor real-estate, the chips win).
+        const tip = this.hooks.getHoverTooltip?.() ?? null;
+        if (tip) this.drawTooltip(c, w, h, s, tip);
+      }
+    }
+  }
+
+  /** L1: a small single-line panel anchored lower-right of the cursor (clamped
+   *  on-screen), the GPU heir to the old DOM `npc-tooltip.ts`. No dwell — tracks
+   *  the cursor every frame, exactly like the DOM tooltip did. */
+  private drawTooltip(c: UiContext, w: number, h: number, s: number, text: string): void {
+    const fs = FS.caption * s;
+    const padX = 8 * s;
+    const padY = 5 * s;
+    const tw = Math.ceil(c.measure(text, fs)) + padX * 2;
+    const th = c.lineHeight(fs) + padY * 2;
+    let x = this.ptr.x + 18 * s;
+    let y = this.ptr.y + 18 * s;
+    if (x + tw > w) x = Math.max(0, this.ptr.x - tw - 18 * s);
+    if (y + th > h) y = Math.max(0, h - th);
+    c.panel(x, y, tw, th);
+    c.label(text, x + padX, y + padY, fs, UI_PALETTE.text);
   }
 
   /** The frozen hover popover: a small stack of chip buttons anchored at the cursor.
