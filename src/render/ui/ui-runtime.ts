@@ -26,6 +26,8 @@ import type { StorySession, Stage } from '@/story/story-session';
 import type { UiSpec, UiSpecBlock, UiSpecChoice, CloudTone } from '@/story/uispec';
 import type { Shell } from '@/render/ui/shell/shell';
 import type { TitleAction } from '@/render/ui/shell/title-screen';
+import type { SaveAction } from '@/render/ui/shell/save-screen';
+import type { LoadAction } from '@/render/ui/shell/load-screen';
 import { validateUiSpec } from '@/story/uispec';
 import { layoutMindCloud } from '@/render/ui/mind-cloud-layout';
 import type { Rgba } from '@/render/ui/ui-color';
@@ -161,6 +163,11 @@ export interface UiRuntimeHooks {
   /** A title-screen choice was made. The host translates it into a meta command
    *  (`new_game`, `load_slot`, …) — the runtime never emits commands itself. */
   onTitleAction?: (action: TitleAction) => void;
+  /** A save-screen choice was made (save/delete/back), same translation
+   *  contract as `onTitleAction`. */
+  onSaveAction?: (action: SaveAction) => void;
+  /** A load-screen choice was made (load/delete/back). */
+  onLoadAction?: (action: LoadAction) => void;
   /** Esc pressed while a shell screen is up. The host decides what "back" means
    *  for that screen (pop, or ignore on the title). */
   onShellEscape?: () => void;
@@ -705,6 +712,8 @@ export class UiRuntime {
       // The runtime reports; the host dispatches. Keeping command emission out of
       // here is what lets a screen be unit-tested with no bus and no world.
       if (res.title) this.hooks.onTitleAction?.(res.title);
+      if (res.save) this.hooks.onSaveAction?.(res.save);
+      if (res.load) this.hooks.onLoadAction?.(res.load);
       r = res.island;
     } else if (this.menuOpen) {
       const clickAt = input.released ? { x: input.px, y: input.py } : null;

@@ -14,6 +14,7 @@ import type { ParametricBarrierSource } from '@/render/parametric-barrier-source
 import type { ParametricPlantSource } from '@/render/parametric-plant-source';
 import type { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
 import type { Viewport } from './viewport';
+import { readSave, readJournal, type SaveSlot } from '@/services/save-store';
 import { waitForArtSettled } from '@/game/art-settle-gate';
 import { composeQueuePending } from '@/render/compose-scheduler';
 import { pendingSheets } from '@/render/lpc/spritesheet-cache';
@@ -56,6 +57,12 @@ export interface BootSequenceDeps {
    *  from the title screen or a connected agent expresses itself. */
   forceFresh?: boolean;
   genSeedOverride?: number;
+  /** UI v3 P3b: which slot to resume FROM when not `forceFresh`. Default
+   *  'autosave' — every pre-P3b caller keeps reading the same slot it always
+   *  did. Threaded down to `bootstrapWorld`'s injectable `readSave`/
+   *  `readJournal` so `load_slot { slot }` resumes the slot it was asked for
+   *  instead of always taking the autosave path. */
+  slot?: SaveSlot;
   /** The loaded art library + resolvers land back on the Game (renderDeps reads them). */
   setArt: (art: { assetLibrary: AssetLibrary; artResolver: ArtResolver; buildingArtResolver: ArtResolver }) => void;
   /** Game-side world-ready wiring (HUD, dev inspector, autosave) — runs inside
@@ -101,10 +108,17 @@ export async function runBootSequence(deps: BootSequenceDeps, worldSeed?: WorldS
   // Worldgen phase announcements land on the bar's 0.6..0.97 band (asymptotic —
   // phase count varies per world); stat lines stay console-only.
   const worldgenProgress = createBootProgressMapper(0.6, 0.97);
+  // P3b: bind the reader deps to the requested slot (default 'autosave' —
+  // byte-identical to the pre-P3b behaviour when the caller doesn't ask for a
+  // specific one) so `bootstrapWorld`'s resume branch reads THAT slot's blob
+  // and journal instead of always the autosave's.
+  const slot = deps.slot ?? 'autosave';
   return bootstrapWorld({
     state, assets: deps.assets, sheets: deps.sheets,
     decorationImages: deps.decorationImages, getViewport: deps.getViewport,
     worldSeed,
+    readSave: () => readSave(slot),
+    readJournal: (upTo: number) => readJournal(slot, upTo),
     ...(deps.forceFresh !== undefined ? { forceFresh: deps.forceFresh } : {}),
     ...(deps.genSeedOverride !== undefined ? { genSeedOverride: deps.genSeedOverride } : {}),
     ...(deps.onResumed ? { onResumed: deps.onResumed } : {}),

@@ -22,6 +22,12 @@ import { drawLoadingScreen, type LoadingView } from '@/render/ui/shell/loading-s
 import {
   drawTitleScreen, titleRows, type TitleAction, type TitleView,
 } from '@/render/ui/shell/title-screen';
+import {
+  drawSaveScreen, saveRows, type SaveAction, type SaveScreenView, type SlotRow, type ScreenRow,
+} from '@/render/ui/shell/save-screen';
+import {
+  drawLoadScreen, loadRows, type LoadAction, type LoadScreenView,
+} from '@/render/ui/shell/load-screen';
 
 /** A device-px rect (a DOM island's reserved region). Mirrors `ui-runtime`'s. */
 interface Rect { x: number; y: number; w: number; h: number }
@@ -31,10 +37,12 @@ interface Rect { x: number; y: number; w: number; h: number }
 export interface ShellDrawResult {
   island: Rect | null;
   title: TitleAction | null;
+  save: SaveAction | null;
+  load: LoadAction | null;
 }
 
 /** Nothing drawn, nothing triggered — shared so the common case allocates once. */
-const INERT_DRAW: ShellDrawResult = { island: null, title: null };
+const INERT_DRAW: ShellDrawResult = { island: null, title: null, save: null, load: null };
 
 /**
  * The surface `boot-sequence.ts` drives while a world loads.
@@ -90,6 +98,13 @@ export interface ShellDeps {
    *  stays a pure-ish presentation object. Absent ⇒ the title screen draws its
    *  empty state (no save, nothing to continue). */
   titleView?: () => TitleView;
+  /** Supplies the save screen's slot data. Absent ⇒ four empty slots (the
+   *  honest empty state — never a fabricated save). */
+  saveView?: () => SaveScreenView;
+  /** Supplies the load screen's slot data. Same shape as `saveView` (both
+   *  screens read the identical per-slot metadata; only what picking a row
+   *  MEANS differs) — `Game` builds one probe and feeds both. */
+  loadView?: () => LoadScreenView;
 }
 
 /** The title view used when no provider is wired — the honest empty state, never
@@ -101,14 +116,47 @@ const EMPTY_TITLE_VIEW: TitleView = {
   buildLine: '',
 };
 
+/** Four empty slots — the honest default for the save/load screens when no
+ *  provider is wired, mirroring `EMPTY_TITLE_VIEW` above. */
+const EMPTY_SLOT_ROWS: readonly SlotRow[] = (['autosave', 'slot1', 'slot2', 'slot3'] as const).map((slot) => ({
+  slot, name: '', dateLabel: '', tierLine: '', playtimeLabel: '',
+  compat: 'ok', empty: true, thumbnail: null, staleReason: null,
+}));
+const EMPTY_SAVE_VIEW: SaveScreenView = { rows: [...EMPTY_SLOT_ROWS] };
+const EMPTY_LOAD_VIEW: LoadScreenView = { rows: [...EMPTY_SLOT_ROWS] };
+
 const realNow = (): number =>
   typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+/** `describe()`'s choices for a slot screen (save or load) — mirrors exactly
+ *  what `drawSlotsScreen` draws: one choice per tile body, one per DELETE
+ *  affordance when the row offers one, then BACK. Kept as ONE function shared
+ *  by both screens so "described ids equal drawn hit ids" cannot drift
+ *  between save and load. */
+function describeSlotScreen(rows: readonly ScreenRow[], backId: string): ShellChoice[] {
+  const choices: ShellChoice[] = [];
+  for (const row of rows) {
+    choices.push({
+      id: `${row.id}.body`,
+      label: row.data.empty ? 'EMPTY SLOT' : row.data.name,
+      enabled: row.enabled,
+      note: row.reason,
+    });
+    if (row.deletable) {
+      choices.push({ id: `${row.id}.delete`, label: 'DELETE', enabled: true, note: null });
+    }
+  }
+  choices.push({ id: backId, label: 'BACK', enabled: true, note: null });
+  return choices;
+}
 
 export class Shell implements LoadingSurface {
   private state: ShellState = EMPTY_SHELL;
   private readonly requestRender: () => void;
   private readonly now: () => number;
   private readonly titleView: () => TitleView;
+  private readonly saveView: () => SaveScreenView;
+  private readonly loadView: () => LoadScreenView;
 
   // Boot-progress state. `shownAtMs` anchors the chronicle rotation to when the
   // loading screen appeared, not to process start, so the first excerpt gets a
@@ -122,6 +170,8 @@ export class Shell implements LoadingSurface {
     this.requestRender = deps.requestRender ?? ((): void => {});
     this.now = deps.now ?? realNow;
     this.titleView = deps.titleView ?? ((): TitleView => EMPTY_TITLE_VIEW);
+    this.saveView = deps.saveView ?? ((): SaveScreenView => EMPTY_SAVE_VIEW);
+    this.loadView = deps.loadView ?? ((): LoadScreenView => EMPTY_LOAD_VIEW);
   }
 
   /**
@@ -140,9 +190,14 @@ export class Shell implements LoadingSurface {
       choices = titleRows(this.titleView()).map((r) => ({
         id: r.id, label: r.label, enabled: r.enabled, note: r.note,
       }));
+    } else if (screen === 'save') {
+      choices = describeSlotScreen(saveRows(this.saveView()), 'save.back');
+    } else if (screen === 'load') {
+      choices = describeSlotScreen(loadRows(this.loadView()), 'load.back');
     }
-    // Screens beyond title/loading contribute their choices as they land (P3+);
-    // an unimplemented screen honestly reports none rather than guessing.
+    // Screens beyond title/loading/save/load contribute their choices as they
+    // land (P4+); an unimplemented screen honestly reports none rather than
+    // guessing.
     return {
       screen,
       stack: [...this.state.stack],
@@ -237,7 +292,15 @@ export class Shell implements LoadingSurface {
         return INERT_DRAW;
       case 'title': {
         const title = drawTitleScreen(c, w, h, s, this.titleView());
-        return title ? { island: null, title } : INERT_DRAW;
+        return title ? { island: null, title, save: null, load: null } : INERT_DRAW;
+      }
+      case 'save': {
+        const save = drawSaveScreen(c, w, h, s, this.saveView());
+        return save ? { island: null, title: null, save, load: null } : INERT_DRAW;
+      }
+      case 'load': {
+        const load = drawLoadScreen(c, w, h, s, this.loadView());
+        return load ? { island: null, title: null, save: null, load } : INERT_DRAW;
       }
       case null:
         return INERT_DRAW;

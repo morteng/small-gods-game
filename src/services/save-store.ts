@@ -14,6 +14,12 @@ import { withIdbTimeout } from '@/services/idb-guard';
 
 export type SaveSlot = 'autosave' | 'slot1' | 'slot2' | 'slot3';
 
+/** Every slot, in the canonical order every listing UI (title CONTINUE probe,
+ *  the save/load screens) shows them: autosave first, then the three manual
+ *  slots in number order. One definition so a screen's "4 tiles" and a
+ *  probe's "4 rows" can never silently drift apart. */
+export const SAVE_SLOTS: readonly SaveSlot[] = ['autosave', 'slot1', 'slot2', 'slot3'];
+
 const DB_NAME = 'small-gods-saves';
 // v1 → v2: added `save-meta` + `event-journal` alongside the original `saves`
 // store. `openDb`'s upgrade path only ADDS stores (guarded by

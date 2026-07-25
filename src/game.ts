@@ -65,12 +65,17 @@ import { runBootSequence } from '@/game/boot-sequence';
 import { kickOffSheets } from '@/game/bootstrap-world';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
-import { clearSave, readSave, type SaveMetaInput } from '@/services/save-store';
-import { SAVE_VERSION, type SaveFile } from '@/core/save-file';
+import {
+  clearSave, deleteSlot, probeSlots, slotCompat, SAVE_SLOTS,
+  type SaveSlot, type SaveMeta, type SaveMetaInput,
+} from '@/services/save-store';
+import { SAVE_VERSION } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 import { Shell } from '@/render/ui/shell/shell';
 import type { ScreenId } from '@/render/ui/shell/shell-state';
 import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
+import type { SaveAction, SaveScreenView, SlotRow } from '@/render/ui/shell/save-screen';
+import type { LoadAction } from '@/render/ui/shell/load-screen';
 import { selectRenderer } from '@/render/select-renderer';
 import { injectTokens } from '@/ui/inject-tokens';
 import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
@@ -97,7 +102,7 @@ import { FrameRenderer } from '@/game/frame-renderer';
 import { PresentationDirector } from '@/presentation/presentation-director';
 import { createInteractionState } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
-import { calendarLabel, TICKS_PER_DAY, TICKS_PER_HOUR } from '@/core/calendar';
+import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
 
 /** How long the per-frame HUD sim-read memo (belief/powers/inbox) stays fresh.
  *  Belief moves at sim-tick rate (~1 Hz), so ~150 ms (≈7 Hz) is imperceptible for
@@ -158,20 +163,6 @@ function hasQueryFlag(flag: string): boolean {
   catch { return false; }
 }
 
-/**
- * What the title screen knows about the autosave. Deliberately narrow: the
- * richer per-slot metadata store (spec §5.1) replaces the reader behind this,
- * not the shape the screen consumes.
- */
-interface SlotSummary {
-  exists: boolean;
-  compat: 'ok' | 'stale-save' | 'stale-world';
-  /** One-line summary for the CONTINUE row, or null when there is nothing to say. */
-  line: string | null;
-  /** The save's own contentVersion, when that is what makes it unreadable. */
-  otherVersion?: number;
-}
-
 /** The shell screen ids an `open_screen` command may name. Validated rather than
  *  cast, because this value arrives from OUTSIDE (an agent over the bus) and an
  *  unknown screen must be refused, not pushed onto the stack. */
@@ -182,13 +173,44 @@ function isScreenId(v: string): v is ScreenId {
   return SCREEN_IDS.has(v as ScreenId);
 }
 
-/** A one-line "what is in this save" summary for the title's CONTINUE row.
- *  Fiction time only — never a raw tick (a standing UI rule). */
-function describeSave(save: SaveFile): string {
-  const day = Math.floor(save.snapshot.tick / TICKS_PER_DAY) + 1;
-  const believers = save.snapshot.spirits?.find((s) => s.isPlayer)?.beliefMass;
-  const mass = typeof believers === 'number' ? ` · BELIEF ${believers.toFixed(1)}` : '';
-  return `DAY ${day}${mass}`;
+/** Validates a bus-supplied slot param the same way `isScreenId` validates a
+ *  screen name — an agent's `save_slot`/`load_slot`/`delete_slot` must be
+ *  refused on an unknown slot, not cast and trusted. */
+function isSaveSlot(v: string): v is SaveSlot {
+  return (SAVE_SLOTS as readonly string[]).includes(v);
+}
+
+/** A manual save's default name when the player didn't type one (no naming
+ *  island lands this slice — see `save-screen.ts`'s module doc) — "Slot 1",
+ *  never the autosave's own "Autosave" default the meta provider would
+ *  otherwise stamp on every slot indiscriminately. */
+function defaultSlotName(slot: SaveSlot): string {
+  return slot === 'autosave' ? 'Autosave' : `Slot ${slot.slice(4)}`;
+}
+
+/** Real playtime (ms) → a short prose label ("2H 15M" / "40M") for a slot
+ *  tile. `playtimeMs` is wall-clock, never sim ticks, so this is NOT the
+ *  "fiction time only" rule's business — that governs `dateLabel` instead. */
+function formatPlaytime(ms: number): string {
+  const totalMin = Math.max(0, Math.round(ms / 60_000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}H ${m}M` : `${m}M`;
+}
+
+/** Prose for why a slot cannot be opened, from its meta ALONE, with the real
+ *  version numbers already interpolated — SHARED by the title screen's
+ *  CONTINUE row and every save/load tile, so "why won't this open" reads
+ *  identically everywhere it appears. Null when the slot opens fine. */
+function staleReasonText(meta: Pick<SaveMeta, 'version' | 'contentVersion'>): string | null {
+  const compat = slotCompat(meta);
+  if (compat === 'stale-save') {
+    return `Saved by an older version of the game (save v${meta.version}; this build is v${SAVE_VERSION})`;
+  }
+  if (compat === 'stale-world') {
+    return `Saved under an older world (content ${meta.contentVersion}; this build is ${WORLD_CONTENT_VERSION})`;
+  }
+  return null;
 }
 
 export class Game {
@@ -381,10 +403,15 @@ export class Game {
   private readonly shell: Shell;
   /** What to boot once the shell is up, or null to stay on the title. */
   private readonly autostart: Autostart | null;
-  /** Cached save probe for the title screen's CONTINUE row, refreshed by
-   *  `bootShell`/`returnToTitle`. Null = not probed YET (the title never blocks
-   *  on IndexedDB — it draws immediately and the row fills in when this lands). */
-  private slotProbe: SlotSummary | null = null;
+  /** Cached per-slot metadata for the title CONTINUE row and the save/load
+   *  screens, refreshed by `bootShell`/`returnToTitle`/`probeSaves` (after any
+   *  save or delete). Keyed by slot; a slot with no row here has never been
+   *  saved to. `slotsProbed` is false until the FIRST probe lands — the title
+   *  never blocks on IndexedDB, so it draws immediately and the CONTINUE row
+   *  fills in a frame or two later, same as before this replaced the interim
+   *  `SlotSummary` reader (P3a's `save-meta` store now exists to serve this). */
+  private slotMetas = new Map<SaveSlot, SaveMeta>();
+  private slotsProbed = false;
   /** Real playtime accrued in THIS world (ms, real time). Persisted with the
    *  save; meta state, deliberately outside the deterministic sim stream. */
   private playtimeMs = 0;
@@ -401,6 +428,8 @@ export class Game {
     this.shell = new Shell({
       requestRender: () => this.requestRender(),
       titleView: () => this.buildTitleView(),
+      saveView: () => this.buildSlotsView(),
+      loadView: () => this.buildSlotsView(),
     });
 
     this.scheduler = new Scheduler();
@@ -1032,6 +1061,32 @@ export class Game {
             break;
           case 'settings':
             this.bus.emit({ verb: 'open_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { screen: 'settings' } });
+            break;
+        }
+      },
+      onSaveAction: (action: SaveAction) => {
+        switch (action.kind) {
+          case 'save':
+            this.bus.emit({ verb: 'save_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: action.slot } });
+            break;
+          case 'delete':
+            this.bus.emit({ verb: 'delete_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: action.slot } });
+            break;
+          case 'back':
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+        }
+      },
+      onLoadAction: (action: LoadAction) => {
+        switch (action.kind) {
+          case 'load':
+            this.bus.emit({ verb: 'load_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: action.slot } });
+            break;
+          case 'delete':
+            this.bus.emit({ verb: 'delete_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: action.slot } });
+            break;
+          case 'back':
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
             break;
         }
       },
@@ -1774,12 +1829,16 @@ export class Game {
         }).catch((err) => console.error('[shell] new_game failed', err));
         break;
       }
-      case 'load_slot':
-        // Today only the autosave slot exists as a readable world; the multi-slot
-        // reader lands with the save phase. `startWorld({})` takes the ordinary
-        // resume path (bootstrapWorld rehydrates a valid autosave).
-        void this.startWorld({}).catch((err) => console.error('[shell] load_slot failed', err));
+      case 'load_slot': {
+        // Honours its slot param (P3b): `startWorld({ slot })` threads it down
+        // to `bootstrapWorld`'s `readSave`/`readJournal` via `boot-sequence.ts`,
+        // so a non-autosave slot resumes for real rather than silently taking
+        // the autosave path.
+        const slotParam = str('slot');
+        const slot: SaveSlot = slotParam && isSaveSlot(slotParam) ? slotParam : 'autosave';
+        void this.startWorld({ slot }).catch((err) => console.error('[shell] load_slot failed', err));
         break;
+      }
       case 'quit_to_title':
         void this.returnToTitle().catch((err) => console.error('[shell] quit_to_title failed', err));
         break;
@@ -1792,8 +1851,37 @@ export class Game {
         this.shell.pop();
         this.requestRender();
         break;
-      case 'save_slot':
-      case 'delete_slot':
+      case 'save_slot': {
+        const slotParam = str('slot');
+        const slot = slotParam && isSaveSlot(slotParam) ? slotParam : undefined;
+        // Defense in depth: the save SCREEN already disables the autosave row
+        // (spec §5.4 — the player must not hand-overwrite the managed slot),
+        // but a bus-connected agent bypasses the paint entirely, so the same
+        // rule is enforced here too.
+        if (!slot || slot === 'autosave') {
+          console.info(`[shell] 'save_slot' refused — ${slot === 'autosave' ? 'autosave is managed automatically' : 'missing/invalid slot'}`);
+          break;
+        }
+        // No naming-island UI lands this slice (see save-screen.ts's module
+        // doc) — but a manual save must still not silently mislabel itself
+        // "Autosave" (`PersistenceController`'s default meta name), so an
+        // unnamed save keeps the slot's EXISTING name across a re-save, or
+        // falls back to a slot-derived one ("Slot 1") the first time.
+        const name = str('name') ?? this.slotMetas.get(slot)?.name ?? defaultSlotName(slot);
+        void this.persistence.saveNow(slot, name)
+          .then(() => this.probeSaves())
+          .catch((err) => console.error('[shell] save_slot failed', err));
+        break;
+      }
+      case 'delete_slot': {
+        const slotParam = str('slot');
+        const slot = slotParam && isSaveSlot(slotParam) ? slotParam : undefined;
+        if (!slot) { console.info("[shell] 'delete_slot' refused — missing/invalid slot"); break; }
+        void deleteSlot(slot)
+          .then(() => this.probeSaves())
+          .catch((err) => console.error('[shell] delete_slot failed', err));
+        break;
+      }
       case 'rename_slot':
       case 'set_setting':
       case 'rebind_key':
@@ -2086,6 +2174,10 @@ export class Game {
     genome?: string;
     worldSeed?: WorldSeed;
     ephemeral?: boolean;
+    /** Which slot to resume FROM (P3b's `load_slot`). Default 'autosave' —
+     *  every existing caller (autostart, `?bridge`, embed) keeps reading the
+     *  same slot it always did. Ignored when `fresh` forces a new generation. */
+    slot?: SaveSlot;
   } = {}): Promise<GameMap> {
     if (opts.ephemeral !== undefined) this.ephemeral = opts.ephemeral;
     // A genome world is a throwaway terrain study by definition.
@@ -2095,7 +2187,7 @@ export class Game {
     const worldSeed = opts.worldSeed
       ?? (opts.genome ? await this.genomeSeed(opts.genome) : undefined);
     return this.generateWorld(worldSeed, undefined, {
-      fresh: opts.fresh, genSeed: opts.genSeed,
+      fresh: opts.fresh, genSeed: opts.genSeed, slot: opts.slot,
     });
   }
 
@@ -2113,15 +2205,16 @@ export class Game {
   async generateWorld(
     worldSeed?: WorldSeed,
     _terrainOptions?: Partial<TerrainOptions>,
-    boot: { fresh?: boolean; genSeed?: number } = {},
+    boot: { fresh?: boolean; genSeed?: number; slot?: SaveSlot } = {},
   ): Promise<GameMap> {
     // Ground-flora atlas: one fetch, kicked alongside boot so herb/grass/fern
     // billboards are sliceable by frame one (misses degrade to flat billboards).
     void this.clutterFloraSource.warm();
+    const slot: SaveSlot = boot.slot ?? 'autosave';
     const map = await this.bootOrSayWhyNot({
       canvas: this.canvas, state: this.state, loading: this.shell,
       renderersReady: this.renderMap !== null,
-      forceFresh: boot.fresh, genSeedOverride: boot.genSeed,
+      forceFresh: boot.fresh, genSeedOverride: boot.genSeed, slot,
       assets: this.assets, sheets: this.sheets,
       decorationImages: this.decorationImages, getViewport: () => this.viewport(),
       parametricPlantSource: this.parametricPlantSource,
@@ -2138,7 +2231,7 @@ export class Game {
         // Continue the event journal where that save left off. Without this the
         // first autosave after a resume would re-append the entire hydrated
         // history, duplicating the world's annals.
-        this.persistence.setCursor('autosave', save.eventCursor);
+        this.persistence.setCursor(slot, save.eventCursor);
         this.playtimeMs = save.playtimeMs ?? 0;
       },
       onWorldReady: () => {
@@ -2166,39 +2259,32 @@ export class Game {
   }
 
   /**
-   * Probe the autosave for the title screen's CONTINUE row.
+   * Probe EVERY slot's metadata for the title screen's CONTINUE row and the
+   * save/load screens — one `probeSlots()` read (small `save-meta` rows only,
+   * never the ~171k-tile blob) feeds all three surfaces.
    *
    * Deliberately honest about staleness (spec §5.2): a save written by an older
    * SAVE_VERSION or against an older WORLD_CONTENT_VERSION is REPORTED as such
    * and refused, never silently replaced by a freshly generated world the player
-   * did not ask for. Never throws — a wedged IndexedDB just means "no save".
+   * did not ask for. `probeSlots()` itself never throws (degrades to `[]` on a
+   * wedged store); the try/catch here is defensive redundancy, not the primary
+   * safety net.
    */
   private async probeSaves(): Promise<void> {
     try {
-      const save = await readSave();
-      if (!save) {
-        this.slotProbe = { exists: false, compat: 'ok', line: null };
-      } else if (save.version !== SAVE_VERSION) {
-        this.slotProbe = { exists: true, compat: 'stale-save', line: null };
-      } else if (save.contentVersion !== WORLD_CONTENT_VERSION) {
-        this.slotProbe = {
-          exists: true, compat: 'stale-world', line: null,
-          otherVersion: save.contentVersion,
-        };
-      } else {
-        this.slotProbe = { exists: true, compat: 'ok', line: describeSave(save) };
-      }
+      const metas = await probeSlots();
+      this.slotMetas = new Map(metas.map((m) => [m.slot, m]));
     } catch (err) {
       console.warn('[shell] save probe failed', err);
-      this.slotProbe = { exists: false, compat: 'ok', line: null };
+      this.slotMetas = new Map();
     }
+    this.slotsProbed = true;
     this.requestRender();
   }
 
   /** Build the title screen's view from the (possibly still-pending) probe. */
   private buildTitleView(): TitleView {
-    const p = this.slotProbe;
-    if (!p) {
+    if (!this.slotsProbed) {
       // Still probing. Say so rather than claiming there is no save — the row
       // resolves itself a frame or two later.
       return {
@@ -2208,20 +2294,55 @@ export class Game {
         buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
       };
     }
-    const blocked: TitleView['continueBlocked'] =
-      !p.exists ? { reason: 'none', text: 'No saved world yet' }
-      : p.compat === 'stale-save' ? { reason: 'stale-save', text: 'Saved by an older version of the game — it cannot be opened' }
-      : p.compat === 'stale-world' ? {
-          reason: 'stale-world',
-          text: `Saved under an older world (${p.otherVersion ?? '?'}; this build is ${WORLD_CONTENT_VERSION}) — it cannot be opened`,
-        }
-      : null;
+    const auto = this.slotMetas.get('autosave');
+    const hasAnySave = SAVE_SLOTS.some((s) => {
+      const m = this.slotMetas.get(s);
+      return m !== undefined && slotCompat(m) === 'ok';
+    });
+    let continueLine: string | null = null;
+    let blocked: TitleView['continueBlocked'] = null;
+    if (!auto) {
+      blocked = { reason: 'none', text: 'No saved world yet' };
+    } else {
+      const reason = staleReasonText(auto);
+      if (reason) {
+        blocked = { reason: slotCompat(auto) === 'stale-save' ? 'stale-save' : 'stale-world', text: reason };
+      } else {
+        continueLine = `${auto.dateLabel} · BELIEF ${auto.beliefMass.toFixed(1)}`;
+      }
+    }
     return {
-      continueLine: p.line,
+      continueLine,
       continueBlocked: blocked,
-      hasAnySave: p.exists && p.compat === 'ok',
+      hasAnySave,
       buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
     };
+  }
+
+  /** One slot's tile data, from the cached probe — empty rows for a slot
+   *  never saved to. Shared by the save AND load screens (spec §5.4: they
+   *  read the identical per-slot metadata; only what picking a row MEANS
+   *  differs, which `saveRows`/`loadRows` decide, not this). */
+  private slotRowFor(slot: SaveSlot): SlotRow {
+    const meta = this.slotMetas.get(slot);
+    if (!meta) {
+      return {
+        slot, name: '', dateLabel: '', tierLine: '', playtimeLabel: '',
+        compat: 'ok', empty: true, thumbnail: null, staleReason: null,
+      };
+    }
+    return {
+      slot, name: meta.name, dateLabel: meta.dateLabel,
+      tierLine: `${meta.godTier.toUpperCase()} · BELIEF ${meta.beliefMass.toFixed(1)}`,
+      playtimeLabel: formatPlaytime(meta.playtimeMs),
+      compat: slotCompat(meta), empty: false, thumbnail: meta.thumbnail,
+      staleReason: staleReasonText(meta),
+    };
+  }
+
+  /** The save/load screens' shared view — all four slots, canonical order. */
+  private buildSlotsView(): SaveScreenView {
+    return { rows: SAVE_SLOTS.map((s) => this.slotRowFor(s)) };
   }
 
   /**

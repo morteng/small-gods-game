@@ -236,7 +236,7 @@ describe('Shell — the stateful glue', () => {
     const shell = new Shell({ now: () => 0 });
     const c = new UiContext();
     c.begin();
-    expect(shell.draw(c, W, H, S)).toEqual({ island: null, title: null });
+    expect(shell.draw(c, W, H, S)).toEqual({ island: null, title: null, save: null, load: null });
     c.end();
     expect(totalVerts(c.batcher.flush())).toBe(0);
   });
