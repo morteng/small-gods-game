@@ -25,7 +25,7 @@ function resolveGitSha(): string {
   }
 }
 
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ command, mode, isPreview }) => {
   // Load the (non-VITE_-prefixed) OpenRouter key + Replicate token for the dev
   // proxies. Handed only to the dev-server middleware — never bundled into
   // client code.
@@ -45,7 +45,12 @@ export default defineConfig(({ command, mode }) => {
     // GitHub Pages serves this project site from /small-gods-game/, but the dev
     // server and tests run at '/'. Only the production build gets the subpath.
     // Override with VITE_BASE (e.g. a custom domain or renamed repo).
-    base: command === 'build' ? (process.env.VITE_BASE ?? '/small-gods-game/') : '/',
+    // `vite preview` serves the BUILT output, so it needs the build's base — but
+    // Vite reports command==='serve' for it, so it must be matched on isPreview
+    // too. Without this, preview serves at '/' while the built HTML asks for
+    // '/small-gods-game/…', every asset falls through to the SPA fallback, and
+    // you get a blank page.
+    base: command === 'build' || isPreview ? (process.env.VITE_BASE ?? '/small-gods-game/') : '/',
     plugins: [promoteAssetPlugin(), llmProxyPlugin(env.OPENROUTER_API_KEY), replicateProxyPlugin(env.REPLICATE_API_TOKEN), busBridgePlugin(), grabSinkPlugin(), reflibSinkPlugin()],
     server: { port: 3000 },
     build: {
