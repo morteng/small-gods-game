@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { bootstrapWorld } from '@/game/bootstrap-world';
 import { createState } from '@/core/state';
 import type { WorldSeed } from '@/core/types';
@@ -30,6 +30,15 @@ const testSeed: WorldSeed = {
   connections: [],
   constraints: [],
 };
+
+/** Real worldgen inside a test is inherently slow (terrain + hydrology + seeding),
+ *  and vitest's 5 s default is measured against a CONTENDED CI box — a shared
+ *  8-vCPU runner with another project's suite alongside it turned these into
+ *  timeout flakes. The work is legitimately this expensive, so the budget is
+ *  stated explicitly rather than left to a default that happens to fit on an idle
+ *  laptop. */
+const WORLDGEN_TIMEOUT_MS = 60_000;
+vi.setConfig({ testTimeout: WORLDGEN_TIMEOUT_MS });
 
 describe('bootstrapWorld — explicit fresh / seed override', () => {
   it('forceFresh GENERATES even when a readable save exists', async () => {
