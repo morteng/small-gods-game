@@ -72,8 +72,7 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
   let y = Math.round(h * 0.34);
 
   // ── wordmark ──
-  const wordW = c.measure(WORDMARK, fsWord);
-  c.label(WORDMARK, Math.round(cx - wordW / 2), y, fsWord, UI_PALETTE.text);
+  c.labelCentered(WORDMARK, cx, y, fsWord, UI_PALETTE.text);
   y += Math.round(c.lineHeight(fsWord) + 26 * s);
 
   // ── progress track + fill ──
@@ -94,8 +93,7 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
   if (view.label) {
     const label = view.label.toUpperCase();
     const clipped = c.ellipsize(label, fsBody, w - 48 * s);
-    const lw = c.measure(clipped, fsBody);
-    c.label(clipped, Math.round(cx - lw / 2), y, fsBody, UI_PALETTE.textDim);
+    c.labelCentered(clipped, cx, y, fsBody, UI_PALETTE.textDim);
   }
   y += Math.round(c.lineHeight(fsBody) + 40 * s);
 
@@ -114,11 +112,9 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
 
   const quiet = withAlpha(UI_PALETTE.text, 0.72);
   for (const line of lines) {
-    const lw = c.measure(line, fsBody);
-    c.label(line, Math.round(cx - lw / 2), y, fsBody, quiet);
+    c.labelCentered(line, cx, y, fsBody, quiet);
     y += lineGap;
   }
   y += Math.round(10 * s);
-  const capW = c.measure(CHRONICLE_CAPTION, fsCaption);
-  c.label(CHRONICLE_CAPTION, Math.round(cx - capW / 2), y, fsCaption, UI_PALETTE.textDim);
+  c.labelCentered(CHRONICLE_CAPTION, cx, y, fsCaption, UI_PALETTE.textDim);
 }

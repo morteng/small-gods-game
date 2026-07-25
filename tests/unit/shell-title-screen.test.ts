@@ -308,3 +308,34 @@ describe('title screen — geometry and input', () => {
     expect(nb.maxX).toBeLessThanOrEqual(narrow);
   });
 });
+
+// ── stable geometry across the save probe resolving ─────────────────────────
+// Rows reserve their note SLOT by identity (`reserveNote`), never by whether a
+// note happens to exist — the probe landing used to add CONTINUE's summary and
+// remove LOAD's "looking…" line, and the whole centred column visibly jumped a
+// beat after the title appeared (user defect 2026-07-25).
+
+describe('title — rows do not move when the save probe resolves', () => {
+  const rowIds = ['title.continue', 'title.new', 'title.load', 'title.demo', 'title.settings'];
+  function hitYs(v: TitleView): Map<string, number> {
+    const c = new UiContext();
+    c.begin();
+    drawTitleScreen(c, W, H, S, v);
+    const { hits } = c.end();
+    return new Map(hits.map((hit) => [hit.id, hit.y]));
+  }
+
+  it('probing, resolved-with-save and resolved-no-save share every row y', () => {
+    const probing = hitYs(view({ probing: true, continueLine: null, hasAnySave: false }));
+    const withSave = hitYs(view());
+    const noSave = hitYs(view({
+      hasAnySave: false, continueLine: null,
+      continueBlocked: { reason: 'none', text: 'NO WORLD TO CONTINUE YET' },
+    }));
+    for (const id of rowIds) {
+      expect(probing.get(id), `${id} present while probing`).toBeDefined();
+      expect(withSave.get(id), `${id} probing vs with-save`).toBe(probing.get(id));
+      expect(noSave.get(id), `${id} probing vs no-save`).toBe(probing.get(id));
+    }
+  });
+});

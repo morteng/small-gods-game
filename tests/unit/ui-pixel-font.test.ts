@@ -79,8 +79,8 @@ describe('P1-B: newly added glyphs', () => {
       for (const q of quads) {
         expect(q.x).toBeGreaterThanOrEqual(0);
         expect(q.x).toBeLessThan(5); // GW
-        expect(q.y).toBeGreaterThanOrEqual(0);
-        expect(q.y).toBeLessThan(7); // GH
+        expect(q.y).toBeGreaterThanOrEqual(1); // ink sits one leading row down (symmetric leading)
+        expect(q.y).toBeLessThan(1 + 7); // GH rows starting at the leading offset
         expect(q.w).toBe(1);
         expect(q.h).toBe(1);
         expect(q.page).toBe(UiPage.Solid);
@@ -98,8 +98,8 @@ describe('P1-B: newly added glyphs', () => {
       for (const q of quads) {
         expect(q.x, `glyph "${g}" x out of bounds`).toBeGreaterThanOrEqual(0);
         expect(q.x, `glyph "${g}" x out of bounds`).toBeLessThan(5);
-        expect(q.y, `glyph "${g}" y out of bounds`).toBeGreaterThanOrEqual(0);
-        expect(q.y, `glyph "${g}" y out of bounds`).toBeLessThan(7);
+        expect(q.y, `glyph "${g}" y out of bounds`).toBeGreaterThanOrEqual(1); // symmetric leading
+        expect(q.y, `glyph "${g}" y out of bounds`).toBeLessThan(1 + 7);
       }
     }
   });
@@ -349,4 +349,34 @@ describe('coverage guard: every glyph the WebGPU UI source renders is in the pix
       expect(missing, `${rel} uses glyph(s) not in pixel-font.ts's table: ${missing.join(' ')}`).toEqual([]);
     });
   }
+});
+
+// ── optical centring metrics ────────────────────────────────────────────────
+// Box-centring math (buttons, headers, the wordmark) is only correct if the
+// font's own metrics are symmetric about the ink: symmetric leading vertically,
+// and an ink width that excludes the trailing tracking column horizontally.
+// Both asymmetries were visible live (labels a font-pixel high in buttons; a
+// pixel of slack on the right of the title wordmark).
+
+describe('optical centring metrics', () => {
+  const f = new BuiltinPixelFont();
+
+  it('draws ink with symmetric leading — one row above, one below', () => {
+    const q = f.layout('I', 0, 0, 1);
+    const minY = Math.min(...q.map((p) => p.y));
+    const maxY = Math.max(...q.map((p) => p.y + p.h));
+    expect(minY).toBe(1);
+    expect(maxY).toBe(f.lineHeight(1) - 1);
+  });
+
+  it('inkWidth is the advance minus the trailing tracking column', () => {
+    expect(f.inkWidth('I', 1)).toBe(f.measure('I', 1) - 1);
+    expect(f.inkWidth('II', 3)).toBe(f.measure('II', 3) - 3);
+    expect(f.inkWidth('', 2)).toBe(0);
+    // bold's +1px overhang lands IN the tracking column — the same rule holds
+    expect(f.inkWidth('I', 2, true)).toBe(f.measure('I', 2, true) - 2);
+    // and a full-width glyph's rightmost lit pixel ends exactly at inkWidth
+    const q = f.layout('I', 0, 0, 1);
+    expect(Math.max(...q.map((p) => p.x + p.w))).toBe(f.inkWidth('I', 1));
+  });
 });

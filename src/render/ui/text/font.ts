@@ -29,6 +29,12 @@ export interface FontMetrics {
    *  spec §4.1) widens the advance by one `scale` unit — optional and defaulted
    *  by implementations, so every existing caller is unaffected. */
   measure(text: string, scale: number, bold?: boolean): number;
+  /** The VISIBLE-INK width of `text` — `measure` minus any blank tracking the
+   *  advance carries past the last glyph's pixels. Anything that CENTRES text
+   *  (a button label, a screen header, the wordmark) must centre this, not
+   *  `measure`: centring the advance box visibly biases the ink toward one
+   *  side. Fonts whose advance is already ink-symmetric return `measure`. */
+  inkWidth(text: string, scale: number, bold?: boolean): number;
   /** Lay `text` out with its top-left at (x, y); returns one quad per visible
    *  glyph. `bold` doubles each lit pixel (offset +1px in x) for a heavier
    *  stroke with no second font/atlas — optional, defaults to off. */
@@ -55,6 +61,12 @@ export class MonospaceFont implements FontMetrics {
 
   measure(text: string, scale: number): number {
     return text.length * this.cellW * scale;
+  }
+
+  /** Blocks are inset by `pad` on BOTH sides of each cell, so the advance is
+   *  already ink-symmetric — centring `measure` centres the ink. */
+  inkWidth(text: string, scale: number): number {
+    return this.measure(text, scale);
   }
 
   layout(text: string, x: number, y: number, scale: number): GlyphQuad[] {

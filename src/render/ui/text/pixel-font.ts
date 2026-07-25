@@ -162,9 +162,24 @@ export class BuiltinPixelFont implements FontMetrics {
     return len * ADVANCE * scale + (bold ? scale : 0);
   }
 
+  /** The visible-ink advance of `text` — `measure` minus the blank trailing
+   *  tracking column. Centring by `measure` sat every label ~half a font-pixel
+   *  left of optical centre (visible as a full pixel of slack on the RIGHT of
+   *  the title wordmark); anything that CENTRES text must centre this. `bold`'s
+   *  +1px overhang lands in the tracking column, so the subtraction holds. */
+  inkWidth(text: string, scale: number, bold = false): number {
+    const m = this.measure(text, scale, bold);
+    return m === 0 ? 0 : m - scale;
+  }
+
   /** Lay out `text`. `bold` (title wordmark only, spec §4.1) redraws every lit
    *  pixel a second time, offset +1px in x, for a heavier stroke — no second
-   *  font, no atlas. */
+   *  font, no atlas.
+   *
+   *  Ink is drawn ONE leading row down (`+1`): `lineHeight` is GH+2, and with
+   *  both leading pixels below the ink every box-centred label sat a full
+   *  font-pixel high of true centre. Symmetric leading (1 above, 1 below)
+   *  makes box-centring optically correct for every widget at once. */
   layout(text: string, x: number, y: number, scale: number, bold = false): GlyphQuad[] {
     const out: GlyphQuad[] = [];
     const chars = Array.from(text); // code-point-aware split — see `measure`
@@ -178,7 +193,7 @@ export class BuiltinPixelFont implements FontMetrics {
           if (row[c] !== '#') continue;
           out.push({
             x: gx + c * scale,
-            y: y + r * scale,
+            y: y + (r + 1) * scale,
             w: scale,
             h: scale,
             page: UiPage.Solid,
@@ -187,7 +202,7 @@ export class BuiltinPixelFont implements FontMetrics {
           if (bold) {
             out.push({
               x: gx + (c + 1) * scale,
-              y: y + r * scale,
+              y: y + (r + 1) * scale,
               w: scale,
               h: scale,
               page: UiPage.Solid,

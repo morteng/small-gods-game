@@ -365,8 +365,7 @@ export function drawSettingsScreen(
 
   let y = Math.max(Math.round(SPACING.lg * s), Math.round((h - measure(plan)) / 2));
 
-  const hw = c.measure(headerText, fsHeader);
-  c.label(headerText, Math.round(cx - hw / 2), y, fsHeader, COLOR.ink);
+  c.labelCentered(headerText, cx, y, fsHeader, COLOR.ink);
   y += headerH + plan.gap;
 
   let fired: SettingsAction | null = null;

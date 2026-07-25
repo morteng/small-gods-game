@@ -140,7 +140,9 @@ describe('button label ellipsis-clip', () => {
     a.end();
     const b = ctx();
     b.begin();
-    b.label('GO', Math.round(10 + (60 - b.measure('GO', 1)) / 2), Math.round(10 + (20 - b.lineHeight(1)) / 2));
+    // Hand-centred on INK width — the button centres visible ink, not the
+    // advance box with its blank trailing tracking column.
+    b.label('GO', Math.round(10 + (60 - b.inkWidth('GO', 1)) / 2), Math.round(10 + (20 - b.lineHeight(1)) / 2));
     b.end();
     // the button's glyph quads (beyond its bg fill + border) match the hand-centred label
     const quadsA = a.batcher.flush().find((g) => g.page === UiPage.Solid)!;

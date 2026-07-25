@@ -190,8 +190,7 @@ export function drawSlotsScreen(
 
   let y = Math.max(Math.round(SPACING.lg * s), Math.round((h - columnH) / 2));
 
-  const hw = c.measure(headerText, fsHeader);
-  c.label(headerText, Math.round(cx - hw / 2), y, fsHeader, COLOR.ink);
+  c.labelCentered(headerText, cx, y, fsHeader, COLOR.ink);
   y += headerH + plan.gap;
 
   // `slotTile` draws its 4 metadata lines UNCLIPPED (it has no notion of the

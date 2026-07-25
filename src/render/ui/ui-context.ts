@@ -203,10 +203,12 @@ export class UiContext {
     this.batcher.rect(x, y, w, h, bgA);
     this.batcher.border(x, y, w, h, 1, borderA);
 
-    // centre the label within the button; clip to the inner width first
+    // centre the label within the button; clip to the inner width first.
+    // Centred on INK width, not advance width — the advance's trailing blank
+    // tracking column biased every label visibly left of centre.
     const padX = buttonPadX(scale);
     const text = this.ellipsize(label, scale, w - 2 * padX);
-    const tw = this.font.measure(text, scale);
+    const tw = this.font.inkWidth(text, scale);
     const th = this.font.lineHeight(scale);
     this.label(text, Math.round(x + Math.max(padX, (w - tw) / 2)), Math.round(y + (h - th) / 2), scale, fgA);
 
@@ -333,6 +335,19 @@ export class UiContext {
    *  with a bare height constant next to a type tier. */
   buttonHeight(scale: number): number {
     return this.font.lineHeight(scale) + 2 * buttonPadY(scale);
+  }
+
+  /** Visible-ink width of `text` — what CENTRING math must use (see
+   *  `FontMetrics.inkWidth`); `measure` stays the advance for flow/fitting. */
+  inkWidth(text: string, scale: number, bold = false): number {
+    return this.font.inkWidth(text, scale, bold);
+  }
+
+  /** Draw `text` horizontally centred on `cx`, top at `y` — the ONE centring
+   *  path for headers/wordmarks, so no screen re-derives it from `measure`
+   *  and re-inherits the tracking-column bias. */
+  labelCentered(text: string, cx: number, y: number, scale: number, color: Rgba): void {
+    this.label(text, Math.round(cx - this.font.inkWidth(text, scale) / 2), y, scale, color);
   }
 
   /** Clip a run to `maxW` px, appending `…` when it doesn't fit (card choice

@@ -66,6 +66,11 @@ interface Row {
   enabled: boolean;
   /** Sub-line under the label (the continue summary, or a refusal reason). */
   note: string | null;
+  /** Whether this row's note SLOT exists at all. Geometry keys on THIS, never
+   *  on `note != null`: the save probe resolving used to add/remove note lines
+   *  and the whole centred column jumped a beat after the title appeared. A
+   *  row that can EVER carry a note reserves the line in every state. */
+  reserveNote: boolean;
 }
 
 /** Build the menu rows from the view. Exported so a test can assert the
@@ -81,8 +86,9 @@ export function titleRows(view: TitleView): Row[] {
       // When blocked, the reason replaces the summary — the player is told what
       // happened to their save instead of being shown a row that does nothing.
       note: blocked ? blocked.text : view.continueLine,
+      reserveNote: true,
     },
-    { id: 'title.new', label: 'NEW WORLD', action: { kind: 'new_world' }, enabled: true, note: null },
+    { id: 'title.new', label: 'NEW WORLD', action: { kind: 'new_world' }, enabled: true, note: null, reserveNote: false },
     {
       id: 'title.load', label: 'LOAD WORLD', action: { kind: 'load' },
       // Disabled while probing (there is genuinely nothing to open yet) but the
@@ -91,12 +97,14 @@ export function titleRows(view: TitleView): Row[] {
       note: view.probing
         ? 'LOOKING FOR SAVED WORLDS…'
         : view.hasAnySave ? null : 'NO SAVED WORLDS YET',
+      reserveNote: true,
     },
     {
       id: 'title.demo', label: 'DEMO WORLD', action: { kind: 'demo' }, enabled: true,
       note: 'A WORLD TO WATCH — NOTHING IS SAVED',
+      reserveNote: true,
     },
-    { id: 'title.settings', label: 'SETTINGS', action: { kind: 'settings' }, enabled: true, note: null },
+    { id: 'title.settings', label: 'SETTINGS', action: { kind: 'settings' }, enabled: true, note: null, reserveNote: false },
   ];
 }
 
@@ -169,7 +177,7 @@ export function drawTitleScreen(
 
   const epiH = c.lineHeight(fsEpi);
   const noteH = Math.round(SPACING.tight * s) + c.lineHeight(fsSmall);
-  const noteCount = rows.filter((r) => r.note !== null).length;
+  const noteCount = rows.filter((r) => r.reserveNote).length;
 
   interface Plan {
     notes: boolean; epigraph: boolean; wordmark: boolean;
@@ -229,14 +237,12 @@ export function drawTitleScreen(
 
   // ── wordmark + epigraph ──
   if (plan.wordmark) {
-    const wordW = c.measure(WORDMARK, fsWord);
-    c.label(WORDMARK, Math.round(cx - wordW / 2), y, fsWord, COLOR.parchment);
+    c.labelCentered(WORDMARK, cx, y, fsWord, COLOR.parchment);
     y += c.lineHeight(fsWord);
     if (plan.epigraph) y += plan.gap;
   }
   if (plan.epigraph) {
-    const epiW = c.measure(EPIGRAPH, fsEpi);
-    c.label(EPIGRAPH, Math.round(cx - epiW / 2), y, fsEpi, COLOR.goldDim);
+    c.labelCentered(EPIGRAPH, cx, y, fsEpi, COLOR.goldDim);
     y += epiH;
   }
   if (plan.wordmark || plan.epigraph) y += plan.hero;
@@ -254,14 +260,15 @@ export function drawTitleScreen(
     if (clicked && row.enabled) fired = row.action;
     y += rowH;
 
-    if (plan.notes && row.note) {
+    if (plan.notes && row.reserveNote) {
       const noteY = y + Math.round(SPACING.tight * s);
-      const noteText = c.ellipsize(row.note.toUpperCase(), fsSmall, rowW);
-      const nw = c.measure(noteText, fsSmall);
-      // A refusal reads in the DIM ink; an offered summary reads gold-dim, so
-      // "here is your world" and "your save cannot be opened" never look alike.
-      const tone = row.enabled ? COLOR.goldDim : withAlpha(COLOR.parchment, 0.55);
-      c.label(noteText, Math.round(cx - nw / 2), noteY, fsSmall, tone);
+      if (row.note) {
+        const noteText = c.ellipsize(row.note.toUpperCase(), fsSmall, rowW);
+        // A refusal reads in the DIM ink; an offered summary reads gold-dim, so
+        // "here is your world" and "your save cannot be opened" never look alike.
+        const tone = row.enabled ? COLOR.goldDim : withAlpha(COLOR.parchment, 0.55);
+        c.labelCentered(noteText, cx, noteY, fsSmall, tone);
+      }
       y = noteY + c.lineHeight(fsSmall);
     }
     if (i < rows.length - 1) y += plan.gap;
