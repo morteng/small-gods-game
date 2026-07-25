@@ -25,10 +25,14 @@ export interface GlyphQuad {
 export interface FontMetrics {
   /** Line advance (px) at the given integer scale. */
   lineHeight(scale: number): number;
-  /** Total advance width (px) of `text` at `scale`. */
-  measure(text: string, scale: number): number;
-  /** Lay `text` out with its top-left at (x, y); returns one quad per visible glyph. */
-  layout(text: string, x: number, y: number, scale: number): GlyphQuad[];
+  /** Total advance width (px) of `text` at `scale`. `bold` (title wordmark only,
+   *  spec §4.1) widens the advance by one `scale` unit — optional and defaulted
+   *  by implementations, so every existing caller is unaffected. */
+  measure(text: string, scale: number, bold?: boolean): number;
+  /** Lay `text` out with its top-left at (x, y); returns one quad per visible
+   *  glyph. `bold` doubles each lit pixel (offset +1px in x) for a heavier
+   *  stroke with no second font/atlas — optional, defaults to off. */
+  layout(text: string, x: number, y: number, scale: number, bold?: boolean): GlyphQuad[];
 }
 
 const EMPTY_UV: UvRect = { u0: 0, v0: 0, u1: 0, v1: 0 };

@@ -8,6 +8,7 @@
 // degrading — keeping one rendering path and no parity tax.
 
 import type { RenderFn } from '@/render/select-renderer';
+import type { MetaRenderFn } from '@/render/gpu/gpu-render-frame';
 import type { RenderContext } from '@/core/types';
 
 export type GpuBackend = 'webgpu' | 'unavailable';
@@ -31,8 +32,8 @@ export function hasWebGpu(
 export interface GpuRenderDeps {
   /** Override the capability probe (tests). */
   probe?: () => boolean;
-  /** Build the real WebGPU scene RenderFn. */
-  makeGpuScene?: (canvas?: HTMLCanvasElement) => Promise<RenderFn>;
+  /** Build the real WebGPU scene's render + meta-render pair. */
+  makeGpuScene?: (canvas?: HTMLCanvasElement) => Promise<{ render: RenderFn; renderMeta: MetaRenderFn }>;
   /** The on-screen canvas WebGPU binds to. The scene renders straight to its swap
    *  chain (no offscreen copy). Omitted ⇒ an offscreen canvas is created (the old
    *  blit-onto-2D path, kept for the studio + any caller that lacks a live canvas). */
@@ -42,11 +43,11 @@ export interface GpuRenderDeps {
 /**
  * Default GPU scene factory: bind WebGPU to the supplied on-screen canvas (or an
  * offscreen one when none is given), bring up the device, and build the frame
- * closure. Throws on any unavailability (no document, no adapter/device) so
+ * closures. Throws on any unavailability (no document, no adapter/device) so
  * `createGpuRenderMap` reports `unavailable`. In Node/jsdom there's no real
  * WebGPU, so this throws.
  */
-async function defaultGpuScene(canvas?: HTMLCanvasElement): Promise<RenderFn> {
+async function defaultGpuScene(canvas?: HTMLCanvasElement): Promise<{ render: RenderFn; renderMeta: MetaRenderFn }> {
   if (typeof document === 'undefined') throw new Error('no document for GPU canvas');
   const target = canvas ?? document.createElement('canvas');
   const { initWebGpu } = await import('@/render/gpu/webgpu-context');
@@ -56,6 +57,12 @@ async function defaultGpuScene(canvas?: HTMLCanvasElement): Promise<RenderFn> {
   const { buildGpuRenderFrame } = await import('@/render/gpu/gpu-render-frame');
   return buildGpuRenderFrame(new GpuScene(gpu), target);
 }
+
+/** A no-op `MetaRenderFn` — used when the GPU scene can't be built (no WebGPU
+ *  support / init failure). The world-less title screen has nothing to paint
+ *  without a GPU scene; the honest "WebGPU required" message already comes
+ *  from `unavailableRenderFn` below, drawn by `render` (world mode). */
+function noopRenderMeta(): void {}
 
 /** A RenderFn that paints an honest "WebGPU required" message — used when the
  *  GPU scene can't be built (no WebGPU support / init failure). */
@@ -78,23 +85,28 @@ function unavailableRenderFn(reason: string): RenderFn {
 }
 
 /**
- * Resolve the scene RenderFn and report which backend won. Builds the WebGPU
- * scene; on missing support or init failure returns the `unavailable` overlay
- * (never a black screen). The `backend` tag feeds the dev HUD / telemetry / tests.
+ * Resolve the scene render + meta-render pair and report which backend won.
+ * Builds the WebGPU scene; on missing support or init failure returns the
+ * `unavailable` overlay for `render` and a no-op `renderMeta` (never a black
+ * screen). The `backend` tag feeds the dev HUD / telemetry / tests.
  */
 export async function createGpuRenderMap(
   deps: GpuRenderDeps = {},
-): Promise<{ render: RenderFn; backend: GpuBackend }> {
+): Promise<{ render: RenderFn; renderMeta: MetaRenderFn; backend: GpuBackend }> {
   const probe = deps.probe ?? hasWebGpu;
   const makeGpuScene = deps.makeGpuScene ?? defaultGpuScene;
 
   if (!probe()) {
-    return { render: unavailableRenderFn('This browser does not expose navigator.gpu.'), backend: 'unavailable' };
+    return {
+      render: unavailableRenderFn('This browser does not expose navigator.gpu.'),
+      renderMeta: noopRenderMeta, backend: 'unavailable',
+    };
   }
   try {
-    return { render: await makeGpuScene(deps.canvas), backend: 'webgpu' };
+    const { render, renderMeta } = await makeGpuScene(deps.canvas);
+    return { render, renderMeta, backend: 'webgpu' };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'GPU initialisation failed.';
-    return { render: unavailableRenderFn(reason), backend: 'unavailable' };
+    return { render: unavailableRenderFn(reason), renderMeta: noopRenderMeta, backend: 'unavailable' };
   }
 }

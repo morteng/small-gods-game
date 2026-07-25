@@ -18,6 +18,7 @@ import { TERRAIN_WGSL } from '@/render/gpu/wgsl/terrain-wgsl';
 import { DETAIL_PATCH_WGSL } from '@/render/gpu/wgsl/detail-patch-wgsl';
 import { WATER_WGSL } from '@/render/gpu/wgsl/water-wgsl';
 import { OCEAN_BACKDROP_WGSL } from '@/render/gpu/wgsl/ocean-backdrop-wgsl';
+import { SKY_BACKDROP_WGSL } from '@/render/gpu/wgsl/sky-backdrop-wgsl';
 import { SHADOW_WGSL } from '@/render/gpu/wgsl/shadow-wgsl';
 import { SHAPE_WGSL } from '@/render/gpu/wgsl/shape-wgsl';
 import { BLIT_WGSL } from '@/render/gpu/wgsl/blit-wgsl';
@@ -245,6 +246,21 @@ export function createWaterCompositePipeline(device: GPUDevice, format: GPUTextu
  *  water globals uniform for the inverse projection + time (bind group in caller). */
 export function createOceanBackdropPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
   const module = device.createShaderModule({ code: OCEAN_BACKDROP_WGSL });
+  return device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module, entryPoint: 'vsMain' },
+    fragment: { module, entryPoint: 'fsMain', targets: [{ format }] },
+    primitive: { topology: 'triangle-list' },
+  });
+}
+
+/** Title-screen sky-backdrop pipeline (P1-C, meta mode): mirrors the ocean
+ *  backdrop EXACTLY — a fullscreen triangle, OPAQUE, no depth — so the bind
+ *  group the scene builds for it (globals uniform + noise texture + sampler,
+ *  bindings 0/1/2) follows the same shape. Drawn only by `GpuScene.renderMeta`
+ *  (the world-less title-screen path), never by `renderFrame`. */
+export function createSkyBackdropPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+  const module = device.createShaderModule({ code: SKY_BACKDROP_WGSL });
   return device.createRenderPipeline({
     layout: 'auto',
     vertex: { module, entryPoint: 'vsMain' },

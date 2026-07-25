@@ -80,6 +80,30 @@ export class UiContext {
    *  directly from a wheel tick; `scrollList` clamps + consumes it on the next draw. */
   private scrollOffsets = new Map<string, number>();
 
+  /**
+   * Keyboard/gamepad focus target. Durable across frames — the SAME durability
+   * class as `scrollOffsets` above, never reset in `begin()` — so a screen that
+   * redraws every frame doesn't lose focus between them. `null` = nothing
+   * focused (the initial state; nothing auto-focuses on first draw).
+   */
+  focusId: string | null = null;
+
+  /** This frame's navigation order, built by `focusable()` calls AS widgets
+   *  draw (registration order = nav order — the same contract `hits` follows
+   *  for click routing). Reset in `begin()`, like `hits`. `focusNext`/
+   *  `focusPrev` are called BETWEEN frames — in response to a key/gamepad
+   *  event, before the next `begin()` — so they always read the array as the
+   *  just-completed frame left it: "the LAST frame's ring". */
+  private focusRing: string[] = [];
+
+  /** One-shot ACTIVATE request armed by `activate()` (Enter / gamepad A).
+   *  `begin()` copies it into `activateThisFrame` (valid for exactly that one
+   *  frame) and clears it here, so a single keypress fires the focused
+   *  widget's click behavior on the next frame only — never queued, never
+   *  repeated. */
+  private pendingActivate = false;
+  private activateThisFrame = false;
+
   constructor(opts: { batcher?: UiBatcher; palette?: UiPalette; font?: FontMetrics } = {}) {
     this.batcher = opts.batcher ?? new UiBatcher();
     this.palette = opts.palette ?? UI_PALETTE;
@@ -87,13 +111,19 @@ export class UiContext {
   }
 
   /** Start a frame: reset geometry + hit list, capture the input snapshot. Scroll
-   *  OFFSETS are deliberately NOT reset here — they are durable per-id state (D2). */
+   *  OFFSETS and the focus ID are deliberately NOT reset here — they are durable
+   *  per-id/singleton state (D2 / the focus model). The focus RING is reset like
+   *  `hits`, but only after any pending `focusNext`/`focusPrev` from BETWEEN
+   *  frames has already read the prior value (see the field comment). */
   begin(input: UiInput = EMPTY_INPUT): void {
     this.batcher.reset();
     this.hits = [];
     this.scrollRegions = [];
     this.hotId = null;
     this.input = input;
+    this.focusRing = [];
+    this.activateThisFrame = this.pendingActivate;
+    this.pendingActivate = false;
   }
 
   /** Filled, bordered surface (gray-box panel). */
@@ -118,17 +148,27 @@ export class UiContext {
 
   /**
    * A clickable button. Returns true on the frame the click completes (pointer
-   * released while hot). Inert when `disabled` or when the input snapshot is
-   * empty. Records a hit region for S2's router regardless. Labels wider than
-   * the button are ellipsis-clipped (`…`) so text never overflows the border.
+   * released while hot) OR the frame a keyboard/gamepad ACTIVATE lands while
+   * this button holds focus. Inert when `disabled` or when the input snapshot
+   * is empty. Records a hit region for S2's router regardless. Labels wider
+   * than the button are ellipsis-clipped (`…`) so text never overflows the
+   * border. Registers into the focus ring (unless `disabled` — nothing to
+   * activate) via `focusable()`, so every button is keyboard/gamepad
+   * navigable for free.
    */
   button(id: string, label: string, x: number, y: number, w: number, h: number, opts: ButtonOpts = {}): boolean {
     const scale = opts.scale ?? 1;
     const disabled = !!opts.disabled;
     const alpha = opts.alpha ?? 1;
     const hot = !disabled && pointIn(this.input.px, this.input.py, x, y, w, h);
+    // Pointer hover sets keyboard focus too, so the two never disagree — a
+    // mouse user tabbing away and back lands where their cursor already is.
+    if (hot) this.setFocus(id);
     if (hot) this.hotId = id;
     const active = hot && this.input.down;
+    // `focusable()` both registers this id into the nav ring AND reports
+    // whether it holds focus right now — one call, one source of truth.
+    const focused = !disabled && this.focusable(id);
 
     const p = this.palette;
     const bg = disabled ? p.disabledBg : active ? p.buttonActiveBg : hot ? p.buttonHotBg : p.buttonBg;
@@ -149,25 +189,92 @@ export class UiContext {
     const th = this.font.lineHeight(scale);
     this.label(text, Math.round(x + Math.max(padX, (w - tw) / 2)), Math.round(y + (h - th) / 2), scale, fgA);
 
+    // Focus ring: a 2px border INSIDE the widget bounds (never touches layout
+    // — same paint-only rule as the `alpha` quiet-chrome option above) drawn
+    // only when focused-but-not-hot, so a hovered focused button doesn't show
+    // two overlapping indicators (the hover bg already reads as "here").
+    if (focused && !hot) {
+      this.batcher.border(x, y, w, h, 2, p.accent);
+    }
+
     this.hits.push({ id, x, y, w, h });
-    return hot && !disabled && this.input.released;
+    return (hot && !disabled && this.input.released) || (focused && this.activateThisFrame);
   }
 
   /**
    * A chrome-less clickable region — the caller draws its own visuals (e.g. the
    * presence orb) and uses this purely for hover/click + hit-registration.
-   * Returns true on the frame the click completes; sets `hot()` while hovered.
+   * Returns true on the frame the click completes, OR a keyboard/gamepad
+   * ACTIVATE lands while this hotspot holds focus. Sets `hot()` while hovered.
+   * Registers into the focus ring via `focusable()`, same as `button()`.
    */
   hotspot(id: string, x: number, y: number, w: number, h: number): boolean {
     const hot = pointIn(this.input.px, this.input.py, x, y, w, h);
+    if (hot) this.setFocus(id);
     if (hot) this.hotId = id;
+    const focused = this.focusable(id);
     this.hits.push({ id, x, y, w, h });
-    return hot && this.input.released;
+    return (hot && this.input.released) || (focused && this.activateThisFrame);
   }
 
   /** The id of the widget currently under the pointer (null if none). */
   hot(): string | null {
     return this.hotId;
+  }
+
+  /**
+   * Register `id` into this frame's keyboard/gamepad navigation ring
+   * (registration order = navigation order — call it in draw order) and
+   * report whether it currently holds focus. `button()`/`hotspot()` call this
+   * for you; kit widgets that draw their own hit regions (e.g. a `list` row)
+   * call it directly.
+   */
+  focusable(id: string): boolean {
+    this.focusRing.push(id);
+    return id === this.focusId;
+  }
+
+  /** Move focus to the next entry in the LAST frame's ring, wrapping past the
+   *  end. Lands on the first entry when nothing was focused (or the focused id
+   *  no longer exists in the ring — e.g. its widget stopped drawing). A no-op
+   *  when the ring is empty. */
+  focusNext(): void {
+    const ring = this.focusRing;
+    if (ring.length === 0) return;
+    const idx = this.focusId != null ? ring.indexOf(this.focusId) : -1;
+    this.focusId = ring[idx === -1 ? 0 : (idx + 1) % ring.length];
+  }
+
+  /** Move focus to the previous entry, wrapping past the start. Lands on the
+   *  LAST entry when nothing was focused (the mirror of `focusNext`'s "first
+   *  entry" — Shift+Tab from nowhere should reach backward, not restart). */
+  focusPrev(): void {
+    const ring = this.focusRing;
+    if (ring.length === 0) return;
+    const idx = this.focusId != null ? ring.indexOf(this.focusId) : -1;
+    this.focusId = ring[idx === -1 ? ring.length - 1 : (idx - 1 + ring.length) % ring.length];
+  }
+
+  /** Directly set (or clear) keyboard focus — pointer hover calls this from
+   *  `button()`/`hotspot()` so pointer and keyboard focus never disagree. */
+  setFocus(id: string | null): void {
+    this.focusId = id;
+  }
+
+  /** Arm a one-shot ACTIVATE (Enter / gamepad A): the currently-focused
+   *  widget's `button()`/`hotspot()` call returns true on the NEXT frame, as
+   *  if clicked. Consumed automatically by that frame's `begin()` — calling
+   *  this twice before a frame runs does not queue two activations. */
+  activate(): void {
+    this.pendingActivate = true;
+  }
+
+  /** The injected pointer position for this frame (device px). Kit widgets
+   *  that need "click anywhere jumps" behavior (e.g. a slider track) read
+   *  this directly rather than every widget re-deriving its own notion of
+   *  pointer position from a fresh `UiInput` plumbed in separately. */
+  pointer(): { x: number; y: number } {
+    return { x: this.input.px, y: this.input.py };
   }
 
   /** Line height for a given text scale (for callers laying out their own text). */

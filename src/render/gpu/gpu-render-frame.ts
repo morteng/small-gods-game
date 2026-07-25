@@ -127,6 +127,11 @@ function artPixelOverride(): number | null {
 }
 
 
+/** The world-less "meta mode" frame entry (title screen etc., P1-C) — see
+ *  `buildGpuRenderFrame`'s `renderMeta` closure below. Takes only a wall-clock
+ *  timestamp: there's no camera/RenderContext before a world exists. */
+export type MetaRenderFn = (opts: { nowMs: number }) => void;
+
 /**
  * Build the game frame closure over a ready GpuScene and the on-screen SCENE
  * canvas it renders to. `ctx` (passed per frame) is the transparent 2D OVERLAY
@@ -134,8 +139,14 @@ function artPixelOverride(): number | null {
  * chain, the overlay only carries the perf HUD + `?connectome` graph. The scene
  * canvas's device backing is kept in sync with the overlay each frame; WebGPU
  * tracks the canvas size, so the swap chain follows.
+ *
+ * Returns BOTH the world-mode `render` closure (unchanged behaviour/signature)
+ * and the meta-mode `renderMeta` closure (P1-C) — one GpuScene, one pair of
+ * entries, so the constructor's pipelines are never built twice.
  */
-export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElement): RenderFn {
+export function buildGpuRenderFrame(
+  scene: GpuScene, sceneCanvas: HTMLCanvasElement,
+): { render: RenderFn; renderMeta: MetaRenderFn } {
   const atlas = createNullAtlas();
   const showConnectome = connectomeRequested();
   const fixedPx = artPixelOverride();
@@ -162,7 +173,7 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
     () => staticCache.invalidate();
   // Cosmetic flow-advected particles (S6), owning their own seed + step timing.
   const flotsam = new FlotsamLayer();
-  return function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
+  const render = function renderMap(ctx: CanvasRenderingContext2D, rc: RenderContext): void {
     if (profiling) return; // a profile run owns the GPU; skip the live frame
     const { camera, canvasWidth, canvasHeight, map } = rc;
     // `target` is the SCENE canvas (the WebGPU swap chain we render into); `ctx` is
@@ -439,6 +450,22 @@ export function buildGpuRenderFrame(scene: GpuScene, sceneCanvas: HTMLCanvasElem
       drawPerfHud(ctx, canvasWidth, fpsEma, px, fixedPx !== null);
     }
   };
+
+  // META mode (P1-C): the title screen exists before any world/camera/RenderContext
+  // does, so this closure takes just a wall-clock timestamp. `sceneCanvas`'s backing
+  // store IS the live device-pixel frame size already — the same ResizeObserver in
+  // `Game`'s constructor that keeps it in sync for `render` above runs BEFORE
+  // `bootShell()` too, so there's nothing to resize here, only to read. `dpr` recovers
+  // the same value `render` derives from `canvasWidth`, just straight from the global
+  // (meta mode has no RenderContext to divide through).
+  const renderMeta: MetaRenderFn = ({ nowMs }): void => {
+    const target = sceneCanvas;
+    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
+    const uiGroups = ui.frame(target.width, target.height, dpr, nowMs);
+    scene.renderMeta({ w: target.width, h: target.height, timeSec: nowMs / 1000, uiGroups });
+  };
+
+  return { render, renderMeta };
 }
 
 /** Tiny top-right pill: "60 fps · px 1" (adaptive) or "· px 2 (fixed)". */

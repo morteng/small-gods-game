@@ -36,7 +36,16 @@ export type CommandVerb =
   // meta tier (R9 time controls) — change HOW FAST the sim advances, not sim
   // state. Intercepted on the GAME side (never enqueued), so they never enter the
   // sim tick / event log / snapshot / replay. See registry.ts + game-bus onMeta.
-  | 'set_time_rate' | 'skip_to_next_event' | 'cancel_seek';
+  | 'set_time_rate' | 'skip_to_next_event' | 'cancel_seek'
+  // meta tier (UI v3) — the SHELL verbs: starting/loading/saving a world, moving
+  // between meta screens, settings, key rebinding, photo + seed share. Same
+  // contract as the time controls above: no `apply`, intercepted at the dispatch
+  // boundary, never enqueued — but registered here so the whole menu flow is
+  // drivable by MCP / the dev bus / tests through the ordinary command path
+  // instead of a bespoke test hook. See registry.ts + Game.handleMetaCommand.
+  | 'new_game' | 'load_slot' | 'save_slot' | 'delete_slot' | 'rename_slot'
+  | 'quit_to_title' | 'open_screen' | 'close_screen'
+  | 'set_setting' | 'rebind_key' | 'capture_photo' | 'copy_world_code';
 
 export type CommandTarget =
   | { kind: 'npc'; npcId: string }

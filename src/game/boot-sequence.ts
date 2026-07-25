@@ -16,7 +16,7 @@ import type { Viewport } from './viewport';
 import { waitForArtSettled } from '@/game/art-settle-gate';
 import { composeQueuePending } from '@/render/compose-scheduler';
 import { pendingSheets } from '@/render/lpc/spritesheet-cache';
-import { selectRenderer, type RenderFn } from '@/render/select-renderer';
+import { selectRenderer, type SelectedRenderers } from '@/render/select-renderer';
 import { ART_RECIPE_VERSION } from '@/core/content-version';
 import { loadBaseLibrary } from '@/services/base-library-loader';
 import { AssetLibrary } from '@/services/asset-library';
@@ -39,8 +39,10 @@ export interface BootSequenceDeps {
   parametricBarrierSource: ParametricBarrierSource;
   generatedBuildingArtSource: GeneratedBuildingArtSource;
   /** The scene renderer lands back on the Game as soon as it's up (the frame
-   *  path + captureFrame read it). */
-  setRenderMap: (fn: RenderFn) => void;
+   *  path + captureFrame read `render`; `renderMeta` is P1-C's world-less
+   *  title-screen entry — captured now, wired into the frame loop by a later
+   *  phase, spec 3.1's meta-mode `onRender` branch). */
+  setRenderMap: (renderers: SelectedRenderers) => void;
   /** The loaded art library + resolvers land back on the Game (renderDeps reads them). */
   setArt: (art: { assetLibrary: AssetLibrary; artResolver: ArtResolver; buildingArtResolver: ArtResolver }) => void;
   /** Game-side world-ready wiring (HUD, dev inspector, autosave) — runs inside

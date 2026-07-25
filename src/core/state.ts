@@ -210,3 +210,86 @@ export function createState(): GameState {
     contention: new ContentionLedger(),
   };
 }
+
+/**
+ * Fields whose OBJECT IDENTITY must survive `resetState`, because subsystems
+ * built ONCE in the `Game` constructor hold direct references to them and would
+ * be left pointing at a dead object if we swapped in a fresh one:
+ * `TimeController`/`PersistenceController`/`ChronicleService` capture
+ * `state.clock` + `state.eventLog`; the sim systems and `GameQuery` closures
+ * read `state.spirits`; the camera is mutated in place everywhere.
+ *
+ * This split is not invented here — it is exactly the one `restoreSnapshot`
+ * already lives by on every timeline scrub: it REPLACES `rng`/`world`/`roadUse`/
+ * `contention`/`cohorts`/`trample` and `hydrate`s/`clear`s everything on this
+ * list. So each choice below is already battle-tested by the scrub path.
+ */
+const IDENTITY_STABLE = new Set<keyof GameState>([
+  'camera', 'spirits', 'eventLog', 'clock',
+  'systemState', 'plotThreads', 'staging', 'fateArcs', 'chronicle',
+  'runtimePois', 'crossingTiers', 'adoptions', 'surfacedInbox',
+]);
+
+/**
+ * How many fields `GameState` has. PINNED so that adding a field forces a
+ * conscious decision about whether it is identity-stable or replaceable —
+ * `tests/unit/state-reset-parity.test.ts` fails loudly with that instruction
+ * rather than letting a new field silently survive a quit-to-title as stale
+ * world data. Bump it in the same commit as the new field.
+ */
+export const GAME_STATE_FIELD_COUNT = 41;
+
+/**
+ * Return `state` to exactly the shape `createState()` would produce, MUTATING IT
+ * IN PLACE — the in-process "quit to title" / "start another world" reset
+ * (UI v3 §3.4).
+ *
+ * Why in place: `Game`'s constructor wires a dozen collaborators around one
+ * `GameState` instance. Assigning `this.state = createState()` would leave every
+ * one of them holding the old object, so the reset has to preserve the container
+ * identities (see `IDENTITY_STABLE`) while clearing their contents.
+ *
+ * Why this is safe to trust: the replaceable half is assigned by ITERATING a
+ * fresh `createState()`, so a field added to `createState` is covered here
+ * automatically — there is no second list to forget to update. Only the
+ * identity-stable half is spelled out, and the pinned field count above turns a
+ * new field into a test failure that names the decision to make.
+ */
+export function resetState(state: GameState): void {
+  const fresh = createState();
+
+  // ── the identity-stable half: clear the SAME objects in place ──
+  state.clock.setNow(0);
+  // Copy whatever `createState` seeded (the player's `spirit_birth`) rather than
+  // re-appending a duplicate literal, so this can never drift from it. `hydrate`
+  // is deliberately silent — subscribers (autosave!) must not see a reset as a
+  // burst of new events, and they stay subscribed across the reset.
+  state.eventLog.hydrate(fresh.eventLog.since(0));
+  state.spirits.clear();
+  for (const [id, spirit] of fresh.spirits) state.spirits.set(id, spirit);
+  Object.assign(state.camera, fresh.camera);
+  state.systemState.hydrate(undefined);
+  state.plotThreads.hydrate([]);
+  state.staging.hydrate([]);
+  state.fateArcs.hydrate([]);
+  state.chronicle.hydrate([]);
+  state.runtimePois.reset();
+  state.crossingTiers.reset();
+  state.adoptions.reset();
+  state.surfacedInbox.clear();
+
+  // ── the replaceable half: everything else takes the fresh value ──
+  // Derived from `fresh`'s own keys, so this needs no maintenance when
+  // `createState` grows a field.
+  const target = state as unknown as Record<string, unknown>;
+  const source = fresh as unknown as Record<string, unknown>;
+  for (const key of Object.keys(fresh) as Array<keyof GameState>) {
+    if (IDENTITY_STABLE.has(key)) continue;
+    target[key as string] = source[key as string];
+  }
+}
+
+/** The identity-stable field names (for the parity guard test). */
+export function identityStableFields(): ReadonlySet<keyof GameState> {
+  return IDENTITY_STABLE;
+}

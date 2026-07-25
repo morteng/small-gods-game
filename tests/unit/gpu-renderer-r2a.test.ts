@@ -5,8 +5,8 @@ import type { RenderContext } from '@/core/types';
 
 describe('R2a — GPU renderer capability routing', () => {
   it('reports an unavailable backend when WebGPU is absent (no GPU scene built)', async () => {
-    const makeGpuScene = vi.fn(async () => (() => {}) as RenderFn);
-    const { render, backend } = await createGpuRenderMap({
+    const makeGpuScene = vi.fn(async () => ({ render: (() => {}) as RenderFn, renderMeta: () => {} }));
+    const { render, renderMeta, backend } = await createGpuRenderMap({
       probe: () => false,
       makeGpuScene,
     });
@@ -14,16 +14,20 @@ describe('R2a — GPU renderer capability routing', () => {
     expect(makeGpuScene).not.toHaveBeenCalled(); // never build a GPU scene with no GPU
     // The unavailable render fn paints an honest message — it must not throw.
     expect(() => render(mockCtx(), mockRc())).not.toThrow();
+    // No GPU scene ⇒ nothing for meta mode to paint either; the no-op must not throw.
+    expect(() => renderMeta({ nowMs: 0 })).not.toThrow();
   });
 
   it('uses the WebGPU scene when present and wired', async () => {
     const gpuRender: RenderFn = () => {};
-    const { render, backend } = await createGpuRenderMap({
+    const gpuRenderMeta = () => {};
+    const { render, renderMeta, backend } = await createGpuRenderMap({
       probe: () => true,
-      makeGpuScene: async () => gpuRender,
+      makeGpuScene: async () => ({ render: gpuRender, renderMeta: gpuRenderMeta }),
     });
     expect(backend).toBe('webgpu');
     expect(render).toBe(gpuRender);
+    expect(renderMeta).toBe(gpuRenderMeta);
   });
 
   it('reports unavailable (never throws, never blanks) if GPU scene init fails', async () => {

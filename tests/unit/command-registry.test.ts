@@ -12,7 +12,19 @@ const EDITOR_VERBS: CommandVerb[] = [
 
 // R9: meta-tier time-control verbs — declared in the registry (so the bus/story
 // allowlist accepts them) but handled off-sim by TimeController (no `apply`).
-const META_VERBS: CommandVerb[] = ['set_time_rate', 'skip_to_next_event', 'cancel_seek'];
+const TIME_VERBS: CommandVerb[] = ['set_time_rate', 'skip_to_next_event', 'cancel_seek'];
+
+// UI v3: meta-tier SHELL verbs — the menu flow (new/load/save, screens, settings,
+// rebinding, photo + world code). Same apply-less contract as the time verbs;
+// intercepted by `Game.handleMetaCommand`, so the whole menu is drivable through
+// the ordinary command path by MCP / the dev bus / tests.
+const SHELL_VERBS: CommandVerb[] = [
+  'new_game', 'load_slot', 'save_slot', 'delete_slot', 'rename_slot',
+  'quit_to_title', 'open_screen', 'close_screen',
+  'set_setting', 'rebind_key', 'capture_photo', 'copy_world_code',
+];
+
+const META_VERBS: CommandVerb[] = [...TIME_VERBS, ...SHELL_VERBS];
 
 const ALL_VERBS: CommandVerb[] = [
   'whisper', 'omen', 'dream', 'miracle', 'answer_prayer', 'probe_mind', 'smite', 'summon_storm',
@@ -24,11 +36,35 @@ const ALL_VERBS: CommandVerb[] = [
 ];
 
 describe('capability registry', () => {
-  it('declares all 29 verbs', () => {
-    expect(listCapabilities()).toHaveLength(29);
+  it('declares every verb exactly once, and nothing extra', () => {
+    // Asserted against the enumerated list rather than a bare magic number, so a
+    // verb added to the registry but forgotten here fails with a NAME, not just a
+    // count mismatch.
+    const declared = listCapabilities().map((d) => d.verb).sort();
+    expect(declared).toEqual([...ALL_VERBS].sort());
     for (const v of ALL_VERBS) {
       expect(getCapability(v)).toBeDefined();
       expect(CAPABILITY_REGISTRY[v].verb).toBe(v);
+    }
+  });
+
+  it('every shell verb takes NO target, so hover-affordance ranking is untouched', () => {
+    // Affordances rank by accepted target kind; a shell verb that accepted an npc
+    // or tile would start appearing in hover chips and inspector rows.
+    for (const v of SHELL_VERBS) {
+      expect(CAPABILITY_REGISTRY[v].targetKind).toBe('none');
+      expect(CAPABILITY_REGISTRY[v].targetKinds).toBeUndefined();
+    }
+  });
+
+  it('every shell verb describes itself without throwing on empty params', () => {
+    // `describe` feeds the MCP `preview_command` output and the dev bus log, and
+    // callers legitimately omit params — it must degrade, never throw.
+    for (const v of SHELL_VERBS) {
+      const def = CAPABILITY_REGISTRY[v];
+      const text = def.describe({ verb: v, source: 'player', target: { kind: 'none' }, seq: 1 });
+      expect(typeof text).toBe('string');
+      expect(text.length).toBeGreaterThan(0);
     }
   });
 

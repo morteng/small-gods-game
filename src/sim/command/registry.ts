@@ -400,6 +400,81 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     verb: 'cancel_seek', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
     describe: () => 'stop skipping ahead',
   },
+
+  // ── Meta tier (UI v3 shell) — the menu verbs. ────────────────────────────
+  // Same contract as the time controls above and for the same reason: they change
+  // WHICH WORLD is loaded or WHAT THE PLAYER IS LOOKING AT, never sim state, so
+  // they carry no `apply` and are intercepted at the dispatch boundary
+  // (`Game.handleMetaCommand`) before they can reach the queue. `previewCommand`'s
+  // `!def.apply` check rejects any that leaked as `not_implemented`.
+  //
+  // Registering them (rather than wiring the menu straight to Game methods) is
+  // what makes the entire shell drivable through the ordinary command path — the
+  // MCP server's `capabilities`/`emit_command`, the dev bus CLI, and tests all
+  // get "start a new world", "load slot 2", "open settings" for free, with no
+  // bespoke test hook. Every one takes `targetKind: 'none'`, so they add nothing
+  // to hover-affordance ranking (which keys on the target kind).
+  new_game: {
+    verb: 'new_game', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => {
+      const seed = cmd.params?.genSeed ?? cmd.payload?.genSeed;
+      const genome = cmd.params?.genome ?? cmd.payload?.genome;
+      if (genome) return `start a new world from the ${String(genome)} genome`;
+      return seed ? `start a new world from seed ${String(seed)}` : 'start a new world';
+    },
+  },
+  load_slot: {
+    verb: 'load_slot', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `load the saved world in ${String(cmd.params?.slot ?? cmd.payload?.slot ?? 'a slot')}`,
+  },
+  save_slot: {
+    verb: 'save_slot', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `save this world to ${String(cmd.params?.slot ?? cmd.payload?.slot ?? 'a slot')}`,
+  },
+  delete_slot: {
+    verb: 'delete_slot', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `delete the save in ${String(cmd.params?.slot ?? cmd.payload?.slot ?? 'a slot')}`,
+  },
+  rename_slot: {
+    verb: 'rename_slot', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `rename the save in ${String(cmd.params?.slot ?? cmd.payload?.slot ?? 'a slot')}`,
+  },
+  quit_to_title: {
+    verb: 'quit_to_title', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: () => 'leave this world and return to the title',
+  },
+  open_screen: {
+    verb: 'open_screen', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => `open the ${String(cmd.params?.screen ?? cmd.payload?.screen ?? '?')} screen`,
+  },
+  close_screen: {
+    verb: 'close_screen', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: () => 'close the current screen',
+  },
+  set_setting: {
+    verb: 'set_setting', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => {
+      const key = cmd.params?.key ?? cmd.payload?.key ?? '?';
+      const value = cmd.params?.value ?? cmd.payload?.value ?? '?';
+      return `set ${String(key)} to ${String(value)}`;
+    },
+  },
+  rebind_key: {
+    verb: 'rebind_key', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: (cmd) => {
+      const action = cmd.params?.action ?? cmd.payload?.action ?? '?';
+      const code = cmd.params?.code ?? cmd.payload?.code ?? '?';
+      return `bind ${String(action)} to ${String(code)}`;
+    },
+  },
+  capture_photo: {
+    verb: 'capture_photo', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: () => 'capture a chrome-free image of this world',
+  },
+  copy_world_code: {
+    verb: 'copy_world_code', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
+    describe: () => 'copy this world code to the clipboard',
+  },
 };
 
 /** True for verbs that change HOW FAST the sim advances, not sim state. These are

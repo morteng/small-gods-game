@@ -32,7 +32,7 @@ import { buildShapeVertices } from '@/render/gpu/shape-geometry';
 import {
   DEPTH_FORMAT,
   createSpritePipeline, createTerrainPipeline, createDetailPatchPipeline,
-  createWaterPipeline, createOceanBackdropPipeline,
+  createWaterPipeline, createOceanBackdropPipeline, createSkyBackdropPipeline,
   createShadowPipeline, createShapePipeline, createBlitPipeline,
   createStructureMeshPipeline, createGrassPipeline,
   createTerrainDepthPipeline, createWaterCompositePipeline,
@@ -98,6 +98,14 @@ const GRASS_WIND_FREQ = 1.3;      // rad/s — calmer than a fast flutter
  *  WIND IS OFF FOR NOW (user directive 2026-07-16); last live value: 1.5. */
 const TREE_WIND_STRENGTH = 0;
 
+/** Meta-mode (title screen) sky-backdrop uniform: ONE vec4 — viewport.xy
+ *  (device px), wall-clock timeSec, pad — see `SGlobals` in
+ *  sky-backdrop-wgsl.ts. Deliberately tiny: unlike the ocean backdrop (which
+ *  reuses the 112-byte water globals for its camera inverse-projection) the
+ *  sky pass has no camera and no world, so it needs nothing beyond viewport
+ *  + time. */
+const SKY_BACKDROP_GLOBALS_FLOATS = 4;
+
 /** Shared per-frame render state threaded through the per-pass helpers (so they
  *  don't each take a dozen params). `colorCleared` is mutated as passes draw — the
  *  FIRST colour pass clears the target, the rest load. `out` set ⇒ the scene
@@ -108,7 +116,11 @@ interface PassCtx {
   colorView: GPUTextureView;
   /** The swapchain view (blit + UI target when `out` set). */
   swapView: GPUTextureView;
-  depthView: GPUTextureView;
+  /** Absent in META mode (`renderMeta` draws only the sky-backdrop + UI passes,
+   *  neither of which attaches a depth buffer). `renderFrame` always supplies
+   *  one (`ensureDepth`); the world passes that read it (`passTerrain` etc.)
+   *  assert it non-null — safe because they only ever run inside `renderFrame`. */
+  depthView?: GPUTextureView;
   /** Scene (low-res) size in px. */
   w: number; h: number;
   /** Swapchain size when rendering through the offscreen target; absent ⇒ direct. */
@@ -229,6 +241,15 @@ export class GpuScene {
    *  the whole viewport past the map edge. Reuses the water globals uniform. */
   private oceanBackdropPipeline: GPURenderPipeline;
   private oceanBackdropBind: GPUBindGroup | null = null;
+  /** Title-screen sky backdrop (P1-C, meta mode) — the world-less counterpart
+   *  to the ocean backdrop above, drawn only by `renderMeta`. Own tiny globals
+   *  buffer (SKY_BACKDROP_GLOBALS_FLOATS): no camera/world to reuse the water
+   *  globals for. Built eagerly in the constructor (the title screen needs it
+   *  before any world exists), bound once — `skyBackdropGlobalsBuf` is the only
+   *  part rewritten per frame. */
+  private skyBackdropPipeline: GPURenderPipeline;
+  private skyBackdropGlobalsBuf: GPUBuffer;
+  private skyBackdropBind: GPUBindGroup | null = null;
   private waterSurfaceBuf: GPUBuffer | null = null;
   private waterTypeBuf: GPUBuffer | null = null;
   private waterShallowBuf: GPUBuffer | null = null;
@@ -451,6 +472,24 @@ export class GpuScene {
       layout: this.oceanBackdropPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.waterGlobalsBuf } },
+        { binding: 1, resource: this.noiseTexView },
+        { binding: 2, resource: this.noiseSampler },
+      ],
+    });
+
+    // Title-screen sky backdrop (P1-C, meta mode) — same bind-group SHAPE as the
+    // ocean backdrop (globals uniform + the shared noise atlas), its own tiny
+    // globals buffer (no camera/world to borrow the water globals from). Built
+    // here (not lazily) so `renderMeta` can draw the very first frame with no
+    // world loaded yet.
+    this.skyBackdropGlobalsBuf = device.createBuffer({
+      size: SKY_BACKDROP_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.skyBackdropPipeline = createSkyBackdropPipeline(device, gpu.format);
+    this.skyBackdropBind = device.createBindGroup({
+      layout: this.skyBackdropPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.skyBackdropGlobalsBuf } },
         { binding: 1, resource: this.noiseTexView },
         { binding: 2, resource: this.noiseSampler },
       ],
@@ -1424,12 +1463,71 @@ export class GpuScene {
     ctx.colorCleared = true;
   }
 
+  /**
+   * META pass — the title-screen sky (P1-C). A fullscreen triangle, OPAQUE, no
+   * depth, exactly like `passBackdrop` above, but world-less: no inverse
+   * projection, no water globals, just viewport + wall-clock time. Called only
+   * by `renderMeta`, always as the FIRST (clearing) pass — meta mode has no
+   * terrain to load over it the way the ocean backdrop does.
+   */
+  private passSkyBackdrop(ctx: PassCtx): void {
+    const spass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: 'clear', storeOp: 'store' }],
+    });
+    spass.setPipeline(this.skyBackdropPipeline);
+    spass.setBindGroup(0, this.skyBackdropBind!);
+    spass.draw(3);
+    spass.end();
+    ctx.colorCleared = true;
+  }
+
+  /** Pack the sky-backdrop's 16-byte uniform (SKY_BACKDROP_GLOBALS_FLOATS = 4
+   *  floats): offset 0 viewport.x, 4 viewport.y, 8 timeSec, 12 pad — see
+   *  `SGlobals` in sky-backdrop-wgsl.ts. */
+  private packSkyBackdropGlobals(w: number, h: number, timeSec: number): Float32Array {
+    const b = new Float32Array(SKY_BACKDROP_GLOBALS_FLOATS);
+    b[0] = w; b[1] = h; b[2] = timeSec; b[3] = 0;
+    return b;
+  }
+
+  /**
+   * META-mode (world-less) render entry (P1-C) — the title screen's sky +
+   * UI, and NOTHING else: no low-res offscreen (`out`), no blit, no depth
+   * attachment, no terrain/water/entity/shadow work. Exactly two passes: the
+   * sky backdrop (clears the target) then the SAME `passUi` helper
+   * `renderFrame` uses, at full device resolution (`w`/`h` here ARE the
+   * swapchain size — there's no camera/adaptive-resolution ladder to scale
+   * through in meta mode). `renderFrame`'s behaviour/signature is unchanged;
+   * this is a parallel entry point, not a variant of it.
+   */
+  renderMeta(opts: { w: number; h: number; timeSec: number; uiGroups?: readonly UiDrawGroup[] }): void {
+    const { device } = this;
+    const { w, h, timeSec, uiGroups } = opts;
+    device.queue.writeBuffer(this.skyBackdropGlobalsBuf, 0,
+      this.packSkyBackdropGlobals(w, h, timeSec) as GPUAllowSharedBufferSource);
+
+    const swapView = this.ctx.getCurrentTexture().createView();
+    const ctx: PassCtx = {
+      enc: device.createCommandEncoder(),
+      colorView: swapView,
+      swapView,
+      w, h,
+      // Zenith tone — fully overpainted by the sky pass's own clear+draw; only
+      // matters if the pipeline somehow failed to bind (never happens in practice).
+      ocean: { r: 0.16, g: 0.15, b: 0.27, a: 1 },
+      colorCleared: false,
+    };
+    this.passSkyBackdrop(ctx);
+    if (uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
+    device.queue.submit([ctx.enc.finish()]);
+  }
+
   /** Pass 1 — terrain (own depth: spatial iso depth, greater, write). Loads colour
    *  if the backdrop already filled it; otherwise clears. */
   private passTerrain(ctx: PassCtx, terrain: TerrainField): void {
     const tpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     tpass.setPipeline(this.terrainPipeline);
     tpass.setBindGroup(0, this.terrainBind!);
@@ -1445,7 +1543,7 @@ export class GpuScene {
   private passDetail(ctx: PassCtx, detail: DetailField): void {
     const dpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthLoadOp: 'load', depthStoreOp: 'store' },
     });
     dpass.setPipeline(this.detailPatchPipeline);
     dpass.setBindGroup(0, this.detailBind!);
@@ -1517,7 +1615,7 @@ export class GpuScene {
     }
     const wpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthLoadOp: 'load', depthStoreOp: 'store' },
     });
     wpass.setPipeline(this.waterPipeline);
     wpass.setBindGroup(0, this.waterBind!);
@@ -1582,7 +1680,7 @@ export class GpuScene {
   private passStructures(ctx: PassCtx, field: StructureField): void {
     const spass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthLoadOp: 'load', depthStoreOp: 'store' },
     });
     spass.setPipeline(this.structureMeshPipeline);
     spass.setBindGroup(0, this.structureBind!);
@@ -1605,7 +1703,7 @@ export class GpuScene {
     if (landCount <= 0) return;
     const gpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthLoadOp: 'load', depthStoreOp: 'store' },
     });
     gpass.setPipeline(this.grassPipeline);
     gpass.setBindGroup(0, this.grassBind!);
@@ -1627,7 +1725,7 @@ export class GpuScene {
     if (this.grassSeaweedCount <= 0 || !this.grassSubmergedBind) return;
     const gpass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthLoadOp: 'load', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthLoadOp: 'load', depthStoreOp: 'store' },
     });
     gpass.setPipeline(this.grassSubmergedPipeline);
     gpass.setBindGroup(0, this.grassSubmergedBind);
@@ -1649,7 +1747,7 @@ export class GpuScene {
   ): void {
     const epass = ctx.enc.beginRenderPass({
       colorAttachments: [{ view: ctx.colorView, clearValue: ctx.ocean, loadOp: ctx.colorCleared ? 'load' : 'clear', storeOp: 'store' }],
-      depthStencilAttachment: { view: ctx.depthView, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      depthStencilAttachment: { view: ctx.depthView!, depthClearValue: 0.0, depthLoadOp: 'clear', depthStoreOp: 'store' },
     });
     epass.setPipeline(this.pipeline);
     epass.setVertexBuffer(0, this.quadBuf);

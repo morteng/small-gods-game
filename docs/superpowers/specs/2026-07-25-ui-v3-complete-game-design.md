@@ -187,6 +187,41 @@ like `set_time_rate`), intercepted in `Game.handleMetaCommand` and never enqueue
 Meta verbs carry `targetKind: 'none'`, so hover-affordance ranking (which keys on target kind) is
 untouched — but the affordance-ranking pins are re-run before P2 lands, per the standing gotcha.
 
+### 3.7 External agent control — this is a PRODUCT surface, not internal plumbing
+
+**Scope note (user direction, 2026-07-25):** the bus/MCP seam is graduating from dev-only tooling to
+a shipped feature. A player will connect *their own* agent (e.g. Claude over MCP, billed to their own
+subscription rather than an API key) to a running game and drive everything through it — resuming an
+existing save or starting a brand-new world. **The meta verbs defined above are the first slice of
+that product surface.** They must therefore be designed as a stable, documented, external-facing API
+rather than as glue behind some buttons.
+
+What that obliges, all of it already inside this epic's scope:
+
+1. **Stable + fully parameterized.** `new_game` takes `genSeed`, `genome` and `demo`/`ephemeral`, so
+   an agent can start *any* world from scratch without a URL flag. Verb names and parameter names are
+   treated as API: renaming one later is a breaking change, so they get named right now.
+2. **Discoverable.** The existing `capabilities` query must enumerate the meta tier alongside the
+   divine/authoring/editor tiers, with a usable `describe()` for each — that is what an agent reads
+   to learn the menu exists. Every meta verb's `describe()` must degrade on absent params rather than
+   throw (guarded in `tests/unit/command-registry.test.ts`).
+3. **Drivable with no world loaded.** The meta-mode runtime (§3.1) must service **bus** commands, not
+   only local clicks: an agent connected to a tab sitting on the title screen can emit `new_game` or
+   `load_slot` and have it work. This is the one genuinely new constraint on §3.1 — the meta frame
+   loop keeps the bus attached and `handleMetaCommand` reachable while `state.map` is null.
+4. **Screen state is queryable.** A headless agent must be able to navigate menus *without
+   screenshots*, so the shell exposes its state through the same read-only query seam as everything
+   else: which screen is up, and what choices it offers (`id`, `label`, `enabled`, and the note/reason
+   — including *why* CONTINUE is refused). `Shell.describe()` is that surface; `game-query` re-exports
+   it so MCP and the dev CLI read it like any other query.
+5. **Write gating unchanged.** Everything mutating stays behind `?bridge=rw`; a read-only bridge can
+   observe the shell and enumerate choices but not start, load, delete or save a world.
+
+**Explicitly OUT of scope here** (a later epic, do not build): promoting the Fate staging tools to
+registry verbs, the narration/prose seam for agent-authored text, and any shipped transport /
+connection UX for player-supplied agents. This epic only makes the meta verbs bus-drivable and
+documented.
+
 ---
 
 ## 4. UI kit + design tokens

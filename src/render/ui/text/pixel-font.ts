@@ -65,7 +65,80 @@ const G: Record<string, string[]> = {
   '✕': ['     ', '#   #', ' # # ', '  #  ', ' # # ', '#   #', '     '],
   '⏭': ['#   #', '##  #', '### #', '#####', '### #', '##  #', '#   #'],
   '⏳': ['#####', ' ### ', '  #  ', '  #  ', ' ### ', '#####', '     '],
+
+  // P1-B (spec §4.1): the chrome used several icon/quote glyphs the table never
+  // defined, so they rendered as invisible gaps ("⚡ POWERS", "✉ INBOX", quoted
+  // NPC lines, …). ⚡ = powers panel / cast button, ✉ = inbox panel, ◎ = active
+  // -target reticle, 🔒 = locked affordance, ⏸ = pause (transport / rate badge),
+  // ▶ = resume (transport), ✦ = omen-block bullet. Curly quotes wrap dialog: “/‘
+  // curl down-LEFT into the quoted text (opening), ”/’ curl down-RIGHT out of it
+  // (closing) — the two mirror each other so they read as a matched pair; the
+  // single marks are the SAME stroke as the doubles but drawn once, per spec.
+  '⚡': ['  ## ', ' ##  ', '###  ', ' ### ', '  ## ', ' ##  ', '##   '],
+  '✉': ['#####', '## ##', '# # #', '#   #', '#   #', '#   #', '#####'],
+  '◎': [' ### ', '#   #', '#   #', '# # #', '#   #', '#   #', ' ### '],
+  '🔒': [' ### ', '#   #', '#####', '#   #', '# # #', '#   #', '#####'],
+  '⏸': ['## ##', '## ##', '## ##', '## ##', '## ##', '## ##', '## ##'],
+  '▶': ['#    ', '##   ', '###  ', '#####', '###  ', '##   ', '#    '],
+  '✦': ['  #  ', '  #  ', ' ### ', '#####', ' ### ', '  #  ', '  #  '],
+  '“': [' #  #', '#  # ', '     ', '     ', '     ', '     ', '     '],
+  '”': ['#  # ', ' #  #', '     ', '     ', '     ', '     ', '     '],
+  '‘': ['  #  ', ' #   ', '     ', '     ', '     ', '     ', '     '],
+  '’': [' #   ', '  #  ', '     ', '     ', '     ', '     ', '     '],
+
+  // Extras the coverage guard (tests/unit/ui-pixel-font.test.ts) turned up in real
+  // ui-runtime.ts labels beyond §4.1's list — a blank glyph here is a build
+  // failure, not a shrug, so these got real designs too. — = em dash (msg / choice
+  // -hint separator; thicker than '-' since width can't grow), ▸ = small
+  // continue-arrow (distinct from the full-height ▶ resume triangle), × = inline
+  // multiplication for rate labels ("8×"; smaller than the ✕ close icon), ≈ =
+  // approx (effective-rate badge, "≈3×").
+  '—': ['     ', '     ', '     ', '#####', '#####', '     ', '     '],
+  '▸': ['     ', '     ', '#    ', '##   ', '#    ', '     ', '     '],
+  '×': ['     ', '     ', '#   #', '  #  ', '#   #', '     ', '     '],
+  '≈': ['     ', ' # # ', '# # #', '     ', ' # # ', '# # #', '     '],
+
+  // Punctuation the whole 5×7 table was missing (found live: prose surfaces like
+  // whisper-card paragraphs and dialog quotes render blank wherever there's a
+  // comma, an apostrophe, or any bracket/symbol — a pre-existing rendering defect,
+  // not just a UI-v3 need). ',' and ';' hang below the baseline like real
+  // punctuation; the straight ' and " sit in the TOP rows and are deliberately
+  // simpler marks than the curly “ ” ‘ ’ above so the two families read apart.
+  ',': ['     ', '     ', '     ', '     ', '  #  ', '  #  ', ' #   '],
+  ';': ['     ', '     ', '  #  ', '     ', '  #  ', '  #  ', ' #   '],
+  '!': ['  #  ', '  #  ', '  #  ', '  #  ', '     ', '  #  ', '     '],
+  '?': [' ### ', '#   #', '    #', '   # ', '  #  ', '     ', '  #  '],
+  "'": ['  #  ', '  #  ', '     ', '     ', '     ', '     ', '     '],
+  '"': [' # # ', ' # # ', '     ', '     ', '     ', '     ', '     '],
+  '(': ['  ## ', ' #   ', '#    ', '#    ', '#    ', ' #   ', '  ## '],
+  ')': [' ##  ', '   # ', '    #', '    #', '    #', '   # ', ' ##  '],
+  '[': ['#### ', '#    ', '#    ', '#    ', '#    ', '#    ', '#### '],
+  ']': [' ####', '    #', '    #', '    #', '    #', '    #', ' ####'],
+  '{': ['  ## ', '  #  ', '  #  ', '##   ', '  #  ', '  #  ', '  ## '],
+  '}': [' ##  ', '  #  ', '  #  ', '   ##', '  #  ', '  #  ', ' ##  '],
+  '<': ['   # ', '  #  ', ' #   ', '#    ', ' #   ', '  #  ', '   # '],
+  '>': [' #   ', '  #  ', '   # ', '    #', '   # ', '  #  ', ' #   '],
+  '=': ['     ', '     ', '#####', '     ', '#####', '     ', '     '],
+  '*': ['     ', '# # #', ' ### ', '# # #', '     ', '     ', '     '],
+  '%': ['##  #', '## # ', '   # ', '  #  ', ' #   ', ' # ##', '#  ##'],
+  '&': [' ##  ', '#  # ', ' ##  ', '#  ##', '#   #', '#  # ', ' ## #'],
+  '#': [' # # ', ' # # ', '#####', ' # # ', '#####', ' # # ', ' # # '],
+  '@': [' ### ', '#   #', '# ###', '# # #', '# ###', '#    ', ' ### '],
+  '$': ['  #  ', ' ####', '# #  ', ' ### ', '  # #', '#### ', '  #  '],
+  '_': ['     ', '     ', '     ', '     ', '     ', '     ', '#####'],
+  '|': ['  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
+  '~': ['     ', '     ', ' #  #', '# ## ', '     ', '     ', '     '],
+  '\\': ['#    ', '#    ', ' #   ', '  #  ', '   # ', '    #', '    #'],
+  '^': ['  #  ', ' # # ', '#   #', '     ', '     ', '     ', '     '],
 };
+
+/** The set of glyphs `BuiltinPixelFont` can render (uppercase for letters, the
+ *  symbols/digits as themselves). Exported so drift guards (e.g. the
+ *  ui-runtime.ts coverage scan in `tests/unit/ui-pixel-font.test.ts`) can check
+ *  against the REAL table instead of re-declaring their own copy of it. */
+export function supportedGlyphs(): ReadonlySet<string> {
+  return new Set(Object.keys(G));
+}
 
 const EMPTY_UV: UvRect = { u0: 0, v0: 0, u1: 0, v1: 0 };
 
@@ -75,14 +148,28 @@ export class BuiltinPixelFont implements FontMetrics {
     return (GH + 2) * scale;
   }
 
-  measure(text: string, scale: number): number {
-    return text.length * ADVANCE * scale;
+  measure(text: string, scale: number, bold = false): number {
+    // Array.from splits by CODE POINT, not UTF-16 unit — required so an astral
+    // glyph like 🔒 (U+1F512, a surrogate pair) counts as ONE character, matching
+    // `layout`'s per-glyph advance instead of double-counting its two units.
+    const len = Array.from(text).length;
+    // Bold redraws each lit pixel offset +1px in x (see `layout`); every glyph in
+    // `G` is confined to its GW=5 columns, and ADVANCE=GW+1 already reserves a
+    // trailing 1px tracking column that's normally blank — bold's shifted copy of
+    // a rightmost-column (c=GW-1) pixel lands exactly in that reserved slot, so
+    // the advance only needs to grow by one `scale` for the whole string (the
+    // last glyph's overhang), never a whole extra cell per character.
+    return len * ADVANCE * scale + (bold ? scale : 0);
   }
 
-  layout(text: string, x: number, y: number, scale: number): GlyphQuad[] {
+  /** Lay out `text`. `bold` (title wordmark only, spec §4.1) redraws every lit
+   *  pixel a second time, offset +1px in x, for a heavier stroke — no second
+   *  font, no atlas. */
+  layout(text: string, x: number, y: number, scale: number, bold = false): GlyphQuad[] {
     const out: GlyphQuad[] = [];
-    for (let ci = 0; ci < text.length; ci++) {
-      const rows = G[text[ci].toUpperCase()];
+    const chars = Array.from(text); // code-point-aware split — see `measure`
+    for (let ci = 0; ci < chars.length; ci++) {
+      const rows = G[chars[ci].toUpperCase()];
       if (!rows) continue; // space + unknown ⇒ blank cell, advance only
       const gx = x + ci * ADVANCE * scale;
       for (let r = 0; r < GH; r++) {
@@ -97,6 +184,16 @@ export class BuiltinPixelFont implements FontMetrics {
             page: UiPage.Solid,
             uv: EMPTY_UV,
           });
+          if (bold) {
+            out.push({
+              x: gx + (c + 1) * scale,
+              y: y + r * scale,
+              w: scale,
+              h: scale,
+              page: UiPage.Solid,
+              uv: EMPTY_UV,
+            });
+          }
         }
       }
     }

@@ -2078,6 +2078,11 @@ function kindColor(kind: InboxItem['kind']): [number, number, number, number] {
 const RENDERABLE_GLYPHS = new Set<string>([
   ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
   '-', '+', '/', '.', ':', '·', '…', '✕', '⏭', '⏳',
+  // P1-B (spec §4.1): icon/quote glyphs the pixel font gained, plus the
+  // punctuation set it was missing entirely (see `text/pixel-font.ts`'s `G`).
+  '⚡', '✉', '◎', '🔒', '⏸', '▶', '✦', '“', '”', '‘', '’',
+  ',', ';', '!', '?', "'", '"', '(', ')', '[', ']', '{', '}',
+  '<', '>', '=', '*', '%', '&', '#', '@', '$', '_', '|', '~', '\\', '^',
 ]);
 
 /** One renderable glyph for a spirit's sigil: the sigil itself when the font

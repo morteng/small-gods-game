@@ -1,5 +1,5 @@
 import { createState, type GameState } from '@/core/state';
-import type { RenderFn } from '@/render/select-renderer';
+import type { RenderFn, MetaRenderFn } from '@/render/select-renderer';
 import { zoomAt } from '@/render/camera';
 import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { isoEnvForMap } from '@/render/iso/iso-env';
@@ -296,6 +296,12 @@ export class Game {
   private timeBar: TimeBarHandle | null = null;
   private detachTimeKeys: (() => void) | null = null;
   private renderMap: RenderFn | null = null;
+  /** The world-less meta-mode entry (sky backdrop + UI, no sim/terrain/camera) —
+   *  P1-C builds it alongside `renderMap` but nothing calls it yet; a LATER phase
+   *  (spec 3.1's `bootShell()` + `onRender`'s `state.map == null` branch) wires
+   *  it into the frame loop for the title screen. Captured now so boot-sequence
+   *  can hand it straight to the Game the moment the GPU scene exists. */
+  private renderMeta: MetaRenderFn | null = null;
   private dev!: DevModeController;
   private renderer!: FrameRenderer;
   private interaction = createInteractionState();
@@ -1804,7 +1810,7 @@ export class Game {
       parametricBuildingSource: this.parametricBuildingSource,
       parametricBarrierSource: this.parametricBarrierSource,
       generatedBuildingArtSource: this.generatedBuildingArtSource,
-      setRenderMap: (fn) => { this.renderMap = fn; },
+      setRenderMap: (renderers) => { this.renderMap = renderers.render; this.renderMeta = renderers.renderMeta; },
       setArt: (art) => {
         this.assetLibrary = art.assetLibrary;
         this.artResolver = art.artResolver;
