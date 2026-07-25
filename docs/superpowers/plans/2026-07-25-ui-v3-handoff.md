@@ -120,10 +120,11 @@ in ONE final commit.**
   it." Remove `minimap-panel.ts` (294), its M-key, and the `FrameRenderer` minimap update block.
 - **L6 one commit** — delete `Game.barebones`, `FrameRenderer.legacyChrome`,
   `GameUi.suppressLegacyChrome()`, `?legacyui`, `drawPowerHud`, `spirit-hud.ts`,
-  `welcome-modal.ts`, the orphaned DOM panel classes, and **`src/ui/loading-screen.ts` + its DOM
-  tests** (the WebGPU screen has replaced it; `Game.loadingSurface()` becomes unconditional and
-  `GameOptions.shell` may then be unnecessary). `debugHud` may stay DOM under `?dev` — call it out,
-  do not silently keep it.
+  `welcome-modal.ts` and the orphaned DOM panel classes. `debugHud` may stay DOM under `?dev` —
+  call it out, do not silently keep it.
+  (`src/ui/loading-screen.ts` is **already gone** — deleted in the P1 follow-up, along with the
+  redundant `GameOptions.shell`; the Shell is now unconditionally the one progress surface, pinned
+  by `tests/unit/no-dom-loading-screen.test.ts`.)
 
 **Note:** `src/ui/boot-progress.ts` is deliberately KEPT (a deviation from the spec's deletion
 list). It is pure, already unit-tested, and the asymptotic message→fraction mapping is identical

@@ -1,6 +1,5 @@
 import { createLlmDisplay, type LlmDisplayHandle } from '@/ui/llm-display';
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
-import { createLoadingScreen, type LoadingScreenHandle } from '@/ui/loading-screen';
 import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
 import { createRivalPanel, type RivalPanelHandle } from '@/ui/rival-panel';
@@ -58,7 +57,6 @@ export class GameUi {
   readonly tooltip: HTMLDivElement;
   readonly llmDisplay: LlmDisplayHandle | null;
   readonly unifiedSettings: SettingsHandle;
-  readonly loadingScreen: LoadingScreenHandle;
   readonly tutorial: TutorialHandle;
   readonly spiritHud: SpiritHudHandle;
   readonly rivalPanel: RivalPanelHandle;
@@ -155,8 +153,12 @@ export class GameUi {
       onGameSettingChange: (key, value) => cb.onGameSettingChange(key, value),
     });
 
-    // ── Loading screen (dark, progress bar) — shown until world is ready ──
-    this.loadingScreen = createLoadingScreen(container);
+    // The DOM loading overlay is GONE (UI v3 P1): boot progress draws on the
+    // WebGPU shell (`src/render/ui/shell/loading-screen.ts`). It used to be
+    // mounted unconditionally here — an opaque, z-index:100, inset:0 div that in
+    // shell mode nothing ever hid, so it sat over the title screen forever.
+    // Nothing may mount a second progress surface: there is exactly one, and the
+    // Shell owns it. Pinned by `tests/unit/no-dom-loading-screen.test.ts`.
 
     // ── NEW: Tutorial System ──────────────────────────────
     this.tutorial = createTutorial(container, {
@@ -257,7 +259,6 @@ export class GameUi {
     this.npcInfoPanel?.remove();
     this.tooltip.remove();
     this.bottomLeftBar.remove();
-    this.loadingScreen.destroy();
     this.spiritHud.destroy();
     this.rivalPanel.destroy();
     this.minimap.destroy();

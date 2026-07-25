@@ -68,7 +68,7 @@ import { PersistenceController } from '@/game/persistence-controller';
 import { clearSave, readSave, type SaveMetaInput } from '@/services/save-store';
 import { SAVE_VERSION, type SaveFile } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
-import { Shell, type LoadingSurface } from '@/render/ui/shell/shell';
+import { Shell } from '@/render/ui/shell/shell';
 import type { ScreenId } from '@/render/ui/shell/shell-state';
 import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
 import { selectRenderer } from '@/render/select-renderer';
@@ -119,6 +119,11 @@ const WORLD_CONTEST_TTL_MS = 1000;
  *  Births are rare; the scan is a Map.has per NPC, so slow is plenty. */
 const SHEET_REKICK_MS = 5000;
 
+/** The sim rate a freshly entered world runs at. 1 = 1:1 with real time (the
+ *  game's whole time contract); see `Game.enterWorldRunning` for why entry states
+ *  this explicitly instead of trusting whatever the rate happened to be. */
+const WORLD_ENTRY_RATE = 1;
+
 /**
  * UI v3: what to do once the shell is up.
  *
@@ -145,9 +150,6 @@ export interface GameOptions {
    *  `?genome` (a generated terrain study is always throwaway) but is now a real
    *  parameter, because the Demo World needs it without being a genome. */
   ephemeral?: boolean;
-  /** Set false to suppress the meta shell entirely (studio / embed harnesses
-   *  that want the world surface and nothing else). Defaults true. */
-  shell?: boolean;
 }
 
 /** `?flag` present in the URL (used to opt back into the dev UI, etc.). */
@@ -377,8 +379,6 @@ export class Game {
    *  dispatch), attached to the UI runtime during construction, and driven by
    *  `bootShell`/`startWorld`/`returnToTitle`. */
   private readonly shell: Shell;
-  /** Whether the shell is used at all (`options.shell !== false`). */
-  private readonly shellEnabled: boolean;
   /** What to boot once the shell is up, or null to stay on the title. */
   private readonly autostart: Autostart | null;
   /** Cached save probe for the title screen's CONTINUE row, refreshed by
@@ -392,7 +392,6 @@ export class Game {
   constructor(container: HTMLElement, options: GameOptions = {}) {
     this.container = container;
     this.state = createState();
-    this.shellEnabled = options.shell !== false;
     this.autostart = options.autostart ?? null;
     if (options.ephemeral !== undefined) this.ephemeral = options.ephemeral;
     this.shell = new Shell({
@@ -1041,7 +1040,7 @@ export class Game {
         }
       },
     });
-    if (this.shellEnabled) ui.setShell(this.shell);
+    ui.setShell(this.shell);
     this.cleanupUi = ui.attach(this.canvas);
 
     // ── Barebones: the WebGPU HUD + pause menu ARE the chrome ──
@@ -2014,7 +2013,7 @@ export class Game {
       return await runBootSequence(deps, worldSeed);
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
-      this.ui.loadingScreen.setProgress(1, `World generation failed — ${why}`);
+      this.shell.setProgress(1, `World generation failed — ${why}`);
       console.error('[boot] world generation failed', err);
       throw err;
     }
@@ -2039,14 +2038,12 @@ export class Game {
       this.renderMap = renderers.render;
       this.renderMeta = renderers.renderMeta;
     }
-    if (this.shellEnabled) {
-      this.shell.reset(['title']);
-      // Probe the save slot WITHOUT blocking the title: the point of this whole
-      // phase is that the first frame is quick, and an IndexedDB open can be slow
-      // (or wedged — idb-guard times it out at 4s). The title draws immediately
-      // with CONTINUE pending, and the row fills itself in when the probe lands.
-      void this.probeSaves();
-    }
+    this.shell.reset(['title']);
+    // Probe the save slot WITHOUT blocking the title: the point of this whole
+    // phase is that the first frame is quick, and an IndexedDB open can be slow
+    // (or wedged — idb-guard times it out at 4s). The title draws immediately
+    // with CONTINUE pending, and the row fills itself in when the probe lands.
+    void this.probeSaves();
     // The loop must run even with no world: the sky backdrop animates, and the
     // shell is render-on-demand for everything else.
     this.startLoop();
@@ -2117,7 +2114,7 @@ export class Game {
     // billboards are sliceable by frame one (misses degrade to flat billboards).
     void this.clutterFloraSource.warm();
     const map = await this.bootOrSayWhyNot({
-      canvas: this.canvas, state: this.state, loading: this.loadingSurface(),
+      canvas: this.canvas, state: this.state, loading: this.shell,
       renderersReady: this.renderMap !== null,
       forceFresh: boot.fresh, genSeedOverride: boot.genSeed,
       assets: this.assets, sheets: this.sheets,
@@ -2143,6 +2140,7 @@ export class Game {
         if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         if (!this.ephemeral) this.persistence.start();
+        this.enterWorldRunning();
       },
     }, worldSeed);
     this.startLoop();
@@ -2159,13 +2157,6 @@ export class Game {
     // so a backgrounded game never burns CPU/GPU on this machine.
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisibilityChange);
     return map;
-  }
-
-  /** Where boot progress draws: the WebGPU shell when it is enabled, else the
-   *  legacy DOM overlay (studio/embed harnesses that pass `shell: false`, which
-   *  keeps that path alive until the L-retirement phase deletes it). */
-  private loadingSurface(): LoadingSurface {
-    return this.shellEnabled ? this.shell : this.ui.loadingScreen;
   }
 
   /**
@@ -2265,7 +2256,9 @@ export class Game {
       this.lastSoulFocusSelection = null;
       this.soulFocusFiredAt.clear();
       this.playtimeMs = 0;
-      this.scheduler.setRate(1);
+      // The rate stays 0 while we sit on the title — there is no world to
+      // advance. `enterWorldRunning()` states it again on the next world entry,
+      // so the title deliberately does NOT try to guess a "resting" rate.
       this.shell.reset(['title']);
       void this.probeSaves();
       this.requestRender();
@@ -2275,6 +2268,40 @@ export class Game {
       this.stopLoop();
       location.reload();
     }
+  }
+
+  /**
+   * A world is ENTERED RUNNING. Deliberate, and asserted rather than assumed.
+   *
+   * Time in this game is 1:1 with real time and the sim IS the game — a world
+   * that opens frozen reads as broken, and it was the behaviour before the shell
+   * existed. But "running" used to be incidental (nothing had touched the rate
+   * yet), and once a session can pass through a title screen, a demo world and a
+   * quit-to-title without reloading, plenty of things CAN have touched it: the
+   * pause menu stashes the rate, a modal card zeroes it, a hard pause zeroes it.
+   * A live GPU pass caught exactly that — a fresh world opened showing
+   * "▶ RESUME" (2026-07-25).
+   *
+   * So world-entry states the rate outright, and LOGS when it had to correct a
+   * non-default one, so an upstream leak stays visible instead of being silently
+   * papered over here.
+   */
+  private enterWorldRunning(): void {
+    // Clear a hard pause first: it owns `savedRate`, so restoring the rate under
+    // it would just be re-zeroed by the next `onPauseChange`.
+    if (this.frameLoop.isPaused()) {
+      console.info('[boot] world entered while hard-paused — resuming');
+      this.frameLoop.setPaused(false);
+    }
+    this.savedRate = 1;
+    this.menuPrevRate = 1;
+    this.storyPrevRate = 1;
+    const rate = this.scheduler.getRate();
+    if (rate !== WORLD_ENTRY_RATE) {
+      console.info(`[boot] sim rate was ${rate} on world entry; setting ${WORLD_ENTRY_RATE}`);
+    }
+    this.scheduler.setRate(WORLD_ENTRY_RATE);
+    this.requestRender();
   }
 
   /** Abandon the current world and start a brand-new one, without a reload.

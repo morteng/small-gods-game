@@ -187,6 +187,24 @@ like `set_time_rate`), intercepted in `Game.handleMetaCommand` and never enqueue
 Meta verbs carry `targetKind: 'none'`, so hover-affordance ranking (which keys on target kind) is
 untouched — but the affordance-ranking pins are re-run before P2 lands, per the standing gotcha.
 
+### 3.6a A world is ENTERED RUNNING (decided, not incidental)
+
+Time is 1:1 with real time and the sim *is* the game, so a world that opens frozen reads as broken.
+That was the behaviour before the shell existed — but only *incidentally*: nothing had touched the
+rate yet on a cold boot.
+
+Once a session can pass through a title screen, a demo world and a quit-to-title **without
+reloading**, plenty of things legitimately zero the rate along the way: the pause menu stashes and
+zeroes it, a modal card zeroes it, a hard pause zeroes it. A live GPU pass caught the consequence — a
+freshly generated world opened showing "▶ RESUME" (2026-07-25).
+
+**Decision:** world entry states the rate outright (`Game.enterWorldRunning()`, called from
+`onWorldReady`): clear any hard pause, reset the three stashed-rate fields, set
+`WORLD_ENTRY_RATE = 1`. It also **logs when it had to correct a non-default rate**, so an upstream
+leak stays visible rather than being silently papered over. Correspondingly, `returnToTitle()`
+deliberately leaves the rate at 0 — there is no world to advance while the title is up, and entry
+owns the rate.
+
 ### 3.7 External agent control — this is a PRODUCT surface, not internal plumbing
 
 **Scope note (user direction, 2026-07-25):** the bus/MCP seam is graduating from dev-only tooling to

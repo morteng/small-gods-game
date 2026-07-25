@@ -126,6 +126,42 @@ export class ChronicleService {
     return this.generateEraEntry(summary, arcs, eraDay);
   }
 
+  /**
+   * Boundary-validate a model response as ANNAL PROSE.
+   *
+   * The chronicle prompts ask for prose, but `generateNpcBackfill` is also the
+   * transport for the NPC-backfill JSON contract — and its offline mock returns
+   * `{"narration": "The scene continues uneventfully."}`. Without this check that
+   * envelope was written verbatim into `ChronicleEntry.text`, so with no LLM
+   * configured the loading screen and the ANNALS panel both displayed raw JSON
+   * (seen live, 2026-07-25).
+   *
+   * A body that parses as JSON is REJECTED rather than unwrapped: it means the
+   * model ignored the prose contract, and `renderOfflineAnnal` — which composes
+   * real prose from the day's actual events — is a better annal than a model's
+   * off-contract filler. Throwing routes us into the caller's existing catch,
+   * which is exactly that fallback.
+   */
+  private static asAnnalProse(raw: string): string {
+    const text = raw.trim();
+    if (text.length === 0) throw new Error('empty annal');
+    // Only bother parsing when it actually looks like a JSON body — prose that
+    // merely happens to contain a brace is fine.
+    if (/^[{[]/.test(text)) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // Looks like JSON but isn't — a truncated/garbled body, not prose.
+        throw new Error('annal body looks like malformed JSON, not prose');
+      }
+      if (parsed !== null && typeof parsed === 'object') {
+        throw new Error('annal body is a JSON envelope, not prose');
+      }
+    }
+    return text;
+  }
+
   private async generateEraEntry(summary: SkipSummary, arcs: EraArcDigest[], eraDay: number): Promise<void> {
     const { state } = this.deps;
     // The POST-skip date: the annalist writes after the years have passed.
@@ -138,8 +174,9 @@ export class ChronicleService {
       try {
         const prompt = buildEraChroniclePrompt(window);
         const res = await this.client.generateNpcBackfill(prompt.system, prompt.user, { maxTokens: 300, temperature: 0.85 });
-        text = res.content.trim();
-        if (text.length === 0) throw new Error('empty era entry');   // boundary validation — never push a blank annal
+        // Boundary validation — never push a blank annal, and never push a JSON
+        // envelope as if it were prose (see `asAnnalProse`).
+        text = ChronicleService.asAnnalProse(res.content);
         offline = false;
       } catch (err) {
         console.error('[chronicle] era generation failed; falling back to the offline era annal:', err);
@@ -174,7 +211,7 @@ export class ChronicleService {
         try {
           const prompt = buildChroniclePrompt(window);
           const res = await this.client.generateNpcBackfill(prompt.system, prompt.user, { maxTokens: 220, temperature: 0.85 });
-          text = res.content.trim();
+          text = ChronicleService.asAnnalProse(res.content);
           offline = false;
         } catch (err) {
           console.error('[chronicle] generation failed; falling back to the offline annal:', err);
