@@ -12,6 +12,7 @@ import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem, type InspectorView, type BeliefView, type BeliefPowerView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { Command, CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
+import { getCapability, acceptedTargetKinds, capFootprint } from '@/sim/command/registry';
 import { hoverChips } from '@/game/affordance/hover';
 import { ConversationController } from '@/game/conversation-controller';
 import { createGameBus, type GameBus } from '@/game/game-bus';
@@ -944,7 +945,21 @@ export class Game {
       // ── Track B: belief-granted powers + the divine inbox ──
       getBeliefPowers: () => this.hudSim().powers,
       onCastPower: (verb) => this.castPower(verb),
-      getTargeting: () => this.interaction.targeting ? { label: this.interaction.targeting.label } : null,
+      getTargeting: () => {
+        const t = this.interaction.targeting;
+        if (!t) return null;
+        const miss = performance.now() - this.missFlashAt < Game.MISS_FLASH_MS;
+        return { label: t.label, targetKinds: t.targetKinds, footprint: t.footprint, miss };
+      },
+      // A3: Esc cancels an in-progress cast before it reaches the card/menu chain.
+      // Consumed only while actually aiming — otherwise Esc falls through to the
+      // runtime's own dismissCard()/toggleMenu() precedence.
+      onCancelTargeting: () => {
+        if (!this.interaction.targeting) return false;
+        this.interaction.targeting = null;
+        this.requestRender();
+        return true;
+      },
       getHoverAffordances: () => this.hoverAffordances(),
       onHoverChip: (verb) => this.castHoverChip(verb),
       getHoverTooltip: () => this.hoverTooltip(),
@@ -1340,35 +1355,55 @@ export class Game {
   }
 
   /**
-   * Cast a belief-granted power (the skill panel's "CAST"). If a compatible NPC is
-   * already selected, an npc-verb fires on it at once (the fast path); otherwise we
-   * enter verb-first *targeting* — a reticle whose next map click resolves the
-   * target (`resolveTargetedCast`). The command still runs the full belief-gate at
-   * the tick boundary, so a not-yet-believed power is rejected regardless.
+   * Cast a belief-granted power (the skill panel's "CAST"). CAST always arms the
+   * reticle — the next map click resolves the target (`resolveTargetedCast`); a
+   * previously-selected NPC may pre-highlight under the reticle (A2) but no longer
+   * fires instantly (that auto-pick fast path shadowed the whole verb-first-cast
+   * feature — product decision 1, abilities-v1 plan §1). The command still runs
+   * the full belief-gate at the tick boundary, so a not-yet-believed power is
+   * rejected regardless.
    */
   private castPower(verb: string): void {
-    const cap = this.bus.capabilities().find(c => c.verb === verb);
+    // Target shapes + reticle footprint come from the registry (the single source
+    // of truth), NOT from `this.bus.capabilities()` — the CapabilityView doesn't
+    // carry footprint (yet). `beliefPowers()` still supplies the human label.
+    const cap = getCapability(verb as CommandVerb);
     if (!cap) return;
-    // Fast path: an npc-capable verb with an NPC already selected fires immediately.
-    if (cap.targetKinds.includes('npc') && this.state.selectedNpcId) {
-      this.emitDivine(verb as CommandVerb, { kind: 'npc', npcId: this.state.selectedNpcId });
-      return;
-    }
-    // Otherwise aim it: the next left-click on the world resolves the target.
     const label = this.query.beliefPowers().find(p => p.verb === verb)?.label ?? verb;
-    this.interaction.targeting = { verb, label };
+    this.interaction.targeting = {
+      verb, label,
+      targetKinds: acceptedTargetKinds(cap),
+      footprint: capFootprint(cap),
+    };
     this.requestRender();
   }
 
-  /** Resolve an in-progress verb-first cast against the tile the player clicked. */
+  /** Real-clock timestamp of the last invalid-click miss while aiming a cast, so
+   *  `getTargeting` can flash an honest "nothing there" for a short window (A5)
+   *  instead of the reticle silently doing nothing. 0 = no recent miss. */
+  private missFlashAt = 0;
+  private static readonly MISS_FLASH_MS = 900;
+
+  /**
+   * Resolve an in-progress verb-first cast against the tile the player clicked.
+   * An invalid click (nothing under the cursor the verb's `targetKinds` accept)
+   * STAYS armed and flashes a miss — only a successful resolve, Esc, or
+   * right-click exits aim (product decision 2, abilities-v1 plan §1).
+   */
   private resolveTargetedCast(x: number, y: number): void {
     const aim = this.interaction.targeting;
-    this.interaction.targeting = null;   // one click resolves or misses; either way exit
     if (!aim || !this.state.world) return;
-    const cap = this.bus.capabilities().find(c => c.verb === aim.verb);
-    if (!cap) return;
-    const target = this.resolveTargetAt(x, y, cap.targetKinds);
-    if (!target) return;
+    const target = this.resolveTargetAt(x, y, aim.targetKinds);
+    if (!target) {
+      this.missFlashAt = performance.now();
+      this.requestRender();
+      // Force one more redraw after the flash window so it actually clears when
+      // the sim is paused (idle/paused frames only render on-demand — nothing
+      // else would wake the driver up to notice the flash expired).
+      setTimeout(() => this.requestRender(), Game.MISS_FLASH_MS + 50);
+      return;
+    }
+    this.interaction.targeting = null;   // clear immediately before emitDivine fires
     this.emitDivine(aim.verb as CommandVerb, target);
   }
 

@@ -86,8 +86,15 @@ export interface UiRuntimeHooks {
   getBeliefPowers?: () => BeliefPowerView[];
   /** Cast an unlocked power (the Game picks/uses the current target). */
   onCastPower?: (verb: string) => void;
-  /** Verb-first targeting in progress (reticle), or null — drives the aim hint bar. */
-  getTargeting?: () => { label: string } | null;
+  /** Verb-first targeting in progress (reticle), or null — drives the aim hint bar.
+   *  `targetKinds`/`footprint` (structural strings, not `@/sim` types — this module
+   *  stays free of sim value imports) let the bar say what it accepts (A5) instead
+   *  of a bare label. `miss` flashes true for a short window right after an invalid
+   *  click, so the bar can swap in an honest "nothing there" instead of doing
+   *  nothing (product decision 2). */
+  getTargeting?: () => { label: string; targetKinds: readonly string[]; footprint: 'point' | 'area'; miss?: boolean } | null;
+  /** Cancel an in-progress verb-first cast. Returns true if it consumed the Esc. */
+  onCancelTargeting?: () => boolean;
   /** Top ranked affordances for whatever the cursor rests on — queried ONCE per
    *  dwell and frozen (the game resolves + freezes the target). Null ⇒ no popover. */
   getHoverAffordances?: () => { chips: HoverChipView[] } | null;
@@ -757,7 +764,10 @@ export class UiRuntime {
     };
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        this.handleEscape();
+        // A3: an in-progress verb-first cast takes priority — Esc backs out of
+        // aiming a power before it ever reaches the shell/card/menu chain.
+        if (this.hooks.onCancelTargeting?.()) { /* consumed: cancelled an in-progress cast */ }
+        else this.handleEscape();
         e.stopPropagation(); // the UI owns Esc (supersedes time-bar dismiss)
         e.preventDefault();
       }
@@ -1013,13 +1023,18 @@ export class UiRuntime {
     const aim = this.hooks.getTargeting?.() ?? null;
     if (aim) {
       const fs = FS.body * s;
-      const msg = `◎ CHOOSE A TARGET — ${aim.label.toUpperCase()}   ·   right-click to cancel`;
+      // A5: an invalid click stays armed (product decision 2) — flash an honest
+      // miss instead of leaving the bar's stale "choose a target" text up as if
+      // nothing happened.
+      const msg = aim.miss
+        ? `◎ NOTHING THERE TO STRIKE   ·   right-click to cancel`
+        : `◎ CHOOSE A TARGET — ${aim.label.toUpperCase()}   ·   ${describeTargetKinds(aim.targetKinds)}   ·   right-click to cancel`;
       const tw = Math.ceil(c.measure(msg, fs)) + 32 * s;
       const th = 34 * s;
       const tx = Math.round((w - tw) / 2);
       const ty = 16 * s;
       c.panel(tx, ty, tw, th);
-      c.label(msg, tx + 16 * s, ty + (th - c.lineHeight(fs)) / 2, fs, UI_PALETTE.accent);
+      c.label(msg, tx + 16 * s, ty + (th - c.lineHeight(fs)) / 2, fs, aim.miss ? PERF_RED : UI_PALETTE.accent);
     }
 
     // ── hover popover: top ranked affordance chips at the cursor (dwell → freeze) ──
@@ -1433,6 +1448,9 @@ export class UiRuntime {
         const bh = 26 * s;
         c.label(c.ellipsize(`believed by ${p.reach} — ${pct}%`, FS.body * s, innerW - bw - 8 * s), innerX, ry, FS.body * s, UI_PALETTE.textDim);
         if (c.button(`power.cast.${p.verb}`, 'CAST ⚡', innerX + innerW - bw, ry - 4 * s, bw, bh, { scale: FS.body * s })) {
+          // A3: arming the reticle needs the world clickable — the POWERS panel
+          // owns a ~360px dead strip that would otherwise eat the aiming click.
+          this.panel = null;
           this.hooks.onCastPower?.(p.verb);
         }
       } else {
@@ -2269,6 +2287,27 @@ function peaceLine(p: SettlementPeace): string {
   if (p.oath === 'sworn') return `${p.lordName} · peace sworn (${days}d left)`;
   if (p.oath === 'lapsed') return `${p.lordName} · peace lapsed (${days}d ago)`;
   return `${p.lordName} · no oath sworn`;
+}
+
+/** Human-readable accepted-target-kinds fragment for the verb-first aim bar (A5) —
+ *  e.g. `['npc','entity','tile']` → "A PERSON, A THING, OR THE GROUND". Keeps the
+ *  reticle honest about what a click will actually resolve against, instead of the
+ *  bare verb label the bar showed before. Structural strings, not `@/sim` types —
+ *  this module stays free of sim value imports. */
+function describeTargetKinds(kinds: readonly string[]): string {
+  const label = (k: string): string => {
+    switch (k) {
+      case 'npc': return 'a person';
+      case 'entity': return 'a thing';
+      case 'settlement': return 'a settlement';
+      case 'tile': return 'the ground';
+      case 'area': return 'an area';
+      default: return k;
+    }
+  };
+  const words = kinds.map(label);
+  if (words.length <= 1) return (words[0] ?? '').toUpperCase();
+  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`.toUpperCase();
 }
 
 /** Chip caption: "WHISPER · 1  (praying)" with a lock glyph when belief-gated. */
