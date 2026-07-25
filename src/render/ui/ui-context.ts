@@ -61,6 +61,18 @@ function pointIn(px: number, py: number, x: number, y: number, w: number, h: num
   return px >= x && px < x + w && py >= y && py < y + h;
 }
 
+/** Horizontal breathing room inside a button's 1px border, per side.
+ *
+ *  SCALE-derived, and the ONLY definition. Callers that size a button box must
+ *  not re-derive it from a spacing token: `c.button` ellipsizes against
+ *  `w - 2 * buttonPadX(scale)`, so a box sized with a DIFFERENT padding constant
+ *  truncates its own label. That mismatch (`SPACING.md * 2 * s` on the outside,
+ *  `2 * ceil(4 * scale)` on the inside) is exactly why REBIND rendered "REBI…".
+ *  Use `UiContext.buttonWidth`. */
+function buttonPadX(scale: number): number {
+  return Math.ceil(4 * scale);
+}
+
 export class UiContext {
   readonly batcher: UiBatcher;
   private readonly palette: UiPalette;
@@ -183,7 +195,7 @@ export class UiContext {
     this.batcher.border(x, y, w, h, 1, borderA);
 
     // centre the label within the button; clip to the inner width first
-    const padX = Math.ceil(4 * scale); // breathing room inside the 1px border
+    const padX = buttonPadX(scale);
     const text = this.ellipsize(label, scale, w - 2 * padX);
     const tw = this.font.measure(text, scale);
     const th = this.font.lineHeight(scale);
@@ -293,6 +305,16 @@ export class UiContext {
   /** Pixel width of a text run at the given scale (for wrapping / centring). */
   measure(text: string, scale: number): number {
     return this.font.measure(text, scale);
+  }
+
+  /** The MINIMUM width a button must be for `label` to render un-truncated at
+   *  `scale` — the text plus the exact padding `button()` will apply.
+   *
+   *  Size every computed button box through this. Deriving a width from a
+   *  spacing token instead is how a box ends up narrower than the clip the
+   *  widget itself uses. */
+  buttonWidth(label: string, scale: number): number {
+    return Math.ceil(this.font.measure(label, scale)) + 2 * buttonPadX(scale);
   }
 
   /** Clip a run to `maxW` px, appending `…` when it doesn't fit (card choice

@@ -248,8 +248,10 @@ export function drawSettingsScreen(
 
   // The widest thing any row must show, measured at the tier it will be drawn
   // at — the panel is sized to its CONTENT, then clamped to the viewport.
-  const rebindLabelW = Math.max(c.measure('REBIND', fsMenu), c.measure('CANCEL', fsMenu));
-  const rebindW = Math.ceil(rebindLabelW) + Math.round(SPACING.md * 2 * s);
+  // Through the widget's OWN metric — never a spacing token, which is what made
+  // the box narrower than the clip `c.button` applies (see `buttonWidth`).
+  // Measured against BOTH verbs so it cannot resize or truncate mid-capture.
+  const rebindW = Math.max(c.buttonWidth('REBIND', fsMenu), c.buttonWidth('CANCEL', fsMenu));
   let widestLabel = 0;
   let widestChip = Math.max(c.measure('OFF', fsMenu), c.measure('1.5X', fsMenu));
   for (const r of settingsRows(view, view.tab)) {
@@ -285,7 +287,7 @@ export function drawSettingsScreen(
   const headerH = c.lineHeight(fsHeader);
   const tabH = Math.round(30 * s);
   const backH = Math.round(30 * s);
-  const backW = Math.round(Math.min(160 * s, colW));
+  const backW = Math.round(Math.min(Math.max(160 * s, c.buttonWidth('BACK', fsMenu)), colW));
 
   // CONTROLS tab only (P5): the shell's 10-foot interactive tier for every
   // binding row, and its caption floor for the one instructional/conflict

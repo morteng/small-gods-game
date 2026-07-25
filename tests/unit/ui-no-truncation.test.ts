@@ -129,3 +129,61 @@ describe('the title column still fits a short viewport', () => {
     }
   });
 });
+
+describe("button boxes are sized by the widget's OWN metric", () => {
+  /**
+   * WHY THE ELLIPSIZE SPY WASN'T ENOUGH.
+   *
+   * That spy asserts a SYMPTOM ("nothing got cut"), and the REBIND box happened
+   * to come out EXACTLY equal to its text width: `ellipsize` returns the string
+   * unchanged when `measure <= maxW`, so `216 <= 216` passed here while the same
+   * arithmetic tipped over in the live path and truncated. A guard sitting on a
+   * knife edge is false confidence.
+   *
+   * This asserts the INVARIANT instead: every button box is at least
+   * `c.buttonWidth(label, scale)` -- the widget's own metric, padding included.
+   * That has margin by construction and cannot pass by coincidence.
+   */
+  function assertButtonsFit(draw: (c: UiContext) => void, label: string): void {
+    const c = new UiContext();
+    const violations: string[] = [];
+    const realButton = c.button.bind(c);
+    c.button = (id, text, x, y, w, h, opts = {}): boolean => {
+      const scale = opts.scale ?? 1;
+      const need = c.buttonWidth(text, scale);
+      if (w < need) violations.push(`${id} "${text}" box ${w} < required ${need}`);
+      return realButton(id, text, x, y, w, h, opts);
+    };
+    c.begin();
+    draw(c);
+    c.end();
+    expect(violations, `${label}: ${violations.join(' | ')}`).toEqual([]);
+  }
+
+  it('every settings button fits its own label, on every tab', () => {
+    for (const tab of ['audio', 'video', 'gameplay', 'controls'] as const) {
+      assertButtonsFit((c) => { drawSettingsScreen(c, W, H, S, settingsView(tab)); }, tab);
+    }
+  });
+
+  it('the REBIND button fits BOTH verbs, including mid-capture', () => {
+    const capturing = {
+      ...settingsView('controls'),
+      capturing: keymapRows(settingsView('controls'))[0].action,
+    } as SettingsScreenView;
+    assertButtonsFit((c) => { drawSettingsScreen(c, W, H, S, capturing); }, 'capturing');
+  });
+
+  it('every title button fits its own label', () => {
+    assertButtonsFit((c) => { drawTitleScreen(c, W, H, S, titleView()); }, 'title');
+  });
+
+  it('holds at narrow viewports too, where boxes are tightest', () => {
+    for (const vw of [900, 1100, 1389, 1920]) {
+      assertButtonsFit(
+        (c) => { drawSettingsScreen(c, vw * S, H, S, settingsView('controls')); },
+        `controls@${vw}`,
+      );
+    }
+  });
+});
