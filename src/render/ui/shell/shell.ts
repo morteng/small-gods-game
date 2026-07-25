@@ -32,6 +32,13 @@ import {
   drawSettingsScreen, settingsRows, formatRowValue, keymapRows, SETTINGS_TABS,
   type SettingsAction, type SettingsScreenView, type SettingsTab,
 } from '@/render/ui/shell/settings-screen';
+import {
+  drawGameOverScreen, gameOverRows, type GameOverAction, type GameOverView,
+} from '@/render/ui/shell/gameover-screen';
+import { drawPhotoScreen, type PhotoView } from '@/render/ui/shell/photo-screen';
+import {
+  drawNewGameScreen, type NewGameAction, type NewGameView,
+} from '@/render/ui/shell/newgame-screen';
 import { DEFAULT_KEYMAP } from '@/game/input/keymap';
 
 /** A device-px rect (a DOM island's reserved region). Mirrors `ui-runtime`'s. */
@@ -45,10 +52,14 @@ export interface ShellDrawResult {
   save: SaveAction | null;
   load: LoadAction | null;
   settings: SettingsAction | null;
+  gameover: GameOverAction | null;
+  newgame: NewGameAction | null;
 }
 
 /** Nothing drawn, nothing triggered — shared so the common case allocates once. */
-const INERT_DRAW: ShellDrawResult = { island: null, title: null, save: null, load: null, settings: null };
+const INERT_DRAW: ShellDrawResult = {
+  island: null, title: null, save: null, load: null, settings: null, gameover: null, newgame: null,
+};
 
 /**
  * The surface `boot-sequence.ts` drives while a world loads.
@@ -118,6 +129,15 @@ export interface ShellDeps {
    *  Shell always overwrites it with its own before handing the view to the
    *  screen or to `describe()`. */
   settingsView?: () => SettingsScreenView;
+  /** Supplies the game-over screen's optional closing line. Absent ⇒ `null`
+   *  (just the two fixed canon lines — see `gameover-screen.ts`). */
+  gameoverView?: () => GameOverView;
+  /** Supplies the photo screen's fading "saved" hint. Absent ⇒ nothing drawn
+   *  (the honest empty state — see `photo-screen.ts`). */
+  photoView?: () => PhotoView;
+  /** Supplies the new-world screen's last paste-decode refusal, if any.
+   *  Absent ⇒ no refusal shown yet. */
+  newGameView?: () => NewGameView;
 }
 
 /** The title view used when no provider is wired — the honest empty state, never
@@ -128,6 +148,10 @@ const EMPTY_TITLE_VIEW: TitleView = {
   hasAnySave: false,
   buildLine: '',
 };
+
+const EMPTY_GAMEOVER_VIEW: GameOverView = { note: null };
+const EMPTY_PHOTO_VIEW: PhotoView = { hintText: null, alpha: 0 };
+const EMPTY_NEWGAME_VIEW: NewGameView = { error: null };
 
 /** Four empty slots — the honest default for the save/load screens when no
  *  provider is wired, mirroring `EMPTY_TITLE_VIEW` above. */
@@ -229,6 +253,9 @@ export class Shell implements LoadingSurface {
   private readonly saveView: () => SaveScreenView;
   private readonly loadView: () => LoadScreenView;
   private readonly settingsValuesView: () => SettingsScreenView;
+  private readonly gameoverView: () => GameOverView;
+  private readonly photoView: () => PhotoView;
+  private readonly newGameView: () => NewGameView;
   /** The settings screen's SELECTED TAB — pure presentation state, not game
    *  state (see `ShellDeps.settingsView`'s doc), so it lives here rather than
    *  in `Game`. Set by `Game`'s `onSettingsAction` hook on a `{kind:'tab'}`
@@ -251,6 +278,9 @@ export class Shell implements LoadingSurface {
     this.saveView = deps.saveView ?? ((): SaveScreenView => EMPTY_SAVE_VIEW);
     this.loadView = deps.loadView ?? ((): LoadScreenView => EMPTY_LOAD_VIEW);
     this.settingsValuesView = deps.settingsView ?? ((): SettingsScreenView => EMPTY_SETTINGS_VIEW);
+    this.gameoverView = deps.gameoverView ?? ((): GameOverView => EMPTY_GAMEOVER_VIEW);
+    this.photoView = deps.photoView ?? ((): PhotoView => EMPTY_PHOTO_VIEW);
+    this.newGameView = deps.newGameView ?? ((): NewGameView => EMPTY_NEWGAME_VIEW);
   }
 
   /** The settings screen's full view: the caller's persisted values, with the
@@ -292,9 +322,20 @@ export class Shell implements LoadingSurface {
       choices = describeSlotScreen(loadRows(this.loadView()), 'load.back');
     } else if (screen === 'settings') {
       choices = describeSettingsScreen(this.buildSettingsView());
+    } else if (screen === 'gameover') {
+      choices = gameOverRows().map((r) => ({ id: r.id, label: r.label, enabled: true, note: null }));
+    } else if (screen === 'newgame') {
+      choices = [
+        { id: 'newgame.random', label: 'RANDOM WORLD', enabled: true, note: null },
+        { id: 'newgame.back', label: 'BACK', enabled: true, note: null },
+      ];
     }
-    // Screens beyond title/loading/save/load/settings contribute their choices as they
-    // land (P4+); an unimplemented screen honestly reports none rather than
+    // `photo` deliberately reports NO choices — see `photo-screen.ts`'s header:
+    // there is genuinely nothing to click while a photo is framing (Esc/back is
+    // the shell's generic screen-pop, not a described choice here).
+    //
+    // Screens beyond these contribute their choices as they land; an
+    // unimplemented screen (e.g. `pause`) honestly reports none rather than
     // guessing.
     return {
       screen,
@@ -402,15 +443,15 @@ export class Shell implements LoadingSurface {
         return INERT_DRAW;
       case 'title': {
         const title = drawTitleScreen(c, w, h, s, this.titleView());
-        return title ? { island: null, title, save: null, load: null, settings: null } : INERT_DRAW;
+        return title ? { ...INERT_DRAW, title } : INERT_DRAW;
       }
       case 'save': {
         const save = drawSaveScreen(c, w, h, s, this.saveView());
-        return save ? { island: null, title: null, save, load: null, settings: null } : INERT_DRAW;
+        return save ? { ...INERT_DRAW, save } : INERT_DRAW;
       }
       case 'load': {
         const load = drawLoadScreen(c, w, h, s, this.loadView());
-        return load ? { island: null, title: null, save: null, load, settings: null } : INERT_DRAW;
+        return load ? { ...INERT_DRAW, load } : INERT_DRAW;
       }
       case 'settings': {
         // Unlike the other screens, this can't collapse to `INERT_DRAW` when no
@@ -418,7 +459,23 @@ export class Shell implements LoadingSurface {
         // frame it's on screen, or the DOM form loses its position the instant
         // nothing was clicked (see `SettingsDrawResult`'s doc).
         const res = drawSettingsScreen(c, w, h, s, this.buildSettingsView());
-        return { island: res.island, title: null, save: null, load: null, settings: res.action };
+        return { ...INERT_DRAW, island: res.island, settings: res.action };
+      }
+      case 'gameover': {
+        const gameover = drawGameOverScreen(c, w, h, s, this.gameoverView());
+        return gameover ? { ...INERT_DRAW, gameover } : INERT_DRAW;
+      }
+      case 'photo':
+        // Always returns null (see `photo-screen.ts`'s header) — drawn purely
+        // for its fading hint's side effect, same idiom as the loading screen.
+        drawPhotoScreen(c, w, h, s, this.photoView());
+        return INERT_DRAW;
+      case 'newgame': {
+        // Same "can't collapse to INERT_DRAW" reasoning as settings' GAMEPLAY
+        // tab: the paste field's island rect must be reported every frame this
+        // screen is up.
+        const res = drawNewGameScreen(c, w, h, s, this.newGameView());
+        return { ...INERT_DRAW, island: res.island, newgame: res.action };
       }
       case null:
         return INERT_DRAW;

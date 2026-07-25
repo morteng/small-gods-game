@@ -236,7 +236,9 @@ describe('Shell — the stateful glue', () => {
     const shell = new Shell({ now: () => 0 });
     const c = new UiContext();
     c.begin();
-    expect(shell.draw(c, W, H, S)).toEqual({ island: null, title: null, save: null, load: null, settings: null });
+    expect(shell.draw(c, W, H, S)).toEqual({
+      island: null, title: null, save: null, load: null, settings: null, gameover: null, newgame: null,
+    });
     c.end();
     expect(totalVerts(c.batcher.flush())).toBe(0);
   });
@@ -340,5 +342,88 @@ describe('Shell — the stateful glue', () => {
     shell.draw(c, W, H, S);
     c.end();
     expect(totalVerts(c.batcher.flush())).toBeGreaterThan(0);
+  });
+});
+
+// ── P5b: game-over / photo / new-world through the Shell ────────────────────
+
+describe('Shell — the P5b screens', () => {
+  it('describe() enumerates the GAME-OVER choices, matching what draw() offers', () => {
+    const shell = new Shell({ now: () => 0 });
+    shell.push('gameover');
+    const d = shell.describe();
+    expect(d.screen).toBe('gameover');
+    expect(d.choices.map(ch => ch.id)).toEqual(['gameover.keep_watching', 'gameover.begin_again']);
+    expect(d.choices.every(ch => ch.enabled)).toBe(true);
+
+    const c = new UiContext();
+    c.begin();
+    shell.draw(c, W, H, S);
+    const drawnIds = c.end().hits.filter(hh => hh.id.startsWith('gameover.')).map(hh => hh.id).sort();
+    expect(d.choices.map(ch => ch.id).sort()).toEqual(drawnIds);
+  });
+
+  it('draw() reports the gameover action the player triggered', () => {
+    const shell = new Shell({ now: () => 0 });
+    shell.push('gameover');
+    const probe = new UiContext();
+    probe.begin();
+    shell.draw(probe, W, H, S);
+    const row = probe.end().hits.find(hh => hh.id === 'gameover.begin_again')!;
+    const c = new UiContext();
+    c.begin({ px: row.x + row.w / 2, py: row.y + row.h / 2, down: true, released: false });
+    shell.draw(c, W, H, S);
+    c.end();
+    c.begin({ px: row.x + row.w / 2, py: row.y + row.h / 2, down: false, released: true });
+    const result = shell.draw(c, W, H, S);
+    c.end();
+    expect(result.gameover).toEqual({ kind: 'begin_again' });
+  });
+
+  it('PHOTO mode draws chrome-free and describes NO choices', () => {
+    const shell = new Shell({ now: () => 0, photoView: () => ({ hintText: 'PHOTO SAVED', alpha: 1 }) });
+    shell.push('photo');
+    expect(shell.describe().choices).toEqual([]);
+    const c = new UiContext();
+    c.begin();
+    const result = shell.draw(c, W, H, S);
+    const { hits } = c.end();
+    expect(hits).toEqual([]); // nothing clickable
+    expect(result).toEqual({
+      island: null, title: null, save: null, load: null, settings: null, gameover: null, newgame: null,
+    });
+  });
+
+  it('NEW WORLD reserves the paste-code island EVERY frame it is up, action or not', () => {
+    const shell = new Shell({ now: () => 0 });
+    shell.push('newgame');
+    const d = shell.describe();
+    expect(d.screen).toBe('newgame');
+    expect(d.choices.map(ch => ch.id)).toEqual(['newgame.random', 'newgame.back']);
+
+    const c = new UiContext();
+    c.begin();
+    const result = shell.draw(c, W, H, S);
+    c.end();
+    expect(result.island).not.toBeNull();
+    expect(result.island!.w).toBeGreaterThan(0);
+    expect(result.newgame).toBeNull(); // nothing clicked this frame
+  });
+
+  it('draw() reports the RANDOM WORLD action the player triggered', () => {
+    const shell = new Shell({ now: () => 0 });
+    shell.push('newgame');
+    const probe = new UiContext();
+    probe.begin();
+    shell.draw(probe, W, H, S);
+    const row = probe.end().hits.find(hh => hh.id === 'newgame.random')!;
+    const c = new UiContext();
+    c.begin({ px: row.x + row.w / 2, py: row.y + row.h / 2, down: true, released: false });
+    shell.draw(c, W, H, S);
+    c.end();
+    c.begin({ px: row.x + row.w / 2, py: row.y + row.h / 2, down: false, released: true });
+    const result = shell.draw(c, W, H, S);
+    c.end();
+    expect(result.newgame).toEqual({ kind: 'random' });
   });
 });
