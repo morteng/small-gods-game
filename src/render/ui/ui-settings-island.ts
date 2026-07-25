@@ -10,6 +10,9 @@
 // Self-contained: inline styles, no CSS deps. Reads/writes the same localStorage
 // provider config the legacy settings panel used, and calls back into the game to
 // rebuild the live LLM client (`Game.applyLlmConfig`).
+//
+// The shared root/show/hide/layout/destroy shell lives in `kit/island-frame.ts`
+// (UI v3 P5b) — this class owns only the field-specific children.
 
 import {
   loadProviderConfig,
@@ -18,14 +21,9 @@ import {
   type ProviderConfig,
   type ProviderType,
 } from '@/llm/provider-factory';
+import { IslandFrame, type IslandRect } from '@/render/ui/kit/island-frame';
 
-/** CSS-pixel rect (top-left origin) the island should occupy. */
-export interface IslandRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+export type { IslandRect };
 
 const PROVIDERS: ProviderType[] = ['mock', 'openai', 'openrouter'];
 
@@ -39,26 +37,19 @@ export function buildStamp(): string {
 }
 
 export class SettingsIsland {
-  private root: HTMLDivElement;
+  private frame: IslandFrame;
   private providerSel: HTMLSelectElement;
   private modelInput: HTMLInputElement;
   private keyInput: HTMLInputElement;
   private status: HTMLDivElement;
   private config: ProviderConfig;
-  private shown = false;
 
   constructor(container: HTMLElement, private onSave: (cfg: ProviderConfig) => void) {
     this.config = loadProviderConfig();
 
-    this.root = document.createElement('div');
-    this.root.style.cssText = [
-      'position:absolute', 'display:none', 'box-sizing:border-box',
-      'flex-direction:column', 'gap:10px', 'padding:14px',
-      'font-family:ui-monospace,Menlo,Consolas,monospace', 'color:#e8e6f0',
-      'background:transparent', 'z-index:30', 'pointer-events:auto',
-    ].join(';');
+    this.frame = new IslandFrame(container, { flexDirection: 'column', gap: 10, padding: '14px' });
 
-    this.root.appendChild(this.label('LLM PROVIDER'));
+    this.frame.root.appendChild(this.label('LLM PROVIDER'));
     this.providerSel = document.createElement('select');
     styleField(this.providerSel);
     for (const p of PROVIDERS) {
@@ -69,21 +60,21 @@ export class SettingsIsland {
     }
     this.providerSel.value = this.config.type;
     this.providerSel.addEventListener('change', () => this.syncFromFields());
-    this.root.appendChild(this.providerSel);
+    this.frame.root.appendChild(this.providerSel);
 
-    this.root.appendChild(this.label('MODEL'));
+    this.frame.root.appendChild(this.label('MODEL'));
     this.modelInput = document.createElement('input');
     this.modelInput.type = 'text';
     this.modelInput.placeholder = 'e.g. anthropic/claude-haiku-4.5';
     styleField(this.modelInput);
-    this.root.appendChild(this.modelInput);
+    this.frame.root.appendChild(this.modelInput);
 
-    this.root.appendChild(this.label('API KEY'));
+    this.frame.root.appendChild(this.label('API KEY'));
     this.keyInput = document.createElement('input');
     this.keyInput.type = 'password';
     this.keyInput.placeholder = 'sk-…  (stored locally, never sent to us)';
     styleField(this.keyInput);
-    this.root.appendChild(this.keyInput);
+    this.frame.root.appendChild(this.keyInput);
 
     const save = document.createElement('button');
     save.textContent = 'SAVE';
@@ -93,19 +84,18 @@ export class SettingsIsland {
       'background:#d9b25e', 'border:0', 'border-radius:3px',
     ].join(';');
     save.addEventListener('click', () => this.save());
-    this.root.appendChild(save);
+    this.frame.root.appendChild(save);
 
     this.status = document.createElement('div');
     this.status.style.cssText = 'font-size:11px;opacity:0.7;min-height:14px';
-    this.root.appendChild(this.status);
+    this.frame.root.appendChild(this.status);
 
     // Build stamp footer — version + git SHA, for bug reports. Pushed to the bottom.
     const footer = document.createElement('div');
     footer.textContent = buildStamp();
     footer.style.cssText = 'margin-top:auto;font-size:10px;letter-spacing:1px;opacity:0.4';
-    this.root.appendChild(footer);
+    this.frame.root.appendChild(footer);
 
-    container.appendChild(this.root);
     this.populate();
   }
 
@@ -155,33 +145,29 @@ export class SettingsIsland {
   }
 
   show(): void {
-    if (this.shown) return;
-    this.shown = true;
-    this.root.style.display = 'flex';
-    this.providerSel.value = this.config.type;
-    this.populate();
+    const wasShown = this.frame.isShown();
+    this.frame.show();
+    if (!wasShown) {
+      this.providerSel.value = this.config.type;
+      this.populate();
+    }
   }
 
   hide(): void {
-    if (!this.shown) return;
-    this.shown = false;
-    this.root.style.display = 'none';
+    this.frame.hide();
   }
 
   isShown(): boolean {
-    return this.shown;
+    return this.frame.isShown();
   }
 
   /** Position the island over the GPU settings panel's interior (CSS px). */
   layout(r: IslandRect): void {
-    this.root.style.left = `${Math.round(r.x)}px`;
-    this.root.style.top = `${Math.round(r.y)}px`;
-    this.root.style.width = `${Math.round(r.w)}px`;
-    this.root.style.height = `${Math.round(r.h)}px`;
+    this.frame.layout(r);
   }
 
   destroy(): void {
-    this.root.remove();
+    this.frame.destroy();
   }
 }
 

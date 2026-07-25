@@ -10,29 +10,20 @@
 //
 // Self-contained: inline styles, no CSS deps. Purely an input surface — it owns no
 // game state and never touches belief/transcript; it only emits the raw text.
+// The shared root/show/hide/layout/destroy shell lives in `kit/island-frame.ts`
+// (UI v3 P5b) — this class owns only the field-specific children.
 
-/** CSS-pixel rect (top-left origin) the island should occupy. */
-export interface IslandRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+import { IslandFrame, type IslandRect } from '@/render/ui/kit/island-frame';
+
+export type { IslandRect };
 
 export class WhisperInputIsland {
-  private root: HTMLDivElement;
+  private frame: IslandFrame;
   private input: HTMLInputElement;
-  private shown = false;
 
   constructor(container: HTMLElement, private onSend: (text: string) => void) {
-    this.root = document.createElement('div');
-    this.root.style.cssText = [
-      'position:absolute', 'display:none', 'box-sizing:border-box',
-      'flex-direction:row', 'gap:8px', 'align-items:stretch',
-      'font-family:ui-monospace,Menlo,Consolas,monospace', 'color:#e8e6f0',
-      'background:transparent', 'z-index:30', 'pointer-events:auto',
-    ].join(';');
-    this.root.style.display = 'none'; // explicit (some CSSOMs drop the multi-prop cssText's display)
+    this.frame = new IslandFrame(container, { flexDirection: 'row', gap: 8 });
+    this.frame.root.style.alignItems = 'stretch';
 
     this.input = document.createElement('input');
     this.input.type = 'text';
@@ -54,7 +45,7 @@ export class WhisperInputIsland {
         e.stopPropagation();
       }
     });
-    this.root.appendChild(this.input);
+    this.frame.root.appendChild(this.input);
 
     const send = document.createElement('button');
     send.textContent = '⏎';
@@ -64,9 +55,7 @@ export class WhisperInputIsland {
       'color:#1a1a24', 'background:#d9b25e', 'border:0', 'border-radius:3px',
     ].join(';');
     send.addEventListener('click', () => this.submit());
-    this.root.appendChild(send);
-
-    container.appendChild(this.root);
+    this.frame.root.appendChild(send);
   }
 
   private submit(): void {
@@ -78,32 +67,30 @@ export class WhisperInputIsland {
   }
 
   show(): void {
-    if (this.shown) return;
-    this.shown = true;
-    this.root.style.display = 'flex';
-    this.input.focus();
+    // `frame.show()` is itself idempotent, but focus/blur must only fire on the
+    // TRANSITION (this is called every frame the island is visible — re-stealing
+    // focus every frame would fight a player mid-selection in the field).
+    const wasShown = this.frame.isShown();
+    this.frame.show();
+    if (!wasShown) this.input.focus();
   }
 
   hide(): void {
-    if (!this.shown) return;
-    this.shown = false;
-    this.root.style.display = 'none';
-    this.input.blur();
+    const wasShown = this.frame.isShown();
+    this.frame.hide();
+    if (wasShown) this.input.blur();
   }
 
   isShown(): boolean {
-    return this.shown;
+    return this.frame.isShown();
   }
 
   /** Position the island over the card's input row (CSS px). */
   layout(r: IslandRect): void {
-    this.root.style.left = `${Math.round(r.x)}px`;
-    this.root.style.top = `${Math.round(r.y)}px`;
-    this.root.style.width = `${Math.round(r.w)}px`;
-    this.root.style.height = `${Math.round(r.h)}px`;
+    this.frame.layout(r);
   }
 
   destroy(): void {
-    this.root.remove();
+    this.frame.destroy();
   }
 }
