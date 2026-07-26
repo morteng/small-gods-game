@@ -27,6 +27,17 @@ export function parapetHeight(h: number): number {
   return Math.min(mToTiles(1.6), h * 0.4);
 }
 
+/** The shortest crest a masonry curtain is actually BUILT to (1 m): a run authored shorter than
+ *  this still gets a wall you can see, so the geometry floors it. Anything deriving a height FROM
+ *  a run — the parapet, the wall-walk, the mural stair, the sim's garrison stations — must floor
+ *  it the same way or it will compute a walk the stones do not have. */
+export const MASONRY_MIN_CREST = mToTiles(1.0);
+
+/** The crest a masonry run of authored height `h` is built to. See {@link MASONRY_MIN_CREST}. */
+export function masonryCrestHeight(h: number): number {
+  return Math.max(MASONRY_MIN_CREST, h);
+}
+
 /** The continuous base course (crenel sill) under the teeth, as a fraction of parapet height —
  *  the low breast they stand on. Without it teeth read as loose blocks scattered on a slab. */
 export const PARAPET_BASE_COURSE_FRAC = 0.42;

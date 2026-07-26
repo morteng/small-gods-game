@@ -27,7 +27,7 @@ import type { Manifold } from 'manifold-3d';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
 import { manifoldToFacets } from '@/assetgen/geometry/solids';
 import { mToTiles } from '@/render/scale-contract';
-import { MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC, PARAPET_BASE_COURSE_FRAC, parapetHeight, toothRun } from '@/assetgen/geometry/battlement';
+import { MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC, PARAPET_BASE_COURSE_FRAC, masonryCrestHeight, parapetHeight, toothRun } from '@/assetgen/geometry/battlement';
 import type { BarrierRun } from '@/world/barrier';
 
 export interface LinearResult {
@@ -150,7 +150,7 @@ function outwardSignFor(run: BarrierRun, s: Seg): number {
 /** Masonry curtain: battered plinth + curtain to the wall-walk + crenellated parapet (or a
  *  coping cope when uncrenellated). One stone group; the work (ashlar/rubble/drystone) varies. */
 function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
-  const H = Math.max(mToTiles(1.0), run.height);
+  const H = masonryCrestHeight(run.height);
   const th = Math.max(mToTiles(0.6), run.thickness);
   const out: ManifoldT[] = [];
 
@@ -224,7 +224,7 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
 function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { frame: ManifoldT[]; breast: ManifoldT[] } {
   const outward = outwardSignFor(run, s);
   if (outward === 0) return { frame: [], breast: [] };
-  const H = Math.max(mToTiles(1.0), run.height);
+  const H = masonryCrestHeight(run.height);
   const th = Math.max(mToTiles(0.6), run.thickness);
   const parapetH = run.crenellated ? parapetHeight(H) : 0;
   const walkZ = H - parapetH;
@@ -412,12 +412,12 @@ export function gateArchProfile(height: number, width: number): {
 /** Does this run's gate cut as an ARCHED masonry passage (vs a plain full-height slot)? The gate
  *  leaf reads this to pick its silhouette (arch-topped vs flat-topped). */
 export function gateIsArched(run: BarrierRun): boolean {
-  return familyOf(run) === 'masonry' && Math.max(mToTiles(1.0), run.height) >= mToTiles(2.4);
+  return familyOf(run) === 'masonry' && masonryCrestHeight(run.height) >= mToTiles(2.4);
 }
 
 function gateCut(M: ManifoldNS, run: BarrierRun, t: number, width: number): ManifoldT {
   const { p, angleDeg } = pointAt(run.path, t);
-  const H = Math.max(mToTiles(1.0), run.height);
+  const H = masonryCrestHeight(run.height);
   const th = run.thickness + mToTiles(1.0);          // overshoot both faces for a clean punch
   const base = mToTiles(0.6);                          // start the void just below grade
 

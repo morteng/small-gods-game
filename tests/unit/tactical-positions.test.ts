@@ -3,7 +3,7 @@ import {
   walkZOf, stairPlacementOf, wallStations, arcLengthPoint,
 } from '@/world/tactical-positions';
 import { BARRIER_DEFAULTS, type BarrierRun, type BarrierGate } from '@/world/barrier';
-import { parapetHeight } from '@/assetgen/geometry/battlement';
+import { MASONRY_MIN_CREST, parapetHeight } from '@/assetgen/geometry/battlement';
 // A TEST may import render (only `src/sim/` may not) — the parity pin below asserts the leaf's
 // stair placement against what the render source actually composes.
 import { runElements } from '@/render/parametric-barrier-source';
@@ -20,6 +20,15 @@ describe('walkZOf', () => {
   it('matches height − parapetHeight(height) exactly for a crenellated run', () => {
     const run = crenRing();
     expect(walkZOf(run)).toBeCloseTo(run.height - parapetHeight(run.height), 12);
+  });
+
+  it('floors a stub run at the crest the stones are actually BUILT to', () => {
+    // The curtain geometry floors a masonry run at MASONRY_MIN_CREST, so a run authored shorter
+    // than that is drawn taller than it asked for. Taking the raw height here would put the sim's
+    // walk (and its stations, and the stair's top step) below the stones the renderer draws.
+    const stub: BarrierRun = { ...crenRing(), height: MASONRY_MIN_CREST / 4 };
+    expect(walkZOf(stub)).toBeCloseTo(MASONRY_MIN_CREST - parapetHeight(MASONRY_MIN_CREST), 12);
+    expect(walkZOf(stub)).toBeGreaterThan(stub.height);
   });
 
   it('is 0 for an uncrenellated run (nothing to garrison — no protected walk)', () => {

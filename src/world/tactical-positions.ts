@@ -18,7 +18,7 @@
 // with no render dependency, so they MOVED here and the render source now imports them back —
 // never a duplicate copy of the derivation.
 import { pathLength, pointAt, segmentIndexAt, type BarrierRun, type BarrierGate } from '@/world/barrier';
-import { parapetHeight } from '@/assetgen/geometry/battlement';
+import { masonryCrestHeight, parapetHeight } from '@/assetgen/geometry/battlement';
 import { stairFlightExtent } from '@/assetgen/geometry/stair-spec';
 import { mToTiles } from '@/render/scale-contract';
 
@@ -154,10 +154,17 @@ export function gateFrameOf(run: BarrierRun, g: BarrierGate): { p: Pt; dir: Pt; 
  *  stands behind. 0 for an uncrenellated run: nothing crenellated has a protected walk to garrison
  *  (a plain wall/palisade top is not a fighting platform). ONE derivation, shared with the curtain,
  *  its towers and the mural stair — an inline copy of this formula is how a flight (or a soldier)
- *  ends up stopping short of, or overshooting, the walk it's supposed to reach. */
+ *  ends up stopping short of, or overshooting, the walk it's supposed to reach.
+ *
+ *  Reads the run's height through `masonryCrestHeight`, exactly as the curtain geometry does: a
+ *  run authored shorter than the minimum crest is BUILT to that minimum, so taking its raw height
+ *  here would put the sim's walk (and its stations, and the stair's top step) below the stones the
+ *  renderer actually draws. No authored preset is that short today — this keeps the two honest if
+ *  one ever is. */
 export function walkZOf(run: BarrierRun): number {
   if (!run.crenellated) return 0;
-  return run.height - parapetHeight(run.height);
+  const crest = masonryCrestHeight(run.height);
+  return crest - parapetHeight(crest);
 }
 
 /** Only real defensive rings (a crenellated masonry curtain that knows its inside) get a stair. */
