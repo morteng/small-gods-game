@@ -12,7 +12,12 @@ export interface TargetingMode {
   /** Reticle shape, read off the registry (`capFootprint`) at arm time. 'point'
    *  resolves one tile/entity on click; 'area' (Phase B) brushes a disc. */
   footprint: 'point' | 'area';
-  /** Phase B drag anchor (click+drag area casts) — reserved, unused until B4. */
+  /** The disc's fixed centre for a click+drag area cast (abilities-v1 B4):
+   *  stamped by `Game.onDragArea('start', …)` at mousedown, read by the frame
+   *  renderer (the growing disc preview) and the hint bar (the live radius/cost
+   *  readout) until the gesture resolves and `targeting` clears. Undefined
+   *  before the drag starts (a 'point' cast never sets it) — its presence IS
+   *  "mid-drag", so callers branch on it rather than tracking a separate flag. */
   anchor?: { x: number; y: number };
 }
 

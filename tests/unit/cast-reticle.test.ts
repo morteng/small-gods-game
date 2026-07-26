@@ -9,7 +9,7 @@
  * (a synthetic `IsoEnv`) projects higher (smaller screen-y) than a flat one.
  */
 import { describe, it, expect } from 'vitest';
-import { projectCastReticle } from '@/render/cast-reticle';
+import { projectCastReticle, projectCastAreaDisc } from '@/render/cast-reticle';
 import { createCamera } from '@/render/camera';
 import { worldToScreen } from '@/render/iso/iso-projection';
 import { isoStageTransform } from '@/render/iso/entity-draw-list';
@@ -92,5 +92,53 @@ describe('projectCastReticle — abilities-v1 A2 pure geometry', () => {
     const noEnv = projectCastReticle({ x: 7, y: 2 }, cam, null);
     const withFlatEnv = projectCastReticle({ x: 7, y: 2 }, cam, flatEnv());
     expect(noEnv).toEqual(withFlatEnv);
+  });
+});
+
+describe('projectCastAreaDisc — abilities-v1 B4 pure geometry', () => {
+  it('centres on the ANCHOR tile (+0.5), same projection idiom as the point reticle', () => {
+    const cam = createCamera();
+    cam.x = 12; cam.y = 4; cam.zoom = 1;
+    const geo = projectCastAreaDisc({ x: 5, y: 8 }, 6, cam, null);
+    const ptGeo = projectCastReticle({ x: 5, y: 8 }, cam, null);
+    expect(geo.cx).toBe(ptGeo.cx);
+    expect(geo.cy).toBe(ptGeo.cy);
+  });
+
+  it('the on-screen disc is an ELLIPSE with the vertical semi-axis exactly half the horizontal — never a circle', () => {
+    const cam = createCamera();
+    cam.zoom = 1;
+    const geo = projectCastAreaDisc({ x: 0, y: 0 }, 6, cam, null);
+    expect(geo.rx).toBeGreaterThan(0);
+    expect(geo.ry).toBe(Math.round(geo.rx * 0.5));
+  });
+
+  it('radius grows linearly with the tile radius (double the tiles ⇒ double rx)', () => {
+    const cam = createCamera();
+    cam.zoom = 1;
+    const r6 = projectCastAreaDisc({ x: 0, y: 0 }, 6, cam, null);
+    const r12 = projectCastAreaDisc({ x: 0, y: 0 }, 12, cam, null);
+    expect(r12.rx).toBeCloseTo(r6.rx * 2, 0);
+  });
+
+  it('radius scales with the QUANTIZED zoom rung, matching the point reticle at radius 1', () => {
+    // At a 1-tile radius, the disc's horizontal semi-axis matches the POINT
+    // reticle's own radius exactly — the deliberate reuse (same constant),
+    // so a 1-tile-radius drag previews continuously with the point cast it
+    // grew out of, not a visually unrelated size.
+    const cam = createCamera();
+    cam.zoom = 0.29; // a fractional, off-rung zoom (CameraDirector mid-tween)
+    const disc = projectCastAreaDisc({ x: 3, y: 3 }, 1, cam, null);
+    const pt = projectCastReticle({ x: 3, y: 3 }, cam, null);
+    expect(disc.rx).toBe(pt.radius);
+  });
+
+  it('a lifted anchor projects HIGHER on screen (smaller cy), same as the point reticle', () => {
+    const cam = createCamera();
+    cam.zoom = 1;
+    const flat = projectCastAreaDisc({ x: 3, y: 3 }, 6, cam, flatEnv());
+    const lifted = projectCastAreaDisc({ x: 3, y: 3 }, 6, cam, liftedEnv(50));
+    expect(lifted.cy).toBeLessThan(flat.cy);
+    expect(lifted.cx).toBe(flat.cx);
   });
 });

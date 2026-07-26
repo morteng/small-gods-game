@@ -21,6 +21,11 @@
  * optional lift env → CSS-px centre + radius) so it is unit-testable with no
  * canvas at all; `renderCastReticle` is the thin paint on top. Deterministic —
  * no `Math.random` on the render path (the smite FX's fixed-zigzag discipline).
+ *
+ * B4 adds the area-drag sibling: `projectCastAreaDisc`/`renderCastAreaDisc`,
+ * the live preview of a click+drag `summon_storm` cast. Same idiom, same file
+ * (not a second module) — it's the same overlay layer, the same lift-aware
+ * projection, and the same pure-geometry/thin-paint split.
  */
 import type { Camera } from '@/core/types';
 import { worldToScreen } from '@/render/iso/iso-projection';
@@ -114,5 +119,85 @@ export function renderCastReticle(
   ctx.moveTo(cx, cy + radius); ctx.lineTo(cx, cy + radius + tick);
   ctx.stroke();
 
+  ctx.restore();
+}
+
+// ─── B4: the area-drag live disc preview ───────────────────────────────────
+
+/** Screen px-per-tile-radius for the area disc, at native zoom — reuses
+ *  `RETICLE_BASE_RADIUS` itself (rather than a second tuned constant) so a
+ *  1-tile-radius disc previews at exactly the size the point reticle already
+ *  occupies; `clampAreaRadius`'s floor of 2 tiles means the SMALLEST disc a
+ *  player can ever drag is still visibly bigger than a point cast — correct,
+ *  an area verb costs more precisely because it covers more ground. */
+const AREA_DISC_TILE_PX = RETICLE_BASE_RADIUS;
+
+export interface CastAreaDiscGeometry {
+  /** CSS-px centre (the anchor tile), pixel-snapped. */
+  cx: number;
+  cy: number;
+  /** CSS-px horizontal semi-axis. */
+  rx: number;
+  /** CSS-px vertical semi-axis — HALF of `rx`: the iso projection is a 2:1
+   *  diamond (`ISO_TILE_H`/`ISO_TILE_W` = 64/128), so a ground disc reads as a
+   *  squashed ellipse on screen, never a circle (the same 0.5 squash
+   *  `divine-effects.ts`'s `renderStorm` draws its cloud/ground disc with —
+   *  this preview and the storm it commits to must agree on shape). */
+  ry: number;
+}
+
+/**
+ * Project the drag ANCHOR (not the live cursor tile — the disc's centre is
+ * fixed the instant the gesture starts, B4) plus a radius in tiles to the
+ * on-screen ellipse a released cast at that radius would draw. Shares
+ * `projectCastReticle`'s lift-aware idiom exactly (same env, same quantized
+ * zoom rung — a mid-drag disc must be just as pixel-stable as the point
+ * reticle it replaces).
+ */
+export function projectCastAreaDisc(
+  anchor: { x: number; y: number },
+  radiusTiles: number,
+  camera: Camera,
+  env: IsoEnv | null,
+): CastAreaDiscGeometry {
+  const lift = env ? (env.elevAt(anchor.x + 0.5, anchor.y + 0.5) - env.seaLevel) * env.k : 0;
+  const iso = worldToScreen(anchor.x + 0.5, anchor.y + 0.5, lift, 0, 0);
+  const t = isoStageTransform(camera);
+  const z = quantizeIsoZoom(camera.zoom, 0);
+  const rx = Math.round(AREA_DISC_TILE_PX * z * radiusTiles);
+  return {
+    cx: Math.round(iso.sx * t.scale + t.x),
+    cy: Math.round(iso.sy * t.scale + t.y),
+    rx,
+    ry: Math.round(rx * 0.5),
+  };
+}
+
+/**
+ * Paint the live drag-radius disc: a translucent fill (so the player reads
+ * the covered GROUND, not just an outline) plus a bright rim, gold/dim-ink
+ * exactly like `renderCastReticle` (this module never resolves validity
+ * itself — `valid` is the caller's own read).
+ */
+export function renderCastAreaDisc(
+  ctx: CanvasRenderingContext2D,
+  geo: CastAreaDiscGeometry,
+  valid: boolean,
+): void {
+  const color = valid ? CANVAS.faith : CANVAS.inactiveLine;
+  const { cx, cy, rx, ry } = geo;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.16;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.85;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }

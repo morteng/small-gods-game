@@ -20,6 +20,28 @@ export interface ControlsCallbacks {
   onToggleDevMode?: () => void;
   onUserCameraInput?: () => void;
   onHoverTile?: (tileX: number, tileY: number, screenX: number, screenY: number) => void;
+  /** abilities-v1 B4: asked ONCE at mousedown — does the caller want THIS
+   *  left-drag captured as an area-radius gesture instead of an ordinary camera
+   *  pan? Only an 'area'-footprint armed cast should return true; the default
+   *  (undefined ⇒ false) and a 'point'-footprint cast both fall through to the
+   *  pan-or-click path completely unchanged — that regression (a normal drag,
+   *  or a point cast, still panning exactly as before) is the one most worth
+   *  guarding, since a capture bug here would make the camera unusable. Not
+   *  re-polled mid-drag: the armed verb's footprint cannot change while a
+   *  mouse button is held. */
+  shouldCaptureDrag?: () => boolean;
+  /** abilities-v1 B4: fires through a captured area-drag gesture in place of the
+   *  pan it preempted. 'start' at mousedown (the disc's anchor tile); 'update'
+   *  on every subsequent move while the button stays down (the tile presently
+   *  under the cursor — the caller derives the live radius as the distance from
+   *  its own remembered anchor, so this module stays ignorant of targeting/
+   *  verbs); 'end' at mouseup (the release tile — the caller clamps + emits).
+   *  A sub-3px "click" while captured STILL routes here (not onCanvasClick/
+   *  onTileClick) — 'start' and 'end' land on nearly the same tile, and the
+   *  caller's own radius-from-distance math naturally floors to its minimum,
+   *  so a plain click "just works" without a second code path (deliberately
+   *  NOT overloading the ordinary 3px click threshold to mean something new). */
+  onDragArea?: (phase: 'start' | 'update' | 'end', tileX: number, tileY: number) => void;
   /** Optional terrain env for LIFT-AWARE tile picking (build with `isoEnvForMap`),
    *  evaluated per pick so it tracks the live world. Without it, picking is flat
    *  (height-free) and mis-resolves the tile under the cursor on sloped terrain. */
@@ -103,6 +125,11 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   let downX = 0;
   let downY = 0;
   let wheelAccum = 0; // accumulated scroll distance for snapped (iso) zoom
+  // abilities-v1 B4: true for the DURATION of a drag that `shouldCaptureDrag`
+  // claimed at mousedown — decided once per gesture (not re-polled mid-drag,
+  // per the callback's own doc) so a mid-drag arm change can't yank the
+  // gesture from pan to area-capture (or back) partway through.
+  let capturingArea = false;
 
   function onMouseDown(e: MouseEvent) {
     // Only the primary button starts a drag/click. Right-click is handled by
@@ -113,21 +140,38 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     lastY = e.clientY;
     downX = e.clientX;
     downY = e.clientY;
-  }
-
-  function onMouseMove(e: MouseEvent) {
-    if (callbacks.onHoverTile) {
+    capturingArea = callbacks.shouldCaptureDrag?.() ?? false;
+    if (capturingArea) {
       const rect = canvas.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
       const { tx, ty } = pickTile(camera, sx, sy, callbacks.getPickEnv?.());
-      callbacks.onHoverTile(tx, ty, sx, sy);
+      callbacks.onDragArea?.('start', tx, ty);
     }
+  }
+
+  function onMouseMove(e: MouseEvent) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    // Both the hover callback and a captured area-drag need the tile under the
+    // cursor — pick it at most once per move, not twice.
+    const needsTile = !!callbacks.onHoverTile || (dragging && capturingArea);
+    const tile = needsTile ? pickTile(camera, sx, sy, callbacks.getPickEnv?.()) : null;
+    if (callbacks.onHoverTile && tile) callbacks.onHoverTile(tile.tx, tile.ty, sx, sy);
     if (!dragging) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
+    if (capturingArea) {
+      // The gesture grows a radius, not the camera — pan is suppressed for
+      // exactly this drag (a point-footprint cast or nothing armed never sets
+      // capturingArea, so it never reaches this branch: the regression test).
+      if (tile) callbacks.onDragArea?.('update', tile.tx, tile.ty);
+      callbacks.onRedraw();
+      return;
+    }
     if (dx !== 0 || dy !== 0) callbacks.onUserCameraInput?.();
     pan(camera, dx, dy);
     callbacks.onRedraw();
@@ -136,6 +180,19 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   function onMouseUp(e: MouseEvent) {
     if (!dragging) return;
     dragging = false;
+    if (capturingArea) {
+      capturingArea = false;
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+      const { tx, ty } = pickTile(camera, sx, sy, callbacks.getPickEnv?.());
+      callbacks.onDragArea?.('end', tx, ty);
+      // An area-drag gesture is consumed here in full, whether it travelled
+      // 200px or landed within the ordinary click threshold — it never falls
+      // through to onCanvasClick/onTileClick (that 3px threshold keeps its
+      // ONE existing meaning: "was this an ordinary click, not a pan").
+      return;
+    }
     // If barely moved since mousedown, treat as click. Compare against the
     // mousedown position, NOT lastX/lastY (which track the most recent
     // mousemove during a drag and would always read ~0 here).
@@ -252,7 +309,10 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   canvas.addEventListener('mousedown', onMouseDown);
   canvas.addEventListener('mousemove', onMouseMove);
   canvas.addEventListener('mouseup', onMouseUp);
-  canvas.addEventListener('mouseleave', () => { dragging = false; });
+  // Leaving the canvas mid-drag abandons the gesture WITHOUT firing 'end' —
+  // an area-drag that never released over the canvas never emits (no
+  // half-formed cast from an accidental cursor exit).
+  canvas.addEventListener('mouseleave', () => { dragging = false; capturingArea = false; });
   canvas.addEventListener('contextmenu', onContextMenu);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   window.addEventListener('keydown', onKeyDown);

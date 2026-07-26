@@ -41,8 +41,11 @@ const EFFECT_CONFIG: Record<string, { duration: number; color: string; particleC
  *  `sim/divine-costs.ts`) — kept as a local literal rather than an import so
  *  this render-only module stays decoupled from the sim's cost tuning; a
  *  settlement storm has no `radius` on its event (only an area cast does), so
- *  this is what it falls back to. */
-const DEFAULT_STORM_RADIUS_TILES = 6;
+ *  this is what it falls back to. Exported (abilities-v1 B5) so `game.ts`'s
+ *  `onDivineFxEvent` can seed the SAME-sized visible cloud (`cloudArea`) a
+ *  settlement cast's storm effect renders, rather than re-declaring 6 a
+ *  second time and risking the two drifting apart. */
+export const DEFAULT_STORM_RADIUS_TILES = 6;
 
 /** Fixed droplet layout for `renderStorm` — [angleFrac (0..1 of a full turn),
  *  radiusFrac (0..1 of the storm's radius), fallPhase (0..1, offsets each

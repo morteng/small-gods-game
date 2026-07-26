@@ -353,4 +353,89 @@ describe('attachControls keyboard', () => {
     fireKey('KeyL');
     expect(onToggleLabels).not.toHaveBeenCalled();
   });
+
+  // ── abilities-v1 B4: the area-drag capture path ───────────────────────────
+  describe('shouldCaptureDrag / onDragArea (abilities-v1 B4)', () => {
+    it('REGRESSION: a drag with nothing armed still pans the camera exactly as before', () => {
+      const cam = createCamera();
+      const onDragArea = vi.fn();
+      cleanup = attachControls(canvas, cam, { onRedraw: () => {}, onDragArea });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', { clientX: 150, clientY: 100, bubbles: true }));
+      expect(cam.x).not.toBe(0); // panned
+      expect(onDragArea).not.toHaveBeenCalled(); // never asked to capture ⇒ never fires
+    });
+
+    it('REGRESSION: shouldCaptureDrag returning false (e.g. a point-footprint cast) still pans normally', () => {
+      const cam = createCamera();
+      const onDragArea = vi.fn();
+      cleanup = attachControls(canvas, cam, {
+        onRedraw: () => {}, onDragArea, shouldCaptureDrag: () => false,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', { clientX: 150, clientY: 100, bubbles: true }));
+      expect(cam.x).not.toBe(0); // panned
+      expect(onDragArea).not.toHaveBeenCalled();
+    });
+
+    it('when captured, the camera does NOT pan — onDragArea fires start then update instead', () => {
+      const cam = createCamera();
+      const onDragArea = vi.fn();
+      cleanup = attachControls(canvas, cam, {
+        onRedraw: () => {}, onDragArea, shouldCaptureDrag: () => true,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, clientY: 140, bubbles: true }));
+      expect(cam.x).toBe(0); // NOT panned — the gesture was captured
+      expect(cam.y).toBe(0);
+      expect(onDragArea.mock.calls[0][0]).toBe('start');
+      expect(onDragArea.mock.calls[1][0]).toBe('update');
+    });
+
+    it('release fires onDragArea("end", …) and does NOT fall through to onTileClick/onCanvasClick', () => {
+      const onDragArea = vi.fn();
+      const onTileClick = vi.fn();
+      const onCanvasClick = vi.fn();
+      cleanup = attachControls(canvas, createCamera(), {
+        onRedraw: () => {}, onDragArea, onTileClick, onCanvasClick, shouldCaptureDrag: () => true,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 160, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', { clientX: 200, clientY: 160, bubbles: true }));
+      expect(onDragArea).toHaveBeenLastCalledWith('end', expect.any(Number), expect.any(Number));
+      expect(onTileClick).not.toHaveBeenCalled();
+      expect(onCanvasClick).not.toHaveBeenCalled();
+    });
+
+    it('a captured PLAIN CLICK (sub-3px travel) still goes through onDragArea start+end, not onTileClick', () => {
+      const onDragArea = vi.fn();
+      const onTileClick = vi.fn();
+      cleanup = attachControls(canvas, createCamera(), {
+        onRedraw: () => {}, onDragArea, onTileClick, shouldCaptureDrag: () => true,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseup', { clientX: 100, clientY: 100, bubbles: true }));
+      expect(onDragArea).toHaveBeenCalledTimes(2); // start, end — no 'update' (no mousemove fired)
+      expect(onDragArea.mock.calls[0][0]).toBe('start');
+      expect(onDragArea.mock.calls[1][0]).toBe('end');
+      // start and end land on (approximately) the same tile — the caller derives
+      // the minimum radius from that, not a special-cased click path here.
+      expect(onDragArea.mock.calls[1][1]).toBe(onDragArea.mock.calls[0][1]);
+      expect(onDragArea.mock.calls[1][2]).toBe(onDragArea.mock.calls[0][2]);
+      expect(onTileClick).not.toHaveBeenCalled();
+    });
+
+    it('mouseleave mid-capture abandons the gesture without firing "end"', () => {
+      const onDragArea = vi.fn();
+      cleanup = attachControls(canvas, createCamera(), {
+        onRedraw: () => {}, onDragArea, shouldCaptureDrag: () => true,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseleave', { clientX: 400, clientY: 400, bubbles: true }));
+      expect(onDragArea).toHaveBeenCalledTimes(1); // only 'start'
+      expect(onDragArea.mock.calls[0][0]).toBe('start');
+    });
+  });
 });

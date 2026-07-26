@@ -14,7 +14,8 @@ import { TILE_SIZE } from '@/core/constants';
 import type { Entity } from '@/core/types';
 import type { CommandTargetKind } from '@/sim/command/types';
 import { isoEnvForMap } from '@/render/iso/iso-env';
-import { projectCastReticle, renderCastReticle } from '@/render/cast-reticle';
+import { projectCastReticle, renderCastReticle, projectCastAreaDisc, renderCastAreaDisc } from '@/render/cast-reticle';
+import { clampAreaRadius } from '@/sim/command/types';
 
 export interface FrameRendererUi {
   divineEffects: DivineEffects;
@@ -72,13 +73,30 @@ export class FrameRenderer {
     // binds the live terrain's lift so the ring lands on the tile the click
     // would ACTUALLY hit on a slope (`heightField` inside is memoised, so
     // rebuilding this closure per frame while aiming is cheap).
+    //
+    // B4: once an area-footprint cast has an ANCHOR (the drag has actually
+    // started — `Game.onDragArea('start', …)` stamps it), the point reticle
+    // gives way to the growing disc preview: radius = the live distance from
+    // that fixed anchor to whatever tile the cursor is over now (re-clamped
+    // the same way the eventual `emitDivine` will clamp it, so the preview
+    // never promises a bigger/smaller disc than the release actually casts).
+    // Before the drag starts (armed but not yet anchored), the point reticle
+    // still shows — it's where a click would ANCHOR the coming drag.
     const aim = this.deps.interaction.targeting;
     const hoverTile = this.deps.interaction.hoverTile;
-    if (aim && hoverTile && this.deps.state.map) {
+    if (aim && this.deps.state.map) {
       const env = isoEnvForMap(this.deps.state.map);
-      const geo = projectCastReticle(hoverTile, this.deps.state.camera, env);
-      const valid = this.deps.wouldResolveTarget(hoverTile.x, hoverTile.y, aim.targetKinds);
-      renderCastReticle(this.deps.ctx, geo, valid);
+      if (aim.footprint === 'area' && aim.anchor) {
+        const radius = clampAreaRadius(
+          hoverTile ? Math.hypot(hoverTile.x - aim.anchor.x, hoverTile.y - aim.anchor.y) : 0,
+        );
+        const geo = projectCastAreaDisc(aim.anchor, radius, this.deps.state.camera, env);
+        renderCastAreaDisc(this.deps.ctx, geo, true);
+      } else if (hoverTile) {
+        const geo = projectCastReticle(hoverTile, this.deps.state.camera, env);
+        const valid = this.deps.wouldResolveTarget(hoverTile.x, hoverTile.y, aim.targetKinds);
+        renderCastReticle(this.deps.ctx, geo, valid);
+      }
     }
 
 

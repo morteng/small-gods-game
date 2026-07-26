@@ -92,7 +92,16 @@ export interface UiRuntimeHooks {
    *  of a bare label. `miss` flashes true for a short window right after an invalid
    *  click, so the bar can swap in an honest "nothing there" instead of doing
    *  nothing (product decision 2). */
-  getTargeting?: () => { label: string; targetKinds: readonly string[]; footprint: 'point' | 'area'; miss?: boolean } | null;
+  getTargeting?: () => {
+    label: string; targetKinds: readonly string[]; footprint: 'point' | 'area'; miss?: boolean;
+    /** abilities-v1 B4: present only mid-drag (an 'area' cast that has anchored) —
+     *  the live radius reached so far and the power it will actually charge at
+     *  release. Plain numbers, not `@/sim` types (this module stays free of sim
+     *  value imports) — the game derives `cost` through the registry's
+     *  `effectiveCost`, never re-implemented here, so the bar can't drift from
+     *  what gets charged. */
+    drag?: { radius: number; cost: number };
+  } | null;
   /** Cancel an in-progress verb-first cast. Returns true if it consumed the Esc. */
   onCancelTargeting?: () => boolean;
   /** Top ranked affordances for whatever the cursor rests on — queried ONCE per
@@ -1026,8 +1035,13 @@ export class UiRuntime {
       // A5: an invalid click stays armed (product decision 2) — flash an honest
       // miss instead of leaving the bar's stale "choose a target" text up as if
       // nothing happened.
+      // B4: mid-drag, the radius/cost readout replaces the generic "choose a
+      // target" prompt — the player is actively shaping the cast, so the bar
+      // should say what THIS drag will cost, not just what kinds it accepts.
       const msg = aim.miss
         ? `◎ NOTHING THERE TO STRIKE   ·   right-click to cancel`
+        : aim.drag
+        ? `◎ ${aim.label.toUpperCase()} — RADIUS ${aim.drag.radius}   ·   ${aim.drag.cost} POWER   ·   release to cast`
         : `◎ CHOOSE A TARGET — ${aim.label.toUpperCase()}   ·   ${describeTargetKinds(aim.targetKinds)}   ·   right-click to cancel`;
       const tw = Math.ceil(c.measure(msg, fs)) + 32 * s;
       const th = 34 * s;

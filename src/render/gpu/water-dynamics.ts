@@ -528,6 +528,17 @@ export class WaterDynamics implements WeatherStepper {
    *  Not part of the `WeatherStepper` sim contract: the sim never calls this,
    *  only the cast UI decorating a placed cloud does, so it stays a
    *  `WaterDynamics`-only method rather than widening the sim-facing interface.
+   *
+   *  UNLIKE `floodArea`, this does NOT skip cells below sea level. That
+   *  exclusion earns its keep on `floodArea` (there is no such thing as
+   *  "flooding" water that's already ocean — the deluge belongs on LAND).
+   *  A cloud has no such physical objection: clouds sit over open water
+   *  constantly, and a raincloud dropped on a coastline (a very ordinary
+   *  cast — settlements cluster on coasts) would otherwise render with a
+   *  bite taken out of it exactly where the shore crosses the disc, reading
+   *  as a rendering bug rather than a deliberate rule. Seeding every cell in
+   *  the disc is the honest visual.
+   *
    *  Returns the number of cells seeded. */
   cloudArea(tileX: number, tileY: number, radius: number, amount = 0.6): number {
     const { W, H } = this;
@@ -543,7 +554,6 @@ export class WaterDynamics implements WeatherStepper {
         const nx = cx + dx;
         if (nx < 0 || nx >= W) continue;
         const i = ny * W + nx;
-        if (this.elev[i] < ELEVATION_SEA_LEVEL) continue;   // no cloud seeding over the sea
         this.cloud[i] = Math.min(1, this.cloud[i] + amount);
         n++;
       }

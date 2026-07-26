@@ -12,7 +12,9 @@ import { createDebugApi, type DebugApi } from '@/dev/debug-api';
 import { createGameQuery, type GameQuery, type InboxItem, type InspectorView, type BeliefView, type BeliefPowerView } from '@/game/game-query';
 import { causalSiteCardView } from '@/game/causal-site-view';
 import type { Command, CommandVerb, CommandTarget, CommandTargetKind } from '@/sim/command/types';
-import { getCapability, acceptedTargetKinds, capFootprint } from '@/sim/command/registry';
+import { clampAreaRadius } from '@/sim/command/types';
+import { getCapability, acceptedTargetKinds, capFootprint, effectiveCost } from '@/sim/command/registry';
+import { DEFAULT_STORM_RADIUS_TILES } from '@/render/divine-effects';
 import { hoverChips } from '@/game/affordance/hover';
 import { ConversationController } from '@/game/conversation-controller';
 import { createGameBus, type GameBus } from '@/game/game-bus';
@@ -108,7 +110,7 @@ import { FatePulse } from '@/game/fate/fate-pulse';
 import { DevModeController } from '@/game/dev-mode-controller';
 import { FrameRenderer } from '@/game/frame-renderer';
 import { PresentationDirector } from '@/presentation/presentation-director';
-import { createInteractionState } from '@/game/interaction-state';
+import { createInteractionState, type TargetingMode } from '@/game/interaction-state';
 import { InteractionController } from '@/game/interaction-controller';
 import { calendarLabel, TICKS_PER_HOUR } from '@/core/calendar';
 import { clamp01 } from '@/core/math';
@@ -876,6 +878,11 @@ export class Game {
         if (this.interaction.targeting) { this.interaction.targeting = null; this.requestRender(); return; } // cancel aim
         void this.input.onRightClick(sx, sy); this.requestRender();
       },
+      // abilities-v1 B4: only an 'area'-footprint armed cast captures the drag —
+      // a 'point' cast (or nothing armed) is untouched, so the camera pans
+      // exactly as it always has (the regression this slice is strictest about).
+      shouldCaptureDrag: () => this.interaction.targeting?.footprint === 'area',
+      onDragArea: (phase, x, y) => this.onDragArea(phase, x, y),
       onTogglePause: () => this.togglePause(),
       onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; this.requestRender(); },
       onToggleDebug: () => {
@@ -963,7 +970,7 @@ export class Game {
         const t = this.interaction.targeting;
         if (!t) return null;
         const miss = performance.now() - this.missFlashAt < Game.MISS_FLASH_MS;
-        return { label: t.label, targetKinds: t.targetKinds, footprint: t.footprint, miss };
+        return { label: t.label, targetKinds: t.targetKinds, footprint: t.footprint, miss, drag: this.dragPreview(t) };
       },
       // A3: Esc cancels an in-progress cast before it reaches the card/menu chain.
       // Consumed only while actually aiming — otherwise Esc falls through to the
@@ -1421,6 +1428,65 @@ export class Game {
     this.emitDivine(aim.verb as CommandVerb, target);
   }
 
+  /**
+   * abilities-v1 B4: the click+drag gesture for an 'area'-footprint cast
+   * (`summon_storm`). `attachControls` routes the WHOLE gesture here instead
+   * of the ordinary pan/click path once `shouldCaptureDrag` claims it — see
+   * that callback's doc for why. 'start' stamps the anchor (the disc's fixed
+   * centre) onto the live `TargetingMode`; 'update' is a no-op here because
+   * the live radius is derived on the fly from `anchor` + the ALREADY-tracked
+   * `interaction.hoverTile` (via the ordinary `onHoverTile` callback, which
+   * `attachControls` keeps firing throughout — no separate state to keep in
+   * sync); 'end' clamps that same distance and emits the cast.
+   *
+   * A plain click (`start` immediately followed by `end` on ~the same tile,
+   * abilities-v1 B4's "minimum radius" requirement) needs no special case:
+   * distance(anchor, anchor) is 0, and `clampAreaRadius` floors that to 2 —
+   * the SAME clamp `previewCommand`/`summonStormAt` apply, so the preview,
+   * the hint-bar readout, and the actual cast can never disagree.
+   */
+  private onDragArea(phase: 'start' | 'update' | 'end', x: number, y: number): void {
+    const aim = this.interaction.targeting;
+    if (!aim || aim.footprint !== 'area') return; // aim cancelled (Esc/right-click) mid-gesture
+    if (phase === 'start') {
+      aim.anchor = { x, y };
+      this.requestRender();
+      return;
+    }
+    if (phase === 'update') {
+      this.requestRender(); // repaint the growing disc preview each move
+      return;
+    }
+    // 'end': commit at the anchor-to-release distance, clamped to the playable band.
+    if (!aim.anchor) return; // defensive — 'start' always precedes 'end' in practice
+    const radius = clampAreaRadius(Math.hypot(x - aim.anchor.x, y - aim.anchor.y));
+    const target: CommandTarget = { kind: 'area', x: aim.anchor.x, y: aim.anchor.y, radius };
+    this.interaction.targeting = null; // clear before emitDivine, same discipline as resolveTargetedCast
+    this.emitDivine(aim.verb as CommandVerb, target);
+  }
+
+  /**
+   * abilities-v1 B4: the hint bar's live "radius so far / what it will cost"
+   * readout while dragging an area cast — undefined once the gesture hasn't
+   * anchored yet (before mousedown) or outside area mode entirely. The cost
+   * MUST come from `effectiveCost(def, cmd)`, never a re-derived formula here —
+   * that's the one authority `previewCommand`/`summonStormAt` also read
+   * through, so this readout structurally cannot drift from what a release
+   * actually charges (registry.ts's whole point for `costFor`).
+   */
+  private dragPreview(t: TargetingMode): { radius: number; cost: number } | undefined {
+    if (t.footprint !== 'area' || !t.anchor) return undefined;
+    const hover = this.interaction.hoverTile;
+    const radius = clampAreaRadius(hover ? Math.hypot(hover.x - t.anchor.x, hover.y - t.anchor.y) : 0);
+    const cap = getCapability(t.verb as CommandVerb);
+    if (!cap) return undefined;
+    const cmd: Command = {
+      verb: t.verb as CommandVerb, source: PLAYER_SPIRIT_ID,
+      target: { kind: 'area', x: t.anchor.x, y: t.anchor.y, radius }, seq: 0,
+    };
+    return { radius, cost: effectiveCost(cap, cmd) };
+  }
+
   /** The target the hover popover last froze onto, so a chip click acts on the tile
    *  the cursor rested on — not a hover that drifted onto the popover itself. */
   private hoverFrozen: CommandTarget | null = null;
@@ -1531,7 +1597,22 @@ export class Game {
       if (pos) this.ui.divineEffects.trigger('smite', pos.x, pos.y);
     } else if (ev.type === 'summon_storm') {
       const pos = this.eventWorldPos(undefined, ev.poiId, ev.x, ev.y);
-      if (pos) this.ui.divineEffects.trigger('storm', pos.x, pos.y, ev.radius);
+      if (pos) {
+        this.ui.divineEffects.trigger('storm', pos.x, pos.y, ev.radius);
+        // abilities-v1 B4/B5: seed VISIBLE cloud over the cast disc, so a
+        // placed raincloud actually reads as weather rather than only a
+        // flood field + a sprite effect. `ev.radius` is undefined for a
+        // settlement cast (only an area cast's event carries one) — fall
+        // back to the SAME default `renderStorm` itself falls back to
+        // (`DEFAULT_STORM_RADIUS_TILES`), so the cloud and the FX always
+        // agree on how big the storm looks. `cloudArea` is deliberately NOT
+        // on the `WeatherStepper` sim contract (a render-only decoration, see
+        // its doc) — narrow to the concrete `WaterDynamics` shape, the same
+        // pattern `debug-api.ts`'s `waterAt()` uses for `lakeOffsetM`/
+        // `floodOffsetM`.
+        const w = this.state.weather as { cloudArea?: (x: number, y: number, r: number, amount?: number) => number } | null;
+        w?.cloudArea?.(pos.x, pos.y, ev.radius ?? DEFAULT_STORM_RADIUS_TILES);
+      }
     }
   }
 
