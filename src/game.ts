@@ -73,8 +73,8 @@ import {
 } from '@/services/save-store';
 import { SAVE_VERSION } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
-import { Shell } from '@/render/ui/shell/shell';
-import type { ScreenId } from '@/render/ui/shell/shell-state';
+import { Shell, EMPTY_HALL_VIEW } from '@/render/ui/shell/shell';
+import { ALL_SCREEN_IDS, type ScreenId } from '@/render/ui/shell/shell-state';
 import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
 import type { SaveAction, SaveScreenView, SlotRow } from '@/render/ui/shell/save-screen';
 import type { LoadAction } from '@/render/ui/shell/load-screen';
@@ -82,6 +82,8 @@ import type { SettingsAction, SettingsScreenView, SettingsKey } from '@/render/u
 import type { GameOverAction } from '@/render/ui/shell/gameover-screen';
 import type { PhotoView } from '@/render/ui/shell/photo-screen';
 import type { NewGameAction } from '@/render/ui/shell/newgame-screen';
+import type { HallAction, HallView } from '@/render/ui/shell/hall-screen';
+import { composeHallView } from '@/game/hall-view';
 import { encodeWorldCode, decodeWorldCode } from '@/game/world-code';
 import { firstRunTidings, FIRST_RUN_TIDING_HORIZON_TICKS } from '@/game/first-run-tidings';
 import * as settingsStore from '@/services/settings-store';
@@ -191,11 +193,17 @@ function hasQueryFlag(flag: string): boolean {
 
 /** The shell screen ids an `open_screen` command may name. Validated rather than
  *  cast, because this value arrives from OUTSIDE (an agent over the bus) and an
- *  unknown screen must be refused, not pushed onto the stack. */
-const SCREEN_IDS = new Set<ScreenId>([
-  'title', 'newgame', 'load', 'save', 'settings', 'controls', 'loading', 'pause', 'gameover', 'photo',
-]);
-function isScreenId(v: string): v is ScreenId {
+ *  unknown screen must be refused, not pushed onto the stack.
+ *
+ *  DERIVED from `ALL_SCREEN_IDS`, which the compiler forces to stay exhaustive
+ *  over `ScreenId` (see its doc). This used to be a hand-written second list,
+ *  and the failure mode was silent: a screen the shell stack accepted was
+ *  REFUSED over the external agent API with no error anywhere. */
+const SCREEN_IDS = new Set<ScreenId>(ALL_SCREEN_IDS);
+/** Exported (like `isSettingsKey` below, and for the same stated reason) so
+ *  `tests/unit/screen-id-parity.test.ts` can pin the PREDICATE — that every
+ *  `ScreenId` really is accepted here — rather than reaching into `Game`. */
+export function isScreenId(v: string): v is ScreenId {
   return SCREEN_IDS.has(v as ScreenId);
 }
 
@@ -570,6 +578,7 @@ export class Game {
       gameoverView: () => ({ note: null }),
       photoView: () => this.buildPhotoView(),
       newGameView: () => ({ error: this.newGameError }),
+      hallView: () => this.buildHallView(),
     });
 
     this.scheduler = new Scheduler();
@@ -1273,6 +1282,31 @@ export class Game {
           case 'back':
             this.cancelKeyCapture();
             this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+        }
+      },
+      onHallAction: (action: HallAction) => {
+        switch (action.kind) {
+          case 'back':
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            break;
+          case 'select':
+            // Pure Shell-local presentation state (which pedestal's detail pane
+            // is open) — a direct call, not a bus round-trip, exactly as the
+            // settings screen's `{kind:'tab'}` case does. An agent already sees
+            // every pedestal through `describe()` without selecting one.
+            this.shell.setHallDomain(action.domain);
+            break;
+          case 'cast':
+            // CLOSE THE HALL FIRST, then arm: `castPower` arms the reticle for
+            // the next MAP click, and the hall is a full-surface modal that
+            // swallows every pointer event — arming underneath it would leave
+            // the player aiming at a screen they cannot click through. Same
+            // `close_screen` meta verb every other shell "back" uses, then the
+            // SAME `castPower` path the POWERS panel button takes (one reticle,
+            // one set of bugs).
+            this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            this.castPower(action.verb);
             break;
         }
       },
@@ -2955,6 +2989,47 @@ export class Game {
       hasAnySave,
       buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
     };
+  }
+
+  /**
+   * The Hall of the Gods' view (Phase C, H3) — the FIRST shell view that reads
+   * live sim state.
+   *
+   * THE MEMO IS MANDATORY: `hudSim().powers`, never `this.query.beliefPowers()`.
+   * The hall draws every frame over a RUNNING world, and `beliefPowers()` runs
+   * two full congregation sweeps per domain (conviction, then the H1 dimension
+   * means). Through the memo that lands at the ~7 Hz HUD cadence; per-frame it
+   * would be a dozen sweeps a second for numbers that move at tick rate.
+   *
+   * No world ⇒ `EMPTY_HALL_VIEW`: the hall still stands (hazy hitless niches,
+   * one honest caption), because `open_screen screen=hall` works with nothing
+   * loaded like every other meta verb. A player `Spirit` whose T5.0 fields have
+   * not been written yet (a pre-T5.0 save, or before the first `SpiritSystem`
+   * tick) degrades to the honest zero, never to a fabricated tier.
+   *
+   * All prose lives in `@/game/hall-view` — pure, and pinned against the
+   * constants it paraphrases so a moved threshold fails a test instead of
+   * quietly making the hall lie.
+   */
+  private buildHallView(): HallView {
+    if (!this.state.world) return EMPTY_HALL_VIEW;
+    const spirit = this.state.spirits.get(PLAYER_SPIRIT_ID);
+    if (!spirit) return EMPTY_HALL_VIEW;
+    return composeHallView(
+      {
+        name: spirit.name,
+        beliefMass: spirit.beliefMass ?? 0,
+        intimacy: spirit.intimacy ?? 0,
+        tier: spirit.tier ?? 'nameless',
+        faded: spirit.faded === true,
+      },
+      this.hudSim().powers,
+      // The registry is the single source of truth for "is this verb real yet"
+      // — the same read `castPower` makes. `BeliefPowerView.unlocked` fuses it
+      // with "believed enough", and the hall has to tell those apart to say
+      // anything true about what would ripen next.
+      (verb) => getCapability(verb as CommandVerb)?.implemented ?? false,
+    );
   }
 
   /** One slot's tile data, from the cached probe — empty rows for a slot
