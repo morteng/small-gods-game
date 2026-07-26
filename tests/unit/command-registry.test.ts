@@ -31,6 +31,7 @@ const ALL_VERBS: CommandVerb[] = [
   'proclaim_peace', 'bind_oath',
   'bias_event', 'inject_npc', 'nudge_severity', 'place_building', 'grow_settlement',
   'rename_ward', 'retype_ward', 'set_rival_stance', 'set_lord_stance', 'found_castle',
+  'muster_garrison', 'stand_down_garrison',
   ...EDITOR_VERBS,
   ...META_VERBS,
 ];
@@ -152,6 +153,20 @@ describe('capability registry', () => {
     expect(typeof def.apply).toBe('function');
     expect(typeof def.precondition).toBe('function');
     expect(def.cost).toBe(0);
+  });
+
+  it('wires muster_garrison / stand_down_garrison as authoring (mortal power, settlement-targeted)', () => {
+    // Manning the Walls (W3): same tier reasoning as found_castle — a lord musters his own watch,
+    // never a god buying soldiers with belief-power. Both take a settlement target and cost 0.
+    for (const v of ['muster_garrison', 'stand_down_garrison'] as CommandVerb[]) {
+      const def = CAPABILITY_REGISTRY[v];
+      expect(def.tier).toBe('authoring');
+      expect(def.implemented).toBe(true);
+      expect(def.targetKind).toBe('settlement');
+      expect(def.cost).toBe(0);
+      expect(typeof def.apply).toBe('function');
+      expect(typeof def.precondition).toBe('function');
+    }
   });
 
   it('every verb has the expected target kind', () => {

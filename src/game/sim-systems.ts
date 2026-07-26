@@ -134,13 +134,14 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // with hysteresis). The ledger STATE drives the inbox; a holy_war poi compresses
   // rival claim windows (RivalSystem reads `state.contention` above for that).
   scheduler.register(new RivalContentionSystem(() => state.contention, getCohorts));
-  // Manning the walls (W1): the same ladder puts men on the ramparts. Registered AFTER the
-  // contention system so a muster reads this tick's rung, not last tick's. Carries the standing
-  // muster orders + the muster hysteresis side (neither derivable from the world) → it joins the
-  // WP-D snapshot seam; rosters themselves are rebuilt from live NPCs every tick.
-  const garrison = new GarrisonSystem(() => state.contention);
+  // Manning the walls (W1, orders on GameState since W3): the same ladder puts men on the
+  // ramparts. Registered AFTER the contention system so a muster reads this tick's rung, not last
+  // tick's. The standing muster orders + the muster hysteresis side (neither derivable from the
+  // world) live on `state.garrisonOrders` — command-reachable, unlike a WP-D system-state
+  // registration, since `muster_garrison`/`stand_down_garrison` receive `ctx.state`, never a live
+  // system instance. Rosters themselves are rebuilt from live NPCs every tick.
+  const garrison = new GarrisonSystem(() => state.contention, () => state.garrisonOrders);
   scheduler.register(garrison);
-  state.systemState.register(garrison);
   scheduler.register(new MortalitySystem());
   scheduler.register(new BirthSystem({
     cohorts: getCohorts,

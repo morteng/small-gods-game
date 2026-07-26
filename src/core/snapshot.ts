@@ -14,6 +14,7 @@ import { RoadUseTally, type RoadUseSnapshot } from '@/world/road-use';
 import { reconcileCrossingTiers, type CrossingTierSnapshot } from '@/world/crossing-tier-store';
 import { AdoptionLedger, reconcileAdoptions, type AdoptionLedgerSnapshot } from '@/world/desire-line-adoption';
 import { ContentionLedger, type ContentionLedgerSnapshot } from '@/sim/rival-contention';
+import { GarrisonOrders, type GarrisonOrdersSnapshot } from '@/sim/garrison';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -93,6 +94,11 @@ export interface Snapshot {
    *  restores the exact escalation state; optional so pre-contention saves +
    *  partial test states restore to an empty ledger (no SAVE_VERSION bump). */
   contention?: ContentionLedgerSnapshot;
+  /** Manning the Walls (W3): the garrison order store — standing muster orders + the muster
+   *  hysteresis side, keyed by settlement poiId. Snapshot-authoritative like the contention
+   *  ledger — a scrub restores the exact standing order + muster state; optional so pre-garrison
+   *  saves + partial test states restore to an empty store (no `SAVE_VERSION` bump). */
+  garrisonOrders?: GarrisonOrdersSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -172,6 +178,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     crossingTiers: state.crossingTiers?.serialize(),
     adoptions: state.adoptions?.serialize(),
     contention: state.contention?.serialize(),
+    garrisonOrders: state.garrisonOrders?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -244,6 +251,12 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // reconcile, so restore is a straight rebuild (or reset to empty for a
   // pre-contention snapshot so a scrub can't inherit a future escalation).
   state.contention = snap.contention ? ContentionLedger.fromSnapshot(snap.contention) : new ContentionLedger();
+
+  // Manning the Walls (W3): the garrison order store — pure settlement-keyed orders/hysteresis,
+  // no world entity to reconcile, so restore is a straight rebuild (or reset to empty for a
+  // pre-garrison snapshot so a scrub can't inherit a future muster).
+  state.garrisonOrders = snap.garrisonOrders
+    ? GarrisonOrders.fromSnapshot(snap.garrisonOrders) : new GarrisonOrders();
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.

@@ -1,12 +1,23 @@
 // src/sim/garrison.ts
 // MANNING THE WALLS (W1) — the pure half of the garrison: the roster shape, the ring geometry a
 // garrison is derived against, and the phase machine that walks a soldier from his door to a post
-// between the merlons and back down again.
+// between the merlons and back down again. W3 adds the ORDERS store (`GarrisonOrders`) — the
+// command-reachable half — and the shared ring/roster lookups the command verbs and
+// `GarrisonSystem` both need to agree on (never two independent derivations of "does this
+// settlement have a garrisonable wall").
 //
-// TWO pieces of state, deliberately split:
+// THREE pieces of state, deliberately split:
+//   • `GarrisonOrders` — a `GameState` field (`state.garrisonOrders`), NOT a system-private
+//     field: a command verb receives `ctx.state`/`ctx.world`, never a live `GarrisonSystem`
+//     instance, so the two bits a command can actually raise/release (a STANDING muster order)
+//     or that are pure hysteresis (which garrisons are currently UP) live here — mirroring
+//     `ContentionLedger` (`@/sim/rival-contention`) exactly, down to the serialize/hydrate/
+//     `fromSnapshot` shape. `GarrisonSystem` reads and writes it through an injected getter,
+//     exactly as `RivalContentionSystem` reads `state.contention`.
 //   • the ROSTER (`GarrisonRoster`) — ONE settlement-keyed object owned by `GarrisonSystem`:
-//     which ring, which men, mustered or not. Membership and orders live HERE, never scattered
-//     across NPCs. This is a proto-`Group`: phase 2 of the tactical-behaviour track
+//     which ring, which men, mustered or not. Membership is DERIVED fresh every tick and never
+//     persisted (a member can die, be rehomed, or fold back into the statistical tier between
+//     ticks). This is a proto-`Group`: phase 2 of the tactical-behaviour track
 //     (`docs/superpowers/specs/2026-07-26-tactical-npc-behaviour-spec.md`) introduces a
 //     first-class `Group` object (garrison/patrol/warband/procession) and retrofits it onto
 //     exactly this shape, so nothing downstream has to be rewritten to speak groups.
@@ -17,15 +28,23 @@
 // read, so the flight a soldier climbs and the flight that is drawn are the same flight by
 // construction. WALL TILES ARE NOT WALKABLE and must stay that way: everything above grade moves
 // PARAMETRICALLY along the run polyline, never through tile pathfinding.
-import type { Entity, GameMap, NpcProperties, NpcId } from '@/core/types';
+import type { Entity, GameMap, NpcProperties, NpcId, POI } from '@/core/types';
 import type { World } from '@/world/world';
-import { pathLength, type BarrierRun } from '@/world/barrier';
+import { pathLength, type BarrierRun, type PlacedBarrier } from '@/world/barrier';
 import {
   arcLengthPoint, stairClimbOf, wallStations, type WallStationPosition,
 } from '@/world/tactical-positions';
 import { animateStationary, animateWalking, directionFromDelta } from '@/sim/npc-pose';
+import { queryNpcs, npcProps } from '@/world/npc-helpers';
 
 type Pt = [number, number];
+
+// ── Ordered walks (shared: rosters, orders, and the command verbs all sort this way) ───────────
+
+/** Lowest-id-first — the stable walk every roster/assignment/serialize decision is made in. */
+export function byId(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
 // ── Roster (the proto-Group) ────────────────────────────────────────────────────────────────
 
@@ -106,6 +125,71 @@ export function ringGarrisonGeometry(run: BarrierRun): RingGarrisonGeometry {
 export function isGarrisonable(run: BarrierRun): boolean {
   const geo = ringGarrisonGeometry(run);
   return geo.stations.length > 0 && geo.climb !== null;
+}
+
+// ── Settlement ↔ ring lookup (shared: `GarrisonSystem.tick` AND the `muster_garrison`/
+// `stand_down_garrison` verbs must agree on "does this settlement have a garrisonable wall" —
+// one derivation, never two that can drift apart). ────────────────────────────────────────────
+
+/** How far a ring reaches from its own centre — the radius inside which a settlement anchor is
+ *  plausibly the thing this wall encloses. */
+function ringRadius(b: PlacedBarrier): number {
+  const c = b.run.centroid;
+  if (!c) return 0;
+  let r = 0;
+  for (const [x, y] of b.run.path) r = Math.max(r, Math.hypot(x - c[0], y - c[1]));
+  return r;
+}
+
+/** Which settlement a ring encloses: its recorded owner (a runtime castle records one), else the
+ *  nearest POI anchor that actually falls inside the ring's reach. `null` when nothing does — a
+ *  standalone croft wall has no garrison to raise. */
+function poiForRing(b: PlacedBarrier, pois: readonly POI[]): string | null {
+  if (b.ownerPoiId) return b.ownerPoiId;
+  const c = b.run.centroid;
+  if (!c) return null;
+  const reach = ringRadius(b);
+  let best: string | null = null;
+  let bestD = Infinity;
+  for (const poi of pois) {
+    if (!poi.position) continue;
+    const d = Math.hypot(poi.position.x - c[0], poi.position.y - c[1]);
+    if (d <= reach && d < bestD) { bestD = d; best = poi.id; }
+  }
+  return best;
+}
+
+/** Ring per settlement: garrisonable rings only, one per POI (the ring offering the most posts
+ *  wins; ties go to the lowest barrier id). Walked lowest-id-first so the pairing is stable. */
+export function garrisonableRings(map: GameMap): Map<string, PlacedBarrier> {
+  const out = new Map<string, PlacedBarrier>();
+  const pois = map.worldSeed?.pois ?? [];
+  const runs = [...(map.barrierRuns ?? [])].sort((a, b) => byId(a.id, b.id));
+  for (const b of runs) {
+    if (!isGarrisonable(b.run)) continue;
+    const poiId = poiForRing(b, pois);
+    if (!poiId) continue;
+    const prev = out.get(poiId);
+    if (!prev || ringGarrisonGeometry(b.run).stations.length > ringGarrisonGeometry(prev.run).stations.length) {
+      out.set(poiId, b);
+    }
+  }
+  return out;
+}
+
+/** The garrisonable ring for ONE settlement, or `undefined` — the single-lookup convenience the
+ *  command verbs use (a full `garrisonableRings` scan for a one-poi question). */
+export function garrisonableRingFor(map: GameMap, poiId: string): PlacedBarrier | undefined {
+  return garrisonableRings(map).get(poiId);
+}
+
+/** Living resident soldiers of a settlement, lowest entity id first — the same headcount
+ *  `GarrisonSystem` musters from and the verbs refuse "no soldiers" against. */
+export function residentSoldiers(world: World, poiId: string): NpcId[] {
+  return queryNpcs(world)
+    .filter((e) => { const p = npcProps(e); return p.role === 'soldier' && p.homePoiId === poiId; })
+    .map((e) => e.id)
+    .sort(byId);
 }
 
 /** Which post the `i`-th man of `n` takes, on a ring offering `stationCount` posts: the men spread
@@ -286,5 +370,79 @@ export function stepGarrisonMovement(
       p.wallZ = climb.walkZ * g.t;
       return true;
     }
+  }
+}
+
+// ── Orders (W3 — the command-reachable half) ────────────────────────────────────────────────
+
+/** Plain structured-clone-friendly snapshot of `GarrisonOrders`. */
+export interface GarrisonOrdersSnapshot {
+  standing: string[];
+  mustered: string[];
+}
+
+/**
+ * `GarrisonOrders` — the settlement-keyed ledger of standing muster orders + which garrisons are
+ * currently up. Rides `GameState.garrisonOrders` and mirrors `ContentionLedger`
+ * (`@/sim/rival-contention`) exactly — serialize/hydrate/`fromSnapshot`, no `SAVE_VERSION` bump,
+ * an absent snapshot field hydrates to empty. `GarrisonSystem` reads and writes it through an
+ * injected getter (never holds the instance itself), so `muster_garrison`/`stand_down_garrison`
+ * (which receive `ctx.state`, never a live system) can reach the same store.
+ *
+ * Two bits, both genuinely NOT derivable from the rest of the sim:
+ *   • `standing` — a standing muster order (`muster_garrison`/`stand_down_garrison`). A fact
+ *     about what was COMMANDED, not about the world.
+ *   • `mustered` — which garrisons are currently up. HYSTERESIS state (a town sitting at
+ *     `tension` is mustered iff it was mustered when it got there) — a snapshot without it
+ *     inherits the discarded timeline's muster.
+ * Everything else — membership, station assignments, the ring↔settlement pairing — is REDERIVED
+ * every tick from live NPCs and the map (`GarrisonSystem.tick`) and never rides here.
+ */
+export class GarrisonOrders {
+  private standing = new Set<string>();
+  private mustered = new Set<string>();
+
+  /** Raise or release a STANDING muster order for a settlement. A standing order holds the walls
+   *  manned whatever the contention ladder says; releasing it hands the decision back to the
+   *  ladder (so a town still at `holy_war` stays manned, and a calm one comes down). */
+  setStandingOrder(poiId: string, on: boolean): void {
+    if (on) this.standing.add(poiId); else this.standing.delete(poiId);
+  }
+
+  hasStandingOrder(poiId: string): boolean {
+    return this.standing.has(poiId);
+  }
+
+  /** True while this settlement's walls are being held. */
+  isMustered(poiId: string): boolean {
+    return this.mustered.has(poiId);
+  }
+
+  /** `GarrisonSystem.tick`'s write side of the hysteresis bit — never called from a command. */
+  setMustered(poiId: string, on: boolean): void {
+    if (on) this.mustered.add(poiId); else this.mustered.delete(poiId);
+  }
+
+  /** Forget muster state for settlements no longer in `livePoiIds` (no garrisonable ring this
+   *  tick), so a razed — or scrubbed-away — wall cannot resurrect its garrison if one is ever
+   *  rebuilt. Standing orders are left alone: an order is a fact about what was commanded, and a
+   *  rebuilt ring should honour it again. */
+  pruneMusteredExcept(livePoiIds: ReadonlySet<string>): void {
+    for (const poiId of [...this.mustered]) if (!livePoiIds.has(poiId)) this.mustered.delete(poiId);
+  }
+
+  serialize(): GarrisonOrdersSnapshot {
+    return { standing: [...this.standing].sort(byId), mustered: [...this.mustered].sort(byId) };
+  }
+
+  hydrate(snap: GarrisonOrdersSnapshot): void {
+    this.standing = new Set(structuredClone(snap.standing ?? []));
+    this.mustered = new Set(structuredClone(snap.mustered ?? []));
+  }
+
+  static fromSnapshot(snap: GarrisonOrdersSnapshot): GarrisonOrders {
+    const o = new GarrisonOrders();
+    o.hydrate(snap);
+    return o;
   }
 }

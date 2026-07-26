@@ -21,6 +21,7 @@ import { RoadUseTally } from '@/world/road-use';
 import { CrossingTierStore } from '@/world/crossing-tier-store';
 import { AdoptionLedger } from '@/world/desire-line-adoption';
 import { ContentionLedger } from '@/sim/rival-contention';
+import { GarrisonOrders } from '@/sim/garrison';
 
 export interface GameState {
   map: GameMap | null;
@@ -147,6 +148,13 @@ export interface GameState {
    *  as `contention?`, hydrating to empty for old saves (no SAVE_VERSION bump).
    *  See `@/sim/rival-contention`. */
   contention: ContentionLedger;
+  /** Manning the Walls (W3): the command-reachable half of the garrison — standing muster orders
+   *  + the muster hysteresis side, keyed by settlement poiId. `GarrisonSystem` reads/writes it
+   *  through an injected getter (mirrors `contention` exactly); `muster_garrison`/
+   *  `stand_down_garrison` reach it via `ctx.state.garrisonOrders` since a command never holds a
+   *  live system instance. Rides the Snapshot as `garrisonOrders?`, hydrating to empty for old
+   *  saves (no `SAVE_VERSION` bump). See `@/sim/garrison`. */
+  garrisonOrders: GarrisonOrders;
 }
 
 export function createState(): GameState {
@@ -208,6 +216,7 @@ export function createState(): GameState {
     crossingTiers: new CrossingTierStore(),
     adoptions: new AdoptionLedger(),
     contention: new ContentionLedger(),
+    garrisonOrders: new GarrisonOrders(),
   };
 }
 
@@ -237,7 +246,7 @@ const IDENTITY_STABLE = new Set<keyof GameState>([
  * rather than letting a new field silently survive a quit-to-title as stale
  * world data. Bump it in the same commit as the new field.
  */
-export const GAME_STATE_FIELD_COUNT = 41;
+export const GAME_STATE_FIELD_COUNT = 42;
 
 /**
  * Return `state` to exactly the shape `createState()` would produce, MUTATING IT

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GarrisonSystem } from '@/sim/systems/garrison-system';
-import { GARRISON_RING_CAP, GARRISON_STAND_DOWN_IDX, ringGarrisonGeometry } from '@/sim/garrison';
+import { GARRISON_RING_CAP, GARRISON_STAND_DOWN_IDX, GarrisonOrders, ringGarrisonGeometry } from '@/sim/garrison';
 import { tickNpcMovementEntities } from '@/sim/npc-movement';
 import { walkZOf, stairClimbOf } from '@/world/tactical-positions';
 import type { ContentionState } from '@/core/contention-types';
@@ -61,6 +61,13 @@ function ledgerAt(get: () => ContentionState): () => ContentionLedger {
   return () => ledger;
 }
 
+/** A `GarrisonSystem` wired to a fresh (or supplied) `GarrisonOrders` store — the W3 replacement
+ *  for the old single-arg constructor. One stable store instance per system, exactly as
+ *  `state.garrisonOrders` is one stable instance per `GameState`. */
+function newSystem(get: () => ContentionState, orders: GarrisonOrders = new GarrisonOrders()): GarrisonSystem {
+  return new GarrisonSystem(ledgerAt(get), () => orders);
+}
+
 function makeCtx(world: World, now = 0) {
   const clock = new SimClock();
   return { world, spirits: new Map(), log: new EventLog(clock), clock, rng: createRng(7), dt: 2000, now };
@@ -100,7 +107,7 @@ describe('GarrisonSystem — muster ladder', () => {
     const world = new World(map);
     addSoldier(world, 'sol0', 14, 14);
     let rung: ContentionState = 'tension';
-    const sys = new GarrisonSystem(ledgerAt(() => rung));
+    const sys = newSystem(() => rung);
 
     sys.tick(makeCtx(world));
     expect(sys.rosterOf(POI_ID)!.mustered).toBe(false);
@@ -119,7 +126,7 @@ describe('GarrisonSystem — muster ladder', () => {
     const world = new World(map);
     addSoldier(world, 'sol0', 14, 14);
     let rung: ContentionState = 'schism';
-    const sys = new GarrisonSystem(ledgerAt(() => rung));
+    const sys = newSystem(() => rung);
 
     sys.tick(makeCtx(world));
     expect(sys.isMustered(POI_ID)).toBe(true);
@@ -137,11 +144,11 @@ describe('GarrisonSystem — muster ladder', () => {
     expect(propsOf(world, 'sol0').garrison).toBeUndefined();
   });
 
-  it('a standing order musters a calm town, and releasing it stands the garrison down', () => {
+  it('a standing order musters a calm town — and holds the garrison up while contention stays calm — releasing it stands the garrison down', () => {
     const map = makeMap();
     const world = new World(map);
     addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'calm'));
+    const sys = newSystem(() => 'calm');
 
     sys.tick(makeCtx(world));
     expect(sys.isMustered(POI_ID)).toBe(false);
@@ -151,8 +158,15 @@ describe('GarrisonSystem — muster ladder', () => {
     expect(sys.rosterOf(POI_ID)!.standingOrder).toBe(true);
     expect(sys.rosterOf(POI_ID)!.members).toEqual(['sol0']);
 
-    sys.setStandingOrder(POI_ID, false);
+    // The whole point of the order: contention sits at `calm` for several more ticks, and the
+    // garrison stays up regardless — the ladder alone would have stood it down immediately.
     sys.tick(makeCtx(world, 2));
+    sys.tick(makeCtx(world, 3));
+    expect(sys.isMustered(POI_ID)).toBe(true);
+    expect(sys.rosterOf(POI_ID)!.members).toEqual(['sol0']);
+
+    sys.setStandingOrder(POI_ID, false);
+    sys.tick(makeCtx(world, 4));
     expect(sys.isMustered(POI_ID)).toBe(false);
   });
 
@@ -161,7 +175,7 @@ describe('GarrisonSystem — muster ladder', () => {
     const map = makeMap({ barriers: [{ id: BARRIER_ID, run: flat }] });
     const world = new World(map);
     addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'holy_war'));
+    const sys = newSystem(() => 'holy_war');
     sys.tick(makeCtx(world));
     expect(sys.rosterOf(POI_ID)).toBeUndefined();
     expect(propsOf(world, 'sol0').garrison).toBeUndefined();
@@ -174,7 +188,7 @@ describe('GarrisonSystem — roster (the proto-Group)', () => {
     const world = new World(map);
     for (let i = 0; i < GARRISON_RING_CAP + 4; i++) addSoldier(world, `sol${String(i).padStart(2, '0')}`, 14, 14);
     addSoldier(world, 'stranger', 14, 15, 'elsewhere');       // resident of another town
-    const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
+    const sys = newSystem(() => 'schism');
     sys.tick(makeCtx(world));
 
     const roster = sys.rosterOf(POI_ID)!;
@@ -190,7 +204,7 @@ describe('GarrisonSystem — roster (the proto-Group)', () => {
       const map = makeMap();
       const world = new World(map);
       for (let i = 0; i < 6; i++) addSoldier(world, `sol${String(i).padStart(2, '0')}`, 10 + i, 14);
-      const sys = new GarrisonSystem(ledgerAt(() => 'holy_war'));
+      const sys = newSystem(() => 'holy_war');
       sys.tick(makeCtx(world));
       return { world, roster: sys.rosterOf(POI_ID)! };
     };
@@ -205,7 +219,7 @@ describe('GarrisonSystem — roster (the proto-Group)', () => {
     const map = makeMap();
     const world = new World(map);
     addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
+    const sys = newSystem(() => 'schism');
     sys.tick(makeCtx(world));
     const roster = sys.rosterOf(POI_ID)!;
     expect(roster.poiId).toBe(POI_ID);
@@ -219,7 +233,7 @@ describe('GarrisonSystem — roster (the proto-Group)', () => {
 describe('GarrisonSystem — the phase machine', () => {
   it('progresses to_stair → climb → walk → stationed when the movement tick is driven', () => {
     const { world, map } = walledTown(1);
-    new GarrisonSystem(ledgerAt(() => 'schism')).tick(makeCtx(world));
+    newSystem(() => 'schism').tick(makeCtx(world));
 
     const seen: string[] = [];
     const p = propsOf(world, 'sol00');
@@ -236,7 +250,7 @@ describe('GarrisonSystem — the phase machine', () => {
     const map = makeMap();
     const world = new World(map);
     addSoldier(world, 'sol00', 18.5, 17.5);                // across the town from the stair
-    new GarrisonSystem(ledgerAt(() => 'schism')).tick(makeCtx(world));
+    newSystem(() => 'schism').tick(makeCtx(world));
 
     const p = propsOf(world, 'sol00');
     const climb = stairClimbOf(ringRun())!;
@@ -256,7 +270,7 @@ describe('GarrisonSystem — the phase machine', () => {
 
   it('a stationed soldier stands at his post at the run\'s walk height, facing outward', () => {
     const { world, map } = walledTown(1);
-    const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
+    const sys = newSystem(() => 'schism');
     sys.tick(makeCtx(world));
 
     const p = propsOf(world, 'sol00');
@@ -276,7 +290,7 @@ describe('GarrisonSystem — the phase machine', () => {
   it('carries no wallZ while grounded — before the climb and again after coming down', () => {
     const { world, map } = walledTown(1);
     let rung: ContentionState = 'schism';
-    const sys = new GarrisonSystem(ledgerAt(() => rung));
+    const sys = newSystem(() => rung);
     const p = propsOf(world, 'sol00');
     const rng = createRng(3);
 
@@ -297,7 +311,7 @@ describe('GarrisonSystem — the phase machine', () => {
 
   it('never puts a soldier on an unwalkable wall tile via pathfinding (on-wall travel is parametric)', () => {
     const { world, map } = walledTown(1);
-    const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
+    const sys = newSystem(() => 'schism');
     sys.tick(makeCtx(world));
     const p = propsOf(world, 'sol00');
     const rng = createRng(3);
@@ -310,55 +324,73 @@ describe('GarrisonSystem — the phase machine', () => {
   });
 });
 
-describe('GarrisonSystem — snapshot seam', () => {
-  it('round-trips standing orders and the muster hysteresis side', () => {
+describe('GarrisonSystem — the muster/stand-down edge event (W3)', () => {
+  it('logs garrison_mustered exactly once on the flip, never again while it holds', () => {
     const map = makeMap();
     const world = new World(map);
     addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
+    let rung: ContentionState = 'tension';
+    const sys = newSystem(() => rung);
+
+    const ctx0 = makeCtx(world, 0);
+    sys.tick(ctx0);
+    expect(ctx0.log.since(0).map((a) => a.event.type)).not.toContain('garrison_mustered');
+
+    rung = 'schism';
+    const ctx1 = makeCtx(world, 1);
+    ctx1.log = ctx0.log;                                  // same log across ticks, like the real scheduler
+    sys.tick(ctx1);
+    const musters1 = ctx1.log.since(0).filter((a) => a.event.type === 'garrison_mustered');
+    expect(musters1).toHaveLength(1);
+    expect(musters1[0].event).toMatchObject({ type: 'garrison_mustered', poiId: POI_ID });
+
+    // Still mustered next tick — the edge already fired, so it must NOT fire again.
+    const ctx2 = makeCtx(world, 2);
+    ctx2.log = ctx1.log;
+    sys.tick(ctx2);
+    expect(ctx2.log.since(0).filter((a) => a.event.type === 'garrison_mustered')).toHaveLength(1);
+  });
+
+  it('logs garrison_stood_down exactly once on the flip back to calm', () => {
+    const map = makeMap();
+    const world = new World(map);
+    addSoldier(world, 'sol0', 14, 14);
+    let rung: ContentionState = 'schism';
+    const sys = newSystem(() => rung);
+
+    const ctx0 = makeCtx(world, 0);
+    sys.tick(ctx0);
+    expect(ctx0.log.since(0).some((a) => a.event.type === 'garrison_mustered')).toBe(true);
+
+    rung = 'calm';
+    const ctx1 = makeCtx(world, 1);
+    ctx1.log = ctx0.log;
+    sys.tick(ctx1);
+    const standDowns = ctx1.log.since(0).filter((a) => a.event.type === 'garrison_stood_down');
+    expect(standDowns).toHaveLength(1);
+    expect(standDowns[0].event).toMatchObject({ type: 'garrison_stood_down', poiId: POI_ID });
+
+    const ctx2 = makeCtx(world, 2);
+    ctx2.log = ctx1.log;
+    sys.tick(ctx2);
+    expect(ctx2.log.since(0).filter((a) => a.event.type === 'garrison_stood_down')).toHaveLength(1);
+  });
+
+  it('a muster triggered by a standing order logs the SAME edge event as a ladder-triggered one', () => {
+    const map = makeMap();
+    const world = new World(map);
+    addSoldier(world, 'sol0', 14, 14);
+    const sys = newSystem(() => 'calm');
+
+    const ctx0 = makeCtx(world, 0);
+    sys.tick(ctx0);
+    expect(ctx0.log.since(0)).toHaveLength(0);
+
     sys.setStandingOrder(POI_ID, true);
-    sys.tick(makeCtx(world));
-    const dump = structuredClone(sys.serialize());
-
-    const revived = new GarrisonSystem(ledgerAt(() => 'tension'));
-    revived.hydrate(dump);
-    expect(revived.hasStandingOrder(POI_ID)).toBe(true);
-    expect(revived.isMustered(POI_ID)).toBe(true);
-    expect(revived.serialize()).toEqual(dump);
-  });
-
-  it('serializes ONLY what cannot be rederived (orders + muster side), never the roster', () => {
-    const map = makeMap();
-    const world = new World(map);
-    addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'holy_war'));
-    sys.tick(makeCtx(world));
-    expect(Object.keys(sys.serialize() as object).sort()).toEqual(['mustered', 'standing']);
-  });
-
-  it('hydrate(undefined) fully resets and never throws (old save / hand-built snapshot)', () => {
-    const map = makeMap();
-    const world = new World(map);
-    addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
-    sys.setStandingOrder(POI_ID, true);
-    sys.tick(makeCtx(world));
-
-    expect(() => sys.hydrate(undefined)).not.toThrow();
-    expect(sys.hasStandingOrder(POI_ID)).toBe(false);
-    expect(sys.isMustered(POI_ID)).toBe(false);
-    expect(sys.rosterOf(POI_ID)).toBeUndefined();
-    expect(sys.serialize()).toEqual({ standing: [], mustered: [] });
-  });
-
-  it('a hydrated muster survives a `tension` tick — the discarded timeline cannot un-man the wall', () => {
-    const map = makeMap();
-    const world = new World(map);
-    addSoldier(world, 'sol0', 14, 14);
-    const sys = new GarrisonSystem(ledgerAt(() => 'tension'));
-    sys.hydrate({ standing: [], mustered: [POI_ID] });
-    sys.tick(makeCtx(world));
-    expect(sys.rosterOf(POI_ID)!.mustered).toBe(true);
+    const ctx1 = makeCtx(world, 1);
+    ctx1.log = ctx0.log;
+    sys.tick(ctx1);
+    expect(ctx1.log.since(0).filter((a) => a.event.type === 'garrison_mustered')).toHaveLength(1);
   });
 });
 
@@ -366,7 +398,7 @@ describe('GarrisonSystem — replay determinism', () => {
   it('two runs from the same seed produce identical rosters and identical positions', () => {
     const run = () => {
       const { world, map } = walledTown(4);
-      const sys = new GarrisonSystem(ledgerAt(() => 'schism'));
+      const sys = newSystem(() => 'schism');
       const rng = createRng(12345);
       for (let step = 0; step < 30; step++) {
         sys.tick(makeCtx(world, step));
