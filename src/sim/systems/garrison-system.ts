@@ -104,8 +104,13 @@ export class GarrisonSystem implements System {
       // The OBSERVABLE half (W3): log the muster/stand-down EDGE only — never every tick — so
       // the divine inbox can surface ONE coalesced "the walls of X are manned" tiding regardless
       // of whether the ladder or a standing order triggered it.
+      // Two append calls, not a ternary — the same reason RivalContentionSystem spells out for
+      // its own pair: the discriminant has to be a concrete literal at the call site. A ternary
+      // type-checks but hides the second variant from the SimEvent boundary guard, which reads
+      // emit sites out of the source and then honestly reports the event as never emitted.
       if (mustered !== wasMustered) {
-        ctx.log.append(mustered ? { type: 'garrison_mustered', poiId } : { type: 'garrison_stood_down', poiId });
+        if (mustered) ctx.log.append({ type: 'garrison_mustered', poiId });
+        else ctx.log.append({ type: 'garrison_stood_down', poiId });
       }
 
       const geo = ringGarrisonGeometry(ring.run);
