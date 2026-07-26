@@ -19,7 +19,9 @@ import type { AppendedEvent } from '@/core/events';
 import { npcProps } from '@/world/npc-helpers';
 import { evaluateContracts, type ContractReport } from '@/world/connectome-contracts';
 import { isDurable, npcStatusHint } from '@/sim/believers';
-import { ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, isOminous, getDomainBelief } from '@/sim/belief-domains';
+import {
+  ALL_DOMAINS, DOMAIN_DEFS, aggregateDomain, aggregateDomainDimensions, isOminous, getDomainBelief,
+} from '@/sim/belief-domains';
 import { getCapability } from '@/sim/command/registry';
 import { scoreAffordance, PRAYER_SUBJECT_TEXT } from '@/game/affordance/salience';
 import { affordancesForTarget, type VerbUnlock } from '@/game/affordance/derive';
@@ -233,6 +235,39 @@ export interface PantheonRow {
   strongestPoiId: string | null;
 }
 
+/** The three belief dimensions behind a domain's conviction, as weighted means
+ *  over its reached believers. Legibility only — nothing gates on these. */
+export interface BeliefPowerDimensions {
+  faith: number;
+  understanding: number;
+  devotion: number;
+}
+
+/** The highest ripening node a domain has REACHED (belief-powers spec §3's
+ *  CLAIM → COMMAND → DOCTRINE). DERIVED every read from live numbers, never
+ *  stored and never a crossing event: conviction is non-monotonic, so a tier
+ *  legitimately regresses when belief decays. */
+export type BeliefPowerTier = 'dormant' | 'claim' | 'command' | 'doctrine';
+
+/** CLAIM: the domain is HEARD — half the unlock bar. Coincidence play
+ *  (whisper-claims, inbox opportunities) is meaningfully live here. */
+export const CLAIM_CONVICTION_FRACTION = 0.5;
+/** DOCTRINE: devotion at which domain decay drops to ≤40% of base
+ *  (`belief-content-system.ts`'s `rate = 0.01 × (1 − devotion)`) — the honest
+ *  "belief begins to self-sustain" line. */
+export const DOCTRINE_DEVOTION_BAR = 0.6;
+
+/** Highest reached node wins. `unlocked` is the EXISTING registry+threshold gate
+ *  read verbatim — never a second unlock formula. */
+function deriveBeliefPowerTier(
+  unlocked: boolean, conviction: number, threshold: number, devotion: number,
+): BeliefPowerTier {
+  if (unlocked && devotion >= DOCTRINE_DEVOTION_BAR) return 'doctrine';
+  if (unlocked) return 'command';
+  if (conviction >= CLAIM_CONVICTION_FRACTION * threshold) return 'claim';
+  return 'dormant';
+}
+
 /** One belief-granted power, projected for the skill panel + MCP. The panel reads
  *  ONLY this — it is the single legibility payload (locked/unlocked + why + how far). */
 export interface BeliefPowerView {
@@ -251,6 +286,15 @@ export interface BeliefPowerView {
   reach: number;
   /** Faith-bearers toward this spirit (the aggregate's support). */
   believers: number;
+  /** Hall of the Gods (H1): the belief dimensions behind `conviction`, as weighted
+   *  means over the domain's reached believers. OPTIONAL so the exhaustive
+   *  fixtures that build a `BeliefPowerView` by hand keep compiling; the live
+   *  projection always fills it (all-zero with no world / no believers). */
+  dimensions?: BeliefPowerDimensions;
+  /** Hall of the Gods (H1): the highest ripening node reached, derived every read.
+   *  OPTIONAL for the same reason as `dimensions`; the live projection always
+   *  fills it ('dormant' with no world). */
+  tier?: BeliefPowerTier;
 }
 
 export type InboxKind = 'prayer' | 'opportunity' | 'threat' | 'tiding';
@@ -789,6 +833,13 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           ? aggregateDomain(world, spiritId, domain)
           : { conviction: 0, reach: 0, believers: 0 };
         const implemented = getCapability(def.verb)?.implemented ?? false;
+        const unlocked = implemented && agg.conviction >= def.unlockThreshold;
+        // H1: dimensions + tier are DERIVED legibility for the Hall of the Gods —
+        // no sim state, no persistence, no crossing event. A null world degrades
+        // to the honest zero (all-zero dimensions, 'dormant'), never absent.
+        const dimensions: BeliefPowerDimensions = world
+          ? aggregateDomainDimensions(world, spiritId, domain)
+          : { faith: 0, understanding: 0, devotion: 0 };
         return {
           domain,
           label: def.label,
@@ -796,9 +847,11 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
           verb: def.verb,
           conviction: agg.conviction,
           threshold: def.unlockThreshold,
-          unlocked: implemented && agg.conviction >= def.unlockThreshold,
+          unlocked,
           reach: agg.reach,
           believers: agg.believers,
+          dimensions,
+          tier: deriveBeliefPowerTier(unlocked, agg.conviction, def.unlockThreshold, dimensions.devotion),
         };
       });
     },
