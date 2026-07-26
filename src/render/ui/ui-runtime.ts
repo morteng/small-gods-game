@@ -200,6 +200,11 @@ export interface UiRuntimeHooks {
   /** Esc pressed while a shell screen is up. The host decides what "back" means
    *  for that screen (pop, or ignore on the title). */
   onShellEscape?: () => void;
+  /** A pointer released while a sky-cloud transition (descent/ascent) is
+   *  running — click-to-skip. The host jumps it to its end state (and, for an
+   *  ascent, forces the state reset) via `Shell.skipTransition()`; the runtime
+   *  only detects the click, it doesn't know what "the end state" means. */
+  onTransitionSkip?: () => void;
 }
 
 // ── Round 9: time transport (fastforward + jump-to-next-event) ──────────────
@@ -431,7 +436,7 @@ export class UiRuntime {
    *  polling can decide "route the stick/dpad to menu focus" vs. "route it to
    *  the world camera" without probing pointer coordinates. */
   isModalActive(): boolean {
-    return !!(this.shell?.isActive() || this.menuOpen || this.story || this.card);
+    return !!(this.shell?.isActive() || this.shell?.transitionActive() || this.menuOpen || this.story || this.card);
   }
 
   /** Gamepad dpad → the SAME focus ring Tab/Shift+Tab would drive (§4) — menu
@@ -805,6 +810,13 @@ export class UiRuntime {
       released: this.pendingReleased,
     };
     this.pendingReleased = false;
+    // Sky-cloud transition click-to-skip: ANY release while one is running
+    // jumps it to its end state. Reported via a hook, not handled here — the
+    // runtime only detects the click; "what does the end state mean" (forcing
+    // the reset on an ascent) is `Game`'s business (`sky-transition.ts`).
+    if (this.shell?.transitionActive() && input.released) {
+      this.hooks.onTransitionSkip?.();
+    }
     c.begin(input);
 
     const s = uiScaleFor(dpr);

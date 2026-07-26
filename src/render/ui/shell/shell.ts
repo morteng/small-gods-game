@@ -17,6 +17,9 @@ import type { UiContext } from '@/render/ui/ui-context';
 import {
   EMPTY_SHELL, type ScreenId, type ShellState,
   push, pop, replace, reset, topOf, depth, contains,
+  type TransitionState, beginTransition, clearTransition as clearTransitionState,
+  skipTransition as skipTransitionState, transitionPhase as pureTransitionPhase,
+  DESCENT_TRANSITION_MS, ASCENT_TRANSITION_MS,
 } from '@/render/ui/shell/shell-state';
 import { drawLoadingScreen, type LoadingView } from '@/render/ui/shell/loading-screen';
 import {
@@ -408,7 +411,67 @@ export class Shell implements LoadingSurface {
     // independence `show()` needs (see its comment). A pop would be correct only
     // while `show()` guarantees depth 1, and relying on that coupling is exactly
     // what produced the title-over-the-world bug.
-    if (this.top() === 'loading') this.reset([]);
+    //
+    // UI v3 sky-transition spike: this is `holdLoadingUntilArtSettled`'s ONLY
+    // call to `hide()` (boot-sequence.ts), which itself only runs after
+    // `await waitForArtSettled(...)` resolves — so beginning the descent HERE,
+    // rather than anywhere else, is exactly what keeps "never before the
+    // art-settle gate clears" true by construction. The stack clears
+    // immediately (the world/HUD takes over the frame right away, same as
+    // before); the transition is a SEPARATE field that drives the cloud
+    // overlay + camera ease independent of the stack (see `ShellState`'s doc).
+    if (this.top() === 'loading') this.beginDescent();
+  }
+
+  // ── sky/cloud TRANSITION (spike) ──────────────────────────────────────────
+
+  /** Begin the loading→world DESCENT. Private: the only legal trigger is
+   *  `hide()` above (which is itself only ever called post-art-settle). */
+  private beginDescent(): void {
+    this.commit(beginTransition('descent', this.now(), DESCENT_TRANSITION_MS));
+  }
+
+  /**
+   * Begin the world→title ASCENT: clouds billow to cover before `Game`
+   * performs the real state reset (see `sky-transition.ts`'s `ascentResetDue`
+   * + `Game`'s `quit_to_title` handling, which drives the reset off
+   * `transitionPhase` reaching 1). Clears the stack outright, same as
+   * `beginTransition`'s doc — a pause menu or confirm dialog open when quit
+   * fires must not stay drawn over the billowing cloud.
+   *
+   * NOTE for a future game-over screen: fading (`src/sim/god-tier.ts`) wants
+   * this same "billow, then reset behind the cloud" shape. Not wired there
+   * yet — this spike only covers the explicit quit-to-title verb.
+   */
+  beginAscent(): void {
+    this.commit(beginTransition('ascent', this.now(), ASCENT_TRANSITION_MS));
+  }
+
+  /** The active transition, or null. Read-only — `Game` drives the camera/
+   *  overlay from this each frame (`src/game/sky-transition.ts`). */
+  transition(): TransitionState | null { return this.state.transition; }
+
+  /** Whether a transition is running — the pointer-eating / click-to-skip
+   *  condition `UiRuntime.isModalActive()` ORs in, independent of the screen
+   *  STACK (the world HUD keeps drawing underneath one). */
+  transitionActive(): boolean { return this.state.transition !== null; }
+
+  /** Linear 0..1 progress through the active transition at `nowMs`, or `null`
+   *  when none is running. */
+  transitionPhase(nowMs: number): number | null {
+    const t = this.state.transition;
+    return t ? pureTransitionPhase(t, nowMs) : null;
+  }
+
+  /** Drop the active transition. A no-op when there isn't one. */
+  clearTransition(): void {
+    this.commit(clearTransitionState(this.state));
+  }
+
+  /** Click-to-skip: jump the active transition straight to its end state
+   *  (phase 1). A no-op when there isn't one. */
+  skipTransition(): void {
+    this.commit(skipTransitionState(this.state, this.now()));
   }
 
   /** The loading screen's view for this frame (exposed for tests + the drawer). */

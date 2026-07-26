@@ -28,14 +28,42 @@ export type ScreenId =
   | 'gameover'
   | 'photo';
 
-/** The shell's whole state. `stack` is ordered outermost-first, so the LAST
- *  entry is what the player is looking at. Empty ⇒ the in-game HUD. */
-export interface ShellState {
-  readonly stack: readonly ScreenId[];
+/** A sky/cloud TRANSITION (UI v3 spike): the loading→world DESCENT (clouds
+ *  part, camera eases in — starts only once the art-settle gate clears) or
+ *  the world→title ASCENT (clouds billow to cover, then `Game` performs the
+ *  actual state reset behind them). Lives ALONGSIDE the screen stack, not
+ *  folded into a `ScreenId`, because — unlike every stack screen — a
+ *  transition is an OVERLAY: the world (HUD included) keeps drawing
+ *  underneath it, whereas a stack screen wins over everything (see
+ *  `UiRuntime.frame`'s doc). `startedAtMs`/`durationMs` are the phase CLOCK;
+ *  `transitionPhase` below turns them into the 0..1 progress `Game` actually
+ *  drives the camera/cloud-coverage curves from (`src/game/sky-transition.ts`
+ *  owns those curves — this module only owns "how far through are we"). */
+export type TransitionKind = 'descent' | 'ascent';
+
+export interface TransitionState {
+  readonly kind: TransitionKind;
+  readonly startedAtMs: number;
+  readonly durationMs: number;
 }
 
-/** No screen — the in-game HUD owns the frame. */
-export const EMPTY_SHELL: ShellState = { stack: [] };
+/** ~2.8s: clouds part + the camera eases in once the art-settle gate clears
+ *  (`Shell.hide()`, boot-sequence.ts's `holdLoadingUntilArtSettled`). */
+export const DESCENT_TRANSITION_MS = 2800;
+/** ~1.5s: clouds billow to full cover BEFORE the state reset runs behind them
+ *  (masks the teardown hitch) — see `Shell.beginAscent()`. */
+export const ASCENT_TRANSITION_MS = 1500;
+
+/** The shell's whole state. `stack` is ordered outermost-first, so the LAST
+ *  entry is what the player is looking at. Empty ⇒ the in-game HUD (or, while
+ *  `transition` is set, the world/HUD showing through the cloud overlay). */
+export interface ShellState {
+  readonly stack: readonly ScreenId[];
+  readonly transition: TransitionState | null;
+}
+
+/** No screen, no transition — the in-game HUD owns the frame outright. */
+export const EMPTY_SHELL: ShellState = { stack: [], transition: null };
 
 /** The screen the player is looking at, or null when the HUD owns the frame. */
 export function topOf(s: ShellState): ScreenId | null {
@@ -59,7 +87,7 @@ export function contains(s: ShellState, id: ScreenId): boolean {
  */
 export function push(s: ShellState, id: ScreenId): ShellState {
   if (topOf(s) === id) return s;
-  return { stack: [...s.stack, id] };
+  return { stack: [...s.stack, id], transition: s.transition };
 }
 
 /**
@@ -69,21 +97,64 @@ export function push(s: ShellState, id: ScreenId): ShellState {
  */
 export function pop(s: ShellState): ShellState {
   if (s.stack.length === 0) return s;
-  return { stack: s.stack.slice(0, -1) };
+  return { stack: s.stack.slice(0, -1), transition: s.transition };
 }
 
 /** Swap the top screen for another at the SAME depth (title → loading, without
  *  leaving a title underneath to pop back to). Replacing on an empty stack is
  *  equivalent to a push. */
 export function replace(s: ShellState, id: ScreenId): ShellState {
-  if (s.stack.length === 0) return { stack: [id] };
+  if (s.stack.length === 0) return { stack: [id], transition: s.transition };
   if (topOf(s) === id) return s;
-  return { stack: [...s.stack.slice(0, -1), id] };
+  return { stack: [...s.stack.slice(0, -1), id], transition: s.transition };
 }
 
-/** Discard the whole stack and set it to exactly `ids` (empty ⇒ the HUD). Used
- *  by quit-to-title and by world-start, which must not leave stale screens
- *  buried under the new one. */
+/** Discard the whole stack and set it to exactly `ids` (empty ⇒ the HUD),
+ *  clearing any transition too. Used by quit-to-title and by world-start,
+ *  which must not leave stale screens (or a stray cloud overlay) buried under
+ *  the new one. */
 export function reset(ids: readonly ScreenId[] = []): ShellState {
-  return { stack: [...ids] };
+  return { stack: [...ids], transition: null };
+}
+
+/**
+ * Begin a sky-cloud transition: discards the whole stack (the same "nothing
+ * survives underneath" rule `reset` follows — a pause menu or confirm dialog
+ * open when quit fires must not stay drawn over the billowing cloud) and
+ * starts the phase clock at `startedAtMs`.
+ */
+export function beginTransition(
+  kind: TransitionKind, startedAtMs: number, durationMs: number,
+): ShellState {
+  return { stack: [], transition: { kind, startedAtMs, durationMs } };
+}
+
+/** Drop the active transition. A no-op returning the SAME object when there
+ *  isn't one, matching every other reducer's identity-stable no-op. */
+export function clearTransition(s: ShellState): ShellState {
+  if (!s.transition) return s;
+  return { stack: s.stack, transition: null };
+}
+
+/**
+ * Click-to-skip: rewinds `startedAtMs` so `transitionPhase` reads 1 as of
+ * `nowMs`, without touching `kind`/`durationMs` — the transition still reports
+ * as active for one more read (its owner is what notices phase 1 and reacts,
+ * e.g. forcing the ascent's reset), it just jumps straight there. A no-op
+ * when there isn't one.
+ */
+export function skipTransition(s: ShellState, nowMs: number): ShellState {
+  if (!s.transition) return s;
+  return { stack: s.stack, transition: { ...s.transition, startedAtMs: nowMs - s.transition.durationMs } };
+}
+
+/**
+ * Linear 0..1 progress through `t` at `nowMs` — pure (the caller's clock is an
+ * explicit argument, the `rotationIndex`/chronicle idiom), so a test can step
+ * it with no fake timers. Clamped both ends: a transition never "un-completes"
+ * past 1, and a clock that ticks backward (a resumed tab) never goes negative.
+ */
+export function transitionPhase(t: TransitionState, nowMs: number): number {
+  if (t.durationMs <= 0) return 1;
+  return Math.max(0, Math.min(1, (nowMs - t.startedAtMs) / t.durationMs));
 }

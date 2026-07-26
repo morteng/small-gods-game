@@ -74,7 +74,7 @@ describe('shell-state — the pure screen stack', () => {
 
   it('never mutates its input', () => {
     const before: ScreenId[] = ['title'];
-    const s = { stack: before };
+    const s = { stack: before, transition: null };
     push(s, 'load');
     pop(s);
     replace(s, 'pause');
