@@ -765,17 +765,16 @@ export class Game {
     // npc-attention-panel + building-info-panel it only ever fed — free-text
     // whisper + belief-loop mind-reading are already live on the GPU card
     // (ConversationController/Game.presentMindCard), and building close is
-    // already the inspector's onCloseInspector.
-    // C5: barebones never mounts the legacy whisper chrome (attention panel +
-    // narration card) — the WebGPU conversation card is the whisper surface.
-    }, { legacyChrome: !this.barebones });
+    // already the inspector's onCloseInspector. L4: the narration card
+    // (`UiRuntime.showNarrationCard`) is GPU-native now, so `GameUi` no longer
+    // takes a `legacyChrome` option at all.
+    });
 
     this.spendChip = mountSpendChip(this.ui.bottomLeftBar, this.costTracker);
     this.spendChip.setVisible(providerConfig.type === 'openrouter');
 
     this.llmBackfill = new LlmBackfillService({
       state: this.state,
-      llmDisplay: this.ui.llmDisplay,
       client: this.llmClient,
       onWriteback: () => { this.requestRender(); },
     });
@@ -868,7 +867,7 @@ export class Game {
 
     this.input = new InteractionController({
       state: this.state, interaction: this.interaction,
-      dev: this.dev, placementModal: this.ui.placementModal, decorationImages: this.decorationImages,
+      dev: this.dev,
     });
 
     this.resizeObserver = new ResizeObserver(() => this.resize());

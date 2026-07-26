@@ -1,14 +1,9 @@
-import { createLlmDisplay, type LlmDisplayHandle } from '@/ui/llm-display';
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
 import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
 import { createMinimapPanel, type MinimapHandle } from '@/ui/minimap-panel';
 import { createCameraControls, type CameraControlsHandle } from '@/ui/camera-controls';
 import { DivineEffects } from '@/render/divine-effects';
-import {
-  createDecorationPlacementModal,
-  type DecorationPlacementModalHandle,
-} from '@/ui/decoration-placement-modal';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import { setFirstRunSeen } from '@/services/settings-store';
 
@@ -28,21 +23,18 @@ export interface GameUiCallbacks {
  * as readonly fields, and disposes them in destroy(). Game-semantic callbacks
  * (world gen, rival selection, camera, settings mutation) are injected via the
  * GameUiCallbacks bag; self-contained callbacks (logging, localStorage) stay here.
+ *
+ * L4 (legacy chrome retirement) retired the last `legacyChrome`-gated
+ * construction this class did — the DOM LLM narration card (its GPU heir is
+ * `UiRuntime.showNarrationCard`) — so there is nothing left for a
+ * `GameUiOptions` bag to carry; the remaining `legacyChrome` seams
+ * (`Game.barebones`, `FrameRenderer.legacyChrome`, `?legacyui` itself) are
+ * unrelated to this class and die together in L6.
  */
-export interface GameUiOptions {
-  /** When false (the default barebones game), the legacy DOM LLM narration
-   *  card is never MOUNTED (C5); the WebGPU conversation card is the only
-   *  whisper surface. `?legacyui` (true) mounts it exactly as before. L2
-   *  retired its sibling, the NPC attention panel + building info panel — the
-   *  inspector v2 (`InspectorView`) is their GPU heir. */
-  legacyChrome?: boolean;
-}
-
 export class GameUi {
   readonly pausedBanner: HTMLDivElement;
   readonly debugHud: HTMLDivElement;
   readonly tooltip: HTMLDivElement;
-  readonly llmDisplay: LlmDisplayHandle | null;
   readonly unifiedSettings: SettingsHandle;
   readonly tutorial: TutorialHandle;
   readonly spiritHud: SpiritHudHandle;
@@ -51,11 +43,9 @@ export class GameUi {
   readonly llmSettingsBtn: HTMLButtonElement;
   readonly newWorldBtn: HTMLButtonElement;
   readonly bottomLeftBar: HTMLElement;
-  readonly placementModal: DecorationPlacementModalHandle;
   readonly cameraControls: CameraControlsHandle;
 
-  constructor(container: HTMLElement, cb: GameUiCallbacks, opts: GameUiOptions = {}) {
-    const legacyChrome = opts.legacyChrome ?? true;
+  constructor(container: HTMLElement, cb: GameUiCallbacks) {
     this.pausedBanner = document.createElement('div');
     this.pausedBanner.textContent = 'PAUSED';
     this.pausedBanner.style.cssText = [
@@ -81,19 +71,6 @@ export class GameUi {
       'white-space:nowrap',
     ].join(';');
     container.appendChild(this.debugHud);
-
-    // Legacy DOM LLM narration card — only exists under ?legacyui. The
-    // barebones game never mounts it — the WebGPU conversation card
-    // (ui-runtime) is the whisper surface.
-    if (legacyChrome) {
-      this.llmDisplay = createLlmDisplay(container, {
-        onClose: () => {
-          // Optional: do something when LLM display is closed
-        },
-      });
-    } else {
-      this.llmDisplay = null;
-    }
 
     this.tooltip = document.createElement('div');
     this.tooltip.style.cssText = [
@@ -174,8 +151,6 @@ export class GameUi {
     });
     this.bottomLeftBar.appendChild(this.newWorldBtn);
 
-    this.placementModal = createDecorationPlacementModal(container);
-
     // ── Camera controls (zoom in/out/fit) ─────────────────
     this.cameraControls = createCameraControls(container, {
       onZoomIn: () => cb.onZoomIn(),
@@ -187,12 +162,11 @@ export class GameUi {
 
   /**
    * Barebones cleanup: the WebGPU HUD + pause menu are the only chrome, so tear
-   * down every persistent legacy DOM panel here (one place — DRY). The on-demand
-   * panels (tooltip, power pill) are suppressed at their render sites via
-   * `legacyChrome`; this handles the always-mounted ones. The narration card
-   * never mounts in barebones (C5 — see the constructor). The summonable
-   * minimap and decoration modal stay — they're still the only surface for
-   * their content until a WebGPU equivalent exists.
+   * down every persistent legacy DOM panel here (one place — DRY). The
+   * on-demand power pill is suppressed at its render site via
+   * `FrameRenderer.legacyChrome`; this handles the always-mounted ones. The
+   * summonable minimap stays — it's still the only surface for its content
+   * until a WebGPU equivalent exists (D4 ruled AGAINST porting it — L5).
    */
   suppressLegacyChrome(): void {
     this.pausedBanner.style.display = 'none';
@@ -213,7 +187,5 @@ export class GameUi {
     this.cameraControls.destroy();
     this.tutorial.destroy();
     this.unifiedSettings.destroy();
-    this.placementModal.destroy();
-    this.llmDisplay?.destroy();
   }
 }

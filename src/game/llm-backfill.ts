@@ -5,7 +5,7 @@ import { npcProps, getRecentEventDescriptions } from '@/world/npc-helpers';
 import { buildNpcPrompt, type NpcPromptContext } from '@/llm/npc-prompt-builder';
 import { applyLLMWriteback, type LLMResponse } from '@/llm/state-writeback';
 import { LLMClient, MockLLMProvider } from '@/llm/llm-client';
-import type { LlmDisplayHandle } from '@/ui/llm-display';
+import { getUiRuntime } from '@/render/ui/ui-runtime';
 import { selectMemoriesForPrompt, recordMemory, distillInteraction, computeSalience } from '@/llm/interaction-memory';
 
 export function parseLLMJson(content: string): LLMResponse {
@@ -28,9 +28,6 @@ export function getActiveEventsForPoi(world: World, poiId?: string): SettlementE
 
 export interface LlmBackfillDeps {
   state: GameState;
-  /** Legacy DOM narration card — null in the barebones game (C5: never mounted).
-   *  The writeback still applies; only the DOM presentation is skipped. */
-  llmDisplay: LlmDisplayHandle | null;
   client?: LLMClient;            // defaults to new LLMClient(new MockLLMProvider(100))
   onWriteback?: () => void;      // called after writeback so caller can refresh UI
 }
@@ -47,7 +44,7 @@ export class LlmBackfillService {
   }
 
   async trigger(npcEntity: Entity): Promise<void> {
-    const { state, llmDisplay } = this.deps;
+    const { state } = this.deps;
     if (!state.world) return;
     const props = npcProps(npcEntity);
     const player = state.spirits.get('player');
@@ -74,10 +71,12 @@ export class LlmBackfillService {
         summary: distillInteraction(props.name, parsed, player.name),
         salience: computeSalience('backfill', parsed.belief_delta, parsed.mood_delta),
       });
-      if (llmDisplay) {
-        if (writeback.narration && writeback.dialogue) llmDisplay.showBoth(props.name, writeback.dialogue, writeback.narration);
-        else if (writeback.dialogue) llmDisplay.showDialogue(props.name, writeback.dialogue);
-        else if (writeback.narration) llmDisplay.showNarration(writeback.narration);
+      if (writeback.narration || writeback.dialogue) {
+        getUiRuntime().showNarrationCard({
+          npcName: props.name,
+          narration: writeback.narration,
+          dialogue: writeback.dialogue,
+        });
       }
       this.deps.onWriteback?.();
     } catch (err) {

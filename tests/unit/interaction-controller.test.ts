@@ -26,8 +26,6 @@ function ctrlWith(state: any) {
     state,
     interaction: createInteractionState(),
     dev: { isEnabled: () => false, handleRightClick: async () => {} } as any,
-    placementModal: { open: async () => null } as any,
-    decorationImages: { load: async () => {}, get: () => null } as any,
   });
 }
 
@@ -55,5 +53,20 @@ describe('InteractionController.onTileClick', () => {
     ctrl.onTileClick(3, 3);
     expect(state.selectedNpcId).toBe('n2');
     expect(state.pinnedNpcId).toBeNull();
+  });
+});
+
+// L4 (legacy chrome retirement): the DOM decoration-placement modal is gone
+// with no GPU replacement this slice — right-click is a documented no-op.
+describe('InteractionController.onTileRightClick (L4 — decoration modal retired)', () => {
+  it('never throws and never mutates generatedDecorations', async () => {
+    const state = createState();
+    const world = makeWorld();
+    state.world = world;
+    state.map = makeMap();
+    const before = state.generatedDecorations;
+    const ctrl = ctrlWith(state);
+    await expect(ctrl.onTileRightClick(2, 2)).resolves.toBeUndefined();
+    expect(state.generatedDecorations).toBe(before);
   });
 });

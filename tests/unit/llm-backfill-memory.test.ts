@@ -5,7 +5,6 @@ import { createState } from '@/core/state';
 import { World } from '@/world/world';
 import { initNpcProps, npcProps } from '@/world/npc-helpers';
 import type { GameMap, Tile, Entity } from '@/core/types';
-import type { LlmDisplayHandle } from '@/ui/llm-display';
 
 function makeMap(): GameMap {
   const tiles: Tile[][] = [];
@@ -16,8 +15,6 @@ function makeMap(): GameMap {
   }
   return { tiles, width: 5, height: 5, villages: [], seed: 1, success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
 }
-
-const noopDisplay = { showBoth() {}, showDialogue() {}, showNarration() {} } as unknown as LlmDisplayHandle;
 
 function capturingProvider(captured: string[]): LLMProvider {
   return {
@@ -38,7 +35,7 @@ describe('backfill interaction memory', () => {
     state.world.addEntity(npc);
 
     const captured: string[] = [];
-    const svc = new LlmBackfillService({ state, llmDisplay: noopDisplay, client: new LLMClient(capturingProvider(captured)) });
+    const svc = new LlmBackfillService({ state, client: new LLMClient(capturingProvider(captured)) });
 
     await svc.trigger(npc);
     expect(npcProps(npc).memories ?? []).toHaveLength(1);

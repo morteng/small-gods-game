@@ -549,6 +549,36 @@ export class UiRuntime {
     this.presentUiSpec(spec, () => {});
   }
 
+  /**
+   * L4 (legacy chrome retirement): present an LLM backfill's narration and/or
+   * dialogue as a modal card — the GPU heir to the deleted DOM
+   * `llm-display.ts`. Rides the SAME declarative UiSpec surface as the
+   * whisper/time-landing cards rather than a bespoke renderer: an optional
+   * narration paragraph, then an optional npcLine for the dialogue, one
+   * dismiss choice (the same inert placeholder `Command` the time-landing
+   * card uses — this card is purely informational, nothing to emit). The
+   * text is LLM output (unbounded), so it runs through `validateUiSpec`'s
+   * no-scroll clamp rather than the landing card's trusted-deterministic
+   * skip of it. A no-op when there is neither a narration nor a dialogue, OR
+   * when another modal surface (shell/menu/story/an open whisper card) already
+   * owns the frame — this fires from an AUTOMATIC background trigger
+   * (soul-focus warm backfill), so it must never steal the screen from
+   * something the player is actively doing, e.g. a live whisper conversation.
+   */
+  showNarrationCard(view: { npcName: string; narration?: string; dialogue?: string }): void {
+    if (this.isModalActive()) return;
+    const body: UiSpecBlock[] = [];
+    if (view.narration) body.push({ kind: 'paragraph', text: view.narration });
+    if (view.dialogue) body.push({ kind: 'npcLine', who: view.npcName, text: view.dialogue });
+    if (body.length === 0) return;
+    const spec: UiSpec = {
+      title: view.npcName,
+      body,
+      choices: [{ text: 'Close', command: TIME_LANDING_DISMISS_COMMAND }],
+    };
+    this.presentUiSpec(validateUiSpec(spec), () => {});
+  }
+
   /** Whether a pointer at (px,py device) should be eaten by the UI. A shell
    *  screen, the menu and an open story card are modal (eat everything); the HUD
    *  only eats taps on its own widgets. */

@@ -1141,6 +1141,51 @@ describe('UiRuntime — time landing card (Round 9 WP-B)', () => {
   });
 });
 
+// ── L4 (legacy chrome retirement): the narration card, the GPU heir to the
+// deleted DOM llm-display.ts — rides the SAME UiSpec/whisper-card surface. ──
+describe('UiRuntime — narration card (L4)', () => {
+  it('shows a dismissible card with both a narration paragraph and an npcLine', () => {
+    const rt = new UiRuntime();
+    rt.showNarrationCard({ npcName: 'Aelith', narration: 'The wind stilled.', dialogue: 'I feel watched.' });
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.body')).toBe(true);
+    expect(rt.hitRegions().some((h) => h.id === 'card.choice.0')).toBe(true);
+  });
+
+  it('shows a card with only a dialogue line (no narration)', () => {
+    const rt = new UiRuntime();
+    rt.showNarrationCard({ npcName: 'Aelith', dialogue: 'I feel watched.' });
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(true);
+  });
+
+  it('is a no-op when there is neither narration nor dialogue', () => {
+    const rt = new UiRuntime();
+    rt.showNarrationCard({ npcName: 'Aelith' });
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(false);
+  });
+
+  it('the Close choice dismisses the card without requiring a real command', () => {
+    const rt = new UiRuntime();
+    rt.showNarrationCard({ npcName: 'Aelith', narration: 'The wind stilled.' });
+    rt.frame(W, H, DPR);
+    const btn = rt.hitRegions().find((h) => h.id === 'card.choice.0')!;
+    click(rt, ...center(btn));
+    expect(rt.hasCard()).toBe(false);
+  });
+
+  it('never steals the screen from an already-open modal (an automatic background trigger must not clobber a live whisper card)', () => {
+    const rt = new UiRuntime();
+    rt.toggleMenu(); // any modal — stands in for an open whisper/story card
+    rt.showNarrationCard({ npcName: 'Aelith', narration: 'The wind stilled.' });
+    rt.frame(W, H, DPR);
+    expect(rt.hasCard()).toBe(false); // the narration card never opened
+    expect(rt.isMenuOpen()).toBe(true); // the original modal is untouched
+  });
+});
+
 // ── UI v2 W0/D2: row-granular scroll adopted by the powers + inbox panels ───
 function power(i: number): BeliefPowerView {
   return {

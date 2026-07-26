@@ -1,17 +1,12 @@
 import type { GameState } from '@/core/state';
 import type { InteractionState } from './interaction-state';
 import type { DevModeController } from './dev-mode-controller';
-import type { DecorationPlacementModalHandle } from '@/ui/decoration-placement-modal';
-import type { DecorationImageCache } from '@/render/decoration-image-cache';
-import { saveDecorations } from '@/services/decoration-store';
 import { findBuildingAtTile } from '@/world/building-helpers';
 
 export interface InteractionControllerDeps {
   state: GameState;
   interaction: InteractionState;
   dev: DevModeController;
-  placementModal: DecorationPlacementModalHandle;
-  decorationImages: DecorationImageCache;
 }
 
 export class InteractionController {
@@ -63,31 +58,21 @@ export class InteractionController {
     if (!this.deps.state.pinnedNpcId) this.deps.state.selectedNpcId = null;
   }
 
-  async onTileRightClick(tileX: number, tileY: number): Promise<void> {
-    const map = this.deps.state.map;
-    if (!map) return;
-    if (tileX < 0 || tileY < 0 || tileX >= map.width || tileY >= map.height) return;
-    const tile = map.tiles[tileY]?.[tileX];
-    if (!tile || !tile.walkable) return;
-
-    // Right-clicking a settlement POI is a no-op for now: settlement-scoped
-    // divine actions (omen/miracle) move into the WebGPU divine panel. We still
-    // swallow the click here so it doesn't open the decoration modal over a POI.
-    if (this.deps.state.worldSeed) {
-      for (const poi of this.deps.state.worldSeed.pois) {
-        if (poi.position && poi.position.x === tileX && poi.position.y === tileY) return;
-      }
-    }
-
-    const result = await this.deps.placementModal.open({ x: tileX, y: tileY });
-    if (!result) return;
-    const placement = { tileX, tileY, assetId: result.assetId };
-    this.deps.state.generatedDecorations = [...this.deps.state.generatedDecorations, placement];
-    if (this.deps.state.worldSeed) {
-      saveDecorations(this.deps.state.worldSeed.name, this.deps.state.generatedDecorations);
-    }
-    void this.deps.decorationImages.load(result.assetId);
-  }
+  /**
+   * L4 (legacy chrome retirement): right-click used to open the DOM
+   * decoration-placement modal (a library grid of thumbnails + a PixelLab
+   * "generate new" prompt/tags form) — deleted with NO GPU replacement this
+   * slice. It's a paid-generation creative tool, not a core god-game action;
+   * its "generate from typed prompt" half doesn't fit today's fixed-choice
+   * UiSpec card or any existing DOM island (a new async-status text-input
+   * surface is a feature project, not a chrome reskin); and it already
+   * mutated `GameState.generatedDecorations` directly rather than through the
+   * command bus (decorations are cosmetic dressing, not sim truth), so there
+   * is no command to re-point this at. Right-click is a no-op until a real
+   * GPU decoration-placement surface is designed — consistent with the
+   * settlement-POI right-click above, already a no-op in practice.
+   */
+  async onTileRightClick(_tileX: number, _tileY: number): Promise<void> {}
 
   async onRightClick(sx: number, sy: number): Promise<void> {
     await this.deps.dev.handleRightClick(sx, sy);

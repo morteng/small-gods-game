@@ -35,11 +35,12 @@ describe('getNearbyNpcNames', () => {
   });
 });
 
-// C5: the barebones game never mounts the legacy DOM narration card, so the
-// service runs with llmDisplay:null — the writeback (memory + belief) must
-// still land; only the DOM presentation is skipped.
-describe('trigger with llmDisplay: null (barebones)', () => {
-  it('applies the writeback without a display handle', async () => {
+// L4: the narration card is GPU-native now (`UiRuntime.showNarrationCard`,
+// called unconditionally from `trigger`) — this pins that the writeback
+// (memory + belief) still lands correctly with no UI runtime attached
+// (`getUiRuntime()`'s presentation calls are harmless no-ops without hooks).
+describe('trigger applies its writeback regardless of UI presentation', () => {
+  it('applies the writeback', async () => {
     const state = createState();
     state.map = makeMap(5, 5);
     state.world = new World(state.map);
@@ -54,7 +55,7 @@ describe('trigger with llmDisplay: null (barebones)', () => {
     } as unknown as LLMProvider;
 
     const faithBefore = npcProps(npc).beliefs['player']?.faith ?? 0;
-    const svc = new LlmBackfillService({ state, llmDisplay: null, client: new LLMClient(provider) });
+    const svc = new LlmBackfillService({ state, client: new LLMClient(provider) });
     await svc.trigger(npc);
 
     expect(npcProps(npc).memories ?? []).toHaveLength(1); // interaction memory recorded
