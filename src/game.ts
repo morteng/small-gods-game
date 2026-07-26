@@ -3302,10 +3302,10 @@ export class Game {
     // divine effect, the cinematic camera, a sky-cloud transition (descent/ascent,
     // spike) or the hall's cloud ramp mid-flight (H4 — a paused world must still
     // watch its sky close when the hall opens) — all full-rate. Ambient water ripples
-    // alone demote to 'ambient' so the
-    // driver renders at a reduced cadence (~20 fps) instead of burning full-scene GPU
-    // at display rate on an otherwise idle watery world. (A hard pause forces all of
-    // these false, so the driver renders one frame then rests.)
+    // alone demote to 'ambient' so the driver renders at a reduced cadence (~20 fps)
+    // instead of burning full-scene GPU at display rate on an otherwise idle watery
+    // world. (A hard pause forces all of these false, so the driver renders one frame
+    // then rests.)
     if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic
       || this.state.cameraFly || this.shell.transitionActive() || this.hallRampAnimating()) return true;
     if (!paused && this.waterAnimating()) return 'ambient';
@@ -3401,7 +3401,7 @@ export class Game {
    */
   private tickShellTransition(nowMs: number): { resetFired: boolean; cameraOffsetPx: number } {
     const t = this.shell.transition();
-    const phase = t ? this.shell.transitionPhase(nowMs) ?? 1 : null;
+    const phase = t ? (this.shell.transitionPhase(nowMs) ?? 1) : null;
     // ONE author for `currentSkyOverlay`: the pure step composes the real
     // transition's coverage (if any) with the hall's own ramp (H4) and hands
     // back the single number this frame's overlay wants — the two never race
