@@ -14,6 +14,7 @@ import { pathKey } from '@/game/mind-orchestrator';
 import { CommandExecutorSystem } from '@/sim/command/command-system';
 import { RivalSystem } from '@/sim/systems/rival-system';
 import { RivalContentionSystem } from '@/sim/systems/rival-contention-system';
+import { GarrisonSystem } from '@/sim/systems/garrison-system';
 import { NpcMovementSystem } from '@/sim/systems/npc-movement-system';
 import { NpcSimSystem } from '@/sim/systems/npc-sim-system';
 import { BeliefPropagationSystem } from '@/sim/systems/belief-propagation-system';
@@ -133,6 +134,13 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // with hysteresis). The ledger STATE drives the inbox; a holy_war poi compresses
   // rival claim windows (RivalSystem reads `state.contention` above for that).
   scheduler.register(new RivalContentionSystem(() => state.contention, getCohorts));
+  // Manning the walls (W1): the same ladder puts men on the ramparts. Registered AFTER the
+  // contention system so a muster reads this tick's rung, not last tick's. Carries the standing
+  // muster orders + the muster hysteresis side (neither derivable from the world) → it joins the
+  // WP-D snapshot seam; rosters themselves are rebuilt from live NPCs every tick.
+  const garrison = new GarrisonSystem(() => state.contention);
+  scheduler.register(garrison);
+  state.systemState.register(garrison);
   scheduler.register(new MortalitySystem());
   scheduler.register(new BirthSystem({
     cohorts: getCohorts,
