@@ -2254,6 +2254,16 @@ export class Game {
           // point, whether the click came from the title screen or an agent's
           // `open_screen` over the bus), not per-caller.
           if (screen === 'newgame') this.newGameError = null;
+          // The legacy Esc menu must never overlap a shell screen. Every nav row
+          // that opens one closes the menu FIRST, but an AGENT reaching the same
+          // verb over the bus never touched a nav row — and the overlap is not
+          // cosmetic: the menu stashes the sim rate at 0, so a screen opened
+          // over it sits in front of a world that has silently stopped. Closing
+          // here (the one true entry point) is what actually makes the claim
+          // "a player's click and an agent's emit_command share one path" true,
+          // rather than true only for the click.
+          const rt = getUiRuntime();
+          if (rt.isMenuOpen()) rt.toggleMenu();
           this.shell.push(screen);
           this.requestRender();
         }
