@@ -787,6 +787,18 @@ export class Game {
       this.shell.push('gameover');
       this.requestRender();
     });
+    // abilities-v1 A4: cast FX subscribe to the event log, not to the player's
+    // click. `emitDivine` (the player-only surface) used to fire FX itself, right
+    // after `bus.emit` — so a cast issued by the bus/MCP/a rival/Fate produced no
+    // visual feedback at all (wrong direction for player-agent-control). Same
+    // subscription seam `onEncounterEvent` above already uses, so it inherits the
+    // SAME replay/scrub safety for free: `TimelineController.forwardSilent` drives
+    // scrub replay through a `SilentEventLog` (append/subscribe are no-ops, see
+    // `core/events.ts`) rather than `state.eventLog`, and a save load calls
+    // `eventLog.hydrate()`, which is explicitly silent (does not re-notify
+    // subscribers). So this fires exactly once per genuine append — never during
+    // a scrub-forward or a load replaying history.
+    this.state.eventLog.subscribe((a) => this.onDivineFxEvent(a));
     // F2: Fate's heartbeat — wakes the brain once a game-day even when nothing
     // happened ("what are you building toward?"), sharing FateTrigger's cooldown so
     // a pulse can't pile onto a just-fired event deliberation. Ticked from onFrame.
@@ -804,12 +816,13 @@ export class Game {
       // provider configures one, falling back to the chat tier (the mind-page
       // pattern). applyLlmConfig rebuilds both clients live — read through.
       llm: () => this.llmClientCapable ?? this.llmClient,
-      // Fallback: emit the pre-paired command directly (one-shot).
+      // Fallback: emit the pre-paired command directly (one-shot). Cast FX are
+      // no longer fired here (abilities-v1 A4) — they fire off the event log
+      // once the command actually applies, same as every other emitter.
       emitFallback: (choice) => {
         const cmd = choice.command;
         this.bus.emit({ verb: cmd.verb, source: cmd.source, target: cmd.target, params: cmd.params, payload: cmd.payload });
         this.invalidateHudSim();
-        this.fireCastFx(cmd.verb, cmd.target);
         this.requestRender();
       },
       invalidateHudSim: () => this.invalidateHudSim(),
@@ -1488,23 +1501,53 @@ export class Game {
   /**
    * The single divine-cast path shared by every player surface (hover / inspector /
    * reticle / inbox / powers). BRANCH-shaped verbs open a card instead of firing:
-   * `whisper` becomes the whisper card (P4). Everything else emits its `Command` and
-   * fires any cast FX (the smite thunderbolt). One seam so all surfaces behave alike.
+   * `whisper` becomes the whisper card (P4). Everything else emits its `Command` — cast
+   * FX ride the event log now (`onDivineFxEvent`, abilities-v1 A4), not this seam, so a
+   * player click and a bus/MCP/rival/Fate cast of the same verb both animate identically.
    */
   private emitDivine(verb: CommandVerb, target: CommandTarget): void {
     if (verb === 'whisper' && this.conversation.present(target)) return;
     this.bus.emit({ verb, source: PLAYER_SPIRIT_ID, target });
     this.invalidateHudSim(); // belief/inbox shift → refresh the HUD memo next frame
-    this.fireCastFx(verb, target);
     this.requestRender();
   }
 
-  /** Visual feedback for a cast — the smite thunderbolt at the resolved world tile.
-   *  (Other verbs' FX ride their own controller paths; smite had none until now.) */
-  private fireCastFx(verb: CommandVerb, target: CommandTarget): void {
-    if (verb !== 'smite') return;
-    const pos = this.targetWorldPos(target);
-    if (pos) this.ui.divineEffects.trigger('smite', pos.x, pos.y);
+  /**
+   * abilities-v1 A4: fire cast FX off the event log, keyed on the EVENT'S OWN
+   * coordinates — regardless of who cast it (player click, bus/MCP call, a rival,
+   * Fate). Only fires on the events that already have a visual: `smite` (the
+   * thunderbolt) and `summon_storm` (the raincloud, B5). The event only gets
+   * appended when `divine-actions.ts` actually succeeds (see `smite`/`smiteLocation`/
+   * `summonStorm`/`summonStormAt` — they append AFTER the power/precondition
+   * checks pass), so this is also strictly more correct than the old
+   * `emitDivine`-side fire: a doomed cast (insufficient power, precondition
+   * failed) used to still flash FX optimistically; now it can't, because there's
+   * no event to react to.
+   */
+  private onDivineFxEvent(a: AppendedEvent): void {
+    const ev = a.event;
+    if (ev.type === 'smite') {
+      const pos = this.eventWorldPos(ev.npcId, ev.poiId, ev.x, ev.y);
+      if (pos) this.ui.divineEffects.trigger('smite', pos.x, pos.y);
+    } else if (ev.type === 'summon_storm') {
+      const pos = this.eventWorldPos(undefined, ev.poiId, ev.x, ev.y);
+      if (pos) this.ui.divineEffects.trigger('storm', pos.x, pos.y, ev.radius);
+    }
+  }
+
+  /** Resolve an event's own npcId?/poiId?/x?/y? fields to a world tile, most
+   *  specific first (an npc's LIVE position, else a named settlement, else a bare
+   *  spot) — the same priority `targetWorldPos` gives a `CommandTarget`, reused via
+   *  its npc/settlement/tile arms rather than re-walking `state.world`/`worldSeed`
+   *  a second time. */
+  private eventWorldPos(
+    npcId: string | undefined, poiId: string | undefined,
+    x: number | undefined, y: number | undefined,
+  ): { x: number; y: number } | null {
+    if (npcId) return this.targetWorldPos({ kind: 'npc', npcId });
+    if (poiId) return this.targetWorldPos({ kind: 'settlement', poiId });
+    if (x !== undefined && y !== undefined) return this.targetWorldPos({ kind: 'tile', x, y });
+    return null;
   }
 
   /** Resolve a command target to a world tile (for FX / camera framing), or null. */

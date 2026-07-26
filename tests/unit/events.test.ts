@@ -98,4 +98,22 @@ describe('EventLog', () => {
     expect(log.size()).toBe(0);
     expect(log.append({ type: 'power_depleted', spiritId: 'p' }).id).toBe(1);
   });
+
+  // abilities-v1 A4: cast FX now subscribe to the event log (game.ts
+  // `onDivineFxEvent`) instead of firing from the player's click. That's only
+  // safe because a SAVE LOAD (`save-file.ts` → `eventLog.hydrate`) is silent —
+  // pins the contract the FX subscription (and every other subscriber:
+  // `onEncounterEvent`, `FateTrigger`) relies on to not replay a session's
+  // entire history of smites/storms/encounters into the effects layer at load.
+  it('hydrate does NOT notify subscribers, unlike append', () => {
+    const { log } = makeLog();
+    const seen = vi.fn();
+    log.subscribe(seen);
+    log.hydrate([
+      { id: 1, t: 0, event: { type: 'smite', spiritId: 'player', npcId: 'n1', witnesses: 0 } },
+      { id: 2, t: 5, event: { type: 'smite', spiritId: 'player', npcId: 'n2', witnesses: 0 } },
+    ]);
+    expect(log.size()).toBe(2);         // the events ARE restored...
+    expect(seen).not.toHaveBeenCalled(); // ...but subscribers never saw them fire.
+  });
 });

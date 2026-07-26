@@ -8,12 +8,18 @@ import { worldToScreen } from '@/render/iso/iso-projection';
 import { isoStageTransform } from '@/render/iso/entity-draw-list';
 
 export interface Effect {
-  type: 'whisper' | 'omen' | 'miracle' | 'curse' | 'dream' | 'smite';
+  type: 'whisper' | 'omen' | 'miracle' | 'curse' | 'dream' | 'smite' | 'storm';
   x: number;
   y: number;
   startTime: number;
   duration: number; // ms
   color: string;
+  /** abilities-v1 A4/B5: the AREA an effect covers, in tiles — only `storm`
+   *  reads this today (a big cast should look big). Undefined for point
+   *  effects; `trigger()` fills it from an optional 4th arg, defaulting to
+   *  `DEFAULT_STORM_RADIUS_TILES` so every pre-B1 call site (whisper/dream/…)
+   *  keeps behaving exactly as before. */
+  radiusTiles?: number;
 }
 
 const EFFECT_CONFIG: Record<string, { duration: number; color: string; particleCount: number }> = {
@@ -24,7 +30,30 @@ const EFFECT_CONFIG: Record<string, { duration: number; color: string; particleC
   dream:    { duration: 1000, color: '#B39DDB', particleCount: 10 },
   // the thunderbolt: a hot white-blue strike + a scatter of sparks at the impact.
   smite:    { duration: 900,  color: '#e8f4ff', particleCount: 18 },
+  // abilities-v1 B5: a raincloud + downpour over the flooded disc — NOT a second
+  // lightning bolt (smite already owns that shape). `particleCount: 0` because
+  // `renderStorm` draws its own deterministic rain (see RAIN_DROPLETS below);
+  // the generic radial particle burst below would read as sparks, wrong for rain.
+  storm:    { duration: 2600, color: '#9fd8ff', particleCount: 0  },
 };
+
+/** `summon_storm`'s settlement-cast radius (mirrors `SUMMON_STORM_RADIUS`,
+ *  `sim/divine-costs.ts`) — kept as a local literal rather than an import so
+ *  this render-only module stays decoupled from the sim's cost tuning; a
+ *  settlement storm has no `radius` on its event (only an area cast does), so
+ *  this is what it falls back to. */
+const DEFAULT_STORM_RADIUS_TILES = 6;
+
+/** Fixed droplet layout for `renderStorm` — [angleFrac (0..1 of a full turn),
+ *  radiusFrac (0..1 of the storm's radius), fallPhase (0..1, offsets each
+ *  droplet's position in the fall loop)]. A hand-picked scatter, not a ring,
+ *  so the rain doesn't read as a rotating spoke pattern; no `Math.random` on
+ *  the render path (same discipline as `renderSmite`'s zigzag offsets). */
+const RAIN_DROPLETS: ReadonlyArray<readonly [number, number, number]> = [
+  [0.02, 0.30, 0.05], [0.11, 0.70, 0.55], [0.18, 0.45, 0.30], [0.27, 0.85, 0.80],
+  [0.35, 0.20, 0.60], [0.44, 0.60, 0.10], [0.52, 0.90, 0.40], [0.59, 0.35, 0.90],
+  [0.67, 0.55, 0.20], [0.75, 0.15, 0.70], [0.83, 0.75, 0.50], [0.91, 0.40, 0.00],
+];
 
 export class DivineEffects {
   private effects: Effect[] = [];
@@ -40,9 +69,14 @@ export class DivineEffects {
   }> = [];
 
   /**
-   * Trigger a divine effect at the given world coordinates.
+   * Trigger a divine effect at the given world coordinates. `radiusTiles`
+   * (abilities-v1 B5) is only meaningful for `'storm'` — an area cast threads
+   * its clamped radius through so the cloud/rain disc matches what actually
+   * got flooded; every other effect ignores it. Omitted ⇒ `renderStorm` falls
+   * back to `DEFAULT_STORM_RADIUS_TILES`, so pre-existing call sites
+   * (whisper/dream/omen/miracle/smite) are unchanged.
    */
-  trigger(type: Effect['type'], worldX: number, worldY: number): void {
+  trigger(type: Effect['type'], worldX: number, worldY: number, radiusTiles?: number): void {
     const config = EFFECT_CONFIG[type];
     if (!config) return;
 
@@ -53,6 +87,7 @@ export class DivineEffects {
       startTime: performance.now(),
       duration: config.duration,
       color: config.color,
+      radiusTiles,
     };
 
     this.effects.push(effect);
@@ -159,6 +194,9 @@ export class DivineEffects {
           break;
         case 'smite':
           this.renderSmite(ctx, progress, tileSize, effect.color);
+          break;
+        case 'storm':
+          this.renderStorm(ctx, progress, tileSize, effect.color, effect.radiusTiles ?? DEFAULT_STORM_RADIUS_TILES);
           break;
       }
 
@@ -287,6 +325,82 @@ export class DivineEffects {
       ctx.globalAlpha = ringA * 0.6;
       ctx.lineWidth = 2;
       ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** The `summon_storm` visual (abilities-v1 B5): a raincloud sitting over a
+   *  wet-ground disc, downpour streaking between them — reads as WEATHER, not
+   *  a second lightning bolt (smite already owns that shape). `radiusTiles`
+   *  scales the cloud/disc/rain-spread together so a big area cast looks
+   *  bigger than a settlement one, not just longer. Deterministic (fixed
+   *  `RAIN_DROPLETS` table, no `Math.random`) — same discipline as `renderSmite`. */
+  private renderStorm(
+    ctx: CanvasRenderingContext2D,
+    progress: number,
+    tileSize: number,
+    color: string,
+    radiusTiles: number,
+  ): void {
+    const cx = 0, cy = 0;
+    const R = tileSize * radiusTiles;
+    // Local space: negative y is UP (toward the sky), positive y toward the
+    // viewer/ground — the same convention `renderSmite`'s falling bolt uses.
+    const cloudY = cy - tileSize * 3;
+
+    // Wet-ground disc: fades in under the cloud and lingers a beat after the
+    // rain stops (standing water doesn't vanish the instant the cloud does).
+    const groundA = Math.min(1, progress * 2.5) * Math.max(0, 1 - Math.max(0, progress - 0.6) / 0.4);
+    if (groundA > 0) {
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, R, R * 0.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = groundA * 0.25;
+      ctx.fill();
+    }
+
+    // The cloud: a cluster of overlapping lobes, scaled to the same radius so
+    // a wide area-cast reads as a correspondingly wide cloud. Builds in over
+    // the opening beat, holds, then fades with the rain.
+    const cloudA = Math.min(1, progress * 3) * Math.max(0, 1 - Math.max(0, progress - 0.65) / 0.35);
+    if (cloudA > 0) {
+      const lobes: ReadonlyArray<readonly [number, number, number]> = [
+        [-0.55, 0.00, 0.55], [-0.15, -0.15, 0.70], [0.30, -0.05, 0.62],
+        [0.68, 0.10, 0.48], [0.02, 0.15, 0.65],
+      ];
+      ctx.fillStyle = '#5b6b78';
+      ctx.globalAlpha = cloudA * 0.85;
+      for (const [dx, dy, s] of lobes) {
+        ctx.beginPath();
+        ctx.ellipse(
+          cx + dx * R * 0.7, cloudY + dy * tileSize,
+          R * s * 0.55 + tileSize * 0.3, tileSize * s * 0.9,
+          0, 0, Math.PI * 2,
+        );
+        ctx.fill();
+      }
+    }
+
+    // Downpour: RAIN_DROPLETS' fixed angle/radius scatter, each falling on its
+    // own phase-shifted loop from the cloud's base toward the ground disc —
+    // continuous-looking motion built from a static table, not per-frame RNG.
+    const rainA = Math.min(1, progress * 3) * (1 - progress);
+    if (rainA > 0) {
+      const top = cloudY + tileSize * 0.8;
+      ctx.strokeStyle = '#cfe8ff';
+      ctx.lineWidth = Math.max(1, tileSize * 0.05);
+      ctx.globalAlpha = rainA * 0.7;
+      for (const [angleFrac, radiusFrac, fallPhase] of RAIN_DROPLETS) {
+        const ang = angleFrac * Math.PI * 2;
+        const dropX = cx + Math.cos(ang) * R * radiusFrac;
+        const fall = (progress * 1.6 + fallPhase) % 1;
+        const y0 = top + fall * (cy - top);
+        const y1 = Math.min(y0 + tileSize * 0.4, cy);
+        ctx.beginPath();
+        ctx.moveTo(dropX, y0);
+        ctx.lineTo(dropX, y1);
+        ctx.stroke();
+      }
     }
     ctx.globalAlpha = 1;
   }
