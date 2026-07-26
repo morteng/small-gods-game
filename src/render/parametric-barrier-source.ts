@@ -44,8 +44,12 @@ const CHUNK_TILES = 4;
  *  midpoint sort key, so a chunk running along the depth axis puts its whole length at one
  *  depth — a building whose sort key falls inside that span draws wholly in front of or
  *  behind the entire chunk ("buildings poke through walls"). Capping the depth span keeps
- *  the ambiguity window under a building footprint; cross-depth walls keep full length. */
-const CHUNK_DEPTH_SPAN_MAX = 2;
+ *  the ambiguity window under a building footprint; cross-depth walls keep full length.
+ *  EXPORTED because it also bounds how far a chunk's midpoint sort key can sit AHEAD of a point
+ *  that is genuinely ON that chunk — which is exactly the bias an on-wall NPC needs to out-sort
+ *  the wall he stands on (`WALL_NPC_DEPTH_BIAS`, entity-draw-list.ts). Pinned against it by
+ *  tests/unit/npc-wall-lift.test.ts, so the two can never drift apart. */
+export const CHUNK_DEPTH_SPAN_MAX = 2;
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 type Pt = [number, number];

@@ -448,6 +448,14 @@ export interface NpcInstance {
   // Random-walk movement scaffolding (placeholder until proper schedules land).
   // moveCooldown counts down in ms; on reach 0 the NPC picks a new step.
   moveCooldown?: number;
+  /** Manning the walls (W2): height (TILES above grade) of this NPC's feet, copied straight from
+   *  the sim's `NpcProperties.wallZ` — the garrison phase machine writes it while a soldier is on
+   *  (or on his way up/down) a wall-walk, and it is ABSENT whenever he stands on the ground.
+   *  `npcItems` turns it into a vertical screen offset applied ON TOP of the terrain lift; absent
+   *  ⇒ byte-identical output to an ordinary townsfolk. NOTE: this interface is a hand-picked
+   *  shape, NOT a passthrough of the entity's properties — a field must be added HERE and in
+   *  `toRenderNpc` (src/world/npc-helpers.ts) together or it never reaches the renderer. */
+  wallZ?: number;
 }
 
 export interface Relationship {
