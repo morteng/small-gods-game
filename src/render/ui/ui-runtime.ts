@@ -73,6 +73,12 @@ export interface UiRuntimeHooks {
   /** P5b: COPY WORLD CODE, from the legacy pause menu's left nav — emits the
    *  `copy_world_code` meta verb (spec §3.6). */
   onCopyWorldCode?: () => void;
+  /** Phase C H4: HALL OF THE GODS, from the pause menu's left nav — the
+   *  player's way into the hall. The host emits `open_screen screen=hall`, the
+   *  SAME meta verb a connected agent emits, so there is one route in. The row
+   *  closes the menu BEFORE calling this: `menuOpen` must never overlap a shell
+   *  screen (the menu owns a rate stash, and an overlap leaves the sim at 0). */
+  onOpenHall?: () => void;
   /** A one-line "COPIED: …" confirmation to show under the row for a short
    *  while after a copy, or null the rest of the time. */
   getWorldCodeStatus?: () => string | null;
@@ -2075,10 +2081,22 @@ export class UiRuntime {
     c.label('SMALL GODS', 48 * s, 40 * s, fsTitle, UI_PALETTE.text);
 
     // ── left nav ──
+    // The row labels live in ONE place so the COLUMN can be measured from them.
+    // `UiContext.button` ellipsizes rather than overflowing, so a column sized
+    // independently of its text truncates in silence — 'HALL OF THE GODS' needs
+    // 208px and the historical hardcoded 200 would have painted
+    // "HALL OF THE G…" with nothing failing. Same kit rule the shell screens
+    // follow (`tests/unit/ui-no-truncation.test.ts`): a container that must hold
+    // text is measured from that text; the old constant survives as a FLOOR so
+    // the column never gets narrower than it used to be.
+    const NAV_LABELS = {
+      resume: 'RESUME', hall: 'HALL OF THE GODS', settings: 'SETTINGS',
+      world: 'NEW WORLD', copycode: 'COPY WORLD CODE',
+    } as const;
     const navX = 48 * s;
     const navTop = 100 * s;
     let navY = navTop;
-    const navW = 200 * s;
+    const navW = Math.max(200 * s, ...Object.values(NAV_LABELS).map((l) => c.buttonWidth(l, fsBody)));
     const navH = 34 * s;
     const gap = 12 * s;
     const nav = (id: string, label: string, active: boolean): boolean => {
@@ -2088,12 +2106,18 @@ export class UiRuntime {
       navY += navH + gap;
       return clicked;
     };
-    if (nav('nav.resume', 'RESUME', false)) { this.setMenu(false); return null; }
-    if (nav('nav.settings', 'SETTINGS', this.section === 'settings')) this.section = 'settings';
-    if (nav('nav.world', 'NEW WORLD', false)) { this.setMenu(false); this.hooks.onNewWorld?.(); return null; }
+    if (nav('nav.resume', NAV_LABELS.resume, false)) { this.setMenu(false); return null; }
+    // H4: the way into the Hall of the Gods. CLOSE THE MENU FIRST (like NEW
+    // WORLD below, unlike COPY WORLD CODE), because a shell screen and the
+    // legacy menu must never be up together — the menu stashes the sim rate on
+    // open and restores it on close, so an overlap strands the world at rate 0
+    // behind the hall.
+    if (nav('nav.hall', NAV_LABELS.hall, false)) { this.setMenu(false); this.hooks.onOpenHall?.(); return null; }
+    if (nav('nav.settings', NAV_LABELS.settings, this.section === 'settings')) this.section = 'settings';
+    if (nav('nav.world', NAV_LABELS.world, false)) { this.setMenu(false); this.hooks.onNewWorld?.(); return null; }
     // P5b: seed share. Deliberately does NOT close the menu (unlike RESUME/NEW
     // WORLD above) — the player likely wants to see the confirmation land.
-    if (nav('nav.copycode', 'COPY WORLD CODE', false)) this.hooks.onCopyWorldCode?.();
+    if (nav('nav.copycode', NAV_LABELS.copycode, false)) this.hooks.onCopyWorldCode?.();
     const worldCodeStatus = this.hooks.getWorldCodeStatus?.() ?? null;
     if (worldCodeStatus) {
       c.label(worldCodeStatus, navX, navY, fsBody, UI_PALETTE.textDim);

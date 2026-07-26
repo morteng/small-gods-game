@@ -955,6 +955,16 @@ export class Game {
       // `copy_world_code` case, not this hook.
       onCopyWorldCode: () => this.bus.emit({ verb: 'copy_world_code', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } }),
       getWorldCodeStatus: () => this.worldCodeStatus(),
+      // Phase C H4: HALL OF THE GODS, from the pause menu's left nav. `open_screen`
+      // and nothing else — a player's click and a connected agent's
+      // `emit_command` take the identical route in, so the hall has ONE entry
+      // point with one set of bugs (plan §1.4). The row already closed the menu
+      // before this fires (see `onOpenHall`'s doc: the menu's rate stash must
+      // not be left holding the world at 0 behind the hall).
+      onOpenHall: () => this.bus.emit({
+        verb: 'open_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' },
+        params: { screen: 'hall' },
+      }),
       // A story card is modal narrative — pause the sim while it's up, restore the
       // prior rate (could be 2×/4×/8× or an existing pause) when it dismisses.
       // Idempotent on repeat toggles: presenting a card OVER an open card would

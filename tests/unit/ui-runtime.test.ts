@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { UiRuntime, type AlertPinView, type TimeStatus, type TimeCommand, type AnnalRow } from '@/render/ui/ui-runtime';
 import { UiPage, UiSpace, type UiDrawGroup } from '@/render/ui/ui-batcher';
-import type { UiHit } from '@/render/ui/ui-context';
+import { UiContext, type UiHit } from '@/render/ui/ui-context';
+import { FS } from '@/render/ui/ui-tokens';
+import { uiScaleFor } from '@/render/ui/ui-layer';
 import type { UiSpec, UiSpecChoice } from '@/story/uispec';
 import type { BeliefPowerView, InboxItem, PantheonRow } from '@/game/game-query';
 import type { WorldLabelView } from '@/game/affordance/world-labels';
@@ -133,6 +135,62 @@ describe('UiRuntime — HUD + pause menu', () => {
     click(rt, ...center(world));
     expect(newWorlds).toBe(1);
     expect(rt.isMenuOpen()).toBe(false);
+  });
+
+  it('HALL OF THE GODS fires its hook and closes the menu FIRST', () => {
+    // Order is load-bearing (plan §1.4): the menu stashes the sim rate on open
+    // and restores it on close, so if the hall's screen went up while
+    // `menuOpen` were still true the world would sit at rate 0 behind it. The
+    // hook therefore fires only after the menu is already shut — asserted by
+    // reading `isMenuOpen()` from INSIDE the hook, not after the click.
+    const openWhenFired: boolean[] = [];
+    const rt = new UiRuntime();
+    rt.configure({ onOpenHall: () => openWhenFired.push(rt.isMenuOpen()) });
+    rt.toggleMenu();
+    rt.frame(W, H, DPR);
+    const hall = rt.hitRegions().find((h) => h.id === 'nav.hall')!;
+    click(rt, ...center(hall));
+    expect(openWhenFired).toEqual([false]);
+    expect(rt.isMenuOpen()).toBe(false);
+  });
+
+  it('the HALL row sits inside the nav column, not on the dismiss backdrop', () => {
+    // The nav box is derived from where the rows ended up, so a new row is
+    // covered automatically — but only if it was added through the `nav()`
+    // helper. A row placed outside it would read as a backdrop click and
+    // "resume" instead (the menu would close having fired nothing).
+    let halls = 0;
+    const rt = new UiRuntime();
+    rt.configure({ onOpenHall: () => halls++ });
+    rt.toggleMenu();
+    rt.frame(W, H, DPR);
+    const hall = rt.hitRegions().find((h) => h.id === 'nav.hall')!;
+    click(rt, ...center(hall));
+    expect(halls).toBe(1);   // the click reached the row, not the backdrop
+  });
+
+  it('every nav row is wide enough for its own label — no silent ellipsis', () => {
+    // `UiContext.button` ellipsizes rather than overflowing, so a column sized
+    // independently of its text truncates in SILENCE: 'HALL OF THE GODS' needs
+    // 208px at s=1 and the nav column was a hardcoded 200, which would have
+    // painted "HALL OF THE G…" with nothing failing. Measured the same way
+    // `button` does, at the runtime's real scale.
+    const rt = new UiRuntime();
+    rt.configure({ getWorldCodeStatus: () => null });
+    rt.toggleMenu();
+    rt.frame(W, H, DPR);
+    const scale = FS.body * uiScaleFor(DPR);
+    const c = new UiContext();
+    const labels: Record<string, string> = {
+      'nav.resume': 'RESUME', 'nav.hall': 'HALL OF THE GODS',
+      'nav.settings': 'SETTINGS', 'nav.world': 'NEW WORLD',
+      'nav.copycode': 'COPY WORLD CODE',
+    };
+    for (const [id, label] of Object.entries(labels)) {
+      const hit = rt.hitRegions().find((h) => h.id === id);
+      expect(hit, `${id} was not drawn`).toBeTruthy();
+      expect(hit!.w, `${id} too narrow for "${label}"`).toBeGreaterThanOrEqual(c.buttonWidth(label, scale));
+    }
   });
 
   it('LIGHTING toggle flips state through the hook', () => {
