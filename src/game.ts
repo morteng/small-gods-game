@@ -1445,11 +1445,21 @@ export class Game {
    * the SAME clamp `previewCommand`/`summonStormAt` apply, so the preview,
    * the hint-bar readout, and the actual cast can never disagree.
    */
-  private onDragArea(phase: 'start' | 'update' | 'end', x: number, y: number): void {
+  private onDragArea(phase: 'start' | 'update' | 'end' | 'cancel', x: number, y: number): void {
     const aim = this.interaction.targeting;
     if (!aim || aim.footprint !== 'area') return; // aim cancelled (Esc/right-click) mid-gesture
     if (phase === 'start') {
       aim.anchor = { x, y };
+      this.requestRender();
+      return;
+    }
+    if (phase === 'cancel') {
+      // The cursor left the canvas mid-drag: drop the anchor so the disc
+      // preview stops (anchor presence IS "mid-drag" for the renderer and the
+      // hint bar) — but stay ARMED, because an accidental cursor exit is not a
+      // decision to stop casting. The reticle falls back to its point form,
+      // ready to anchor a fresh drag.
+      aim.anchor = undefined;
       this.requestRender();
       return;
     }

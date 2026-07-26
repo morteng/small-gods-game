@@ -40,8 +40,14 @@ export interface ControlsCallbacks {
    *  onTileClick) — 'start' and 'end' land on nearly the same tile, and the
    *  caller's own radius-from-distance math naturally floors to its minimum,
    *  so a plain click "just works" without a second code path (deliberately
-   *  NOT overloading the ordinary 3px click threshold to mean something new). */
-  onDragArea?: (phase: 'start' | 'update' | 'end', tileX: number, tileY: number) => void;
+   *  NOT overloading the ordinary 3px click threshold to mean something new).
+   *  'cancel' when the cursor leaves the canvas mid-gesture — the drag is
+   *  abandoned, nothing is cast, and the caller must drop its anchor. Without
+   *  it the caller cannot tell "still dragging" from "gesture died off-canvas"
+   *  (anchor presence IS its mid-drag flag), and a phantom disc would keep
+   *  tracking the cursor after the mouse came back. Tile coords are MEANINGLESS
+   *  for 'cancel' (there is no meaningful tile off-canvas) — ignore them. */
+  onDragArea?: (phase: 'start' | 'update' | 'end' | 'cancel', tileX: number, tileY: number) => void;
   /** Optional terrain env for LIFT-AWARE tile picking (build with `isoEnvForMap`),
    *  evaluated per pick so it tracks the live world. Without it, picking is flat
    *  (height-free) and mis-resolves the tile under the cursor on sloped terrain. */
@@ -311,8 +317,16 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
   canvas.addEventListener('mouseup', onMouseUp);
   // Leaving the canvas mid-drag abandons the gesture WITHOUT firing 'end' —
   // an area-drag that never released over the canvas never emits (no
-  // half-formed cast from an accidental cursor exit).
-  canvas.addEventListener('mouseleave', () => { dragging = false; capturingArea = false; });
+  // half-formed cast from an accidental cursor exit). It DOES fire 'cancel',
+  // so the caller can drop the anchor it stamped at 'start'; otherwise that
+  // anchor (which doubles as the caller's "mid-drag" flag) would outlive the
+  // dead gesture and keep painting a disc that follows the cursor.
+  canvas.addEventListener('mouseleave', () => {
+    const wasCapturing = capturingArea;
+    dragging = false;
+    capturingArea = false;
+    if (wasCapturing) callbacks.onDragArea?.('cancel', 0, 0);
+  });
   canvas.addEventListener('contextmenu', onContextMenu);
   canvas.addEventListener('wheel', onWheel, { passive: false });
   window.addEventListener('keydown', onKeyDown);

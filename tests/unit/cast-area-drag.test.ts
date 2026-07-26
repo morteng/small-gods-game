@@ -125,6 +125,30 @@ describe('Game — the area-drag gesture (abilities-v1 B4)', () => {
     expect(emit.mock.calls[0][0]).toMatchObject({ target: { kind: 'area', x: 10, y: 10, radius: 12 } });
   });
 
+  it('a cursor that leaves the canvas mid-drag drops the anchor but STAYS armed, so no phantom disc follows it back', () => {
+    (game as any).castPower('summon_storm');
+    (game as any).onDragArea('start', 5, 5);
+    expect((game as any).interaction.targeting.anchor).toEqual({ x: 5, y: 5 });
+
+    // `attachControls`' mouseleave abandons the gesture: 'cancel', never 'end'.
+    (game as any).onDragArea('cancel', 0, 0);
+
+    // Anchor gone ⇒ the frame renderer + hint bar both fall back to the point
+    // reticle (anchor presence is what they branch on), so nothing keeps
+    // painting a disc anchored to a drag that died off-canvas.
+    expect((game as any).interaction.targeting.anchor).toBeUndefined();
+    // Still armed: an accidental cursor exit is not a decision to stop casting.
+    expect((game as any).interaction.targeting.verb).toBe('summon_storm');
+    expect((game as any).dragPreview((game as any).interaction.targeting)).toBeUndefined();
+    expect(emit).not.toHaveBeenCalled();
+
+    // And a fresh drag still works afterwards, anchored where the NEW one starts.
+    (game as any).onDragArea('start', 9, 9);
+    (game as any).onDragArea('end', 15, 9);
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0][0]).toMatchObject({ target: { kind: 'area', x: 9, y: 9, radius: 6 } });
+  });
+
   it('cancelling aim (Esc) mid-drag makes a subsequent onDragArea a no-op', () => {
     (game as any).castPower('summon_storm');
     (game as any).onDragArea('start', 5, 5);

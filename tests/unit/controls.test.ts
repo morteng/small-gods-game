@@ -427,15 +427,28 @@ describe('attachControls keyboard', () => {
       expect(onTileClick).not.toHaveBeenCalled();
     });
 
-    it('mouseleave mid-capture abandons the gesture without firing "end"', () => {
+    it('mouseleave mid-capture abandons the gesture: "cancel", never "end"', () => {
       const onDragArea = vi.fn();
       cleanup = attachControls(canvas, createCamera(), {
         onRedraw: () => {}, onDragArea, shouldCaptureDrag: () => true,
       });
       canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
       canvas.dispatchEvent(new MouseEvent('mouseleave', { clientX: 400, clientY: 400, bubbles: true }));
-      expect(onDragArea).toHaveBeenCalledTimes(1); // only 'start'
-      expect(onDragArea.mock.calls[0][0]).toBe('start');
+      // The invariant that matters is that a gesture dying off-canvas never
+      // CASTS — 'end' is what emits. It does fire 'cancel', so the caller can
+      // drop the anchor that doubles as its "mid-drag" flag; without that the
+      // disc preview outlives the dead gesture and follows the cursor back in.
+      expect(onDragArea.mock.calls.map((c) => c[0])).toEqual(['start', 'cancel']);
+    });
+
+    it('mouseleave with NOTHING captured stays silent (no stray cancel for an ordinary pan)', () => {
+      const onDragArea = vi.fn();
+      cleanup = attachControls(canvas, createCamera(), {
+        onRedraw: () => {}, onDragArea, shouldCaptureDrag: () => false,
+      });
+      canvas.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+      canvas.dispatchEvent(new MouseEvent('mouseleave', { clientX: 400, clientY: 400, bubbles: true }));
+      expect(onDragArea).not.toHaveBeenCalled();
     });
   });
 });
