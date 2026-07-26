@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { UiContext } from '@/render/ui/ui-context';
 import { drawTitleScreen, titleRows } from '@/render/ui/shell/title-screen';
 import { drawSettingsScreen, keymapRows, type SettingsScreenView } from '@/render/ui/shell/settings-screen';
+import { drawHallScreen, type HallPedestalView, type HallView } from '@/render/ui/shell/hall-screen';
 import { DEFAULT_KEYMAP } from '@/game/input/keymap';
 import { shellTypeScaleFor } from '@/render/ui/ui-tokens';
 
@@ -41,6 +42,42 @@ function settingsView(tab: SettingsScreenView['tab']): SettingsScreenView {
   } as SettingsScreenView;
 }
 
+/** A HALL pedestal with the longest real prose it carries — the ladder's node
+ *  labels and the domain name are what a too-narrow column would cut first. */
+function hallPedestal(domain: string, label: string, verb: string): HallPedestalView {
+  return {
+    domain, label, verb,
+    blurb: 'Thunder over the fields, and the sense that someone meant it.',
+    conviction: 0.7, threshold: 0.5, materialize: 1,
+    tier: 'command', unlocked: true,
+    reachLine: 'BELIEVED BY 12 — REACH 5',
+    dimensions: { faith: 0.6, understanding: 0.4, devotion: 0.5 },
+    nextHint: 'DEVOTION MUST DEEPEN BEFORE THIS BELIEF SUSTAINS ITSELF',
+    nodes: [
+      { tier: 'claim', label: 'CLAIM', reached: true, hint: 'THE DOMAIN IS HEARD' },
+      { tier: 'command', label: 'COMMAND', reached: true, hint: 'YOU MAY ACT IN IT' },
+      { tier: 'doctrine', label: 'DOCTRINE', reached: false, hint: 'BELIEF SUSTAINS ITSELF' },
+    ],
+    castBlocked: null,
+  };
+}
+
+function hallView(): HallView {
+  return {
+    spirit: {
+      name: 'The Small God',
+      tierLine: 'A SMALL GOD',
+      massLine: 'BELIEF ENOUGH FOR A HAMLET',
+      intimacyLine: 'THEY KNOW YOUR NAME',
+      intimacy: 0.45,
+      faded: false,
+      fadedLine: null,
+    },
+    pedestals: [hallPedestal('storm', 'Storm', 'call_storm'), hallPedestal('harvest', 'Harvest', 'bless_harvest')],
+    emptyLine: null,
+  };
+}
+
 /** Every text run the screen drew, reconstructed from the labels it asked for.
  *  `UiContext.ellipsize` is the single chokepoint for truncation, so spying on it
  *  catches every case regardless of which widget did it. */
@@ -74,6 +111,16 @@ describe('no truncation at the reported viewport', () => {
     for (const tab of ['audio', 'video'] as const) {
       const cut = collectEllipsized((c) => { drawSettingsScreen(c, W, H, S, settingsView(tab)); });
       expect(cut, `${tab} truncated: ${cut.join(' | ')}`).toEqual([]);
+    }
+  });
+
+  it('the HALL never ellipsizes a pedestal name, a ladder label or its prose', () => {
+    // The pedestal COLUMN is the tightest box on this screen: its width is
+    // derived from the widest of the CAST verb, the domain name and the
+    // mark+ladder-label pair, so a hardcoded column width shows up here first.
+    for (const selected of [null, 'storm'] as const) {
+      const cut = collectEllipsized((c) => { drawHallScreen(c, W, H, S, hallView(), selected); });
+      expect(cut, `hall truncated (selected=${selected}): ${cut.join(' | ')}`).toEqual([]);
     }
   });
 
@@ -176,6 +223,13 @@ describe("button boxes are sized by the widget's OWN metric", () => {
 
   it('every title button fits its own label', () => {
     assertButtonsFit((c) => { drawTitleScreen(c, W, H, S, titleView()); }, 'title');
+  });
+
+  it('every hall button (CAST, BACK) fits its own label', () => {
+    assertButtonsFit((c) => { drawHallScreen(c, W, H, S, hallView(), 'storm'); }, 'hall');
+    for (const vw of [900, 1100, 1389, 1920]) {
+      assertButtonsFit((c) => { drawHallScreen(c, vw * S, H, S, hallView(), 'storm'); }, `hall@${vw}`);
+    }
   });
 
   it('holds at narrow viewports too, where boxes are tightest', () => {
