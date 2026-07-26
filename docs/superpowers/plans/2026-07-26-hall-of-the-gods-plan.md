@@ -216,3 +216,183 @@ inside the hall. Agent parity: `describe()` shows the same choices the grabs sho
   `ATTRIBUTION_SPIRIT='player'`; `divine-effects.trigger` Math.random; per-settlement
   `aggregateDomainAt`; rival pedestal views (the spiritId plumbing exists — a later round);
   a real `pause` shell screen; wiring `describe()` into MCP.
+
+---
+
+## 4. Agreed interfaces (frozen before H1 ∥ H2 — change only by amending this section)
+
+These names are the CONTRACT between the H1 projection and the H2 pure screen. Neither builder
+may rename a field; if one is genuinely wrong, stop and report rather than diverge.
+
+### 4.1 H1 — `src/sim/belief-domains.ts` (pure sibling, no new sim state)
+
+```ts
+/** Weighted mean of the three belief DIMENSIONS over a domain's reached
+ *  believers. Same weight function the conviction aggregate uses
+ *  (`aggregateWeight`, faith × (0.5 + 0.5·devotion)); the population is NPCs
+ *  whose domain belief is ≥ DOMAIN_REACH_FLOOR (the same "visibly holds it"
+ *  floor `reach` counts). Zero such believers ⇒ all zeros. */
+export interface DomainDimensions {
+  faith: number;
+  understanding: number;
+  devotion: number;
+}
+
+export function aggregateDomainDimensions(
+  world: World, spiritId: SpiritId, domain: BeliefDomain,
+): DomainDimensions;
+```
+
+World-wide over reached believers (NOT per-congregation) — deliberately different from
+`conviction`: conviction answers "is there a convinced congregation" (a gate), dimensions answer
+"what is the quality of the belief that exists" (legibility). Document that difference in the
+doc comment.
+
+### 4.2 H1 — `src/game/game-query.ts` (extends the ONE projection; fields OPTIONAL)
+
+```ts
+/** The three belief dimensions behind a domain's conviction, as weighted means
+ *  over its reached believers. Legibility only — nothing gates on these. */
+export interface BeliefPowerDimensions {
+  faith: number;
+  understanding: number;
+  devotion: number;
+}
+
+/** The highest ripening node a domain has REACHED (belief-powers spec §3's
+ *  CLAIM → COMMAND → DOCTRINE). DERIVED every read from live numbers, never
+ *  stored and never a crossing event: conviction is non-monotonic, so a tier
+ *  legitimately regresses when belief decays. */
+export type BeliefPowerTier = 'dormant' | 'claim' | 'command' | 'doctrine';
+
+// added to BeliefPowerView — BOTH OPTIONAL (required fields break the two
+// exhaustive fixtures; see plan §0.11):
+  dimensions?: BeliefPowerDimensions;
+  tier?: BeliefPowerTier;
+```
+
+Bars as named exported constants with the plan §1.2 rationale in their doc comments:
+
+```ts
+/** CLAIM: the domain is HEARD — half the unlock bar. Coincidence play
+ *  (whisper-claims, inbox opportunities) is meaningfully live here. */
+export const CLAIM_CONVICTION_FRACTION = 0.5;
+/** DOCTRINE: devotion at which domain decay drops to ≤40% of base
+ *  (`belief-content-system.ts`'s `rate = 0.01 × (1 − devotion)`) — the honest
+ *  "belief begins to self-sustain" line. */
+export const DOCTRINE_DEVOTION_BAR = 0.6;
+```
+
+Derivation order (highest reached wins): `doctrine` if `unlocked && dimensions.devotion >=
+DOCTRINE_DEVOTION_BAR`; else `command` if `unlocked`; else `claim` if `conviction >=
+CLAIM_CONVICTION_FRACTION * threshold`; else `dormant`. `unlocked` is read from the EXISTING
+field — never a second unlock formula. Null world ⇒ `dimensions` all-zero, `tier: 'dormant'`
+(present, not absent — the honest zero).
+
+### 4.3 H2 — `src/render/ui/shell/hall-screen.ts`
+
+```ts
+/** A ripening node on a pedestal's ladder. Prose is PREBUILT by the host. */
+export interface HallNodeView {
+  tier: 'claim' | 'command' | 'doctrine';
+  /** Short mark label, e.g. 'CLAIM'. */
+  label: string;
+  reached: boolean;
+  /** One line of what this node MEANS, prebuilt. */
+  hint: string;
+}
+
+export interface HallPedestalView {
+  domain: string;
+  /** Player-facing domain name (the screen uppercases for display). */
+  label: string;
+  blurb: string;
+  /** The capability verb CAST arms. */
+  verb: string;
+  /** 0..1 fractions for the conviction bar + its threshold tick. */
+  conviction: number;
+  threshold: number;
+  /** clamp01(conviction / threshold) — the materialization ramp (plan §1.7). */
+  materialize: number;
+  tier: 'dormant' | 'claim' | 'command' | 'doctrine';
+  unlocked: boolean;
+  /** Prebuilt, e.g. 'BELIEVED BY 12 — REACH 5'. Never a raw tick. */
+  reachLine: string;
+  /** 0..1 bars. */
+  dimensions: { faith: number; understanding: number; devotion: number };
+  /** Prebuilt "what would ripen this next" prose. */
+  nextHint: string;
+  /** Exactly three, in ladder order claim → command → doctrine. */
+  nodes: readonly HallNodeView[];
+  /** Non-null ⇒ CAST is refused, with the reason to show/report. */
+  castBlocked: string | null;
+}
+
+export interface HallView {
+  spirit: {
+    name: string;
+    /** Prebuilt, e.g. 'A SMALL GOD'. */
+    tierLine: string;
+    /** Prebuilt, e.g. 'BELIEF ENOUGH FOR A HAMLET'. */
+    massLine: string;
+    /** Prebuilt intimacy prose. */
+    intimacyLine: string;
+    /** 0..1 for the intimacy bar. */
+    intimacy: number;
+    faded: boolean;
+    /** Canon line when faded ('ONLY WHISPERS REMAIN'), else null. */
+    fadedLine: string | null;
+  };
+  pedestals: readonly HallPedestalView[];
+  /** Non-null ⇒ the honest empty state caption (no world, or no believers). */
+  emptyLine: string | null;
+}
+
+export type HallAction =
+  | { kind: 'back' }
+  | { kind: 'select'; domain: string }
+  | { kind: 'cast'; verb: string };
+
+export interface HallRow {
+  id: string;
+  label: string;
+  action: HallAction;
+  enabled: boolean;
+  /** Refusal reason when `!enabled` — surfaces as `ShellChoice.note`. */
+  reason: string | null;
+}
+
+/** The pure row/enable logic `Shell.describe()` walks and `drawHallScreen`
+ *  paints. A function of the VIEW ALONE (selection is presentation, so it must
+ *  not change the offered choices). Ids: `hall.select.<domain>`,
+ *  `hall.cast.<domain>`, `hall.back`. */
+export function hallRows(view: HallView): readonly HallRow[];
+
+export function drawHallScreen(
+  c: UiContext, w: number, h: number, s: number,
+  view: HallView, selectedDomain: string | null,
+): HallAction | null;
+```
+
+CAST is offered on every pedestal (not only the selected one) so a click and an agent's
+`emit_command` see the identical row set; the selected pedestal only gains the detail pane.
+`hallRows` must be the SINGLE source of enable/reason — the draw path reads it, and the
+disabled guard lives in the handler, not the paint.
+
+### 4.4 H3 — host seam
+
+```ts
+// shell.ts
+ShellDeps.hallView?: () => HallView;
+const EMPTY_HALL_VIEW: HallView;      // no world: pedestals [], emptyLine set
+ShellDrawResult.hall: HallAction | null;   // added to INERT_DRAW as null
+Shell.hallDomain: string | null;      // private, `settingsTab` precedent
+Shell.setHallDomain(domain: string | null): void;
+
+// ui-runtime.ts
+UiRuntimeHooks.onHallAction?: (a: HallAction) => void;
+
+// game.ts
+private buildHallView(): HallView;    // composes hudSim().powers + the player Spirit
+private onHallAction(a: HallAction): void;
+```
