@@ -26,6 +26,17 @@ import {
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from './lpc-humanoid';
+import {
+  drawQuadrupedCell,
+  GOAT_PARAMS,
+  GOAT_WEST,
+  QUADRUPED_CHIP_COLORS,
+  quadrupedMirrorName,
+  SHEEP_CLIPS,
+  SHEEP_PARAMS,
+  SHEEP_WEST,
+  type QuadrupedParams,
+} from './quadruped';
 
 export interface RigEntry {
   /** Stable id, ASCII. */
@@ -145,10 +156,42 @@ const humanoidRig: RigEntry = {
   loadLayers: async () => (await loadHumanoidCharacter(DEFAULT_HUMANOID_LAYERS)).layers,
 };
 
+// ── quadrupeds ───────────────────────────────────────────────────────────────
+
+/**
+ * A code-drawn species needs no fetch at all: `drawQuadrupedCell` is pure
+ * raster math, and one cell is the whole wardrobe (there are no LPC-style
+ * layers to stack). It runs INSIDE `loadLayers` rather than at module scope so
+ * importing this registry stays free — the studio pays for the pixels only
+ * when the rig is actually picked.
+ */
+const quadrupedRig = (
+  id: string,
+  label: string,
+  template: AnimTemplate,
+  params: QuadrupedParams,
+): RigEntry => ({
+  id,
+  label,
+  template,
+  clips: SHEEP_CLIPS,
+  chipColors: QUADRUPED_CHIP_COLORS,
+  mirrorName: quadrupedMirrorName,
+  loadLayers: () => Promise.resolve([{ raster: drawQuadrupedCell(params) }]),
+});
+
 // ── registry ─────────────────────────────────────────────────────────────────
 
-/** Every registered rig, humanoid first. A sheep/quadruped entry lands here later. */
-export const RIGS: readonly RigEntry[] = [humanoidRig];
+/**
+ * Every registered rig, humanoid first. Sheep and goat share ONE clip set —
+ * clips key on the chip vocabulary rather than on a species, which is the
+ * whole point of the quadruped template being parametric.
+ */
+export const RIGS: readonly RigEntry[] = [
+  humanoidRig,
+  quadrupedRig('sheep', 'Sheep', SHEEP_WEST, SHEEP_PARAMS),
+  quadrupedRig('goat', 'Goat', GOAT_WEST, GOAT_PARAMS),
+];
 
 export function rigById(id: string): RigEntry | undefined {
   return RIGS.find((r) => r.id === id);
