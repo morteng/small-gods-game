@@ -243,7 +243,8 @@ describe('Shell — the stateful glue', () => {
     const c = new UiContext();
     c.begin();
     expect(shell.draw(c, W, H, S)).toEqual({
-      island: null, title: null, save: null, load: null, settings: null, gameover: null, newgame: null,
+      island: null, title: null, save: null, load: null, settings: null, gameover: null,
+      newgame: null, hall: null,
     });
     c.end();
     expect(totalVerts(c.batcher.flush())).toBe(0);
@@ -396,7 +397,8 @@ describe('Shell — the P5b screens', () => {
     const { hits } = c.end();
     expect(hits).toEqual([]); // nothing clickable
     expect(result).toEqual({
-      island: null, title: null, save: null, load: null, settings: null, gameover: null, newgame: null,
+      island: null, title: null, save: null, load: null, settings: null, gameover: null,
+      newgame: null, hall: null,
     });
   });
 

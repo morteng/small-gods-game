@@ -11,6 +11,33 @@ function totalVerts(groups: UiDrawGroup[]): number {
   return groups.reduce((s, g) => s + g.vertexCount, 0);
 }
 
+/**
+ * Assert every screen-space vertex lands inside the target.
+ *
+ * Reduced to a BOUNDING BOX and asserted four times, not once per vertex: a
+ * busy screen emits tens of thousands of vertices, and an `expect` each is
+ * enough assertion-object churn to blow the 5 s test timeout on a loaded
+ * machine (it did — the title case was already sitting at ~4.5 s before the
+ * hall's cases were added to this file). The failure message is just as
+ * specific, since it reports the offending extreme.
+ */
+function expectInsideTarget(groups: UiDrawGroup[], w: number, h: number): void {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const g of groups) {
+    if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
+    for (let i = 0; i < g.vertexCount * 8; i += 8) {
+      minX = Math.min(minX, g.vertices[i]);
+      maxX = Math.max(maxX, g.vertices[i]);
+      minY = Math.min(minY, g.vertices[i + 1]);
+      maxY = Math.max(maxY, g.vertices[i + 1]);
+    }
+  }
+  expect(minX).toBeGreaterThanOrEqual(0);
+  expect(maxX).toBeLessThanOrEqual(w);
+  expect(minY).toBeGreaterThanOrEqual(0);
+  expect(maxY).toBeLessThanOrEqual(h);
+}
+
 const TITLE: TitleView = {
   continueLine: 'DAY 3', continueBlocked: null, hasAnySave: true, buildLine: 'W 118',
 };
@@ -114,15 +141,7 @@ describe('UiRuntime × Shell — a screen owns the frame', () => {
   it('everything a screen draws stays inside the target', () => {
     const { rt, shell } = runtimeWithShell();
     shell.push('title');
-    for (const g of rt.frame(W, H, DPR)) {
-      if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
-      for (let i = 0; i < g.vertexCount * 8; i += 8) {
-        expect(g.vertices[i]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i]).toBeLessThanOrEqual(W);
-        expect(g.vertices[i + 1]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i + 1]).toBeLessThanOrEqual(H);
-      }
-    }
+    expectInsideTarget(rt.frame(W, H, DPR), W, H);
   });
 
   it('a gameover choice reaches the host through onGameOverAction', () => {
@@ -363,15 +382,7 @@ describe('UiRuntime × Shell — the Hall of the Gods', () => {
     const { rt, shell } = hallRuntime();
     shell.push('hall');
     shell.setHallDomain('storm');   // the detail pane is the widest layout
-    for (const g of rt.frame(W, H, DPR)) {
-      if (g.space !== UiSpace.Screen || g.page !== UiPage.Solid) continue;
-      for (let i = 0; i < g.vertexCount * 8; i += 8) {
-        expect(g.vertices[i]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i]).toBeLessThanOrEqual(W);
-        expect(g.vertices[i + 1]).toBeGreaterThanOrEqual(0);
-        expect(g.vertices[i + 1]).toBeLessThanOrEqual(H);
-      }
-    }
+    expectInsideTarget(rt.frame(W, H, DPR), W, H);
   });
 });
 
