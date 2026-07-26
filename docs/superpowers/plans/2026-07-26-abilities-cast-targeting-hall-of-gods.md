@@ -44,6 +44,8 @@ they are pointers, not gospel.**
    direction. FX subscribe to the same event stream regardless of who cast.
 5. **Hall of the Gods (phase C) is BLOCKED until `feat/ui-v3` merges to main.** Its shell/screen
    surface is under active construction by another orchestrator. Do not start it; ship A+B.
+   — ✅ **RESOLVED 2026-07-26:** ui-v3 and A+B both merged; Phase C shipped on `feat/hall-of-gods`
+   (see §4 and [`2026-07-26-hall-of-the-gods-plan.md`](2026-07-26-hall-of-the-gods-plan.md)).
 
 ## 2. Phase A — the cast loop feels like casting (builder-sized slices)
 
@@ -129,7 +131,44 @@ an agent placing a raincloud must be exactly one `emit_command`.
 `sim-event-boundary.test.ts` if any NEW event type is added (prefer widening `summon_storm`'s
 payload instead). `bus-bridge-protocol.test.ts:13` mock cap gains `footprint`.
 
-## 4. Phase C — Hall of the Gods (**BLOCKED — do not build; design contract only**)
+## 4. Phase C — Hall of the Gods (✅ **SHIPPED** — built as `2026-07-26-hall-of-the-gods-plan.md`)
+
+> **STATUS, 2026-07-26.** No longer blocked and no longer a contract to build against: `feat/ui-v3`
+> and abilities A+B are both on `main`, and Phase C shipped on `feat/hall-of-gods` (slices H1–H5).
+> **The build plan and its recon are the live document — read
+> [`2026-07-26-hall-of-the-gods-plan.md`](2026-07-26-hall-of-the-gods-plan.md), not the contract
+> below.** The contract's intent survived intact (pedestal per domain, materializing with
+> conviction, CLAIM → COMMAND → DOCTRINE ladders, above the clouds, read-only legibility with CAST
+> as the one interactive concession). Five of its *mechanisms* did not, because recon found the
+> codebase had moved underneath them. Recorded here so the next reader is not misled by the
+> paragraphs below:
+>
+> 1. **No shader change was needed, and the "free pad float in `SGlobals`" no longer exists.**
+>    `uParams` is a single `vec4<f32>` (viewport.x/y, timeSec, coverage) — the ui-v3 transition
+>    spike consumed the spare lane for `coverage`. The hall did not need it: the full-coverage sky
+>    overlay already occludes the world before the UI pass, so the hall sits above the clouds with
+>    **zero WGSL changes**.
+> 2. **There is still no `pause` shell screen.** `'pause'` is a `ScreenId` with no module and no
+>    `Shell.draw` case — it paints nothing while swallowing pointer input. The real Esc menu is
+>    still legacy `UiRuntime.drawMenu`, so the entry point is a **`drawMenu` nav row**
+>    (`nav.hall`, "HALL OF THE GODS") that closes the menu and emits **`open_screen screen=hall`** —
+>    the same meta verb an agent emits. One route in, for click and agent alike.
+> 3. **No new `TransitionKind`.** `beginTransition` unconditionally clears the screen stack, so a
+>    transition cannot carry a screen. The entrance is instead a **Game-side coverage ramp**
+>    (`stepHallOverlay` in `src/game/sky-transition.ts`, reusing the pure `easeOutCubic` curve):
+>    the screen stays pushed and only `currentSkyOverlay.coverage` eases 0→1 on push, 1→0 after pop.
+> 4. **Pedestals lay out as a grid whose ROWS scroll, not a horizontally-scrolling band** —
+>    `UiContext` has only a vertical scroll primitive, and the contract's "horizontal `scrollList`"
+>    would have meant a new primitive this round did not need.
+> 5. **The detail pane sits BESIDE the pedestal band when width allows** (rather than below it),
+>    which is what the measure-then-place degradation plan picks at 10-foot type.
+>
+> Also worth carrying forward: **CLAIM → COMMAND → DOCTRINE is DERIVED LEGIBILITY**, not new sim
+> state. `BeliefPowerView` gained two OPTIONAL fields (`dimensions`, `tier`) — the single-payload
+> law held; there is no parallel projection, no persisted tier, and no crossing event, because
+> conviction is non-monotonic and a pedestal must be allowed to go hazy again.
+
+### The original contract (superseded — kept for provenance)
 
 The powers screen is a **shell screen** (`feat/ui-v3` architecture) drawn over the animated sky:
 the divine realm above the clouds, one **pedestal/alcove per belief domain**, materializing with
