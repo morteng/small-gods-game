@@ -11,11 +11,18 @@
 //   • END-POSE sliders: live-retune each chip's final angle → instant re-bake
 //     (never reload; tuning here is the whole point of the bench).
 // Quantize toggle runs frames through the game's Oklab+Bayer palette pass.
-//   • GAIT lane: the untouched walk cycle played through a Tier-0 gait style
-//     (retiming + whole-sprite offsets, src/render/paperdoll/gait.ts) beside a
+//   • GAIT lane (humanoid only): the untouched walk cycle played through a
+//     Tier-0 gait style (retiming + whole-sprite offsets, gait.ts) beside a
 //     normal-cadence control. No rebake — this simulates runtime playback.
+//
+// Template-agnostic: every rig (humanoid, and future non-humanoid templates)
+// registers in `render/paperdoll/rig-catalog.ts`. A button row at the top of
+// the left panel picks the active RigEntry; switching never reloads the page
+// — it re-runs the rig's `loadLayers()` and rebuilds every piece of UI that
+// depends on chip count / clip list / bone-overlay colors. The "Character"
+// (role wardrobe) and "Gait" panels are LPC-humanoid-specific — they show
+// only while the humanoid rig is selected.
 
-import { assetUrl } from '@/core/asset-url';
 import {
   bakeClip,
   chipWorldTransforms,
@@ -25,14 +32,8 @@ import {
   type Clip,
   type PoseLayer,
 } from '@/render/paperdoll/rig';
-import {
-  DEFAULT_HUMANOID_LAYERS,
-  donorSheetCandidates,
-  HUMANOID_CLIPS,
-  HUMANOID_SOURCE,
-  LPC_HUMANOID_SOUTH,
-} from '@/render/paperdoll/lpc-humanoid';
-import { stampAnims } from '@/render/paperdoll/stamp';
+import { RIGS, loadHumanoidCharacter, type RigEntry } from '@/render/paperdoll/rig-catalog';
+import { DEFAULT_HUMANOID_LAYERS, HUMANOID_SOURCE } from '@/render/paperdoll/lpc-humanoid';
 import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
 import { LPC_ANIMATIONS } from '@/core/npc-animation';
 import { FRAME_MS } from '@/render/npc-animator';
@@ -40,7 +41,6 @@ import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSource
 import { buildCharacterSpec, type CharacterSpec } from '@/render/lpc/character-builder';
 import { walkSpriteCandidates } from '@/render/lpc/lpc-walk-path';
 import type { NpcRole } from '@/core/types';
-import { decodePngToRaster } from '@/render/sprite-codec';
 import { rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
 import { injectStudioTheme, COLORS, h } from './theme';
@@ -49,28 +49,23 @@ export interface StudioHandle {
   dispose(): void;
 }
 
-const TEMPLATE = LPC_HUMANOID_SOUTH;
-const CELL = TEMPLATE.cell;
-const CLIPS: readonly Clip[] = HUMANOID_CLIPS;
 const ZOOMS = [2, 4, 6, 10] as const;
 const STEP_MS = 120; // matches ACTION_FRAME_MS cadence
 const GAME_PX = 32; // on-screen sprite size at zoom 1
-const CHIP_COLORS = [
-  '#787878', // trunk
-  '#ffdc3c', // head
-  '#50b4ff', // armL_up
-  '#3c78ff', // armL_fore
-  '#ff8250', // armR_up
-  '#ff4628', // armR_fore
-  '#50dc78', // legL_up
-  '#28a050', // legL_fore
-  '#c878ff', // legR_up
-  '#9640dc', // legR_fore
-];
 
 const cloneClip = (c: Clip): Clip => JSON.parse(JSON.stringify(c)) as Clip;
+const cloneTemplate = (t: AnimTemplate): AnimTemplate => JSON.parse(JSON.stringify(t)) as AnimTemplate;
+/** Default joint-pin chip — armL_fore on the humanoid (the hinge that started
+ *  this); clamped so a rig with fewer chips still lands on a valid index. */
+const defaultPinChip = (t: AnimTemplate): number => Math.min(3, t.chips.length - 1);
 
-/** Coverage-weighted box downscale to the in-game sprite size. */
+/**
+ * Coverage-weighted box downscale to the in-game sprite size. Assumes an
+ * INTEGER ratio (`f.w / to`) — the pixel-perfect rule means a rig cell is an
+ * even multiple of GAME_PX (64 -> 32 for every shipped rig). A rig authored
+ * with an odd cell would step this loop fractionally and smear; keep cells a
+ * multiple of 32 rather than generalising the sampler.
+ */
 function downscale(f: Raster, to: number): Raster {
   const s = f.w / to;
   const out = new Uint8ClampedArray(to * to * 4);
@@ -97,18 +92,18 @@ function downscale(f: Raster, to: number): Raster {
   return { data: out, w: to, h: to };
 }
 
-/** Alpha-over composite of one 64px cell (col,row) across all layer sheets. */
-function compositeCell(sheets: readonly Raster[], col: number, row: number): Raster {
-  const data = new Uint8ClampedArray(CELL * CELL * 4);
+/** Alpha-over composite of one `cell`px cell (col,row) across all layer sheets. */
+function compositeCell(sheets: readonly Raster[], col: number, row: number, cell: number): Raster {
+  const data = new Uint8ClampedArray(cell * cell * 4);
   for (const sheet of sheets) {
-    const sx = col * CELL;
-    const sy = row * CELL;
-    for (let y = 0; y < CELL; y++) {
-      for (let x = 0; x < CELL; x++) {
+    const sx = col * cell;
+    const sy = row * cell;
+    for (let y = 0; y < cell; y++) {
+      for (let x = 0; x < cell; x++) {
         const si = ((sy + y) * sheet.w + sx + x) * 4;
         const a = sheet.data[si + 3];
         if (a === 0) continue;
-        const di = (y * CELL + x) * 4;
+        const di = (y * cell + x) * 4;
         const da = data[di + 3];
         if (a === 255 || da === 0) {
           data[di] = sheet.data[si];
@@ -125,7 +120,7 @@ function compositeCell(sheets: readonly Raster[], col: number, row: number): Ras
       }
     }
   }
-  return { data, w: CELL, h: CELL };
+  return { data, w: cell, h: cell };
 }
 
 export function mountMotionStudio(container: HTMLElement): StudioHandle {
@@ -156,24 +151,25 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     // supersample blend softens edges and erodes the 1px LPC contour).
     snap: true,
   };
-  let workClip = cloneClip(CLIPS[0]);
+
+  // ── active rig ───────────────────────────────────────────────────────────
+  let rig: RigEntry = RIGS[0];
+  let workClip = cloneClip(rig.clips[0]);
   // Mutable template copy: joint pin mode edits pivots live (rest-space coords).
-  const workTemplate: AnimTemplate = JSON.parse(JSON.stringify(TEMPLATE)) as AnimTemplate;
-  const pin = { on: false, chip: 3, mirror: true }; // default chip: armL_fore (the hinge that started this)
-  const hiddenLayers = new Set<number>(); // indices into DEFAULT_HUMANOID_LAYERS
+  let workTemplate: AnimTemplate = cloneTemplate(rig.template);
+  const pin = { on: false, chip: defaultPinChip(rig.template), mirror: true };
+  const hiddenLayers = new Set<number>(); // indices into the loaded layer stack
   const hiddenChips = new Set<string>(); // chip names skipped at paint time
 
-  // L/R chip pairs mirror about the sprite's vertical axis. Pivots are grid
-  // POINTS, not pixels: pixel content mirrors as 63-x, but a point mirrors as
-  // 64-x (the mirror of column 19's left edge is column 45's left edge).
-  const mirrorName = (n: string): string | null =>
-    n.includes('L_') ? n.replace('L_', 'R_') : n.includes('R_') ? n.replace('R_', 'L_') : null;
+  // Pivots are grid POINTS, not pixels: pixel content mirrors as (cell-1)-x,
+  // but a point mirrors as cell-x (the mirror of column 19's left edge is
+  // column 45's left edge on a 64px humanoid cell).
   function setPivot(idx: number, cx: number, cy: number): void {
     workTemplate.chips[idx].pivot = [cx, cy];
     if (pin.mirror) {
-      const mn = mirrorName(workTemplate.chips[idx].name);
+      const mn = rig.mirrorName(workTemplate.chips[idx].name);
       const mi = mn === null ? -1 : workTemplate.chips.findIndex((c) => c.name === mn);
-      if (mi >= 0) workTemplate.chips[mi].pivot = [CELL - cx, cy];
+      if (mi >= 0) workTemplate.chips[mi].pivot = [workTemplate.cell - cx, cy];
     }
     updateJointReadout();
   }
@@ -221,8 +217,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   // bones overlay + readout; the full rebake happens once on release.
   let pinDragging = false;
   const cellPos = (ev: MouseEvent): [number, number] => [
-    Math.max(0, Math.min(CELL - 1, Math.floor(ev.offsetX / state.zoom))),
-    Math.max(0, Math.min(CELL - 1, Math.floor(ev.offsetY / state.zoom))),
+    Math.max(0, Math.min(workTemplate.cell - 1, Math.floor(ev.offsetX / state.zoom))),
+    Math.max(0, Math.min(workTemplate.cell - 1, Math.floor(ev.offsetY / state.zoom))),
   ];
   bigCv.onmousedown = (ev) => {
     if (!pin.on) return;
@@ -273,12 +269,12 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const stripNote = h('span', { class: 'sg-muted', style: 'font-size:10px', text: 'filmstrip — click a frame to scrub' });
   main.append(bigWrap, stripCv, stripNote);
 
-  // ── gait lane: the untouched walk cycle under a runtime-style timing warp ──
-  const WALK_N = LPC_ANIMATIONS.walk.lastCol - LPC_ANIMATIONS.walk.firstCol + 1;
+  // ── gait lane (humanoid only): the untouched walk cycle under a runtime-style timing warp ──
   const GAIT_ZOOM = 4;
   const walkBig: SpriteCanvas[] = []; // composited walk frames, cell size
   const walkSmall: SpriteCanvas[] = []; // 32px downscales
   let loadedSheets: Raster[] | null = null; // full LPC sheets, for lane recomposites
+  const walkColCount = LPC_ANIMATIONS.walk.lastCol - LPC_ANIMATIONS.walk.firstCol + 1;
 
   /** (Re)composite the gait lane's walk frames, honoring layer visibility. */
   function rebuildWalkLane(): void {
@@ -287,7 +283,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     walkSmall.length = 0;
     const use = loadedSheets.filter((_, i) => !hiddenLayers.has(i));
     for (let col = LPC_ANIMATIONS.walk.firstCol; col <= LPC_ANIMATIONS.walk.lastCol; col++) {
-      const cellR = compositeCell(use, col, HUMANOID_SOURCE.row);
+      const cellR = compositeCell(use, col, HUMANOID_SOURCE.row, workTemplate.cell);
       const big = rgbaToCanvas(cellR.data, cellR.w, cellR.h);
       const small = downscale(cellR, GAME_PX);
       const smallCv = rgbaToCanvas(small.data, small.w, small.h);
@@ -298,14 +294,14 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }
   }
   let gaitStyle = GAIT_STYLES[1]; // open on limp so the contrast is instant
-  const normalPlan = planGait(GAIT_NORMAL, WALK_N, FRAME_MS);
-  let styledPlan = planGait(gaitStyle, WALK_N, FRAME_MS);
+  const normalPlan = planGait(GAIT_NORMAL, walkColCount, FRAME_MS);
+  let styledPlan = planGait(gaitStyle, walkColCount, FRAME_MS);
   let gaitClock = 0;
 
   function gaitView(label: string): { col: HTMLElement; big: HTMLCanvasElement; small: HTMLCanvasElement; lbl: HTMLElement } {
     const big = document.createElement('canvas');
-    big.width = CELL * GAIT_ZOOM;
-    big.height = CELL * GAIT_ZOOM;
+    big.width = workTemplate.cell * GAIT_ZOOM;
+    big.height = workTemplate.cell * GAIT_ZOOM;
     big.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
     const small = document.createElement('canvas');
     small.width = GAME_PX * 2;
@@ -320,10 +316,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const gaitStyledView = gaitView(`walk · ${gaitStyle.name}`);
   const gaitWrap = h('div', { style: 'display:flex;gap:18px;align-items:flex-start' });
   gaitWrap.append(gaitNormalView.col, gaitStyledView.col);
-  main.append(
-    h('div', { class: 'sg-eyebrow', style: 'margin-top:6px', text: 'Gait — walk cycle (Tier 0: timing + offsets, no new pixels)' }),
-    gaitWrap,
-  );
+  const gaitEyebrow = h('div', { class: 'sg-eyebrow', style: 'margin-top:6px', text: 'Gait — walk cycle (Tier 0: timing + offsets, no new pixels)' });
+  main.append(gaitEyebrow, gaitWrap);
 
   function drawGaitInto(view: { big: HTMLCanvasElement; small: HTMLCanvasElement }, plan: GaitPlan): void {
     const f = gaitFrameAt(plan, gaitClock);
@@ -332,7 +326,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       g.imageSmoothingEnabled = false;
       checker(g, view.big.width, view.big.height, 8 * GAIT_ZOOM);
       const fr = walkBig[f.frame];
-      if (fr) g.drawImage(fr as CanvasImageSource, f.dx * GAIT_ZOOM, f.dy * GAIT_ZOOM, CELL * GAIT_ZOOM, CELL * GAIT_ZOOM);
+      if (fr) g.drawImage(fr as CanvasImageSource, f.dx * GAIT_ZOOM, f.dy * GAIT_ZOOM, workTemplate.cell * GAIT_ZOOM, workTemplate.cell * GAIT_ZOOM);
     }
     const gs = view.small.getContext('2d');
     if (gs) {
@@ -359,7 +353,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
 
   function drawBig(): void {
     const z = state.zoom;
-    const size = CELL * z;
+    const size = workTemplate.cell * z;
     if (bigCv.width !== size) {
       bigCv.width = size;
       bigCv.height = size;
@@ -389,7 +383,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     const t = workClip.frames <= 1 ? 0 : state.frame / (workClip.frames - 1);
     const world = chipWorldTransforms(workTemplate, sampleClip(workTemplate, workClip, t));
     workTemplate.chips.forEach((ch, i) => {
-      const col = CHIP_COLORS[i % CHIP_COLORS.length];
+      const col = rig.chipColors[i % rig.chipColors.length];
       g.strokeStyle = col;
       g.lineWidth = 1.5;
       if (i > 0) {
@@ -420,7 +414,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const STRIP_SCALE = 2;
   function drawStrip(): void {
     const n = workClip.frames;
-    const cw = CELL * STRIP_SCALE;
+    const cw = workTemplate.cell * STRIP_SCALE;
     const gap = 4;
     stripCv.width = n * cw + (n + 1) * gap;
     stripCv.height = cw + gap * 2;
@@ -446,7 +440,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   stripCv.onclick = (ev) => {
     const rect = stripCv.getBoundingClientRect();
     const gap = 4;
-    const cw = CELL * STRIP_SCALE;
+    const cw = workTemplate.cell * STRIP_SCALE;
     const i = Math.floor((ev.clientX - rect.left - gap) / (cw + gap));
     if (i >= 0 && i < workClip.frames) {
       state.frame = i;
@@ -482,11 +476,29 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   // ── left controls ───────────────────────────────────────────────────────────
   panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin-bottom:7px', text: 'Motion' }));
 
+  // Rig picker — one button per registered rig. Switching never reloads: it
+  // re-runs the selected rig's loadLayers() and rebuilds every piece of UI
+  // that depends on chip count / clip list / bone-overlay colors.
+  const rigRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:8px' });
+  const rigBtns = RIGS.map((r) => {
+    const b = h('button', { class: 'sg-btn', style: 'flex:1', text: r.label });
+    b.classList.toggle('is-on', r === rig);
+    b.onclick = () => void switchRig(r);
+    rigRow.appendChild(b);
+    return b;
+  });
+  panel.appendChild(rigRow);
+
   const clipSel = h('select', { class: 'sg-select', style: 'width:100%;margin-bottom:8px' }) as HTMLSelectElement;
-  CLIPS.forEach((c, i) => clipSel.appendChild(h('option', { text: c.name, attrs: { value: String(i) } })));
+  function buildClipOptions(): void {
+    clipSel.replaceChildren();
+    rig.clips.forEach((c, i) => clipSel.appendChild(h('option', { text: c.name, attrs: { value: String(i) } })));
+    clipSel.value = '0';
+  }
+  buildClipOptions();
   clipSel.onchange = () => {
     state.clipIdx = +clipSel.value;
-    workClip = cloneClip(CLIPS[state.clipIdx]);
+    workClip = cloneClip(rig.clips[state.clipIdx]);
     state.frame = 0;
     buildPoseSliders();
     rebake();
@@ -637,7 +649,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }
     const reset = h('button', { class: 'sg-btn', style: 'width:100%;margin-top:3px', text: '↺ Reset pose' });
     reset.onclick = () => {
-      workClip = cloneClip(CLIPS[state.clipIdx]);
+      workClip = cloneClip(rig.clips[state.clipIdx]);
       buildPoseSliders();
       rebake();
     };
@@ -649,13 +661,22 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Joints' }));
   const pinBtn = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '📍 Pin joints (click big view)' });
   const pinChipRow = h('div', { style: 'display:none;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
-  const pinChipBtns = workTemplate.chips.map((ch, i) => {
-    const b = h('button', { class: 'sg-btn', style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${CHIP_COLORS[i % CHIP_COLORS.length]}`, text: ch.name });
-    b.classList.toggle('is-on', i === pin.chip);
-    b.onclick = () => selectPinChip(i);
-    pinChipRow.appendChild(b);
-    return b;
-  });
+  let pinChipBtns: HTMLButtonElement[] = [];
+  function buildPinChipButtons(): void {
+    pinChipRow.replaceChildren();
+    pinChipBtns = workTemplate.chips.map((ch, i) => {
+      const b = h('button', {
+        class: 'sg-btn',
+        style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${rig.chipColors[i % rig.chipColors.length]}`,
+        text: ch.name,
+      });
+      b.classList.toggle('is-on', i === pin.chip);
+      b.onclick = () => selectPinChip(i);
+      pinChipRow.appendChild(b);
+      return b;
+    });
+  }
+  buildPinChipButtons();
   function selectPinChip(i: number): void {
     pin.chip = i;
     pinChipBtns.forEach((bb, k) => bb.classList.toggle('is-on', k === i));
@@ -692,13 +713,15 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const pinReset = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '↺ Reset joints' });
   pinReset.onclick = () => {
     workTemplate.chips.forEach((ch, i) => {
-      ch.pivot = [TEMPLATE.chips[i].pivot[0], TEMPLATE.chips[i].pivot[1]];
+      ch.pivot = [rig.template.chips[i].pivot[0], rig.template.chips[i].pivot[1]];
     });
     updateJointReadout();
     rebake();
   };
   // Export pinned joints as the source-of-truth const block for lpc-humanoid.ts
   // — "saving" a template edit means landing it in code, not in browser state.
+  // (Humanoid chip-name → const-name map; a rig whose chips don't use these
+  // names simply copies nothing for that chip — harmless, not an error.)
   const JOINT_CONST: Record<string, string> = {
     head: 'NECK',
     armL_up: 'SHOULDER_L',
@@ -722,7 +745,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   };
   panel.append(pinBtn, pinMirrorBtn, pinChipRow, jointReadout, pinCopy, pinReset);
 
-  // ── character: preview any role's seeded wardrobe on the rig ────────────────
+  // ── character: preview any role's seeded wardrobe on the rig (humanoid only) ─
   // Layer stacks come from the game's own role recipes (buildCharacterSpec) via
   // the pure path resolver (walkSpriteCandidates) — same sheets the runtime
   // compositor loads, so what bakes here is what the game would wear.
@@ -755,7 +778,9 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     return out;
   }
 
-  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Character' }));
+  const characterSection = h('div', {});
+  panel.appendChild(characterSection);
+  characterSection.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Character' }));
   const charState = { role: null as NpcRole | null, seed: 1 };
   const ROLES: (NpcRole | null)[] = [null, 'farmer', 'priest', 'soldier', 'merchant', 'elder', 'child', 'noble', 'beggar'];
   const roleRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px' });
@@ -781,7 +806,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       charState.role === null ? defaultCharacter() : characterLayers(buildCharacterSpec(charState.role, charState.seed)),
     );
   }
-  panel.append(
+  characterSection.append(
     roleRow,
     rerollBtn,
     h('div', {
@@ -791,10 +816,10 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }),
   );
 
-  // ── visibility: LPC source layers + chips ───────────────────────────────────
+  // ── visibility: source layers + chips ───────────────────────────────────────
   panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Visibility' }));
   const layerRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
-  function rebuildLayerRow(labels: string[]): void {
+  function rebuildLayerRow(labels: readonly string[]): void {
     layerRow.replaceChildren();
     labels.forEach((label, i) => {
       const b = h('button', { class: 'sg-btn is-on', style: 'flex:1 1 30%;font-size:10px', text: label });
@@ -810,35 +835,41 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     });
   }
   const chipVisRow = h('div', { style: 'display:flex;flex-wrap:wrap;gap:3px;margin-bottom:5px' });
-  workTemplate.chips.forEach((ch, i) => {
-    const b = h('button', {
-      class: 'sg-btn is-on',
-      style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${CHIP_COLORS[i % CHIP_COLORS.length]}`,
-      text: ch.name,
+  function buildChipVisRow(): void {
+    chipVisRow.replaceChildren();
+    workTemplate.chips.forEach((ch, i) => {
+      const b = h('button', {
+        class: 'sg-btn is-on',
+        style: `flex:1 1 45%;font-size:10px;border-left:3px solid ${rig.chipColors[i % rig.chipColors.length]}`,
+        text: ch.name,
+      });
+      b.onclick = () => {
+        if (hiddenChips.has(ch.name)) hiddenChips.delete(ch.name);
+        else hiddenChips.add(ch.name);
+        b.classList.toggle('is-on', !hiddenChips.has(ch.name));
+        rebake();
+      };
+      chipVisRow.appendChild(b);
     });
-    b.onclick = () => {
-      if (hiddenChips.has(ch.name)) hiddenChips.delete(ch.name);
-      else hiddenChips.add(ch.name);
-      b.classList.toggle('is-on', !hiddenChips.has(ch.name));
-      rebake();
-    };
-    chipVisRow.appendChild(b);
-  });
+  }
+  buildChipVisRow();
   panel.append(
-    h('div', { class: 'sg-muted', style: 'font-size:10px;margin-bottom:3px', text: 'LPC layers' }),
+    h('div', { class: 'sg-muted', style: 'font-size:10px;margin-bottom:3px', text: 'layers' }),
     layerRow,
     h('div', { class: 'sg-muted', style: 'font-size:10px;margin-bottom:3px', text: 'chips (hidden = hole)' }),
     chipVisRow,
   );
 
-  panel.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Gait (walk cycle)' }));
+  const gaitPanelSection = h('div', {});
+  panel.appendChild(gaitPanelSection);
+  gaitPanelSection.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Gait (walk cycle)' }));
   const gaitRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:4px' });
   const gaitBtns = GAIT_STYLES.map((s) => {
     const b = h('button', { class: 'sg-btn', style: 'flex:1', text: s.name });
     b.classList.toggle('is-on', s === gaitStyle);
     b.onclick = () => {
       gaitStyle = s;
-      styledPlan = planGait(s, WALK_N, FRAME_MS);
+      styledPlan = planGait(s, walkColCount, FRAME_MS);
       gaitClock = 0;
       gaitStyledView.lbl.textContent = `walk · ${s.name}`;
       gaitBtns.forEach((bb, i) => bb.classList.toggle('is-on', GAIT_STYLES[i] === s));
@@ -847,8 +878,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     gaitRow.appendChild(b);
     return b;
   });
-  panel.appendChild(gaitRow);
-  panel.appendChild(
+  gaitPanelSection.appendChild(gaitRow);
+  gaitPanelSection.appendChild(
     h('div', {
       class: 'sg-muted',
       style: 'font-size:10px;line-height:1.5;margin-bottom:6px',
@@ -856,74 +887,41 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }),
   );
 
+  /** Show/hide the humanoid-only Character + Gait panels together. */
+  function setHumanoidExtrasVisible(show: boolean): void {
+    characterSection.style.display = show ? '' : 'none';
+    gaitPanelSection.style.display = show ? '' : 'none';
+    gaitEyebrow.style.display = show ? '' : 'none';
+    gaitWrap.style.display = show ? '' : 'none';
+  }
+
   const metaLbl = h('div', {
     class: 'sg-muted',
     style: 'margin-top:10px;font-size:10px;line-height:1.5',
-    text: `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing`,
+    text: `template ${rig.template.name} · ${rig.template.chips.length} chips`,
   });
   panel.appendChild(metaLbl);
 
-  // ── load a character's layers, then bake ────────────────────────────────────
-  const loading = h('div', { class: 'sg-muted', style: 'font-size:11px', text: 'loading LPC layers…' });
-  let loadGen = 0; // a newer pick supersedes an in-flight one
+  // ── load: a generation counter shared by both load paths below, so a rig
+  // switch mid-flight (either kind) supersedes a stale in-flight load. ────────
+  const loading = h('div', { class: 'sg-muted', style: 'font-size:11px', text: 'loading rig layers…' });
+  let loadGen = 0;
+
+  /** Humanoid path: fetch/decode a wardrobe stack (default or role-picked) via
+   *  the shared rig-catalog loader, keeping the raw sheets for the gait lane. */
   async function loadCharacter(charLayers: CharLayer[]): Promise<void> {
     const gen = ++loadGen;
     loading.textContent = 'loading LPC layers…';
     main.prepend(loading);
-    // NOTE: the dev server's SPA fallback answers missing files with 200 +
-    // index.html, so "does this variant exist" must survive decode, not just
-    // resp.ok — hence fallback on any failure, not only HTTP errors.
-    async function fetchRaster(path: string): Promise<Raster | null> {
-      const resp = await fetch(assetUrl(path));
-      if (!resp.ok) return null;
-      const type = resp.headers.get('content-type') ?? '';
-      if (!type.includes('image/png')) return null;
-      return decodePngToRaster(await resp.blob());
-    }
     try {
-      const anims = stampAnims(CLIPS.map((c) => c.stamps));
-      const loaded = await Promise.all(
-        charLayers.map(async (spec) => {
-          let path = spec.path;
-          let sheet = await fetchRaster(path);
-          if (!sheet && spec.fallback) {
-            path = spec.fallback;
-            sheet = await fetchRaster(path);
-          }
-          if (!sheet) throw new Error(`${spec.path}: not found`);
-          // Donor anim sheets for clip stamps (open palms…), derived from the
-          // path that actually loaded. A layer without the donor anim simply
-          // keeps its rest pixels (e.g. the child wardrobe has no spellcast).
-          const donors: Record<string, Raster> = {};
-          for (const anim of anims) {
-            for (const cand of donorSheetCandidates(path, anim)) {
-              const d = await fetchRaster(cand);
-              if (d) {
-                donors[anim] = d;
-                break;
-              }
-            }
-          }
-          return { sheet, donors };
-        }),
-      );
+      const { layers: loaded, sheets } = await loadHumanoidCharacter(charLayers);
       if (disposed || gen !== loadGen) return;
-      layers = loaded.map(({ sheet, donors }, li) => {
-        const data = new Uint8ClampedArray(CELL * CELL * 4);
-        const sx = HUMANOID_SOURCE.col * CELL;
-        const sy = HUMANOID_SOURCE.row * CELL;
-        for (let y = 0; y < CELL; y++) {
-          const src = (sy + y) * sheet.w + sx;
-          data.set(sheet.data.subarray(src * 4, (src + CELL) * 4), y * CELL * 4);
-        }
-        return { raster: { data, w: CELL, h: CELL }, assign: charLayers[li].assign, donors };
-      });
-      // Composite the walk cycle for the gait lane (existing frames, untouched).
-      loadedSheets = loaded.map((l) => l.sheet);
+      layers = loaded;
+      loadedSheets = sheets;
       hiddenLayers.clear();
       rebuildLayerRow(charLayers.map((c) => c.label));
       rebuildWalkLane();
-      metaLbl.textContent = `template ${TEMPLATE.name} · ${TEMPLATE.chips.length} chips · south facing · layers ×${charLayers.length}`;
+      metaLbl.textContent = `template ${rig.template.name} · ${rig.template.chips.length} chips · south facing · layers ×${charLayers.length}`;
       loading.remove();
       rebake();
       drawGait();
@@ -932,6 +930,72 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
+
+  /** Non-humanoid path: whatever the rig's own loadLayers() resolves — no
+   *  wardrobe roles, no gait lane, labels derived generically per layer. */
+  async function loadGenericRig(r: RigEntry): Promise<void> {
+    const gen = ++loadGen;
+    loading.textContent = `loading ${r.label} layers…`;
+    main.prepend(loading);
+    try {
+      const loaded = await r.loadLayers();
+      if (disposed || gen !== loadGen) return;
+      layers = loaded;
+      loadedSheets = null;
+      hiddenLayers.clear();
+      rebuildLayerRow(loaded.map((l, i) => l.assign ?? `layer ${i}`));
+      metaLbl.textContent = `template ${r.template.name} · ${r.template.chips.length} chips`;
+      loading.remove();
+      rebake();
+    } catch (err) {
+      if (gen !== loadGen) return;
+      loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  /** Switch the active rig: reset clip/frame/pin/hidden state, rebuild every
+   *  chip-count/clip-list-derived control, then reload layers in place — the
+   *  studio never reloads. A stale in-flight load (either path) is superseded
+   *  by `loadGen`, and `disposed` still wins if the studio is torn down first. */
+  async function switchRig(next: RigEntry): Promise<void> {
+    if (disposed || next === rig) return;
+    rig = next;
+    workTemplate = cloneTemplate(rig.template);
+    workClip = cloneClip(rig.clips[0]);
+    state.clipIdx = 0;
+    state.frame = 0;
+    pin.on = false;
+    pin.chip = defaultPinChip(rig.template);
+    pinBtn.classList.remove('is-on');
+    pinChipRow.style.display = 'none';
+    hiddenLayers.clear();
+    hiddenChips.clear();
+    walkBig.length = 0;
+    walkSmall.length = 0;
+    loadedSheets = null;
+
+    rigBtns.forEach((b, i) => b.classList.toggle('is-on', RIGS[i] === rig));
+    buildClipOptions();
+    buildPoseSliders();
+    buildPinChipButtons();
+    buildChipVisRow();
+    updateJointReadout();
+
+    const isHumanoid = rig.id === 'humanoid';
+    setHumanoidExtrasVisible(isHumanoid);
+    if (isHumanoid) {
+      charState.role = null;
+      charState.seed = 1;
+      roleBtns.forEach((b, i) => b.classList.toggle('is-on', ROLES[i] === null));
+      rerollBtn.textContent = '⟳ Reroll (seed 1)';
+      await loadCharacter(defaultCharacter());
+    } else {
+      await loadGenericRig(rig);
+    }
+  }
+
+  // ── boot: load the default (first) rig's default character/layers ──────────
+  setHumanoidExtrasVisible(rig.id === 'humanoid');
   void loadCharacter(defaultCharacter());
 
   buildPoseSliders();
