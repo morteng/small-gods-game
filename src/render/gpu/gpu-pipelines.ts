@@ -269,6 +269,32 @@ export function createSkyBackdropPipeline(device: GPUDevice, format: GPUTextureF
   });
 }
 
+/** Non-premultiplied src-over: the sky shader returns straight (unpremultiplied)
+ *  colour + a real coverage-driven alpha (sky-backdrop-wgsl.ts), so the fixed-
+ *  function blend does the multiply itself — unlike `PREMULT_BLEND`, which
+ *  expects the shader to have already multiplied colour by alpha. */
+const SKY_OVERLAY_BLEND: GPUBlendState = {
+  color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha' },
+  alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' },
+};
+
+/** Sky/cloud TRANSITION overlay pipeline (spike): the SAME shader module and
+ *  entry points as `createSkyBackdropPipeline` above — only the fragment
+ *  target's blend state differs — so it can draw the parting/billowing cloud
+ *  as a translucent overlay ON TOP of the already-rendered live world
+ *  (`GpuScene.renderFrame`'s `skyOverlay` option), during a loading→world
+ *  descent or a world→title ascent. Never used by the opaque `renderMeta`
+ *  path (the ordinary idle title screen keeps `createSkyBackdropPipeline`). */
+export function createSkyBackdropOverlayPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
+  const module = device.createShaderModule({ code: SKY_BACKDROP_WGSL });
+  return device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module, entryPoint: 'vsMain' },
+    fragment: { module, entryPoint: 'fsMain', targets: [{ format, blend: SKY_OVERLAY_BLEND }] },
+    primitive: { topology: 'triangle-list' },
+  });
+}
+
 /** Shadow union pipeline: parallelogram quads (4 corners) → premult black at
  *  SHADOW_ALPHA straight onto the scene colour target, stencil-gated so each pixel
  *  darkens at most once. Stencil-only attachment (`stencil8`): test `equal 0` (ref 0)

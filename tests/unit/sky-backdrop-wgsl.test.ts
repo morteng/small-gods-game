@@ -42,4 +42,13 @@ describe('sky-backdrop-wgsl', () => {
     expect(SKY_BACKDROP_WGSL).toMatch(/struct\s+SGlobals\s*\{/);
     expect(SKY_BACKDROP_WGSL).toContain('uParams');
   });
+
+  // Sky/cloud transition spike: the spare uParams.w slot drives a real (non-
+  // constant) alpha and speeds up the near-deck travel — see the WGSL file's
+  // header comment for which pipeline reads which value.
+  it('reads a coverage term out of uParams.w and outputs it as a real alpha', () => {
+    expect(SKY_BACKDROP_WGSL).toMatch(/G\.uParams\.w/);
+    // NOT a constant 1.0 any more — the fragment must return a computed value.
+    expect(SKY_BACKDROP_WGSL).not.toMatch(/vec4<f32>\([^)]*\),\s*1\.0\)\s*;\s*\n\}/);
+  });
 });

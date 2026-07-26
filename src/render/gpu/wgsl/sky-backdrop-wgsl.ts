@@ -19,10 +19,22 @@
 // shaders (noise-texture.ts) rather than a new texture — one fullscreen pass,
 // no dependent texture reads beyond the shared atlas (the render budget the
 // UI v3 spec asks for).
+//
+// SKY/CLOUD TRANSITION (spike): the spare uParams.w slot carries a 0..1
+// "coverage" driven by Shell's transition phase clock (loading->world descent
+// / world->title ascent). It is read by TWO pipelines sharing this exact
+// module: the opaque one (gpu-pipelines.ts createSkyBackdropPipeline, used by
+// GpuScene.renderMeta for the ordinary idle title screen, coverage always 0)
+// and a blend-enabled OVERLAY variant (createSkyBackdropOverlayPipeline, used
+// by GpuScene.renderFrame's skyOverlay option to draw the parting/billowing
+// cloud translucently on top of the live world). Coverage 0 reproduces the
+// prior byte-identical RGB output (the opaque pipeline ignores the alpha this
+// now computes, having no blend state), so the ordinary ambient background is
+// unaffected.
 
 export const SKY_BACKDROP_WGSL = /* wgsl */ `
 struct SGlobals {
-  uParams : vec4<f32>,   // viewport.x, viewport.y, timeSec, pad
+  uParams : vec4<f32>,   // viewport.x, viewport.y, timeSec, coverage (0..1)
 };
 @group(0) @binding(0) var<uniform> G : SGlobals;
 
@@ -81,23 +93,36 @@ fn fsMain(@builtin(position) fragCoord : vec4<f32>) -> @location(0) vec4<f32> {
   let farBand = smoothstep(0.12, 0.42, uv.y) * (1.0 - smoothstep(0.50, 0.80, uv.y));
   let farCloud = smoothstep(0.55, 0.85, fbm(farUv)) * farBand * 0.20;
 
+  // SKY/CLOUD TRANSITION (spike, see the module header): coverage also
+  // cranks the near-deck TRAVEL below (~30x at coverage 1) so the clouds
+  // visibly rush past while the veil is sweeping open/shut — settling back to
+  // the ordinary ambient drift (mult 1) once it isn't (coverage 0, the
+  // opaque idle title screen's only value).
+  let coverage = clamp(G.uParams.w, 0.0, 1.0);
+  let travelT = t * (1.0 + coverage * 29.0);
+
   // Near deck: slow TRAVEL — we drift forward over these clouds, so their
   // features magnify from a vanishing point low in the frame. A naive zoom
   // grows without bound (precision death after minutes on the title screen),
   // so this is the seamless-zoom trick: TWO copies of the same noise field,
   // one octave apart in scale, cross-faded on a cycle. At the wrap the
   // incoming copy sits at exactly the scale + drift the outgoing one started
-  // at, so the hand-off is invisible and t can run forever. One octave per
-  // 44s (~1.6%/s growth) — felt as approach when watched, never a zoom reel.
-  let travelPhase = fract(t / 44.0);
+  // at, so the hand-off is invisible and travelT can run forever. One octave
+  // per 44s of travel time (~1.6%/s growth at rest) — felt as approach when
+  // watched, never a zoom reel.
+  let travelPhase = fract(travelT / 44.0);
   let zoomA = exp2(travelPhase);
   let zoomB = exp2(travelPhase - 1.0);
   let focus = vec2<f32>(0.55, 0.70) * viewport;
-  let travelDrift = vec2<f32>(t * 0.06, t * 0.008);
+  let travelDrift = vec2<f32>(travelT * 0.06, travelT * 0.008);
   let deckA = nearDeck((worldUv - focus) * (0.035 / zoomA) + travelDrift);
   let deckB = nearDeck((worldUv - focus) * (0.035 / zoomB) + travelDrift);
   let nearBand = smoothstep(0.28, 0.58, uv.y) * (1.0 - smoothstep(0.68, 0.94, uv.y));
-  let nearCloud = mix(deckA, deckB, smoothstep(0.0, 1.0, travelPhase)) * nearBand * 0.28;
+  // Kept unmasked-by-band (cloudMask) as well as the banded/intensity-scaled
+  // nearCloud used for colour below: the VEIL alpha (masking a teardown /
+  // hiding the world) needs the raw mask, not one thinned to a screen band.
+  let cloudMask = mix(deckA, deckB, smoothstep(0.0, 1.0, travelPhase));
+  let nearCloud = cloudMask * nearBand * 0.28;
 
   color = mix(color, CLOUD_TINT, clamp(farCloud + nearCloud, 0.0, 1.0));
 
@@ -115,6 +140,17 @@ fn fsMain(@builtin(position) fragCoord : vec4<f32>) -> @location(0) vec4<f32> {
   let breathe = 0.85 + 0.15 * sin(t * (6.28318 / 23.0));
   color += vec3<f32>(1.0, 0.94, 0.80) * ray * 0.09 * breathe;
 
-  return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
+  // VEIL ALPHA (spike): sweep a clearing threshold through the SAME cloud
+  // mask used for colour above, so gaps open exactly where the noise is
+  // already thin (a genuine parting, never a uniform crossfade). At coverage
+  // 0 this reads near-transparent everywhere; at coverage 1, near-opaque
+  // everywhere (full cover, masking a reset behind it). Straight (non-
+  // premultiplied) alpha — the overlay pipeline's fixed-function blend does
+  // the multiply, so this colour stays exactly what the opaque pipeline
+  // paints regardless of the alpha value it goes on to ignore.
+  let veilEdge = mix(1.3, -0.3, coverage);
+  let alpha = smoothstep(veilEdge - 0.35, veilEdge + 0.35, cloudMask);
+
+  return vec4<f32>(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)), alpha);
 }
 `;

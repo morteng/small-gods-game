@@ -40,6 +40,12 @@ export interface RenderContextDeps {
    *  shared with the frame renderer's HUD/minimap/tooltip consumers). Absent ⇒ this
    *  builder issues its own query — identical result, one extra sweep. */
   npcEntities?: readonly Entity[];
+  /** UI v3 sky-transition spike: this frame's cloud-overlay params, or null
+   *  outside a transition — see `RenderContext.skyOverlay`'s doc. Not part of
+   *  `GameState` (it's Shell presentation state, computed fresh from
+   *  `Shell.transition()`/`transitionPhase()` each frame), so it rides as its
+   *  own dep rather than being read off `state`. */
+  skyOverlay?: { coverage: number; timeSec: number } | null;
 }
 
 /** Dev eyeball override for the day/night emissive factor. Set `window.__nightFactor`
@@ -179,5 +185,6 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
       + (generatedBuildingArtSource?.version() ?? 0) + parametricPlantSource.version()
       + (generatedFloraArtSource?.version() ?? 0) + (clutterFloraSource?.version() ?? 0),
     cutawayBuildingId,
+    skyOverlay: deps.skyOverlay ?? null,
   };
 }

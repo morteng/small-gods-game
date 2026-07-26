@@ -389,6 +389,9 @@ export function buildGpuRenderFrame(
       xform, uiGroups, camZoom: camera.zoom, waterHalfRes: halfWaterEnabled(),
       // Cull grass/flower scatter off the DRAWN water channel (matches the entity-flora cull).
       waterDist: water ? getRenderWaterDist(map) : null,
+      // Sky/cloud transition overlay (spike) — present only while Shell's
+      // descent/ascent is running; see `src/game/sky-transition.ts`.
+      skyOverlay: rc.skyOverlay ?? null,
       ...(chrome ? null : { passes: { ui: false } }),
     });
     const tRender = performance.now();

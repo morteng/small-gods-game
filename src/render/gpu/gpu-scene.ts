@@ -33,6 +33,7 @@ import {
   DEPTH_FORMAT,
   createSpritePipeline, createTerrainPipeline, createDetailPatchPipeline,
   createWaterPipeline, createOceanBackdropPipeline, createSkyBackdropPipeline,
+  createSkyBackdropOverlayPipeline,
   createShadowPipeline, createShapePipeline, createBlitPipeline,
   createStructureMeshPipeline, createGrassPipeline,
   createTerrainDepthPipeline, createWaterCompositePipeline,
@@ -250,6 +251,15 @@ export class GpuScene {
   private skyBackdropPipeline: GPURenderPipeline;
   private skyBackdropGlobalsBuf: GPUBuffer;
   private skyBackdropBind: GPUBindGroup | null = null;
+  /** Sky/cloud TRANSITION overlay (spike) — the SAME shader as the sky backdrop
+   *  above, drawn by `renderFrame` (never `renderMeta`) ON TOP of the live world
+   *  during a loading→world descent or world→title ascent. Own pipeline (blend
+   *  enabled) + own tiny globals buffer/bind group: a WebGPU 'auto' pipeline
+   *  layout is not interchangeable with another pipeline's, even a structurally
+   *  identical one, so this can't share `skyBackdropBind`. */
+  private skyOverlayPipeline: GPURenderPipeline;
+  private skyOverlayGlobalsBuf: GPUBuffer;
+  private skyOverlayBind: GPUBindGroup | null = null;
   private waterSurfaceBuf: GPUBuffer | null = null;
   private waterTypeBuf: GPUBuffer | null = null;
   private waterShallowBuf: GPUBuffer | null = null;
@@ -490,6 +500,21 @@ export class GpuScene {
       layout: this.skyBackdropPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.skyBackdropGlobalsBuf } },
+        { binding: 1, resource: this.noiseTexView },
+        { binding: 2, resource: this.noiseSampler },
+      ],
+    });
+
+    // Sky/cloud TRANSITION overlay (spike) — own pipeline/buffer/bind group;
+    // see the field doc above for why it can't reuse skyBackdropBind.
+    this.skyOverlayGlobalsBuf = device.createBuffer({
+      size: SKY_BACKDROP_GLOBALS_FLOATS * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.skyOverlayPipeline = createSkyBackdropOverlayPipeline(device, gpu.format);
+    this.skyOverlayBind = device.createBindGroup({
+      layout: this.skyOverlayPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.skyOverlayGlobalsBuf } },
         { binding: 1, resource: this.noiseTexView },
         { binding: 2, resource: this.noiseSampler },
       ],
@@ -1303,6 +1328,12 @@ export class GpuScene {
       terrain?: boolean; water?: boolean; shadows?: boolean;
       entities?: boolean; ui?: boolean;
     };
+    /** Sky/cloud TRANSITION overlay (spike) — present only while Shell's
+     *  descent/ascent transition is running (`src/game/sky-transition.ts`).
+     *  Drawn AFTER the blit, BEFORE the UI pass (over the world, under the
+     *  HUD) — see `passSkyOverlay`. Absent/null ⇒ no extra pass, byte-
+     *  identical to before this spike. */
+    skyOverlay?: { coverage: number; timeSec: number } | null;
   }): void {
     const { device } = this;
     const { items: rawItems, staticItems, lighting, w, h, xform, terrain, water, structures, uiGroups, out, pixelOffset } = opts;
@@ -1440,6 +1471,9 @@ export class GpuScene {
     if (hasShadows) this.passShadows(ctx, !!staticItems, dynShadowBatches);
     this.passEntities(ctx, P.entities, dynBatches, dynLifted, xform);
     if (out) this.passBlit(ctx, out, pixelOffset);
+    // Sky/cloud transition overlay (spike): over the fully-composited world,
+    // under the HUD — see `passSkyOverlay`'s doc.
+    if (opts.skyOverlay) this.passSkyOverlay(ctx, opts.skyOverlay);
     if (P.ui && uiGroups && uiGroups.length > 0) this.passUi(ctx, uiGroups);
 
     device.queue.submit([ctx.enc.finish()]);
@@ -1842,6 +1876,29 @@ export class GpuScene {
     });
     this.uiPass.record(upass, uiGroups, uiW, uiH);
     upass.end();
+  }
+
+  /**
+   * Sky/cloud TRANSITION overlay (spike): the parting (descent) or billowing
+   * (ascent) cloud, translucent, drawn straight over the already-composited
+   * world — same view/size selection as `passUi` above (full device res when
+   * P-E's `out` is active), always `loadOp: 'load'` since something has
+   * always drawn by this point. Runs BEFORE `passUi` so the HUD stays legible
+   * on top of the cloud rather than hidden under it.
+   */
+  private passSkyOverlay(ctx: PassCtx, overlay: { coverage: number; timeSec: number }): void {
+    const view = ctx.out ? ctx.swapView : ctx.colorView;
+    const w = ctx.out ? ctx.out.w : ctx.w;
+    const h = ctx.out ? ctx.out.h : ctx.h;
+    this.device.queue.writeBuffer(this.skyOverlayGlobalsBuf, 0,
+      new Float32Array([w, h, overlay.timeSec, overlay.coverage]) as GPUAllowSharedBufferSource);
+    const opass = ctx.enc.beginRenderPass({
+      colorAttachments: [{ view, clearValue: ctx.ocean, loadOp: 'load', storeOp: 'store' }],
+    });
+    opass.setPipeline(this.skyOverlayPipeline);
+    opass.setBindGroup(0, this.skyOverlayBind!);
+    opass.draw(3);
+    opass.end();
   }
 
   /**

@@ -397,6 +397,14 @@ export interface RenderContext {
    *  The game leaves this unset → the memoised per-(seed,dims) channel. Type-only import
    *  (erased), so no runtime coupling to the render layer. */
   riverChannel?: import('@/render/gpu/river-channel-geometry').RiverChannelGeometry;
+  /** UI v3 sky-transition spike: the descent (loading→world) / ascent (world→
+   *  title) cloud overlay's per-frame params, threaded straight into
+   *  `GpuScene.renderFrame`'s `skyOverlay` option. `coverage` is the
+   *  sky-backdrop shader's spare `uParams.w` slot (0 = fully revealed, 1 =
+   *  full cloud cover); `timeSec` drives its cloud drift/godray terms,
+   *  independent of the terrain/water passes' own wall clock. Absent/null
+   *  outside a transition ⇒ no extra pass (see `src/game/sky-transition.ts`). */
+  skyOverlay?: { coverage: number; timeSec: number } | null;
 }
 
 /** DIR-A: a placed/edited connectome lake projected into render space — fed to the
