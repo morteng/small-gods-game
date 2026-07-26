@@ -2595,18 +2595,30 @@ export class Game {
    * chain detaches after present — so we render ONE fresh frame and `drawImage`
    * the scene + overlay into a temp 2D canvas synchronously, while the swap chain
    * texture is still live in this call stack (the same timing the old in-loop
-   * composite relied on). Returns '' before the renderer/world exist.
+   * composite relied on). Returns '' before the RENDERERS exist.
+   *
+   * BOTH render modes, mirroring `onRender`'s own branch: with no world the fresh
+   * frame comes from `renderMeta` (sky backdrop + UI pass), because otherwise
+   * every meta-mode screen — the title, the Hall of the Gods with no world, the
+   * load/settings screens reached from the title — was uncapturable, and an
+   * automation asking for a grab got a zero-byte file with no error. The old
+   * `state.map` guard predates meta mode: before UI v3 there genuinely was
+   * nothing to draw without a map.
    */
   private captureFrame(): string {
-    if (!this.renderMap || !this.state.map) return '';
-    this.renderer.render(0);
+    if (!this.renderMap) return '';
+    const meta = this.state.map === null;
+    if (meta) this.renderMeta?.({ nowMs: performance.now() });
+    else this.renderer.render(0);
     const tmp = document.createElement('canvas');
     tmp.width = this.canvas.width;
     tmp.height = this.canvas.height;
     const t = tmp.getContext('2d');
     if (!t) return '';
     t.drawImage(this.canvas, 0, 0);          // WebGPU scene (fresh this frame)
-    t.drawImage(this.overlayCanvas, 0, 0);   // 2D overlays (HUD, connectome)
+    // Meta mode draws no 2D overlay at all (see `onRender`), so compositing the
+    // overlay canvas would only stamp the last world's stale HUD onto the title.
+    if (!meta) t.drawImage(this.overlayCanvas, 0, 0);
     return tmp.toDataURL('image/png');
   }
 
