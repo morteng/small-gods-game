@@ -5,15 +5,10 @@ import type { RenderFn } from '@/render/select-renderer';
 import type { InteractionState } from './interaction-state';
 import type { DivineActionsController } from './divine-actions-controller';
 import type { DevModeController } from './dev-mode-controller';
-import type { LlmBackfillService } from './llm-backfill';
 import type { MinimapHandle } from '@/ui/minimap-panel';
 import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
-import { getNpc, simStateFromEntity } from '@/world/npc-helpers';
-import type { NpcAttentionPanelHandle } from '@/ui/npc-attention-panel';
-import type { BuildingInfoPanelHandle } from '@/ui/building-info-panel';
-import { buildingInfoOf } from '@/world/building-helpers';
 import { formatDevTooltip } from '@/dev/tooltip';
 import { drawPowerHud } from '@/render/hud';
 import { fillTiles } from '@/render/selection-outline';
@@ -27,10 +22,6 @@ export interface FrameRendererUi {
   minimap: MinimapHandle;
   spiritHud: SpiritHudHandle;
   divineEffects: DivineEffects;
-  /** null in the barebones game — the legacy whisper chrome never mounts (C5). */
-  npcInfoPanel: HTMLDivElement | null;
-  npcAttentionPanel: NpcAttentionPanelHandle | null;
-  buildingInfoPanel: BuildingInfoPanelHandle;
   tooltip: HTMLDivElement;
   debugHud: HTMLDivElement;
 }
@@ -41,29 +32,20 @@ export interface FrameRendererDeps {
   ui: FrameRendererUi;
   divine: DivineActionsController;
   dev: DevModeController;
-  llmBackfill: LlmBackfillService;
   interaction: InteractionState;
   getRenderDeps: () => RenderContextDeps;
   getViewport: () => Viewport;
   renderMap: () => RenderFn | null;
   isPaused: () => boolean;
-  /** When false (the default barebones game), the legacy DOM/Canvas2D chrome —
-   *  the power pill, hover tooltip, and NPC/building info panels — is suppressed;
-   *  the WebGPU UI is the only surface. `?legacyui` flips it back on. */
+  /** When false (the default barebones game), the legacy Canvas2D power pill is
+   *  suppressed; the WebGPU UI is the only surface. `?legacyui` flips it back on. */
   legacyChrome?: boolean;
 }
 
 export class FrameRenderer {
-  private renderedNpcId: string | null = null;
-  private renderedPinned = false;
-  private renderedBuildingId: string | null = null;
-  private lastInfoRefresh = 0;
   private fpsEma = 60;
 
   constructor(private deps: FrameRendererDeps) {}
-
-  /** External hook so LlmBackfillService.onWriteback can force a panel refresh. */
-  forceInfoRefresh(): void { this.lastInfoRefresh = 0; }
 
   render(deltaMs: number): void {
     if (!this.deps.state.map) return;
@@ -144,53 +126,6 @@ export class FrameRenderer {
       this.deps.ctx.fillRect(0, 0, rc.canvasWidth, rc.canvasHeight);
     }
 
-    if (this.deps.state.selectedNpcId && this.deps.state.world) {
-      const entity = getNpc(this.deps.state.world, this.deps.state.selectedNpcId);
-      if (entity) {
-        const sim = simStateFromEntity(entity);
-        const player = this.deps.state.spirits.get('player')!;
-
-        // The floating Canvas2D selection overlay (whisper/omen/miracle buttons)
-        // is gone — divine actions move into the WebGPU divine panel. Only the
-        // legacy DOM attention panel remains, behind ?legacyui (it never mounts
-        // in barebones — C5 — hence the null guard).
-        if (this.deps.legacyChrome && this.deps.ui.npcAttentionPanel && this.deps.ui.npcInfoPanel) {
-          const now = performance.now();
-          const pinned = this.deps.state.pinnedNpcId === sim.npcId;
-          const switched = this.renderedNpcId !== sim.npcId;
-          const pinChanged = this.renderedPinned !== pinned;
-          if (switched) {
-            this.deps.ui.npcAttentionPanel.setNpc(sim.npcId);
-          }
-          if (switched || pinChanged || now - this.lastInfoRefresh > 500) {
-            this.deps.ui.npcAttentionPanel.update(sim, {
-              pinned,
-              power: player.power,
-              onTogglePin: () => {
-                this.deps.state.pinnedNpcId = this.deps.state.pinnedNpcId === sim.npcId ? null : sim.npcId;
-                this.lastInfoRefresh = 0;
-              },
-              onDream: () => { this.deps.divine.dream(entity); this.lastInfoRefresh = 0; },
-              onAnswerPrayer: () => { this.deps.divine.answerPrayer(entity); this.lastInfoRefresh = 0; },
-              onOmen: () => { this.deps.divine.omenForNpc(entity); },
-              onMiracle: () => { this.deps.divine.miracleForNpc(entity); },
-              onLlmBackfill: async () => { await this.deps.llmBackfill.trigger(entity); },
-              portraitSheet: rc.npcSheets.get(sim.npcId) ?? null,
-            });
-            this.renderedNpcId = sim.npcId;
-            this.renderedPinned = pinned;
-            this.lastInfoRefresh = now;
-          }
-          this.deps.ui.npcInfoPanel.style.display = 'block';
-        }
-      }
-    } else {
-      if (this.deps.ui.npcInfoPanel) this.deps.ui.npcInfoPanel.style.display = 'none';
-      this.renderedNpcId = null;
-    }
-
-    this.updateBuildingPanel(rc.resolveBuildingArt);
-
     // The WebGPU presence orb is the barebones power readout; the Canvas2D pill is
     // legacy chrome (only under ?legacyui) — so the per-NPC regen estimate that
     // feeds it (mirrors the SpiritSystem formula exactly) is only computed there.
@@ -223,37 +158,6 @@ export class FrameRenderer {
         zoom: this.deps.state.camera.zoom,
       });
     }
-  }
-
-  // Cached so the panel only re-renders when the selection or loaded sprite changes.
-  private cachedBuildingInfo: ReturnType<typeof buildingInfoOf> = null;
-  private renderedSpriteUrl: string | null | undefined = undefined; // undefined = unset (force first render)
-
-  private updateBuildingPanel(resolveArt?: (e: import('@/core/types').Entity) => HTMLImageElement | null): void {
-    if (!this.deps.legacyChrome) { this.deps.ui.buildingInfoPanel.hide(); this.renderedBuildingId = null; return; }
-    const { state } = this.deps;
-    const id = state.selectedBuildingId;
-    const entity = id && state.world ? state.world.query({ tag: 'building' }).find((e) => e.id === id) ?? null : null;
-    if (!entity) {
-      this.deps.ui.buildingInfoPanel.hide();
-      this.renderedBuildingId = null;
-      return;
-    }
-
-    if (id !== this.renderedBuildingId) {
-      this.cachedBuildingInfo = buildingInfoOf(entity);
-      this.renderedSpriteUrl = undefined; // force a render this frame
-      this.renderedBuildingId = id;
-    }
-
-    const info = this.cachedBuildingInfo;
-    if (!info) { this.deps.ui.buildingInfoPanel.hide(); return; }
-    const spriteUrl = resolveArt?.(entity)?.src ?? null;
-    if (spriteUrl !== this.renderedSpriteUrl) {
-      this.deps.ui.buildingInfoPanel.render({ info, spriteUrl });
-      this.renderedSpriteUrl = spriteUrl;
-    }
-    this.deps.ui.buildingInfoPanel.show();
   }
 
   /**

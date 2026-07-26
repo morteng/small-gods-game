@@ -7,6 +7,8 @@ import { TICKS_PER_DAY } from '@/core/calendar';
 import type { GameState } from '@/core/state';
 import type { GameMap, Tile, NpcProperties } from '@/core/types';
 import type { LordState } from '@/sim/lord';
+import { blueprintEntity } from '@/blueprint/entity';
+import { synthesizeBlueprint } from '@/blueprint/presets';
 
 function miniMap(w = 8, h = 8): GameMap {
   const tiles: Tile[][] = [];
@@ -296,6 +298,21 @@ describe('game-query', () => {
 
         const npcView = q.inspect({ kind: 'npc', npcId: 'n1' })!;
         expect(npcView.buildingRow).toBeUndefined();
+      });
+
+      // L2 (legacy chrome retirement): a building with a resolvable blueprint
+      // threads the deleted DOM building-info-panel's description + structured
+      // facts (size/era/walls/roof/ground/door) into the SAME buildingRow.
+      it('a building with a full blueprint threads description + facts (L2 port)', () => {
+        const bp = synthesizeBlueprint('cottage')!;
+        state.world!.addEntity(blueprintEntity('b2', bp, 3, 2));
+        const v = q.inspect({ kind: 'settlement', poiId: 'poi1' }, 'player', { buildingId: 'b2' })!;
+        expect(v.buildingRow?.description?.length).toBeGreaterThan(0);
+        expect(v.buildingRow?.facts?.length).toBeGreaterThan(0);
+        expect(v.buildingRow?.facts).toEqual(expect.arrayContaining([
+          expect.objectContaining({ label: 'Size' }),
+          expect.objectContaining({ label: 'Door' }),
+        ]));
       });
 
       it('the whole enriched payload is JSON-serializable', () => {

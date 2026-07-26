@@ -1,7 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach } from 'vitest';
 import { GameUi, type GameUiCallbacks, type GameUiOptions } from '@/game/game-ui';
-import { NpcAttentionStore } from '@/llm/npc-attention-store';
 
 function callbacks(): GameUiCallbacks {
   return {
@@ -9,8 +8,6 @@ function callbacks(): GameUiCallbacks {
     onClickMinimapTile: () => {}, onGameSettingChange: () => {},
     onLLMConfigChange: () => {},
     onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {}, onNewWorld: () => {},
-    attentionStore: new NpcAttentionStore(), onWhisperSend: () => {},
-    onMindOpen: () => {}, onMindCrossNav: () => {}, onCloseBuilding: () => {},
   };
 }
 
@@ -32,30 +29,25 @@ describe('GameUi', () => {
     const before = container.childElementCount;
     ui = new GameUi(container, callbacks());
     expect(container.childElementCount).toBeGreaterThan(before);
-    expect(ui.npcInfoPanel).toBeInstanceOf(HTMLDivElement);
     ui.destroy();
     ui = null;
     expect(container.childElementCount).toBe(before);
   }, 15000); // GameUi mounts the full panel tree synchronously (~5s in jsdom) — flakes against the 5s default
 
-  // C5 — legacy whisper-chrome gating: the barebones game (legacyChrome:false)
-  // must never MOUNT the attention panel or the LLM narration card; ?legacyui
-  // (legacyChrome:true / default) keeps them exactly as before.
-  it('legacyChrome (default/?legacyui) mounts the whisper chrome', () => {
+  // C5 — legacy narration-card gating: the barebones game (legacyChrome:false)
+  // must never MOUNT the LLM narration card; ?legacyui (legacyChrome:true /
+  // default) keeps it exactly as before. L2 retired its sibling, the DOM
+  // attention panel — the inspector v2 is its GPU heir now.
+  it('legacyChrome (default/?legacyui) mounts the narration card', () => {
     const u = mount({ legacyChrome: true });
-    expect(u.npcAttentionPanel).not.toBeNull();
-    expect(u.npcInfoPanel).toBeInstanceOf(HTMLDivElement);
     expect(u.llmDisplay).not.toBeNull();
     expect(container.querySelector('.sg-llm-overlay')).not.toBeNull();
   }, 15000);
 
-  it('barebones (legacyChrome:false) never mounts the whisper chrome; destroy() stays clean', () => {
+  it('barebones (legacyChrome:false) never mounts the narration card; destroy() stays clean', () => {
     const u = mount({ legacyChrome: false });
-    expect(u.npcAttentionPanel).toBeNull();
-    expect(u.npcInfoPanel).toBeNull();
     expect(u.llmDisplay).toBeNull();
     expect(container.querySelector('.sg-llm-overlay')).toBeNull(); // narration card DOM absent
-    expect(container.querySelector('.sg-pin')).toBeNull();         // attention panel DOM absent
     u.destroy();
     ui = null;
     expect(container.childElementCount).toBe(0);

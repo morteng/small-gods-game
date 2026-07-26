@@ -2161,7 +2161,15 @@ function inspectorRows(view: InspectorView): InspectorRow[] {
     }
     return rows;
   }
-  if (view.buildingRow) rows.push({ t: 'building', label: `${view.buildingRow.name} · ${view.buildingRow.type}` });
+  if (view.buildingRow) {
+    rows.push({ t: 'building', label: `${view.buildingRow.name} · ${view.buildingRow.type}` });
+    // L2: the deleted DOM building-info-panel's description + structured facts
+    // (size/era/walls/roof/ground/door), folded straight into the same scroll.
+    if (view.buildingRow.description) rows.push({ t: 'text', label: view.buildingRow.description });
+    if (view.buildingRow.facts?.length) {
+      for (const f of view.buildingRow.facts) rows.push({ t: 'text', label: `${f.label}: ${f.value}` });
+    }
+  }
   if (view.wards?.length) {
     rows.push({ t: 'header', label: 'WARDS' });
     for (const wd of view.wards) rows.push({ t: 'text', label: `${wd.name} · ${wd.type}` });

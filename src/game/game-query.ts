@@ -36,6 +36,7 @@ import { housingCapacityByPoi } from '@/sim/systems/settlement-growth-system';
 import { cohortPopulation, cohortBelievers, totalCohortBelievers } from '@/sim/cohorts';
 import { peaceActive } from '@/sim/lord';
 import { blueprintOf } from '@/blueprint/entity';
+import { buildingInfoOf } from '@/world/building-helpers';
 import { catalogue, loadDefaultPacks } from '@/catalogue';
 import { strategyForPersonality, type RivalStrategy } from '@/sim/rival-spirit';
 import { describeThought } from '@/game/npc-thought';
@@ -103,9 +104,22 @@ export interface SettlementPeace {
   expiryDays?: number;
 }
 
+/** L2 (legacy chrome retirement): one structured building fact — the GPU heir
+ *  to the deleted DOM `building-info-panel.ts`'s fact list (size/era/walls/
+ *  roof/ground/door). */
+export interface InspectorBuildingFact { label: string; value: string; }
+
 /** W2 (D5): the building a settlement inspector's selection resolved FROM (a
- *  building click), rendered as a highlighted row atop the scroll content. */
-export interface InspectorBuildingRow { name: string; type: string; }
+ *  building click), rendered as a highlighted row atop the scroll content.
+ *  `description`/`facts` (L2) carry the same structured detail the deleted DOM
+ *  `building-info-panel.ts` showed — absent only for a building with no
+ *  resolvable blueprint (defensive, never throws). */
+export interface InspectorBuildingRow {
+  name: string;
+  type: string;
+  description?: string;
+  facts?: InspectorBuildingFact[];
+}
 
 /** W3 (D6): one social tie row for the npc inspector's TIES section — name (not
  *  raw entity id, so the panel never resolves live state) + relationship type +
@@ -426,7 +440,15 @@ function buildingRowFor(world: World, buildingId: EntityId): InspectorBuildingRo
   const e = world.registry.get(buildingId);
   if (!e) return undefined;
   const rb = blueprintOf(e)?.rb;
-  return { name: presetDisplayName(rb?.preset ?? e.kind), type: rb?.category ?? 'building' };
+  // L2: fold in the deleted DOM building-info-panel's facts (size/era/walls/
+  // roof/ground/door) — `buildingInfoOf` is defensive (undefined blueprint ⇒
+  // null), so a building with no resolvable info just omits them.
+  const info = buildingInfoOf(e);
+  return {
+    name: presetDisplayName(rb?.preset ?? e.kind),
+    type: rb?.category ?? 'building',
+    ...(info ? { description: info.description, facts: info.facts } : {}),
+  };
 }
 
 /** M6 Peace-of-God readout for a settlement's seat (§D5), or undefined when no

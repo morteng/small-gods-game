@@ -477,6 +477,36 @@ describe('UiRuntime — settlement inspector v2 (UI v2 W2/D5)', () => {
     expect(glyphRight).toBeLessThanOrEqual(panelRight);
   });
 
+  // L2 (legacy chrome retirement): the deleted DOM building-info-panel's
+  // description + structured facts fold straight into the SAME scrollList —
+  // the GPU heir needs no new surface, just more rows in this one.
+  it('a building row with description + facts (L2) rides the same scrollList and draws more geometry', () => {
+    const rtBase = new UiRuntime();
+    rtBase.configure({ getInspector: () => SETTLEMENT_INSPECTOR });
+    const baseGroups = rtBase.frame(W, H, DPR);
+
+    const withFacts = {
+      ...SETTLEMENT_INSPECTOR,
+      buildingRow: {
+        name: 'a one-room peasant cottage',
+        type: 'residential',
+        description: 'A modest timber-framed home.',
+        facts: [
+          { label: 'Size', value: '2×2 tiles' },
+          { label: 'Walls', value: 'Wattle' },
+          { label: 'Roof', value: 'Thatch' },
+          { label: 'Door', value: 'South' },
+        ],
+      },
+    };
+    const rtFacts = new UiRuntime();
+    rtFacts.configure({ getInspector: () => withFacts });
+    const factGroups = rtFacts.frame(W, H, DPR);
+
+    expect(rtFacts.scrollRegions().some((r) => r.id === 'ui.inspector.list')).toBe(true);
+    expect(totalVerts(factGroups)).toBeGreaterThan(totalVerts(baseGroups));
+  });
+
   it('a bare settlement (no wards/recent/domains/building) registers no scroll list', () => {
     const rt = new UiRuntime();
     rt.configure({ getInspector: () => ({
