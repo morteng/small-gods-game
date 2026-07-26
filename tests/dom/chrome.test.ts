@@ -1,23 +1,13 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect } from 'vitest';
-import { mountChrome, mountPastVeil } from '@/ui/chrome';
+import { mountPastVeil } from '@/ui/chrome';
 
-describe('Chrome scaffold', () => {
-  it('creates four anchor regions inside the container', () => {
-    const container = document.createElement('div');
-    container.style.position = 'relative';
-    document.body.appendChild(container);
-
-    const chrome = mountChrome(container);
-    expect(container.querySelector('.sg-anchor-top-left')).not.toBeNull();
-    expect(container.querySelector('.sg-anchor-top-right')).not.toBeNull();
-    expect(container.querySelector('.sg-anchor-bottom-left')).not.toBeNull();
-    expect(container.querySelector('.sg-anchor-bottom-right')).not.toBeNull();
-    chrome.dispose();
-    expect(container.querySelector('.sg-anchor-top-left')).toBeNull();
-  });
-});
-
+// L6 (legacy chrome retirement): `mountChrome`/`ChromeHandle` (the four DOM
+// anchor regions) are gone — their only consumer, the DOM time chip, is
+// deleted too (the WebGPU HUD's transport cluster is the live clock), and
+// nothing else ever mounted into `anchorTopLeft`/`anchorTopRight`/
+// `anchorBottomLeft`/`anchorBottomRight`. `mountPastVeil` is unrelated
+// (the time-scrub dim) and stays.
 describe('past veil', () => {
   it('toggles opacity on setActive', () => {
     const c = document.createElement('div');

@@ -85,8 +85,7 @@ import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
 import { setUiScaleMultiplier } from '@/render/ui/ui-tokens';
 import { injectTokens } from '@/ui/inject-tokens';
-import { mountChrome, mountPastVeil, type ChromeHandle } from '@/ui/chrome';
-import { mountTimeChip, type TimeChipHandle } from '@/ui/panels/time-chip';
+import { mountPastVeil } from '@/ui/chrome';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
@@ -391,9 +390,6 @@ export class Game {
   /** The living whisper/conversation card (C1/C2/C4) — see conversation-controller.ts. */
   private conversation!: ConversationController;
   private ui!: GameUi;
-  /** The barebones game (WebGPU UI only). `?legacyui` flips back to the old
-   *  DOM/Canvas2D chrome. Single source of truth for chrome suppression. */
-  private readonly barebones = !hasQueryFlag('legacyui');
   /** Ephemeral world: never autosave over the player's slot. A generated genome
    *  (`?genome=…`) is always throwaway, and the Demo World sets it explicitly —
    *  which is why this is no longer `readonly`-bound to the query flag (UI v3
@@ -467,11 +463,7 @@ export class Game {
   /** Slow re-kick so post-boot births get LPC sheets too (see generateWorld). */
   private sheetRekickTimer: ReturnType<typeof setInterval> | null = null;
   private assets = new AssetManager();
-  private chrome!: ChromeHandle;
   private veil!: ReturnType<typeof mountPastVeil>;
-  /** Legacy DOM chip — superseded by the WebGPU clock chip (Round 9 WP-B);
-   *  only mounted under `?legacyui` (barebones renders the clock via the HUD). */
-  private timeChip: TimeChipHandle | null = null;
   private timeBar: TimeBarHandle | null = null;
   private detachTimeKeys: (() => void) | null = null;
   private renderMap: RenderFn | null = null;
@@ -707,7 +699,6 @@ export class Game {
 
     this.cleanupTokens = injectTokens(this.container);
 
-    this.chrome = mountChrome(this.container);
     this.veil = mountPastVeil(this.container);
 
     // Presentation layer (adaptive score + sfx + cinematic camera + voice). Pure
@@ -715,17 +706,10 @@ export class Game {
     // deterministic path; turning it off leaves the game bit-identical.
     this.presentation = new PresentationDirector(this.state, { viewport: () => this.viewport() });
     this.presentation.attach();
-    // The DOM chip is legacy chrome — barebones (default) renders the clock via
-    // the WebGPU HUD's transport cluster instead (Round 9 WP-B); `?legacyui`
-    // keeps the DOM chip since that chrome path never mounts the WebGPU HUD.
-    if (!this.barebones) {
-      this.timeChip = mountTimeChip(this.chrome.anchorTopRight, {
-        clock: this.state.clock,
-        getRate: () => this.scheduler.getRate(),
-        isPaused: () => this.scheduler.getRate() === 0,
-        onClick: () => this.toggleTimeBar(),
-      });
-    }
+    // L6 (legacy chrome retirement): the clock renders via the WebGPU HUD's
+    // transport cluster (Round 9 WP-B) — the DOM time chip (`mountTimeChip`,
+    // `?legacyui`'s only mount point) and its `chrome.ts` anchor slots are
+    // gone; nothing mounts DOM chrome over the canvas anymore.
 
     this.detachTimeKeys = attachTimeKeys(window, {
       onToggleTimeBar: () => this.toggleTimeBar(),
@@ -736,33 +720,17 @@ export class Game {
       getKeymap:       () => this.keymap,
     });
 
-    this.ui = new GameUi(this.container, {
-      onZoomIn: () => this.cameraZoomIn(),
-      onZoomOut: () => this.cameraZoomOut(),
-      onFitView: () => this.cameraFitView(),
-      onZoomActual: () => this.cameraZoomActual(),
-      onNewWorld: () => { void this.newWorld(); },
-      onGameSettingChange: (key, value) => {
-        if (key === 'liveBuildingArt') this.liveBuildingArtEnabled = value !== false;
-        if (key === 'liveFloraArt') this.liveFloraArtEnabled = value !== false;
-        if (key === 'showLabels') this.state.showLabels = value as boolean;
-        if (key === 'showPoiMarkers') this.state.showPoiMarkers = value as boolean;
-        if (key === 'debug') {
-          this.state.debug = value as boolean;
-          this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
-        }
-        this.requestRender();
-      },
-      onLLMConfigChange: (config) => this.applyLlmConfig(config),
-    // L2: the legacy DOM whisper/mind-mode plumbing (onWhisperSend/onMindOpen/
-    // onMindCrossNav/attentionStore/onCloseBuilding) is gone with the DOM
-    // npc-attention-panel + building-info-panel it only ever fed — free-text
-    // whisper + belief-loop mind-reading are already live on the GPU card
-    // (ConversationController/Game.presentMindCard), and building close is
-    // already the inspector's onCloseInspector. L4: the narration card
-    // (`UiRuntime.showNarrationCard`) is GPU-native now, so `GameUi` no longer
-    // takes a `legacyChrome` option at all.
-    });
+    // L2-L6 (legacy chrome retirement): `GameUiCallbacks` is gone — every
+    // field it used to carry (camera zoom, new-world, game-setting/LLM-config
+    // change, the L2/L3 whisper-mind-mode/rival plumbing) fed a DOM surface
+    // that's since been deleted or superseded by an independently-wired GPU
+    // path (the camera cluster and `new_game` meta verb both call straight
+    // into `this.cameraZoomIn`/`this.newWorld` etc. a few lines below,
+    // untouched). `liveBuildingArt`/`liveFloraArt`/`showPoiMarkers` lose their
+    // last (already-unreachable — gated behind the same dead DOM settings
+    // panel) toggle path; `showLabels`/`debug` keep their independent keybind
+    // toggles (`onToggleLabels`/`onToggleDebug`, below).
+    this.ui = new GameUi(this.container);
 
     this.spendChip = mountSpendChip(this.ui.bottomLeftBar, this.costTracker);
     this.spendChip.setVisible(providerConfig.type === 'openrouter');
@@ -849,14 +817,13 @@ export class Game {
 
     this.renderer = new FrameRenderer({
       ctx: this.ctx, state: this.state,
-      ui: { spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
+      ui: { divineEffects: this.ui.divineEffects,
             tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
       divine: this.divine, dev: this.dev,
       interaction: this.interaction,
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
       renderMap: () => this.renderMap,
       isPaused: () => this.scheduler.getRate() === 0,
-      legacyChrome: !this.barebones,
     });
 
     this.input = new InteractionController({
@@ -889,8 +856,6 @@ export class Game {
       onToggleDebug: () => {
         this.state.debug = !this.state.debug;
         this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
-        // Sync with unified settings
-        this.ui.unifiedSettings.updateGameSetting('debug', this.state.debug);
         this.requestRender();
       },
       onHoverTile: (x, y, sx, sy) => {
@@ -910,7 +875,7 @@ export class Game {
       getZoomQuantize: () => quantizeIsoZoom,
       // Barebones: the settings shortcut opens the WebGPU pause menu (which hosts
       // settings); only legacy mode toggles the old DOM settings panel.
-      onToggleSettings: () => { if (this.barebones) getUiRuntime().toggleMenu(); else this.ui.unifiedSettings.toggle(); },
+      onToggleSettings: () => getUiRuntime().toggleMenu(),
       onPhotoMode: () => this.bus.emit({ verb: 'capture_photo', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } }),
       getKeymap: () => this.keymap,
       onRedraw: this.requestRender,  // controls fire this on drag-pan + wheel-zoom
@@ -933,7 +898,6 @@ export class Game {
         } else {
           this.scheduler.setRate(this.menuPrevRate);
         }
-        this.refreshPauseBanner();
         this.requestRender();
       },
       getLighting: () => this.dev.devMode.lighting !== 'off',
@@ -964,7 +928,6 @@ export class Game {
           this.scheduler.setRate(this.storyPrevRate);
         }
         this.presentation.setStoryActive(active); // duck the score while modal
-        this.refreshPauseBanner();
         this.requestRender();
       },
       onCardFreeText: (text) => this.conversation.sendFreeText(text),
@@ -1278,18 +1241,6 @@ export class Game {
     });
     ui.setShell(this.shell);
     this.cleanupUi = ui.attach(this.canvas);
-
-    // ── Barebones: the WebGPU HUD + pause menu ARE the chrome ──
-    // (presence orb ⇒ power/spirit HUD, orb-click/Esc ⇒ menu + settings). One
-    // call tears down the always-mounted legacy DOM (DRY); on-demand panels are
-    // gated by `legacyChrome` at their render sites.
-    if (this.barebones) {
-      this.ui.suppressLegacyChrome();
-      // The DOM time chip never mounts here in barebones (see above); hide the
-      // anchor anyway (idempotent) — the top-left anchor is empty but hide it too.
-      this.chrome.anchorTopRight.style.display = 'none';
-      this.chrome.anchorTopLeft.style.display = 'none';
-    }
   }
 
   /**
@@ -2356,13 +2307,6 @@ export class Game {
     };
   }
 
-  private refreshPauseBanner(): void {
-    // Barebones shows pause via the WebGPU menu's "behind glass" dim — the DOM
-    // banner is legacy chrome and stays hidden.
-    if (this.barebones) return;
-    this.ui.pausedBanner.style.display = this.scheduler.getRate() === 0 ? 'block' : 'none';
-  }
-
   private toggleTimeBar(): void {
     if (this.timeBar) {
       this.timeBar.dispose();
@@ -2389,7 +2333,6 @@ export class Game {
         // off the sim tick, honest offline fallback (rides state.chronicle).
         if (summary) void this.chronicleService.generateEra(summary, eraArcs);
         // Immediate chrome refresh (the era_skipped chip self-appends via the event log).
-        this.timeChip?.refresh();
         this.timeBar?.refresh();
         this.requestRender();  // the world jumped — redraw even if paused
       },
@@ -2739,7 +2682,6 @@ export class Game {
         this.playtimeMs = save.playtimeMs ?? 0;
       },
       onWorldReady: () => {
-        if (!this.barebones) this.ui.spiritHud.show(); // barebones: orb replaces it
         this.dev.updateInspector();
         if (!this.ephemeral) this.persistence.start();
         this.worldReady = true;
@@ -3031,14 +2973,14 @@ export class Game {
         this.lastDiscoveredNpcId = this.state.selectedNpcId;
         this.discoveryQueue.push({ subject: { kind: 'npc', npcId: this.state.selectedNpcId } });
       }
-      // UI v2 W3 (D6): "focus warms the soul" — a FRESH npc selection (barebones
-      // only; legacy chrome keeps its manual backfill button) made while the
-      // camera sits in the soul band is the v1 spec's "zoom = attention =
-      // narration trigger", finally wired automatically. Selection-change
-      // detected the same way as the discovery signal above, but tracked in its
-      // OWN field — deselecting and reselecting the same soul must count as a
-      // fresh focus (cooldown decides whether it actually fires).
-      if (this.barebones && this.state.selectedNpcId !== this.lastSoulFocusSelection) {
+      // UI v2 W3 (D6): "focus warms the soul" — a FRESH npc selection made
+      // while the camera sits in the soul band is the v1 spec's "zoom =
+      // attention = narration trigger", finally wired automatically.
+      // Selection-change detected the same way as the discovery signal above,
+      // but tracked in its OWN field — deselecting and reselecting the same
+      // soul must count as a fresh focus (cooldown decides whether it
+      // actually fires).
+      if (this.state.selectedNpcId !== this.lastSoulFocusSelection) {
         this.lastSoulFocusSelection = this.state.selectedNpcId;
         if (this.state.selectedNpcId && this.currentBand() === 'soul') {
           this.noteSoulFocus(this.state.selectedNpcId);
@@ -3160,8 +3102,6 @@ export class Game {
     const r0 = performance.now();
     this.renderer.render(deltaMs);
     this.fps.frame(performance.now() - r0);
-    this.timeChip?.refresh();
-    this.refreshPauseBanner();
     this.timeBar?.refresh();
     this.dev.updateTimeDebug();
     this.veil.setActive(this.timeline.isScrubbed);
@@ -3178,7 +3118,6 @@ export class Game {
       this.presentation.suspendAudio(false);
       this.scheduler.setRate(this.savedRate);
     }
-    this.refreshPauseBanner();
   }
 
   /** Hard pause / resume — idles the loop (CPU + GPU) and mutes audio. The view stays
@@ -3214,9 +3153,7 @@ export class Game {
     this.decorationImages.destroy();
     this.detachTimeKeys?.();
     this.timeBar?.dispose();
-    this.timeChip?.dispose();
     this.veil.dispose();
-    this.chrome.dispose();
     this.dev.destroy();
     this.canvas.remove();
     this.overlayCanvas.remove();

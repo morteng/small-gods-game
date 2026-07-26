@@ -1,14 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach } from 'vitest';
-import { GameUi, type GameUiCallbacks } from '@/game/game-ui';
-
-function callbacks(): GameUiCallbacks {
-  return {
-    onGameSettingChange: () => {},
-    onLLMConfigChange: () => {},
-    onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {}, onNewWorld: () => {},
-  };
-}
+import { GameUi } from '@/game/game-ui';
 
 describe('GameUi', () => {
   let ui: GameUi | null = null;
@@ -19,7 +11,7 @@ describe('GameUi', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     const before = container.childElementCount;
-    ui = new GameUi(container, callbacks());
+    ui = new GameUi(container);
     expect(container.childElementCount).toBeGreaterThan(before);
     // L4: the DOM LLM narration card is gone — `UiRuntime.showNarrationCard`
     // is its GPU heir, so GameUi mounts no narration-card DOM at all now.

@@ -5,20 +5,15 @@ import type { RenderFn } from '@/render/select-renderer';
 import type { InteractionState } from './interaction-state';
 import type { DivineActionsController } from './divine-actions-controller';
 import type { DevModeController } from './dev-mode-controller';
-import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
 import { formatDevTooltip } from '@/dev/tooltip';
-import { drawPowerHud } from '@/render/hud';
 import { fillTiles } from '@/render/selection-outline';
 import { formatDebugHud } from '@/ui/debug-hud';
-import { POWER_REGEN_RATE, POWER_UNDERSTANDING_COEFF, POWER_DEVOTION_COEFF } from '@/sim/spirit-system';
-import { countPlayerBelievers, countDurableBelievers } from '@/sim/believers';
 import { TILE_SIZE } from '@/core/constants';
-import type { Entity, NpcProperties } from '@/core/types';
+import type { Entity } from '@/core/types';
 
 export interface FrameRendererUi {
-  spiritHud: SpiritHudHandle;
   divineEffects: DivineEffects;
   tooltip: HTMLDivElement;
   debugHud: HTMLDivElement;
@@ -35,9 +30,6 @@ export interface FrameRendererDeps {
   getViewport: () => Viewport;
   renderMap: () => RenderFn | null;
   isPaused: () => boolean;
-  /** When false (the default barebones game), the legacy Canvas2D power pill is
-   *  suppressed; the WebGPU UI is the only surface. `?legacyui` flips it back on. */
-  legacyChrome?: boolean;
 }
 
 export class FrameRenderer {
@@ -51,9 +43,9 @@ export class FrameRenderer {
       const instantFps = 1000 / deltaMs;
       this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
     }
-    // ONE NPC sweep per frame — the render context, spirit HUD, regen
-    // estimate, tooltip and debug HUD below all reuse this list instead of each
-    // issuing their own full `world.query({kind:'npc'})`.
+    // ONE NPC sweep per frame — the render context, regen estimate, tooltip
+    // and debug HUD below all reuse this list instead of each issuing their
+    // own full `world.query({kind:'npc'})`.
     const npcEntities: readonly Entity[] = this.deps.state.world?.query({ kind: 'npc' }) ?? [];
     const rc = buildRenderContext({ ...this.deps.getRenderDeps(), npcEntities });
     const renderMap = this.deps.renderMap();
@@ -63,28 +55,6 @@ export class FrameRenderer {
     if (this.deps.ui.divineEffects) {
       this.deps.ui.divineEffects.update(deltaMs);
       this.deps.ui.divineEffects.render(this.deps.ctx as any, this.deps.state.camera, TILE_SIZE);
-    }
-
-    // Update Spirit HUD
-    if (this.deps.ui.spiritHud && this.deps.ui.spiritHud.isVisible() && this.deps.state.world) {
-      const player = this.deps.state.spirits.get('player')!;
-      const rivals = Array.from(this.deps.state.spirits.entries())
-        .filter(([id]) => id !== 'player')
-        .map(([, spirit]) => spirit);
-
-      let totalFollowers = 0;
-      for (const npc of npcEntities) {
-        const p = npc.properties as unknown as NpcProperties;
-        if ((p.beliefs['player']?.faith ?? 0) > 0.3) totalFollowers++;
-      }
-
-      this.deps.ui.spiritHud.update(player, rivals as any[], totalFollowers);
-      this.deps.ui.spiritHud.setBelieverStats(
-        // P1 (two-tier population): believer readouts count both tiers.
-        countPlayerBelievers(this.deps.state.world, this.deps.state.cohorts),
-        countDurableBelievers(this.deps.state.world, this.deps.state.cohorts),
-        4,
-      );
     }
 
     // Draw debug overlays if dev mode is enabled (with the hovered target so the
@@ -110,26 +80,6 @@ export class FrameRenderer {
       const alpha = 0.25 * (1 - flashAge / 300);
       this.deps.ctx.fillStyle = `rgba(255, 215, 0, ${alpha.toFixed(3)})`;
       this.deps.ctx.fillRect(0, 0, rc.canvasWidth, rc.canvasHeight);
-    }
-
-    // The WebGPU presence orb is the barebones power readout; the Canvas2D pill is
-    // legacy chrome (only under ?legacyui) — so the per-NPC regen estimate that
-    // feeds it (mirrors the SpiritSystem formula exactly) is only computed there.
-    if (this.deps.legacyChrome) {
-      const player = this.deps.state.spirits.get('player')!;
-      let totalContribution = 0;
-      for (const e of npcEntities) {
-        const p = e.properties as unknown as NpcProperties;
-        const b = p.beliefs['player'];
-        if (b) {
-          totalContribution +=
-            b.faith *
-            (1 + POWER_UNDERSTANDING_COEFF * b.understanding) *
-            (1 + POWER_DEVOTION_COEFF * b.devotion);
-        }
-      }
-      const regenPerSec = totalContribution * POWER_REGEN_RATE;
-      drawPowerHud(this.deps.ctx, player.power, regenPerSec);
     }
 
     this.updateTooltip();
