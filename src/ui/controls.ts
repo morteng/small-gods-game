@@ -11,11 +11,9 @@ export interface ControlsCallbacks {
   onRightClick?: (screenX: number, screenY: number) => void;
   onTogglePause?: () => void;
   onToggleLabels?: () => void;
-  onTogglePoiMarkers?: () => void;
   onToggleDebug?: () => void;
   onToggleFollow?: () => void;
   onToggleSettings?: () => void;
-  onToggleMinimap?: () => void;
   onShowTutorial?: () => void;
   /** P5b: `photo_mode` — capture a chrome-free photo (the `capture_photo`
    *  meta verb). */
@@ -234,14 +232,6 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
     switch (action) {
       case 'toggle_labels':
         callbacks.onToggleLabels?.();
-        break;
-      case 'toggle_minimap':
-        // Toggle minimap (new) or POI markers (old) — check callback
-        if (callbacks.onToggleMinimap) {
-          callbacks.onToggleMinimap();
-        } else {
-          callbacks.onTogglePoiMarkers?.();
-        }
         break;
       case 'toggle_debug':
         callbacks.onToggleDebug?.();

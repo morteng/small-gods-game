@@ -5,7 +5,6 @@ import type { RenderFn } from '@/render/select-renderer';
 import type { InteractionState } from './interaction-state';
 import type { DivineActionsController } from './divine-actions-controller';
 import type { DevModeController } from './dev-mode-controller';
-import type { MinimapHandle } from '@/ui/minimap-panel';
 import type { SpiritHudHandle } from '@/ui/spirit-hud';
 import type { DivineEffects } from '@/render/divine-effects';
 import { buildRenderContext } from './render-context';
@@ -19,7 +18,6 @@ import { TILE_SIZE } from '@/core/constants';
 import type { Entity, NpcProperties } from '@/core/types';
 
 export interface FrameRendererUi {
-  minimap: MinimapHandle;
   spiritHud: SpiritHudHandle;
   divineEffects: DivineEffects;
   tooltip: HTMLDivElement;
@@ -53,7 +51,7 @@ export class FrameRenderer {
       const instantFps = 1000 / deltaMs;
       this.fpsEma = this.fpsEma * 0.9 + instantFps * 0.1;
     }
-    // ONE NPC sweep per frame — the render context, minimap, spirit HUD, regen
+    // ONE NPC sweep per frame — the render context, spirit HUD, regen
     // estimate, tooltip and debug HUD below all reuse this list instead of each
     // issuing their own full `world.query({kind:'npc'})`.
     const npcEntities: readonly Entity[] = this.deps.state.world?.query({ kind: 'npc' }) ?? [];
@@ -65,18 +63,6 @@ export class FrameRenderer {
     if (this.deps.ui.divineEffects) {
       this.deps.ui.divineEffects.update(deltaMs);
       this.deps.ui.divineEffects.render(this.deps.ctx as any, this.deps.state.camera, TILE_SIZE);
-    }
-
-    // Update minimap when visible
-    if (this.deps.ui.minimap && this.deps.ui.minimap.isVisible() && this.deps.state.map) {
-      // rc.npcs is the same per-frame NPC list already mapped through toRenderNpc.
-      this.deps.ui.minimap.update(
-        this.deps.state.map,
-        rc.npcs,
-        this.deps.state.camera,
-        rc.canvasWidth,
-        rc.canvasHeight,
-      );
     }
 
     // Update Spirit HUD

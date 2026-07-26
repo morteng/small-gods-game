@@ -366,7 +366,7 @@ describe('settings screen — CONTROLS tab rebinding', () => {
     // durable on a UiContext instance (never reset by begin()), so this walks
     // the SAME context forward rather than using the `frame()`/`clickHit()`
     // helpers (which each start a fresh, unscrolled context).
-    const target = 'toggle_minimap';
+    const target = 'toggle_debug';
     const v = view({ tab: 'controls', capturing: 'toggle_labels' });
     const c = new UiContext();
     let hit: { x: number; y: number; w: number; h: number } | undefined;

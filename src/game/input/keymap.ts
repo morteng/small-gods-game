@@ -21,7 +21,6 @@
  *  half (photo screen) to consume without inventing its own binding table. */
 export type Action =
   | 'toggle_labels'
-  | 'toggle_minimap'
   | 'toggle_debug'
   | 'follow_selected'
   | 'open_settings'
@@ -43,7 +42,7 @@ export type Action =
 /** Iteration order for the rebinding UI (§7) — also the row order the CONTROLS
  *  tab draws in, so a designer reordering this list reorders the screen too. */
 export const ACTIONS: readonly Action[] = [
-  'toggle_labels', 'toggle_minimap', 'toggle_debug', 'follow_selected',
+  'toggle_labels', 'toggle_debug', 'follow_selected',
   'open_settings', 'open_tutorial', 'toggle_time_bar', 'toggle_pause',
   'rate_1', 'rate_2', 'rate_4', 'rate_8',
   'menu_up', 'menu_down', 'menu_left', 'menu_right', 'confirm', 'cancel', 'photo_mode',
@@ -64,8 +63,10 @@ export type Keymap = Readonly<Record<Action, readonly string[]>>;
 
 /**
  * Today's bindings, verbatim (see `src/ui/controls.ts`'s pre-P5 `onKeyDown`/
- * `attachTimeKeys`): L labels, M minimap, ` debug, F follow, K settings, T time
- * bar, Space pause, 1/2/4/8 rates, Esc cancel.
+ * `attachTimeKeys`): L labels, ` debug, F follow, K settings, T time
+ * bar, Space pause, 1/2/4/8 rates, Esc cancel. (M/minimap retired — L5,
+ * legacy chrome retirement: D4 ruled no GPU minimap; FIT + world labels
+ * replace it, so there is nothing left for this key to toggle.)
  *
  * DEVIATION from the P5 brief's illustrative examples, both documented here
  * rather than silently: (1) `open_tutorial` was gated on Shift+"/" (only "?"
@@ -80,7 +81,6 @@ export type Keymap = Readonly<Record<Action, readonly string[]>>;
  */
 export const DEFAULT_KEYMAP: Keymap = Object.freeze({
   toggle_labels: ['KeyL'],
-  toggle_minimap: ['KeyM'],
   toggle_debug: ['Backquote'],
   follow_selected: ['KeyF'],
   open_settings: ['KeyK'],

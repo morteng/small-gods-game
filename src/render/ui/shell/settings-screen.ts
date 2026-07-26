@@ -158,7 +158,6 @@ export function formatRowValue(row: SettingsRow): string {
  *  independent of `ACTIONS` (that list owns row ORDER; this owns row TEXT). */
 const ACTION_LABELS: Readonly<Record<Action, string>> = {
   toggle_labels: 'TOGGLE LABELS',
-  toggle_minimap: 'TOGGLE MINIMAP',
   toggle_debug: 'DEBUG OVERLAY',
   follow_selected: 'TOGGLE FOLLOW',
   open_settings: 'OPEN SETTINGS',

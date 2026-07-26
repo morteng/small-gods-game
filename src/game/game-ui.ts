@@ -1,14 +1,12 @@
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
 import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
-import { createMinimapPanel, type MinimapHandle } from '@/ui/minimap-panel';
 import { createCameraControls, type CameraControlsHandle } from '@/ui/camera-controls';
 import { DivineEffects } from '@/render/divine-effects';
 import type { ProviderConfig } from '@/llm/provider-factory';
 import { setFirstRunSeen } from '@/services/settings-store';
 
 export interface GameUiCallbacks {
-  onClickMinimapTile: (x: number, y: number) => void;
   onGameSettingChange: (key: string, value: unknown) => void;
   onLLMConfigChange: (config: ProviderConfig) => void;
   onZoomIn: () => void;
@@ -38,7 +36,6 @@ export class GameUi {
   readonly unifiedSettings: SettingsHandle;
   readonly tutorial: TutorialHandle;
   readonly spiritHud: SpiritHudHandle;
-  readonly minimap: MinimapHandle;
   readonly divineEffects = new DivineEffects();
   readonly llmSettingsBtn: HTMLButtonElement;
   readonly newWorldBtn: HTMLButtonElement;
@@ -118,14 +115,6 @@ export class GameUi {
     this.spiritHud = createSpiritHud(container, {});
     this.spiritHud.hide(); // Hidden until world gen
 
-    // ── NEW: Minimap ──────────────────────────────────────
-    this.minimap = createMinimapPanel(container, {
-      onToggle: (visible) => {
-        console.log('[minimap] visible:', visible);
-      },
-      onClickTile: (x, y) => cb.onClickMinimapTile(x, y),
-    });
-
     // Bottom-left toolbar — contains LLM settings button, New World button, and spend chip.
     this.bottomLeftBar = document.createElement('div');
     this.bottomLeftBar.style.cssText = 'position:absolute;bottom:8px;left:8px;z-index:10;display:flex;gap:8px;align-items:center;';
@@ -164,9 +153,7 @@ export class GameUi {
    * Barebones cleanup: the WebGPU HUD + pause menu are the only chrome, so tear
    * down every persistent legacy DOM panel here (one place — DRY). The
    * on-demand power pill is suppressed at its render site via
-   * `FrameRenderer.legacyChrome`; this handles the always-mounted ones. The
-   * summonable minimap stays — it's still the only surface for its content
-   * until a WebGPU equivalent exists (D4 ruled AGAINST porting it — L5).
+   * `FrameRenderer.legacyChrome`; this handles the always-mounted ones.
    */
   suppressLegacyChrome(): void {
     this.pausedBanner.style.display = 'none';
@@ -183,7 +170,6 @@ export class GameUi {
     this.tooltip.remove();
     this.bottomLeftBar.remove();
     this.spiritHud.destroy();
-    this.minimap.destroy();
     this.cameraControls.destroy();
     this.tutorial.destroy();
     this.unifiedSettings.destroy();

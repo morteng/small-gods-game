@@ -12,7 +12,6 @@ describe('keymap — DEFAULT_KEYMAP matches today\'s bindings', () => {
 
   it('preserves the pre-P5 controls.ts / attachTimeKeys bindings', () => {
     expect(DEFAULT_KEYMAP.toggle_labels).toEqual(['KeyL']);
-    expect(DEFAULT_KEYMAP.toggle_minimap).toEqual(['KeyM']);
     expect(DEFAULT_KEYMAP.toggle_debug).toEqual(['Backquote']);
     expect(DEFAULT_KEYMAP.follow_selected).toEqual(['KeyF']);
     expect(DEFAULT_KEYMAP.open_settings).toEqual(['KeyK']);
@@ -64,10 +63,10 @@ describe('bind — immutable, single-binding rebind, steals conflicts', () => {
   });
 
   it('steals the code from whichever OTHER action held it', () => {
-    // KeyM is bound to toggle_minimap by default; rebind toggle_labels to it.
-    const next = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyM');
-    expect(next.toggle_labels).toEqual(['KeyM']);
-    expect(next.toggle_minimap).toEqual([]); // lost it
+    // KeyK is bound to open_settings by default; rebind toggle_labels to it.
+    const next = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyK');
+    expect(next.toggle_labels).toEqual(['KeyK']);
+    expect(next.open_settings).toEqual([]); // lost it
   });
 
   it('every OTHER action is untouched when there is no conflict', () => {
@@ -81,7 +80,7 @@ describe('bind — immutable, single-binding rebind, steals conflicts', () => {
 
 describe('conflictsFor', () => {
   it('reports the action(s) currently bound to a code', () => {
-    expect(conflictsFor(DEFAULT_KEYMAP, 'KeyM')).toEqual(['toggle_minimap']);
+    expect(conflictsFor(DEFAULT_KEYMAP, 'KeyK')).toEqual(['open_settings']);
   });
 
   it('is empty for a free code', () => {
@@ -89,17 +88,17 @@ describe('conflictsFor', () => {
   });
 
   it('excludes the named action from its own conflict report', () => {
-    expect(conflictsFor(DEFAULT_KEYMAP, 'KeyM', 'toggle_minimap')).toEqual([]);
+    expect(conflictsFor(DEFAULT_KEYMAP, 'KeyK', 'open_settings')).toEqual([]);
   });
 
   it('bind is single-owner: rebinding a second action to the same code leaves only ONE holder', () => {
-    const map = bind(DEFAULT_KEYMAP, 'follow_selected', 'KeyM');
-    expect(conflictsFor(map, 'KeyM')).toEqual(['follow_selected']); // toggle_minimap already lost it
+    const map = bind(DEFAULT_KEYMAP, 'follow_selected', 'KeyK');
+    expect(conflictsFor(map, 'KeyK')).toEqual(['follow_selected']); // open_settings already lost it
   });
 
   it('CAN report more than one conflict for a map that was never funnelled through bind (e.g. a hand-authored diff)', () => {
-    const map = loadKeymap({ toggle_labels: ['KeyM'], follow_selected: ['KeyM'], toggle_minimap: [] });
-    expect(conflictsFor(map, 'KeyM').sort()).toEqual(['follow_selected', 'toggle_labels']);
+    const map = loadKeymap({ toggle_labels: ['KeyK'], follow_selected: ['KeyK'], open_settings: [] });
+    expect(conflictsFor(map, 'KeyK').sort()).toEqual(['follow_selected', 'toggle_labels']);
   });
 });
 
@@ -134,9 +133,9 @@ describe('promptFor — ASCII-only, pixel-font-safe display labels', () => {
   });
 
   it('an unbound action prompts "NONE"', () => {
-    const map = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyM'); // steals KeyM from toggle_minimap
-    expect(promptFor('toggle_minimap', map)).toBe('NONE');
-    assertRenderable(promptFor('toggle_minimap', map));
+    const map = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyK'); // steals KeyK from open_settings
+    expect(promptFor('open_settings', map)).toBe('NONE');
+    assertRenderable(promptFor('open_settings', map));
   });
 
   it('a rebound key relabels the prompt (the whole point of sharing one map)', () => {
@@ -156,8 +155,8 @@ describe('persistence: diffFromDefault / loadKeymap', () => {
   });
 
   it('diffFromDefault includes a conflict LOSER too (its binding really did change)', () => {
-    const map = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyM'); // steals KeyM from toggle_minimap
-    expect(diffFromDefault(map)).toEqual({ toggle_labels: ['KeyM'], toggle_minimap: [] });
+    const map = bind(DEFAULT_KEYMAP, 'toggle_labels', 'KeyK'); // steals KeyK from open_settings
+    expect(diffFromDefault(map)).toEqual({ toggle_labels: ['KeyK'], open_settings: [] });
   });
 
   it('loadKeymap(null/undefined) is exactly the default', () => {
@@ -175,7 +174,7 @@ describe('persistence: diffFromDefault / loadKeymap', () => {
   it('merges a PARTIAL stored diff over the default (migration-safe)', () => {
     const restored = loadKeymap({ toggle_labels: ['KeyZ'] });
     expect(restored.toggle_labels).toEqual(['KeyZ']);
-    expect(restored.toggle_minimap).toEqual(DEFAULT_KEYMAP.toggle_minimap);
+    expect(restored.open_settings).toEqual(DEFAULT_KEYMAP.open_settings);
     expect(restored.cancel).toEqual(DEFAULT_KEYMAP.cancel);
   });
 

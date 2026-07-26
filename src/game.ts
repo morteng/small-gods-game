@@ -5,7 +5,6 @@ import { quantizeIsoZoom } from '@/render/iso/iso-camera';
 import { isoEnvForMap } from '@/render/iso/iso-env';
 import { pickTile } from '@/ui/pick-tile';
 import { fitCameraToMap, clampCameraToMap } from '@/render/fit-camera';
-import { focusCameraOnTile } from '@/render/focus-camera';
 import { computeFrame, type FrameSubject } from '@/game/framing/compute-frame';
 import { attachControls, attachTimeKeys } from '@/ui/controls';
 import type { GameMap, WorldSeed, TerrainOptions, Relationship } from '@/core/types';
@@ -738,11 +737,6 @@ export class Game {
     });
 
     this.ui = new GameUi(this.container, {
-      onClickMinimapTile: (x, y) => {
-        const vp = this.viewport();
-        focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height, this.state.map);
-        this.requestRender();
-      },
       onZoomIn: () => this.cameraZoomIn(),
       onZoomOut: () => this.cameraZoomOut(),
       onFitView: () => this.cameraFitView(),
@@ -855,7 +849,7 @@ export class Game {
 
     this.renderer = new FrameRenderer({
       ctx: this.ctx, state: this.state,
-      ui: { minimap: this.ui.minimap, spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
+      ui: { spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
             tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
       divine: this.divine, dev: this.dev,
       interaction: this.interaction,
@@ -892,7 +886,6 @@ export class Game {
       },
       onTogglePause: () => this.togglePause(),
       onToggleLabels: () => { this.state.showLabels = !this.state.showLabels; this.requestRender(); },
-      onTogglePoiMarkers: () => { this.state.showPoiMarkers = !this.state.showPoiMarkers; this.requestRender(); },
       onToggleDebug: () => {
         this.state.debug = !this.state.debug;
         this.ui.debugHud.style.display = this.state.debug ? 'block' : 'none';
@@ -918,7 +911,6 @@ export class Game {
       // Barebones: the settings shortcut opens the WebGPU pause menu (which hosts
       // settings); only legacy mode toggles the old DOM settings panel.
       onToggleSettings: () => { if (this.barebones) getUiRuntime().toggleMenu(); else this.ui.unifiedSettings.toggle(); },
-      onToggleMinimap: () => { this.ui.minimap?.toggle(); this.requestRender(); },
       onShowTutorial: () => this.ui.tutorial?.show('welcome'),
       onPhotoMode: () => this.bus.emit({ verb: 'capture_photo', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } }),
       getKeymap: () => this.keymap,

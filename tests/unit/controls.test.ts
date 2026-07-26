@@ -179,31 +179,32 @@ describe('attachControls keyboard', () => {
     expect(onToggleLabels).toHaveBeenCalledTimes(1);
   });
 
-  it('invokes onTogglePoiMarkers on M', () => {
-    const onTogglePoiMarkers = vi.fn();
+  // L5 (legacy chrome retirement): M/toggle_minimap is retired (D4 ruled no
+  // GPU minimap — nothing left to bind the key to), so it is simply unbound —
+  // KeyM now resolves to no action at all rather than falling back to a POI-
+  // markers toggle (that fallback was already unreachable dead code: `Game`
+  // always supplied `onToggleMinimap`, so the fallback branch never fired).
+  it('KeyM is unbound — no callback fires', () => {
+    const onToggleLabels = vi.fn();
     cleanup = attachControls(canvas, createCamera(), {
       onRedraw: () => {},
-      onTogglePoiMarkers,
+      onToggleLabels,
     });
     fireKey('KeyM');
-    expect(onTogglePoiMarkers).toHaveBeenCalledTimes(1);
+    expect(onToggleLabels).not.toHaveBeenCalled();
   });
 
   it('does not invoke toggles when an input is focused', () => {
     const onToggleLabels = vi.fn();
-    const onTogglePoiMarkers = vi.fn();
     const input = document.createElement('input');
     document.body.appendChild(input);
     input.focus();
     cleanup = attachControls(canvas, createCamera(), {
       onRedraw: () => {},
       onToggleLabels,
-      onTogglePoiMarkers,
     });
     fireKey('KeyL', input);
-    fireKey('KeyM', input);
     expect(onToggleLabels).not.toHaveBeenCalled();
-    expect(onTogglePoiMarkers).not.toHaveBeenCalled();
   });
 
   it('invokes onToggleSettings on K', () => {
