@@ -32,6 +32,7 @@ import type { LoadAction } from '@/render/ui/shell/load-screen';
 import type { SettingsAction } from '@/render/ui/shell/settings-screen';
 import type { GameOverAction } from '@/render/ui/shell/gameover-screen';
 import type { NewGameAction } from '@/render/ui/shell/newgame-screen';
+import type { HallAction } from '@/render/ui/shell/hall-screen';
 import { FS } from '@/render/ui/ui-tokens';
 import { validateUiSpec } from '@/story/uispec';
 import { layoutMindCloud } from '@/render/ui/mind-cloud-layout';
@@ -209,6 +210,13 @@ export interface UiRuntimeHooks {
    *  GPU-button action, carries the typed text (same split `onCardFreeText`
    *  uses for the whisper island). */
   onNewGameAction?: (action: NewGameAction) => void;
+  /** A Hall of the Gods choice was made. `back`/`cast` become meta commands
+   *  (`close_screen`, then the ordinary CAST path — the hall closes before it
+   *  arms the reticle), same translation contract as `onTitleAction`; `select`
+   *  is handled by the host calling `Shell.setHallDomain` directly, because
+   *  which pedestal's detail pane is open is pure presentation (the
+   *  `onSettingsAction` `{kind:'tab'}` precedent). */
+  onHallAction?: (action: HallAction) => void;
   /** The new-world screen's paste island submitted raw text (Enter or its own
    *  BEGIN button). The host decodes it (`@/game/world-code`) and either
    *  starts that world or reports back why not via `newGameView().error`. */
@@ -861,6 +869,7 @@ export class UiRuntime {
       if (res.settings) this.hooks.onSettingsAction?.(res.settings);
       if (res.gameover) this.hooks.onGameOverAction?.(res.gameover);
       if (res.newgame) this.hooks.onNewGameAction?.(res.newgame);
+      if (res.hall) this.hooks.onHallAction?.(res.hall);
       r = res.island;
       const top = this.shell.top();
       shellIslandOwner = top === 'settings' ? 'settings' : top === 'newgame' ? 'newgame' : null;
