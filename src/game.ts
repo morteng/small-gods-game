@@ -89,6 +89,7 @@ import { mountPastVeil } from '@/ui/chrome';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
+import { coverageFor, descentCameraOffsetPx, ascentResetDue } from '@/game/sky-transition';
 import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM, SETTLEMENT_FLY_ZOOM } from '@/game/affordance/zoom-band';
 import { buildWorldLabels, type SettlementContest } from '@/game/affordance/world-labels';
 import {
@@ -366,6 +367,15 @@ export class Game {
   /** Cinematic-camera state carried from onFrame → onRender (the cinematic camera owns the
    *  view while active, so the normal follow-camera is skipped that frame). */
   private lastCinematic = false;
+  /** UI v3 sky-transition spike: this frame's cloud-overlay params for the
+   *  world render path (`renderDeps()` reads this — it isn't `GameState`,
+   *  it's Shell presentation state recomputed fresh every frame). Null
+   *  outside a transition. Set by `tickShellTransition`. */
+  private currentSkyOverlay: { coverage: number; timeSec: number } | null = null;
+  /** UI v3 sky-transition spike: guards the ascent's real state reset
+   *  (`returnToTitle`) so it fires exactly once per ascent — see
+   *  `tickShellTransition`/`beginQuitToTitle`. */
+  private ascentResetFired = false;
   /** UI v2 W0/D1: the last committed attention band (world/settlement/soul), carried
    *  across frames so `zoomBand`'s per-boundary hysteresis can't flicker at a rung. */
   private zoomBandState: ZoomBand = 'soul';
@@ -1238,6 +1248,14 @@ export class Game {
           this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
         }
       },
+      // UI v3 sky-transition spike: click-to-skip. `tickShellTransition` (run
+      // from the very next `onRender`) reads the now-jumped-to-1 phase and
+      // reacts exactly as natural completion would — including firing the
+      // ascent's real reset.
+      onTransitionSkip: () => {
+        this.shell.skipTransition();
+        this.requestRender();
+      },
     });
     ui.setShell(this.shell);
     this.cleanupUi = ui.attach(this.canvas);
@@ -2011,7 +2029,7 @@ export class Game {
         break;
       }
       case 'quit_to_title':
-        void this.returnToTitle().catch((err) => console.error('[shell] quit_to_title failed', err));
+        this.beginQuitToTitle();
         break;
       case 'open_screen': {
         const screen = str('screen');
@@ -2520,6 +2538,7 @@ export class Game {
       clutterFloraSource: this.clutterFloraSource,
       devMode: this.dev.devMode,
       interiorReveal: this.interiorReveal,
+      skyOverlay: this.currentSkyOverlay,
     };
   }
 
@@ -2795,6 +2814,26 @@ export class Game {
   }
 
   /**
+   * UI v3 sky-transition spike: `quit_to_title`'s entry point. Billows the
+   * clouds to full cover FIRST — `tickShellTransition` performs the actual
+   * `returnToTitle` teardown once the ascent reaches phase 1 (or is skipped
+   * straight there), masking the reset's hitch behind the cloud rather than
+   * cutting to it. `returnToTitle` itself is UNCHANGED and still the direct
+   * path `newWorld()` uses (a "new game" from mid-world doesn't get the
+   * ascent — only this explicit quit verb does; kept scoped, see the spike's
+   * report).
+   *
+   * NOTE for a future game-over screen: fading (`src/sim/god-tier.ts`) wants
+   * this same "billow, then reset behind the cloud" shape — not wired there
+   * yet, this spike only covers the explicit quit-to-title verb.
+   */
+  private beginQuitToTitle(): void {
+    this.ascentResetFired = false;
+    this.shell.beginAscent();
+    this.requestRender();
+  }
+
+  /**
    * UI v3 §3.4 — leave this world and return to the title, IN PROCESS.
    *
    * A `location.reload()` would tear down the shell just to rebuild it (and would
@@ -3004,11 +3043,13 @@ export class Game {
     // The cinematic camera owns the view while active; stash it for onRender.
     this.lastCinematic = !paused && this.presentation.cameraActive();
     // Animating = anything that needs continuous redraw: live sim, a scrub, an in-flight
-    // divine effect, or the cinematic camera — all full-rate. Ambient water ripples alone
-    // demote to 'ambient' so the driver renders at a reduced cadence (~20 fps) instead of
-    // burning full-scene GPU at display rate on an otherwise idle watery world. (A hard
-    // pause forces all of these false, so the driver renders one frame then rests.)
-    if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic || this.state.cameraFly) return true;
+    // divine effect, the cinematic camera, or a sky-cloud transition (descent/ascent,
+    // spike) — all full-rate. Ambient water ripples alone demote to 'ambient' so the
+    // driver renders at a reduced cadence (~20 fps) instead of burning full-scene GPU
+    // at display rate on an otherwise idle watery world. (A hard pause forces all of
+    // these false, so the driver renders one frame then rests.)
+    if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic
+      || this.state.cameraFly || this.shell.transitionActive()) return true;
     if (!paused && this.waterAnimating()) return 'ambient';
     return gamepadConnected ? 'ambient' : false;
   }
@@ -3072,18 +3113,61 @@ export class Game {
     }
   }
 
+  /**
+   * UI v3 sky-transition spike: drive the descent/ascent's overlay-coverage +
+   * camera-nudge each frame the world is up, off `Shell.transition()`/
+   * `transitionPhase()`. Sets `currentSkyOverlay` for `renderDeps()`; returns
+   * the descent's temporary camera-Y offset (0 outside a descent) and whether
+   * the ascent's real state reset fired THIS frame (so the caller stops
+   * rendering the now-torn-down world for this one frame — the next frame's
+   * meta-mode branch takes over cleanly). Pure decision logic lives in
+   * `src/game/sky-transition.ts`; this method is only the per-frame glue.
+   */
+  private tickShellTransition(nowMs: number): { resetFired: boolean; cameraOffsetPx: number } {
+    const t = this.shell.transition();
+    if (!t) {
+      this.currentSkyOverlay = null;
+      return { resetFired: false, cameraOffsetPx: 0 };
+    }
+    const phase = this.shell.transitionPhase(nowMs) ?? 1;
+    this.currentSkyOverlay = { coverage: coverageFor(t.kind, phase), timeSec: nowMs / 1000 };
+    if (t.kind === 'descent') {
+      // Nothing further to do once fully parted — drop the transition so it
+      // stops being "active" (frees the click-to-skip pointer capture, stops
+      // recomputing every frame).
+      if (phase >= 1) this.shell.clearTransition();
+      return { resetFired: false, cameraOffsetPx: descentCameraOffsetPx(phase) };
+    }
+    // Ascent: the cloud has billowed to (near) full cover — perform the real
+    // teardown BEHIND it. `returnToTitle` is synchronous end-to-end (no
+    // `await` in its body), so by the time this call returns, `state.map` is
+    // already null and `shell.reset(['title'])` has already cleared the
+    // transition.
+    if (ascentResetDue(t.kind, phase, this.ascentResetFired)) {
+      this.ascentResetFired = true;
+      void this.returnToTitle().catch((err) => console.error('[shell] quit_to_title failed', err));
+      return { resetFired: true, cameraOffsetPx: 0 };
+    }
+    return { resetFired: false, cameraOffsetPx: 0 };
+  }
+
   /** The expensive scene render + UI refresh — only invoked when onFrame reported animating
    *  or a one-shot requestRender is pending. */
   private onRender(deltaMs: number): void {
+    const nowMs = performance.now();
     // ── META MODE (UI v3 §3.1) ──
     // No world exists (title screen, or between worlds after quit-to-title), so
     // there is no camera, no terrain, no entities and no 2D overlay to draw —
     // just the animated sky backdrop and the UI pass. Branching here rather than
     // in a second loop keeps ONE frame driver for both modes.
     if (!this.state.map) {
-      this.renderMeta?.({ nowMs: performance.now() });
+      this.currentSkyOverlay = null;
+      this.renderMeta?.({ nowMs });
       return;
     }
+
+    const transition = this.tickShellTransition(nowMs);
+    if (transition.resetFired) return; // let the NEXT frame's meta branch take over
 
     // Camera authority order: a cinematic owns the view; else an in-flight P5 fly
     // (alert-pin click) tweens to the anchor; else the normal NPC follow.
@@ -3099,8 +3183,16 @@ export class Game {
       const vp = this.viewport();
       clampCameraToMap(this.state.camera, this.state.map.width, this.state.map.height, vp.width, vp.height);
     }
+    // Descent's camera-Y ease (spike): a RENDER-time-only nudge — applied
+    // right before the draw and restored right after — so it never fights the
+    // follow/fly camera's own persistent easing above (see
+    // `descentCameraOffsetPx`'s doc). Iso-screen space, same as `camera.y`
+    // everywhere else; no zoom touched (the integer zoom ladder stays intact).
+    const cameraOffsetPx = transition.cameraOffsetPx;
+    if (cameraOffsetPx) this.state.camera.y -= cameraOffsetPx;
     const r0 = performance.now();
     this.renderer.render(deltaMs);
+    if (cameraOffsetPx) this.state.camera.y += cameraOffsetPx;
     this.fps.frame(performance.now() - r0);
     this.timeBar?.refresh();
     this.dev.updateTimeDebug();
