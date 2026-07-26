@@ -335,18 +335,21 @@ current shortlist (see `MEMORY.md` for status & next slices):
   masks-worldgen). *Brainstorm.*
 - **River crossings as generative sites**, **building-validity** (auto-fix +
   scored siting), **shrine procession connectome**, **skirt + affordance graph**.
-- **UI v3 — "a proper, real game"** (`docs/superpowers/specs/2026-07-25-ui-v3-complete-game-design.md`;
-  remaining slices briefed in `docs/superpowers/plans/2026-07-25-ui-v3-handoff.md`).
-  **P1–P3a shipped:** meta-mode (world-less) render path + sky backdrop, the shell screen
-  stack, the WebGPU loading screen, UI kit + design tokens + a shared keyboard/gamepad
-  focus ring, an 87-glyph pixel font (fixing prose that rendered blank commas), 12 meta
-  capability verbs as an **external agent API**, in-process quit-to-title (`resetState` +
-  keys-parity guard), instant title with generation on demand, and the save services
-  (slots + metadata store + append-only event journal, `SAVE_VERSION` 4).
-  **NEXT:** P3b save/load screens → P4 settings v2 + audio → P5 controls/gamepad/game-over/
-  photo mode → **P6 absorbs the legacy-chrome retirement L1–L6** → P7 docs/CI.
-- **Legacy-chrome retirement** — now **P6 of UI v3** (L0 done → L1 tooltip next; L5 minimap
-  is a DELETE, not a port, per D4).
+- **UI v3 — "a proper, real game"** — ✅ **shipped, all phases**
+  (`docs/superpowers/specs/2026-07-25-ui-v3-complete-game-design.md`; full history in
+  `docs/superpowers/plans/2026-07-25-ui-v3-handoff.md`). Meta-mode (world-less) render path
+  + sky backdrop, the shell screen stack, the WebGPU loading screen, UI kit + design tokens
+  + a shared keyboard/gamepad focus ring, an 87-glyph pixel font, 12 meta capability verbs
+  as an **external agent API**, in-process quit-to-title (`resetState` + keys-parity guard),
+  instant title with generation on demand, the save services (slots + metadata store +
+  append-only event journal, `SAVE_VERSION` 4) with save/load screens, settings v2 (four
+  tabs, one settings-store) + independent audio buses, rebindable keymap + gamepad,
+  game-over/photo-mode/seed-share/first-run tidings, the cloud descent/ascent sky
+  transition (own blend overlay pipeline, `src/game/sky-transition.ts`'s pure phase curves),
+  and **legacy-chrome retirement L1–L6** (~3,940 DOM lines deleted — tooltip, NPC/building
+  panels, rival panel, narration card + placement modal, the minimap [deleted, not ported,
+  per D4], `Game.barebones`/`?legacyui`/`FrameRenderer.legacyChrome`; `debugHud` stays DOM,
+  `?dev`-only). Docs + full suite + server CI + branch push closed the epic (P7).
 - **WebGPU-UI / MCP integration** (UI S1–S2 shipped → S3 input/scroll; then
   MCP-into-running-game over the command/query bus).
 - **Studio** — the current active surface (world browser + object editor); next

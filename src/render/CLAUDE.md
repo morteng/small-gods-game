@@ -6,6 +6,7 @@
 - **Entity pass** = y-sorted draw list (`render/iso/entity-draw-list.ts`) run by the WebGPU scene (`render/gpu/gpu-scene.ts`), instanced; foot-z terrain lift for placement parity.
 - **Banded lighting**: building sprites are `SpritePack`s (albedo + co-registered normal/material from IDB cache / vendored library / `composeStructure`); ambient + one directional sun, diffuse quantized into bands, AO from material.G, projected cast shadows via stencil-union.
 - **UI** = WebGPU-native immediate-mode (`render/ui/`) — the ONLY chrome. Legacy chrome retirement (UI v3 P6) deleted `Game.barebones`/`?legacyui`/`FrameRenderer.legacyChrome`/`GameUi.suppressLegacyChrome()`; `debugHud` and the dev hit-test tooltip are the only DOM surfaces left, both `?dev`-only.
+- **Sky loading↔world transition** (UI v3): a translucent cloud-parting/billowing overlay drawn straight over the already-composited frame — own blend pipeline (`createSkyBackdropOverlayPipeline`, `gpu-pipelines.ts`) so it never disturbs the opaque idle-title `createSkyBackdropPipeline`; `GpuScene.passSkyOverlay` draws it when `Game` (via `src/game/sky-transition.ts`'s pure phase/coverage curves) passes a `{coverage, timeSec}` uniform, absent/null otherwise.
 - **Camera**: pan (drag) + zoom ladder (integer / 1-over-integer rungs, pixel-snapped origin). **The camera pans in ISO-SCREEN space** — anything framing a tile must project via `render/iso/iso-projection.worldToScreen`, never the flat `tile*TILE_SIZE` mapping.
 
 ## Gotchas

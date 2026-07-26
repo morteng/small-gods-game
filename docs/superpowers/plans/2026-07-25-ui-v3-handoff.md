@@ -1,8 +1,13 @@
-# UI v3 — handoff (remaining slices)
+# UI v3 — handoff (COMPLETE — historical record)
 
 **Branch:** `feat/ui-v3`. **Spec:** [`docs/superpowers/specs/2026-07-25-ui-v3-complete-game-design.md`](../specs/2026-07-25-ui-v3-complete-game-design.md) — read §3 and §3.7 before touching anything.
-**Written:** 2026-07-25, at a green phase boundary. Every slice below is briefed to be
-picked up cold.
+**Written:** 2026-07-25, at a green phase boundary; **updated 2026-07-26 — the epic is DONE.**
+All of P1–P7 shipped: foundations, boot restructure, saves (services + screens), settings
+(services + screen), controls/gamepad/game-over/photo/seed-share/first-run, the cloud
+descent/ascent sky transition, legacy-chrome retirement L1–L6, and this closing P7 (docs +
+full suite + server CI + branch push). This document is now a historical record of how the
+epic was built, not a to-do list — read it for the load-bearing facts and hazards below, not
+for open slices.
 
 ## What has landed
 
@@ -14,10 +19,15 @@ picked up cold.
 | `889a707d` | **P3a** save services — slots, `save-meta` store, append-only event journal, `SAVE_VERSION` 4, journal wired into the resume path |
 | `717d9535` | docs — CLAUDE.md shell/boot section, ROADMAP entry, stale `SAVE_VERSION 2` line retired |
 | `4aade89e` | **P4a** audio + persistence services — independent SFX bus (CC7; see the finding in `audio-buses.ts`), UI tick/confirm cues, a hand-authored title cue, and `settings-store.ts` consolidating seven localStorage keys with migration |
+| `d85ad391` | **P3b** save + load screens, multi-slot load for real |
+| `b441c350` | **P4b** settings screen (four tabs, one settings-store) |
+| `d73bbbe3` | **P5a** keymap, rebinding UI, gamepad — plus the type-scale audit that followed (`40ece8a9`…`7c593046`) |
+| `44bf4262`…`7d3c314b` | **P5b** game-over, photo mode, seed share, first-run tidings; new-world refusal cleared at its one entry point |
+| `480df702`…`87250594` | **P6 L1–L6** — cursor-anchored GPU tooltip, NPC/building facts folded into inspector v2, rival panel superseded by the pantheon panel, narration card on the GPU + placement modal retired, minimap deleted (not ported, per D4), and the final commit deletes `Game.barebones`/`?legacyui`/`FrameRenderer.legacyChrome`/`GameUi.suppressLegacyChrome()`/`spirit-hud.ts`/`welcome-modal.ts` — ~3,940 DOM lines gone |
+| `6f837ddf`…`1c785a04` | **sky transition** — WGSL cloud-parting blend overlay pipeline, `Shell` phase clock + pure descent/ascent curves, loading screen leaning on the sky, `Game` driving the transition each frame |
+| (this commit) | **P7** — CLAUDE.md/ROADMAP/render-CLAUDE.md docs, full local suite, server CI, branch push |
 
-**Not yet done:** P3b (save/load screens), P4b (settings screen), P5 (controls/gamepad/game-over/
-photo), P6 (legacy retirement L1–L6), P7 (final CI + push of later work). Two loose ends worth
-knowing:
+Two loose ends worth knowing (both pre-existing, not blockers):
 
 - **`TITLE_CUE` is authored but not played.** It is deliberately NOT in `BASE_CUES`/`CueLibrary`
   (that would break the "calm baseline = silence" contract). Wiring it means having the shell ask
@@ -122,7 +132,7 @@ unrecoverable.
 *thrown* compose error warned before, so grey massing could appear with zero console evidence. Next
 time this is seen live, the console will attribute it.
 
-## P4b — settings SCREEN (P4a services assumed landed)
+## P4b — settings SCREEN — SHIPPED (`b441c350`)
 
 **Files:** `src/render/ui/shell/settings-screen.ts` (new), `Shell`, `Game.handleMetaCommand`
 (`set_setting`).
@@ -163,7 +173,7 @@ No open defects.
 2. **A guard you have never seen fail is not yet a guard.** Both the shell-stack fix and the
    button-width fix were verified by restoring the broken code and watching the new test fail.
 
-## P5b — NEXT SLICE (not started)
+## P5b — SHIPPED (`44bf4262`…`7d3c314b`)
 
 Game-over screen, photo mode, seed share, tutorial toasts. Detail in the P5 section below; the parts
 P5a did NOT cover:
@@ -182,7 +192,7 @@ P5a did NOT cover:
   `settings.firstRunSeen` (the flag already exists in `settings-store`). Retires `src/ui/tutorial.ts`
   (382 lines) as part of P6.
 
-## P5 — controls, gamepad, game-over, photo mode, tutorial toasts
+## P5 — controls, gamepad, game-over, photo mode, tutorial toasts — SHIPPED (`d73bbbe3` P5a, `44bf4262`…`7d3c314b` P5b)
 
 **Files:** `src/game/input/keymap.ts` (new), `gamepad.ts` (new), `src/ui/controls.ts`,
 `src/render/ui/shell/{controls-screen,gameover-screen,photo-screen}.ts` (new), `Game`.
@@ -204,11 +214,11 @@ P5a did NOT cover:
 - Photo mode: chrome-free capture via the existing `captureFrame()` seam. World code = short base36
   of `{genSeed, worldSeed.name, contentVersion}`; `copy_world_code` + a paste island on New Game.
 
-## P6 — legacy chrome retirement L1→L6
+## P6 — legacy chrome retirement L1→L6 — SHIPPED (`480df702`…`87250594`)
 
 Order and rules from the retirement doc (now absorbed into the spec): **parity before deletion, a
 CPU-rasteriser pixel test per surface before its DOM twin dies, and all three suppression seams die
-in ONE final commit.**
+in ONE final commit.** All six landed in order, each its own commit, per the plan below.
 
 - **L1 tooltip** — cursor-anchored GPU tooltip; delete `src/ui/npc-tooltip.ts` + the `legacyChrome`
   tooltip block in `frame-renderer.ts`.
@@ -234,14 +244,17 @@ in ONE final commit.**
 list). It is pure, already unit-tested, and the asymptotic message→fraction mapping is identical
 regardless of renderer.
 
-## P7 — docs, full suite, CI, push
+## P7 — docs, full suite, CI, push — SHIPPED (closing commits on top of `6f837ddf`)
 
-- CLAUDE.md: rewrite the UI/boot sections for the shell + meta mode; **fix the stale
-  "`SAVE_VERSION` 2" line** (P3a takes it to 4); document that the meta verbs are an
-  external-facing agent API.
-- ROADMAP.md: a UI-v3 entry; mark legacy-chrome retirement done when L6 lands.
-- `npm test` in full, then `./scripts/ci-on-server.sh` — **grep for `✓ Server CI passed`**, commit
-  BEFORE running it (it archives `git archive HEAD`), and never chain `; git push`.
+- CLAUDE.md: the shell/boot section (landed in `717d9535`) already reflected the shell + meta
+  mode and the current `SAVE_VERSION`; P7 added the sky-overlay-pipeline line to
+  `src/render/CLAUDE.md` (P6 had already updated it once for the legacy-chrome deletions).
+- ROADMAP.md: the UI-v3 entry now reads ✅ shipped, all phases, folding the legacy-chrome-retirement
+  bullet into it.
+- `npx vitest run --no-file-parallelism`, `npx tsc --noEmit`, `npm run lint` all clean; then
+  `./scripts/ci-on-server.sh` — **grep for `✓ Server CI passed`**, commit BEFORE running it (it
+  archives `git archive HEAD`), and never chain `; git push`. Branch pushed to `origin/feat/ui-v3`
+  — merge to `main` is left to the user.
 
 ---
 
