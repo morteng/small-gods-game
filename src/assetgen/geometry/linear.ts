@@ -27,7 +27,7 @@ import type { Manifold } from 'manifold-3d';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
 import { manifoldToFacets } from '@/assetgen/geometry/solids';
 import { mToTiles } from '@/render/scale-contract';
-import { MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC } from '@/assetgen/geometry/tower-spec';
+import { MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC, PARAPET_BASE_COURSE_FRAC, parapetHeight, toothRun } from '@/assetgen/geometry/battlement';
 import type { BarrierRun } from '@/world/barrier';
 
 export interface LinearResult {
@@ -165,7 +165,7 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
   out.push(place(locBox(M, 0, s.len, th + flare, plinthH * 0.5, plinthH * 0.6), s));     // half-step in
 
   // Curtain rising to the wall-walk floor (allure). With a parapet, stop below the crest.
-  const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
+  const parapetH = run.crenellated ? parapetHeight(H) : 0;
   const walkZ = H - parapetH;
   out.push(place(locBox(M, 0, s.len, th, plinthH * 0.4, walkZ - plinthH * 0.4), s));
 
@@ -180,7 +180,7 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
     // second fighting face. When orientation is unknown (open runs / legacy callers) fall back to
     // the old symmetric parapet (both edges thick, single coping thin).
     const parapetTh = Math.max(mToTiles(0.45), th * 0.32);
-    const baseCourseH = parapetH * 0.42;
+    const baseCourseH = parapetH * PARAPET_BASE_COURSE_FRAC;
     const outward = outwardSignFor(run, s);
     const edgeCross = (th - parapetTh) / 2;       // parapet centre sits on a face, not the middle
     // SELF-TILING symmetric merlons (WP-W2): lay a WHOLE number of merlon periods across this
@@ -190,11 +190,8 @@ function masonrySeg(M: ManifoldNS, run: BarrierRun, s: Seg): ManifoldT[] {
     // diagonal piece 1). No global merlonPhase needed: seam continuity is now STRUCTURAL.
     const parapet = (ey: number): void => {
       out.push(place(locBox(M, 0, s.len, parapetTh, walkZ, baseCourseH, ey), s));      // base course
-      const n = Math.max(1, Math.round(s.len / MERLON_PERIOD_TILES));
-      const period = s.len / n;
-      const merlonW = period * MERLON_WIDTH_FRAC;   // merlon a touch wider than the crenel
-      for (let k = 0; k < n; k++) {
-        out.push(place(locBox(M, (k + 0.5) * period - merlonW / 2, merlonW, parapetTh, walkZ, parapetH, ey), s));
+      for (const t of toothRun(0, s.len, MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC, 1)) {
+        out.push(place(locBox(M, t.start, t.width, parapetTh, walkZ, parapetH, ey), s));
       }
     };
     if (outward !== 0) {
@@ -229,7 +226,7 @@ function hoardingSeg(M: ManifoldNS, run: BarrierRun, s: Seg): { frame: ManifoldT
   if (outward === 0) return { frame: [], breast: [] };
   const H = Math.max(mToTiles(1.0), run.height);
   const th = Math.max(mToTiles(0.6), run.thickness);
-  const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
+  const parapetH = run.crenellated ? parapetHeight(H) : 0;
   const walkZ = H - parapetH;
   const out: ManifoldT[] = [];
   const breast: ManifoldT[] = [];

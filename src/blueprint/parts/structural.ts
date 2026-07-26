@@ -5,7 +5,7 @@ import type { PartType, CompileCtx } from '../registry';
 import type { WallFace } from '../types';
 import type { Part as Prim } from '@/assetgen/compose';
 import { STOREY } from '@/assetgen/geometry/building';
-import { merlonsAroundRing } from '@/assetgen/geometry/tower-spec';
+import { merlonsAroundRing } from '@/assetgen/geometry/battlement';
 import { mToTiles } from '@/render/scale-contract';
 import { WALL_MAT, WALL_WORK, ROOF_MAT } from './body';
 import { parapetPrims } from './trim';

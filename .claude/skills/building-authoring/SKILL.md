@@ -59,6 +59,36 @@ First run vs a reference ~$0.01; repeats reuse the cached ref spec (~$0.003). Re
 Treat the diff as a hypothesis: verify each claim on the montage before coding it
 (vision models miscount small features; trust them on proportions, pitch, massing).
 
+### Walls and towers — `scripts/barrier-preview.ts`
+
+Barrier geometry (curtain walls, mural towers, gatehouses) is not a building preset, so it lives
+in its own subject registry (`src/assetgen/reference-subject.ts`) and its own preview. `tti-probe`
+and `vision-diff` both accept these scene slugs exactly like a preset. A scene is an **assembly** —
+a tower against a curtain, composed as one sprite — because tower defects are usually JOINT defects
+that a reference of a lone tower can never show.
+
+```
+npx tsx scripts/barrier-preview.ts --list                  # the scenes
+npx tsx scripts/barrier-preview.ts --metrics               # FREE, instant: proportions + tooth runs
+npx tsx scripts/barrier-preview.ts wall-drum-corner        # compose one joint → PNG
+npx tsx scripts/barrier-preview.ts wall-drum-corner --views  # yaw 0/90/180/270 strip (NOT an elevation)
+npx tsx scripts/barrier-preview.ts wall-drum-corner --views --yaws=0,45,90,135   # other angles
+npx tsx scripts/vision-diff.ts wall-square-gate            # the same paid diff, fortification checklist
+npx tsx scripts/barrier-world-preview.ts --only=corner     # the placement battery, one case (~8s not ~8min)
+```
+
+**Read `--metrics` before looking at any picture.** Tower aspect ratio and merlon spacing are
+numbers, and compose has one fixed 2:1 iso projector — proportions are exactly what iso hides.
+The metrics table is what caught square gate towers still sitting at aspect 1.40 after the drums
+had been fixed and the render "looked right".
+
+**Distrust "the merlons are missing" in a grey render** — twice now that reading was wrong.
+A curtain carries its parapet on the OUTWARD face only, so from inside you see a plain slab;
+and a near-side crenel is backed by the wall-walk in the same flat grey, so the gap vanishes.
+The strip runs quarter turns (0/90/180/270) so both faces of every wall appear. Before changing
+geometry on visual evidence, confirm it numerically — `linearFacets(run)` and the tower's part
+list are plain data, and a z-plane histogram settles "is there a parapet?" in seconds.
+
 ## The fix loop (money-free)
 
 1. **Read what's authorable** — the capability catalogue (part/feature knobs, ranges, defaults):

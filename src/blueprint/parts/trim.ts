@@ -8,7 +8,7 @@
 import type { Part as Prim } from '@/assetgen/compose';
 import type { Mat } from '@/assetgen/types';
 import type { ResolvedPart, WallFace } from '../types';
-import { merlonsAlongEdge } from '@/assetgen/geometry/tower-spec';
+import { merlonsAroundRect } from '@/assetgen/geometry/battlement';
 import { mToTiles } from '@/render/scale-contract';
 
 /** Buttress proportions (tiles; 1 tile = 2 m). A two-stage pier: the lower stage is
@@ -109,10 +109,7 @@ export function parapetPrims(p: ResolvedPart, topZ: number, mat: Mat, work?: str
     { prim: 'box', at: [x, y + pt, topZ], size: [pt, h - 2 * pt, breastH], material: mat, ...fin },
     { prim: 'box', at: [x + w - pt, y + pt, topZ], size: [pt, h - 2 * pt, breastH], material: mat, ...fin },
   );
-  // Merlon teeth on the breast, all four edges.
-  out.push(...merlonsAlongEdge('x', y, x, x + w, topZ + breastH, merlonH, pt, mat));
-  out.push(...merlonsAlongEdge('x', y + h - pt, x, x + w, topZ + breastH, merlonH, pt, mat));
-  out.push(...merlonsAlongEdge('y', x, y, y + h, topZ + breastH, merlonH, pt, mat));
-  out.push(...merlonsAlongEdge('y', x + w - pt, y, y + h, topZ + breastH, merlonH, pt, mat));
+  // Merlon teeth on the breast: corner merlons anchoring all four turns, self-tiled runs between.
+  out.push(...merlonsAroundRect(x, y, x + w, y + h, pt, topZ + breastH, merlonH, mat));
   return out;
 }

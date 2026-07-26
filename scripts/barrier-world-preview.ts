@@ -6,8 +6,10 @@
 // wallEnds[0] anchor). If a multi-chunk run reads as ONE seamless wall — chunks abutting with
 // no gap/overlap, a corner meeting cleanly — the registration math is correct.
 //
-//   npx tsx scripts/barrier-world-preview.ts          # straight / L-corner / ring
-// PNGs land in .dev-grabs/ (gitignored).
+//   npx tsx scripts/barrier-world-preview.ts             # the whole battery (~8 min)
+//   npx tsx scripts/barrier-world-preview.ts --only=corner,ring   # just those (substring match)
+// PNGs land in .dev-grabs/ (gitignored). For a SINGLE tower/wall joint plus the numeric report,
+// reach for `barrier-preview.ts` instead — this script is the placement/registration battery.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
@@ -21,8 +23,9 @@ const OUT = '.dev-grabs';
 
 interface Placed { grey: Uint8ClampedArray; cw: number; ch: number; ox: number; oy: number } // ox/oy = screen px of crop top-left
 
-async function placeRun(run: BarrierRun): Promise<Placed[]> {
+async function placeRun(run: BarrierRun, name?: string): Promise<Placed[]> {
   const out: Placed[] = [];
+  if (name !== undefined && !wanted(name)) return out;      // filtered out — skip the compose entirely
   for (const el of runElements(run)) {
     const r = await composeStructure(el.spec(), undefined, { surfaceTexture: true });
     const bb = { x: Math.round(r.bbox.x), y: Math.round(r.bbox.y), w: Math.max(1, Math.round(r.bbox.w)), h: Math.max(1, Math.round(r.bbox.h)) };
@@ -42,8 +45,14 @@ async function placeRun(run: BarrierRun): Promise<Placed[]> {
   return out;
 }
 
+/** `--only=a,b` filters the battery by name substring — the battery is minutes long, and a fix
+ *  usually concerns one case. Absent → run everything. */
+const ONLY = (process.argv.find((a) => a.startsWith('--only=')) ?? '').slice(7).split(',').filter(Boolean);
+const wanted = (name: string): boolean => ONLY.length === 0 || ONLY.some((o) => name.includes(o));
+
 /** Composite placed crops (painter's order = input order) into one PNG, auto-fit with margin. */
 function composite(placed: Placed[], name: string): void {
+  if (placed.length === 0) return;                          // filtered out by --only
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of placed) {
     minX = Math.min(minX, p.ox); minY = Math.min(minY, p.oy);
@@ -77,38 +86,38 @@ function composite(placed: Placed[], name: string): void {
 async function main(): Promise<void> {
   const wall = { ...BARRIER_DEFAULTS.wall, crenellated: true, thickness: 2, height: 3 };
   // Straight 12-tile crenellated wall (3 chunks) — must read continuous.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [] }), 'place-straight');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [] }, 'place-straight'), 'place-straight');
   // Straight wall with a centred arched gate — the arch crown must sit BELOW the parapet, with
   // masonry + merlons spanning over it (a real gateway), flanked by twin towers.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [{ t: 6, width: 2.5 }] }), 'place-gate');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, gates: [{ t: 6, width: 2.5 }] }, 'place-gate'), 'place-gate');
   // Gate with a centroid → the flanking square towers orient: an arched DOORWAY on the inner
   // (town) face + arrow-loop slits on the outer face. The inside faces the viewer here.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, centroid: [6, 7], gates: [{ t: 6, width: 2.5 }] }), 'place-gate-towers');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [12, 0]], ...wall, centroid: [6, 7], gates: [{ t: 6, width: 2.5 }] }, 'place-gate-towers'), 'place-gate-towers');
   // Unobstructed arch: a plain (uncrenellated → no towers/merlons) masonry wall, single gate.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [8, 0]], material: 'stone', height: 3, thickness: 1, crenellated: false, gates: [{ t: 4, width: 2.5 }] }), 'place-gate-plain');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [8, 0]], material: 'stone', height: 3, thickness: 1, crenellated: false, gates: [{ t: 4, width: 2.5 }] }, 'place-gate-plain'), 'place-gate-plain');
   // Palisade with a timber gate — the leaf should fill the opening (no masonry arch/towers).
-  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0]], ...BARRIER_DEFAULTS.palisade, gates: [{ t: 5, width: 3 }] }), 'place-gate-palisade');
+  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0]], ...BARRIER_DEFAULTS.palisade, gates: [{ t: 5, width: 3 }] }, 'place-gate-palisade'), 'place-gate-palisade');
   // Palisade RING — timber corner POSTS cap every corner joint + a framed timber gate on the south.
-  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [12, 0], [12, 10], [0, 10], [0, 0]], ...BARRIER_DEFAULTS.palisade, centroid: [6, 5], gates: [{ t: 6, width: 3, kind: 'gate' }] }), 'place-ring-palisade');
+  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [12, 0], [12, 10], [0, 10], [0, 0]], ...BARRIER_DEFAULTS.palisade, centroid: [6, 5], gates: [{ t: 6, width: 3, kind: 'gate' }] }, 'place-ring-palisade'), 'place-ring-palisade');
   // Palisade L-corner — the post must cover the bend where two stake runs meet.
-  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0], [10, 10]], ...BARRIER_DEFAULTS.palisade, centroid: [8, 8], gates: [] }), 'place-corner-palisade');
+  composite(await placeRun({ kind: 'palisade', path: [[0, 0], [10, 0], [10, 10]], ...BARRIER_DEFAULTS.palisade, centroid: [8, 8], gates: [] }, 'place-corner-palisade'), 'place-corner-palisade');
   // L-corner — two legs meeting at a right angle; chunks must meet cleanly at the bend.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [10, 0], [10, 10]], ...wall, gates: [] }), 'place-corner');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [10, 0], [10, 10]], ...wall, gates: [] }, 'place-corner'), 'place-corner');
   // Rectangular town-wall ring with a gate on the south edge. `centroid` = ring centre, so the
   // parapet/merlons face OUTWARD on every side (the whole point of the orientation fix).
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0], [14, 10], [0, 10], [0, 0]], ...wall, centroid: [7, 5], gates: [{ t: 7, width: 3 }] }), 'place-ring');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0], [14, 10], [0, 10], [0, 0]], ...wall, centroid: [7, 5], gates: [{ t: 7, width: 3 }] }, 'place-ring'), 'place-ring');
   // Thin town wall (thickness 1, as worldgen builds it) — the case that used to collapse merlons
   // onto the centreline. With centroid set, crenellations must sit on the OUTER face all round.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3, thickness: 1, crenellated: true, centroid: [8, 6], gates: [{ t: 8, width: 3 }] }), 'place-ring-thin');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3, thickness: 1, crenellated: true, centroid: [8, 6], gates: [{ t: 8, width: 3 }] }, 'place-ring-thin'), 'place-ring-thin');
   // HOARDED straight wall — a timber gallery (hourd) cantilevered over the outer (field) face:
   // support beams + overhanging plank floor + shooting breastwork + mono-pitch roof.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [7, 6], hoarded: true, gates: [] }), 'place-hoarding');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [14, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [7, 6], hoarded: true, gates: [] }, 'place-hoarding'), 'place-hoarding');
   // WATERFRONT town: a real gatehouse (road) on the south, the whole EAST side opened as a GAP
   // (a river/coast — the water is the wall). No gatehouse/leaf on the open side.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3, kind: 'gate' }, { t: 22, width: 14, kind: 'gap' }] }), 'place-ring-waterfront');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3, kind: 'gate' }, { t: 22, width: 14, kind: 'gap' }] }, 'place-ring-waterfront'), 'place-ring-waterfront');
   // HOARDED ring with a gate — the timber gallery should ring the wall and bridge OVER the gate
   // as a bretèche, all facing outward.
-  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3 }] }), 'place-ring-hoarded');
+  composite(await placeRun({ kind: 'wall', path: [[0, 0], [16, 0], [16, 12], [0, 12], [0, 0]], material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [8, 6], hoarded: true, gates: [{ t: 8, width: 3 }] }, 'place-ring-hoarded'), 'place-ring-hoarded');
   // DIAGONAL (terrain-traced) town-wall ring — an octagon whose four 45° segments prove the
   // angle-general pipeline: chunks abut cleanly along the diagonals, drum towers land at every
   // corner, and the gate + its flanking towers sit on a diagonal edge.
@@ -118,7 +127,7 @@ async function main(): Promise<void> {
       [c - a, c - R], [c + a, c - R], [c + R, c - a], [c + R, c + a],
       [c + a, c + R], [c - a, c + R], [c - R, c + a], [c - R, c - a], [c - a, c - R],
     ];
-    composite(await placeRun({ kind: 'wall', path: oct, material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [c, c], gates: [{ t: 6, width: 3, kind: 'gate' }] }), 'place-ring-diagonal');
+    composite(await placeRun({ kind: 'wall', path: oct, material: 'stone', height: 3.5, thickness: 2, crenellated: true, centroid: [c, c], gates: [{ t: 6, width: 3, kind: 'gate' }] }, 'place-ring-diagonal'), 'place-ring-diagonal');
   }
   // WP-S COVERAGE TOWERS — a big town-wall ring whose long sides exceed max tower spacing, so the
   // placement pass adds a gate flanking PAIR, salient drums at the corners, and FILL drums along the
@@ -131,7 +140,7 @@ async function main(): Promise<void> {
     };
     cov.towers = placeCoverageTowers(cov);
     console.log(`coverage towers: ${cov.towers.length} (gate=${cov.towers.filter(t => t.role === 'gate').length}, salient=${cov.towers.filter(t => t.role === 'salient').length}, fill=${cov.towers.filter(t => t.role === 'fill').length})`);
-    composite(await placeRun(cov), 'place-ring-coverage');
+    composite(await placeRun(cov, 'place-ring-coverage'), 'place-ring-coverage');
   }
 }
 

@@ -24,6 +24,7 @@ import { composeStructure } from '../src/assetgen/compose';
 import { toGeometry } from '../src/blueprint/compile/to-geometry';
 import { synthesizeBlueprint } from '../src/blueprint/presets';
 import { ensureBuildingTypesRegistered } from '../src/blueprint/register-buildings';
+import { barrierSubject } from '../src/assetgen/reference-subject';
 import { PNG } from 'pngjs';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
@@ -50,7 +51,10 @@ const ITER_MODEL = flags.get('iter-model') ?? 'google/gemini-2.5-flash';
 const checkOnly = flags.has('check');
 const reread = flags.has('reread');
 const focus = flags.get('focus');
-const subject = preset.replace(/[_-]/g, ' ');
+// A subject is a building PRESET or a barrier SCENE (a wall/tower joint) — the loop reads the same
+// either way; only the analysis checklist differs, since a curtain wall has no roof or chimney.
+const scene = barrierSubject(preset);
+const subject = scene ? scene.summary : preset.replace(/[_-]/g, ' ');
 
 const apiKey = process.env.OPENROUTER_API_KEY;
 if (!apiKey) { console.error('OPENROUTER_API_KEY not set'); process.exit(1); }
@@ -111,7 +115,19 @@ const focusSection = focus
   ? `4. DISTINCTIVE FEATURES — pay EXACT attention to: ${focus}. For each: shape, which face/gable it sits on, size relative to the body, silhouette (how it changes the outline).`
   : `4. DISTINCTIVE FEATURES: anything type-specific (a bulging oven, a kiln drum + cowl, a wheel, a fore-building, a stair) — shape, position, relative size, silhouette.`;
 
-const structure = `1. FOOTPRINT: bay count / rectangular proportions (width:depth), storeys.
+/** Fortification checklist — the wall/tower analogue of the building one below. Aimed squarely at
+ *  what goes wrong on towers: proportion, how the crown is built, and how the tower meets the wall. */
+const barrierStructure = `1. TOWER MASSING: round or square; height-to-width ratio of the tower itself (be explicit — is it TALLER than it is wide, and by how much?); how far it rises ABOVE the wall-walk of the wall beside it.
+2. TOWER FOOT: battered/flared or straight; how far it projects beyond the wall face.
+3. CROWN: corbel/machicolation band present? parapet built how — a continuous low sill with teeth standing on it, or bare teeth on a flat slab?
+4. MERLONS: count around the crown, even or uneven spacing, tooth width vs the gap between; what happens AT THE CORNERS (square towers) — is there a solid corner merlon, a doubled tooth, or a bare stretch?
+5. THE JOINT: how does the curtain wall meet the tower — does the wall's own parapet stop against the tower, run into it, or pass through it? Is the tower read as a separate structure or as a thickening of the wall?
+6. CURTAIN WALL: height vs thickness, battered plinth, parapet form along the run.
+7. OPENINGS: gateway arch shape/height, arrow-loops, doorways — which face each sits on.
+8. SILHOUETTE PROPORTIONS: overall height-to-width; wall height vs tower height.
+9. ANOMALIES: anything else notable.`;
+
+const buildingStructure = `1. FOOTPRINT: bay count / rectangular proportions (width:depth), storeys.
 2. ROOF: form (gable/hip/gambrel/lean-to), pitch (shallow/medium/steep), ridge orientation vs the long axis, ridge features, dormers (count/placement).
 3. WALLS: jetty/overhang, base course / plinth (height read), visible framing.
 ${focusSection}
@@ -120,6 +136,8 @@ ${focusSection}
 7. WINDOWS: count per face/storey, shape, relative size.
 8. SILHOUETTE PROPORTIONS: height-to-width of the whole sprite; wall height vs roof height.
 9. ANOMALIES: anything else notable.`;
+
+const structure = scene ? barrierStructure : buildingStructure;
 
 const REF_PROMPT = `You are a 3D-modelling analyst. This is an isometric pixel-art reference sprite of a medieval ${subject.toUpperCase()}. I am rebuilding this as low-poly 3D geometry and need a precise, code-actionable description. Describe ONLY what is visibly present, as a structured spec:
 ${structure}
@@ -134,10 +152,16 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const costs: Array<number | null> = [];
 
-  // 1. Fresh grey render of CURRENT geometry.
-  const rb = synthesizeBlueprint(preset as any);
-  if (!rb) throw new Error(`unknown preset "${preset}" (see building-preview.ts --list)`);
-  const struct = await composeStructure(toGeometry(rb));
+  // 1. Fresh grey render of CURRENT geometry — a barrier scene composes its own joint spec.
+  let spec;
+  if (scene) {
+    spec = await scene.massing();
+  } else {
+    const rb = synthesizeBlueprint(preset as any);
+    if (!rb) throw new Error(`unknown subject "${preset}" (building-preview.ts --list / barrier-preview.ts --list)`);
+    spec = toGeometry(rb);
+  }
+  const struct = await composeStructure(spec);
   const greyPng = toPng(struct.grey, struct.size);
   const greyPath = join(OUT_DIR, `${preset}-grey-current.png`);
   await writeFile(greyPath, greyPng);

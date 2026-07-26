@@ -28,6 +28,7 @@ import { gateLeafSpec, gateFrameSpec } from '@/assetgen/geometry/gate-spec';
 import { postSpec } from '@/assetgen/geometry/post-spec';
 import { stairSpec } from '@/assetgen/geometry/stair-spec';
 import { masonryWork, gateIsArched } from '@/assetgen/geometry/linear';
+import { parapetHeight } from '@/assetgen/geometry/battlement';
 import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
 import type { BarrierKind } from '@/world/barrier';
@@ -661,7 +662,9 @@ function stairElements(run: BarrierRun): Element[] {
   if (!gate) return [];
   const c = run.centroid!;
   const H = run.height;
-  const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
+  // ONE derivation, shared with the curtain and its towers — an inline copy of this formula is
+  // how a flight ends up stopping short of (or overshooting) the walk it is supposed to reach.
+  const parapetH = run.crenellated ? parapetHeight(H) : 0;
   const walkZ = H - parapetH;                               // the wall-walk the flight climbs to
   const mat = masonryMat(run);
   const work = masonryWork(run);                            // course to MATCH the curtain
