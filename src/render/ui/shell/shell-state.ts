@@ -15,7 +15,11 @@
 // lives in `shell.ts`.
 
 /** Every meta screen the shell can show. `loading` is the WebGPU heir to the old
- *  DOM loading overlay; the rest arrive with their phases (see the epic spec). */
+ *  DOM loading overlay; the rest arrive with their phases (see the epic spec).
+ *
+ *  ADDING ONE: put it here AND in `SCREEN_ID_KEYS` below — the compiler makes
+ *  that mandatory, so `open_screen` can never silently refuse a screen the
+ *  stack happily holds (the bug this pair used to allow; see `ALL_SCREEN_IDS`). */
 export type ScreenId =
   | 'title'
   | 'newgame'
@@ -26,7 +30,30 @@ export type ScreenId =
   | 'loading'
   | 'pause'
   | 'gameover'
-  | 'photo';
+  | 'photo'
+  | 'hall';
+
+/**
+ * The `ScreenId` union as a value, with a COMPILE-TIME exhaustiveness guard.
+ *
+ * `game.ts` needs a runtime set to validate the `screen` param of an
+ * `open_screen` command arriving from outside (an agent over the bus), and it
+ * used to keep its OWN hand-written list. Two independent declarations of the
+ * same truth drift: a new `ScreenId` that nobody remembered to add to the other
+ * list pushes fine internally but is REFUSED over the external agent API, with
+ * no error anywhere. `Record<ScreenId, true>` makes that impossible — a missing
+ * key fails `tsc` on this file, and a key that is not a `ScreenId` fails too —
+ * so the list below is the ONE source and `game.ts` derives its set from it.
+ */
+const SCREEN_ID_KEYS: Record<ScreenId, true> = {
+  title: true, newgame: true, load: true, save: true, settings: true,
+  controls: true, loading: true, pause: true, gameover: true, photo: true,
+  hall: true,
+};
+
+/** Every `ScreenId`, as a runtime list (see `SCREEN_ID_KEYS` for why). Order is
+ *  declaration order and carries no meaning — callers treat it as a set. */
+export const ALL_SCREEN_IDS: readonly ScreenId[] = Object.keys(SCREEN_ID_KEYS) as ScreenId[];
 
 /** A sky/cloud TRANSITION (UI v3 spike): the loading→world DESCENT (clouds
  *  part, camera eases in — starts only once the art-settle gate clears) or
