@@ -166,6 +166,53 @@ export function aggregateDomain(world: World, spiritId: SpiritId, domain: Belief
   return { domain, conviction, reach, believers };
 }
 
+/** The three belief DIMENSIONS behind a domain, as weighted means. */
+export interface DomainDimensions {
+  faith: number;
+  understanding: number;
+  devotion: number;
+}
+
+/**
+ * Weighted mean of the three belief DIMENSIONS over a domain's reached
+ * believers. Same weight function the conviction aggregate uses
+ * ({@link aggregateWeight}, faith × (0.5 + 0.5·devotion)); the population is
+ * faith-bearing NPCs whose domain belief is ≥ {@link DOMAIN_REACH_FLOOR} — the
+ * same "visibly holds it" floor `reach` counts. Zero such believers ⇒ all zeros.
+ *
+ * WORLD-WIDE over reached believers, deliberately NOT per-congregation like
+ * {@link aggregateDomain}: conviction answers "is there a convinced
+ * congregation somewhere" (a GATE, so it must be local — seeding is local), and
+ * dimensions answer "what is the QUALITY of the belief that exists" (pure
+ * legibility, so the honest answer spans everyone who holds it). Nothing gates
+ * on this.
+ *
+ * Pure + deterministic + `Math.random`-free, like the rest of this module.
+ */
+export function aggregateDomainDimensions(
+  world: World, spiritId: SpiritId, domain: BeliefDomain,
+): DomainDimensions {
+  let wSum = 0, faithSum = 0, understandingSum = 0, devotionSum = 0;
+  forEachNpc(world, (e: Entity) => {
+    const p = npcProps(e);
+    const b = p.beliefs[spiritId];
+    if (!b || b.faith <= 0) return;
+    if (getDomainBelief(p, spiritId, domain) < DOMAIN_REACH_FLOOR) return;
+    const w = aggregateWeight(b.faith, b.devotion);
+    if (w <= 0) return;
+    wSum += w;
+    faithSum += w * b.faith;
+    understandingSum += w * b.understanding;
+    devotionSum += w * b.devotion;
+  });
+  if (wSum <= 0) return { faith: 0, understanding: 0, devotion: 0 };
+  return {
+    faith: faithSum / wSum,
+    understanding: understandingSum / wSum,
+    devotion: devotionSum / wSum,
+  };
+}
+
 /** Is a domain's capability unlocked for this spirit right now? */
 export function isDomainUnlocked(world: World, spiritId: SpiritId, domain: BeliefDomain): boolean {
   return aggregateDomain(world, spiritId, domain).conviction >= DOMAIN_DEFS[domain].unlockThreshold;
