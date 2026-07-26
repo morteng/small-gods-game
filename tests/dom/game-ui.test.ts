@@ -4,7 +4,6 @@ import { GameUi, type GameUiCallbacks, type GameUiOptions } from '@/game/game-ui
 
 function callbacks(): GameUiCallbacks {
   return {
-    onSelectRival: () => {}, onTargetNpc: () => {},
     onClickMinimapTile: () => {}, onGameSettingChange: () => {},
     onLLMConfigChange: () => {},
     onZoomIn: () => {}, onZoomOut: () => {}, onFitView: () => {}, onZoomActual: () => {}, onNewWorld: () => {},

@@ -30,10 +30,9 @@ import { bootLlmClients, buildChatClient, buildCapableClient, paidArtGenOptions 
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
-import { simStateFromEntity, getNpc, forEachNpc, npcProps } from '@/world/npc-helpers';
+import { getNpc, forEachNpc, npcProps } from '@/world/npc-helpers';
 import { findBuildingAtTile, buildingInfoOf } from '@/world/building-helpers';
-import { sendWhisper } from '@/game/whisper-orchestrator';
-import { openMindPage, pathKey } from '@/game/mind-orchestrator';
+import { openMindPage } from '@/game/mind-orchestrator';
 import { buildMindCard } from '@/game/affordance/mind-card';
 import { DivineActionsController } from '@/game/divine-actions-controller';
 import { GameUi } from '@/game/game-ui';
@@ -606,7 +605,7 @@ export class Game {
       attentionStore: this.attentionStore, authorLog: this.authorLog,
       storyRegistry: this.storyRegistry,
       fateOffline: () => this.llmClientCapable === null,
-      onClimateApplied: () => { this.renderer.forceInfoRefresh(); this.requestRender(); },
+      onClimateApplied: () => { this.requestRender(); },
       onBeatFired: (subject, storyletId) => {
         this.cuePresentationBeat(subject);
         return this.playStorylet(storyletId, subject);
@@ -739,21 +738,6 @@ export class Game {
     });
 
     this.ui = new GameUi(this.container, {
-      onSelectRival: (rivalId) => {
-        const rival = this.state.spirits.get(rivalId);
-        if (rival && this.state.world) {
-          // Find competing NPCs (simplified - get first few NPCs)
-          const entities = this.state.world.query({ kind: 'npc' }).slice(0, 5);
-          const npcSimStates = entities.map(e => simStateFromEntity(e) as any);
-          this.ui.rivalPanel.update(rival as any, npcSimStates);
-          this.ui.rivalPanel.show();
-        }
-      },
-      onTargetNpc: (npcId) => {
-        this.state.selectedNpcId = npcId;
-        this.frameSubject({ kind: 'npc', npcId });
-        this.requestRender();
-      },
       onClickMinimapTile: (x, y) => {
         const vp = this.viewport();
         focusCameraOnTile(this.state.camera, x, y, vp.width, vp.height, this.state.map);
@@ -776,77 +760,12 @@ export class Game {
         this.requestRender();
       },
       onLLMConfigChange: (config) => this.applyLlmConfig(config),
-      attentionStore: this.attentionStore,
-      onWhisperSend: (npcId: string, text: string) => {
-        const world = this.state.world;
-        if (!world) return;
-        const entity = getNpc(world, npcId);
-        if (!entity) return;
-        void sendWhisper(entity, text, {
-          queue: this.commandQueue,
-          llm: this.llmClient,
-          store: this.attentionStore,
-          playerSpiritId: 'player',
-          now: () => this.state.clock.now(),
-        }).then(() => {
-          // The whisper re-shapes their surface thoughts: drop the cached surface
-          // page and re-read it (free, depth 0) with the new whisper as context.
-          if (!this.state.world) return;
-          const npc = getNpc(this.state.world, npcId);
-          if (!npc) return;
-          this.attentionStore.invalidatePage(npcId, pathKey(['surface']));
-          return openMindPage(npc, ['surface'], 0, {
-            world: this.state.world,
-            store: this.attentionStore,
-            queue: this.commandQueue,
-            llm: this.llmClientCapable ?? this.llmClient,
-            playerSpirit: this.state.spirits.get('player')!,
-            playerSpiritId: 'player',
-          }).then((page) => {
-            if (page) this.ui.npcAttentionPanel?.showMindPage(['surface'], page);
-          });
-        });
-      },
-      onMindOpen: (npcId: string, path: string[], depth: number) => {
-        const world = this.state.world;
-        if (!world) return;
-        const entity = getNpc(world, npcId);
-        if (!entity) return;
-        void openMindPage(entity, path, depth, {
-          world,
-          store: this.attentionStore,
-          queue: this.commandQueue,
-          llm: this.llmClientCapable ?? this.llmClient, // structured output prefers capable tier; fall back to NPC tier
-          playerSpirit: this.state.spirits.get('player')!,
-          playerSpiritId: 'player',
-        }).then((page) => {
-          this.ui.npcAttentionPanel?.showMindPage(
-            path,
-            page ?? { prose: 'Not enough power to drill deeper.', links: [], depth },
-          );
-        });
-      },
-      onMindCrossNav: (entityId: string) => {
-        const world = this.state.world;
-        if (!world) return;
-        const target = getNpc(world, entityId);
-        if (target) {
-          // Gold person-link: select the NPC. frame-renderer's `switched` detection
-          // calls npcAttentionPanel.setNpc() (which opens their mind surface);
-          // forceInfoRefresh makes it happen immediately.
-          this.state.selectedNpcId = entityId;
-          this.frameSubject({ kind: 'npc', npcId: entityId });
-          this.renderer.forceInfoRefresh();
-          this.requestRender();
-          return;
-        }
-        // Gold place-link: frame the settlement (region-fit, settlement altitude).
-        if (this.state.worldSeed?.pois.some((p) => p.id === entityId)) {
-          this.frameSubject({ kind: 'settlement', poiId: entityId });
-          this.requestRender();
-        }
-      },
-      onCloseBuilding: () => { this.state.selectedBuildingId = null; this.requestRender(); },
+    // L2: the legacy DOM whisper/mind-mode plumbing (onWhisperSend/onMindOpen/
+    // onMindCrossNav/attentionStore/onCloseBuilding) is gone with the DOM
+    // npc-attention-panel + building-info-panel it only ever fed — free-text
+    // whisper + belief-loop mind-reading are already live on the GPU card
+    // (ConversationController/Game.presentMindCard), and building close is
+    // already the inspector's onCloseInspector.
     // C5: barebones never mounts the legacy whisper chrome (attention panel +
     // narration card) — the WebGPU conversation card is the whisper surface.
     }, { legacyChrome: !this.barebones });
@@ -858,7 +777,7 @@ export class Game {
       state: this.state,
       llmDisplay: this.ui.llmDisplay,
       client: this.llmClient,
-      onWriteback: () => { this.renderer.forceInfoRefresh(); this.requestRender(); },
+      onWriteback: () => { this.requestRender(); },
     });
 
     // ── Fate brain (Track 4) — autonomous reactive producer ──────────────────
@@ -938,10 +857,8 @@ export class Game {
     this.renderer = new FrameRenderer({
       ctx: this.ctx, state: this.state,
       ui: { minimap: this.ui.minimap, spiritHud: this.ui.spiritHud, divineEffects: this.ui.divineEffects,
-            npcInfoPanel: this.ui.npcInfoPanel, npcAttentionPanel: this.ui.npcAttentionPanel,
-            buildingInfoPanel: this.ui.buildingInfoPanel,
             tooltip: this.ui.tooltip, debugHud: this.ui.debugHud },
-      divine: this.divine, dev: this.dev, llmBackfill: this.llmBackfill,
+      divine: this.divine, dev: this.dev,
       interaction: this.interaction,
       getRenderDeps: () => this.renderDeps(), getViewport: () => this.viewport(),
       renderMap: () => this.renderMap,

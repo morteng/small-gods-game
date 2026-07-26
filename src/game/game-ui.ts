@@ -2,7 +2,6 @@ import { createLlmDisplay, type LlmDisplayHandle } from '@/ui/llm-display';
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
 import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
-import { createRivalPanel, type RivalPanelHandle } from '@/ui/rival-panel';
 import { createMinimapPanel, type MinimapHandle } from '@/ui/minimap-panel';
 import { createCameraControls, type CameraControlsHandle } from '@/ui/camera-controls';
 import { DivineEffects } from '@/render/divine-effects';
@@ -14,8 +13,6 @@ import type { ProviderConfig } from '@/llm/provider-factory';
 import { setFirstRunSeen } from '@/services/settings-store';
 
 export interface GameUiCallbacks {
-  onSelectRival: (rivalId: string) => void;
-  onTargetNpc: (npcId: string) => void;
   onClickMinimapTile: (x: number, y: number) => void;
   onGameSettingChange: (key: string, value: unknown) => void;
   onLLMConfigChange: (config: ProviderConfig) => void;
@@ -49,7 +46,6 @@ export class GameUi {
   readonly unifiedSettings: SettingsHandle;
   readonly tutorial: TutorialHandle;
   readonly spiritHud: SpiritHudHandle;
-  readonly rivalPanel: RivalPanelHandle;
   readonly minimap: MinimapHandle;
   readonly divineEffects = new DivineEffects();
   readonly llmSettingsBtn: HTMLButtonElement;
@@ -139,17 +135,11 @@ export class GameUi {
     });
 
     // ── NEW: Spirit HUD ───────────────────────────────────
-    this.spiritHud = createSpiritHud(container, {
-      onSelectRival: (rivalId) => cb.onSelectRival(rivalId),
-    });
+    // L3: the rival chip's click used to open the DOM rival-panel (below,
+    // now deleted) — the pantheon panel (`onPantheonRow`) is its GPU heir, so
+    // there is nothing left for this DOM HUD's own rival click to do.
+    this.spiritHud = createSpiritHud(container, {});
     this.spiritHud.hide(); // Hidden until world gen
-
-    // ── NEW: Rival Panel ───────────────────────────────────
-    this.rivalPanel = createRivalPanel(container, {
-      onClose: () => this.rivalPanel.hide(),
-      onTargetNpc: (npcId) => cb.onTargetNpc(npcId),
-    });
-    this.rivalPanel.hide(); // Hidden until a rival is selected (no rivals in single-god slice)
 
     // ── NEW: Minimap ──────────────────────────────────────
     this.minimap = createMinimapPanel(container, {
@@ -209,7 +199,6 @@ export class GameUi {
     this.debugHud.style.display = 'none';
     this.spiritHud.hide();
     this.tooltip.style.display = 'none';
-    this.rivalPanel.hide();
     this.bottomLeftBar.style.display = 'none';
     this.cameraControls.destroy();
   }
@@ -220,7 +209,6 @@ export class GameUi {
     this.tooltip.remove();
     this.bottomLeftBar.remove();
     this.spiritHud.destroy();
-    this.rivalPanel.destroy();
     this.minimap.destroy();
     this.cameraControls.destroy();
     this.tutorial.destroy();
