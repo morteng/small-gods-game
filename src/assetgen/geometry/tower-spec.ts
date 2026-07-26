@@ -29,8 +29,17 @@ export interface TowerOpts {
   round?: boolean;
   /** Unit vector toward the town INTERIOR (from the ring centroid). The tower's entrance doorway
    *  faces this way (you enter from inside); arrow-loops face the opposite (field) way. Absent →
-   *  a solid tower with no openings (legacy). */
+   *  a solid tower with no openings (legacy). Superseded on a ROUND tower by `alongWall`, when
+   *  present — a drum's entrance is reached from the wall-walk, not from a grade approach. */
   inward?: [number, number];
+  /** Octant-snapped unit vector running ALONG the curtain at this tower's position (the allure's
+   *  tangent). ROUND towers only (Manning the Walls W4): when set, the entrance moves off grade
+   *  and onto the allure — the drum's doorway is cut at wall-walk height, facing along this axis,
+   *  so the mural stair's wall-walk runs straight into the tower instead of arriving at a
+   *  ground-floor door it can't reach. Absent → legacy grade door facing `inward` (or a solid
+   *  drum, if `inward` is also absent). Gate towers (square, `tall`) ignore this — they keep
+   *  their street-level door regardless. */
+  alongWall?: [number, number];
   /** Masonry coursing (`ashlar`/`coursed_rubble`/…) the tower paints with — match it to the curtain
    *  it flanks so a wall and its towers read as ONE build (not crazy-paving beside coursed ashlar).
    *  Absent → bare stone (legacy). */
@@ -51,23 +60,30 @@ const EPS = mToTiles(0.05);
  *  drum towers run 2–3; below ~1.5 the silhouette reads as a barrel half-buried in the wall. */
 const MIN_TOWER_ASPECT = 1.8;
 
-/** An arched DOORWAY niche recessed into the face the `inward` vector points at — the tower's
+/** Size/level overrides for {@link doorwayAperture} — absent fields keep the big grade
+ *  gate-tower door (the original, still what square/gate towers use). */
+interface DoorwayOverrides { z0?: number; width?: number; height?: number; depth?: number }
+
+/** An arched DOORWAY niche recessed into the face the `facing` vector points at — the tower's
  *  entrance. `half` is the distance from centre to that face. A deep dark recess reads as a way
- *  in even though the massing behind stays solid (a true hollow interior needs the cutaway path). */
-function doorwayAperture(cx: number, cy: number, half: number, inward: [number, number]): ApertureBox {
-  const [ix, iy] = inward;
+ *  in even though the massing behind stays solid (a true hollow interior needs the cutaway path).
+ *  Defaults to a grade-level big arched gate-tower door; `overrides` lets a ROUND tower cut a
+ *  smaller doorway higher up (the allure-level flank door), sharing the same face-picking math. */
+function doorwayAperture(cx: number, cy: number, half: number, facing: [number, number], overrides?: DoorwayOverrides): ApertureBox {
+  const [ix, iy] = facing;
   const useX = Math.abs(ix) >= Math.abs(iy);
   const sgn = useX ? (ix >= 0 ? 1 : -1) : (iy >= 0 ? 1 : -1);
-  const dW = mToTiles(2.2), dH = mToTiles(3.2), depth = mToTiles(2.2);   // a big arched gate-tower door
+  const dW = overrides?.width ?? mToTiles(2.2), dH = overrides?.height ?? mToTiles(3.2), depth = overrides?.depth ?? mToTiles(2.2);
+  const z0 = overrides?.z0 ?? -EPS;
   const rise = mToTiles(0.7);
   if (useX) {
     const faceX = cx + sgn * half;
     const atX = sgn > 0 ? faceX - depth : faceX - EPS;
-    return { at: [atX, cy - dW / 2, -EPS], size: [depth + EPS, dW, dH], arch: { axis: 'y', style: 'round', rise } };
+    return { at: [atX, cy - dW / 2, z0], size: [depth + EPS, dW, dH], arch: { axis: 'y', style: 'round', rise } };
   }
   const faceY = cy + sgn * half;
   const atY = sgn > 0 ? faceY - depth : faceY - EPS;
-  return { at: [cx - dW / 2, atY, -EPS], size: [dW, depth + EPS, dH], arch: { axis: 'x', style: 'round', rise } };
+  return { at: [cx - dW / 2, atY, z0], size: [dW, depth + EPS, dH], arch: { axis: 'x', style: 'round', rise } };
 }
 
 
@@ -156,8 +172,17 @@ function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const parts: Part[] = [];
   // Battered frustum foot (a tapered drum — wide at grade, narrowing to the shaft).
   parts.push({ prim: 'column', center, baseZ: 0, radius: r + flare, topRadius: r, height: baseH, material: mat });
-  // Cylindrical shaft — an entrance doorway on the inner side (if oriented).
-  const door = opts.inward ? doorwayAperture(cx, cy, r, opts.inward) : undefined;
+  // Cylindrical shaft — the entrance doorway, if oriented. A FLANK tower (Manning the Walls W4,
+  // `alongWall` set) is reached from the wall-walk, not from grade: its door moves up to the
+  // ALLURE — `curtainHeight − parapetHeight(curtainHeight)`, the ONE shared circulation height
+  // (`walkZOf` in `world/tactical-positions.ts` derives the same number for the sim/stair) — and
+  // faces along the curtain's tangent so the walk runs straight into it. A tower that never
+  // learned its wall axis (legacy corner-tower derivation, or a caller with only `inward`) keeps
+  // the old grade door facing inward; with neither, it stays a solid drum.
+  const allureZ = opts.curtainHeight - parapetHeight(opts.curtainHeight);
+  const door = opts.alongWall
+    ? doorwayAperture(cx, cy, r, opts.alongWall, { z0: allureZ, width: mToTiles(1.6), height: mToTiles(2.4), depth: mToTiles(1.6) })
+    : opts.inward ? doorwayAperture(cx, cy, r, opts.inward) : undefined;
   parts.push({ prim: 'cylinder', center, baseZ: baseH * 0.7, radius: r, height: walkZ - baseH * 0.7, material: mat, ...(door ? { apertures: [door] } : {}) });
   // Corbel ring (machicolation) overhanging just below the parapet.
   parts.push({ prim: 'cylinder', center, baseZ: walkZ - corbelH, radius: r + corbel, height: corbelH, material: mat });
@@ -167,6 +192,26 @@ function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const sillH = parapetH * PARAPET_BASE_COURSE_FRAC;
   parts.push(...ringCourse(cx, cy, rp, walkZ, sillH, pt, mat));
   parts.push(...merlonsAroundRing(cx, cy, rp, walkZ, parapetH, pt, mat));
+  // Vice turret (Manning the Walls W4): the spiral-stair turret every real drum carries, lifting
+  // a defender from where the flank door lets them in (the allure) to the drum's own crown —
+  // a small cylinder + a short corbel cap bulging off the shaft. Kept a small fraction of the
+  // drum's own radius so it reads as a turret riding the tower, never a second tower in its own
+  // right (MIN_TOWER_ASPECT governs the drum's massing, not this detail).
+  //
+  // It rides the INNER face whenever the tower knows where the town is: a vice bulging out over
+  // the field would foul the machicolation band it has to climb past and stand in front of the
+  // loops that cover the wall foot — and an arbitrary perpendicular of the wall axis puts it
+  // outward on half a ring's drums. `inward` is already roughly perpendicular to the wall axis
+  // on a ring, so choosing it also lands the turret BESIDE the flank door rather than across it.
+  // An unoriented drum (no centroid) falls back to a perpendicular — some side beats no turret.
+  const axis = opts.alongWall ?? [1, 0];
+  const turretDir: [number, number] = opts.inward ?? [-axis[1], axis[0]];
+  const turretR = Math.max(mToTiles(0.4), r * 0.3);
+  const turretCorbel = mToTiles(0.12);
+  const turretCorbelH = mToTiles(0.3);
+  const turretCenter: [number, number] = [cx + turretDir[0] * (r + turretR * 0.8), cy + turretDir[1] * (r + turretR * 0.8)];
+  parts.push({ prim: 'cylinder', center: turretCenter, baseZ: allureZ, radius: turretR, height: towerH - turretCorbelH - allureZ, material: mat });
+  parts.push({ prim: 'cylinder', center: turretCenter, baseZ: towerH - turretCorbelH, radius: turretR + turretCorbel, height: turretCorbelH, material: mat });
 
   return { parts: withWork(parts, opts.work), mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side: dia };
 }

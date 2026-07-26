@@ -82,6 +82,24 @@ const unit = (a: Pt, b: Pt): Pt => {
   return [dx / m, dy / m];
 };
 
+/** The wall's tangent direction at the path leg NEAREST (x,y) — the allure's own axis at a
+ *  tower's position. Manning the Walls W4: a drum's flank doorway faces ALONG this axis (the
+ *  wall-walk runs into the tower) instead of straight into the ring interior. Falls back to
+ *  [1,0] for a degenerate (<2-vertex) path — never hit by a real ring. */
+function alongWallDirAt(path: Pt[], x: number, y: number): Pt {
+  let bestD2 = Infinity, bestDir: Pt = [1, 0];
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
+    if (len2 < 1e-9) continue;
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len2));
+    const px = a[0] + t * dx, py = a[1] + t * dy;
+    const d2 = (px - x) ** 2 + (py - y) ** 2;
+    if (d2 < bestD2) { bestD2 = d2; bestDir = unit(a, b); }
+  }
+  return bestDir;
+}
+
 /** Vertices where the polyline TURNS (closed rings: every corner; open paths: interior bends). */
 function cornerVertices(path: Pt[]): Pt[] {
   const pts = path.filter((p, i) => i === 0 || p[0] !== path[i - 1][0] || p[1] !== path[i - 1][1]);
@@ -415,8 +433,15 @@ function towerElements(run: BarrierRun): Element[] {
   };
   const drumAt = (x: number, y: number): Element => {
     const inward = inwardAt(x, y);
-    const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined });
-    return mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y, drum.side);
+    // Manning the Walls W4: a drum (salient/fill — the flank towers) enters from the allure, so
+    // its doorway faces ALONG the wall rather than inward — octant-snapped like `inward`, so the
+    // cache key vocabulary stays finite (8 values) rather than continuous.
+    const alongWall = octUnit(alongWallDirAt(run.path, x, y));
+    const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined, alongWall });
+    // CACHE-KEY GOTCHA: `alongWall` is new geometry-affecting input (it moves + reorients the
+    // door and offsets the vice turret), so it MUST be in the key — two drums with the same
+    // inward but different wall axes would otherwise collide on one cached sprite.
+    return mk(`tower:round:${tag}:${q(inward)}:aw${octOf(alongWall)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y, drum.side);
   };
 
   const out: Element[] = [];

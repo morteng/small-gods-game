@@ -127,10 +127,21 @@ describe('chunkBarrierRun', () => {
 
   it('corner towers are ROUND drums; gate towers are SQUARE (distinct cached geometry)', () => {
     const keys = runElements(crenStoneRing([{ t: 7, width: 3 }])).map((e) => e.key);
-    expect(keys.some((k) => k.startsWith('tower:round:'))).toBe(true);   // 4 corner drums
-    expect(keys.some((k) => k.startsWith('tower:gate:'))).toBe(true);    // 2 gatehouse towers
-    // The two kinds compose separately (one cache entry each), not as one shared tower.
-    expect(new Set(keys.filter((k) => k.startsWith('tower:'))).size).toBe(2);
+    const roundKeys = keys.filter((k) => k.startsWith('tower:round:'));
+    const gateKeys = keys.filter((k) => k.startsWith('tower:gate:'));
+    expect(roundKeys.length).toBeGreaterThan(0);   // 4 corner drums
+    expect(gateKeys.length).toBeGreaterThan(0);    // 2 gatehouse towers
+    // The two kinds NEVER share a cache entry (round vs. square is a real geometry split) — the
+    // two gatehouse flankers DO legitimately share one key (same tag, same inward), so this
+    // checks set-disjointness rather than "every element gets its own key".
+    const roundSet = new Set(roundKeys), gateSet = new Set(gateKeys);
+    for (const k of roundSet) expect(gateSet.has(k), `${k} leaked into the gate set`).toBe(false);
+    // Manning the Walls W4: round keys additionally vary by along-wall axis (`:aw${octant}`) —
+    // a rectangle's 4 corners sit on legs running in more than one direction, so they no longer
+    // all dedupe to ONE shared drum sprite the way they did before the flank door/turret needed
+    // to know which way the wall runs.
+    expect(roundSet.size).toBeGreaterThanOrEqual(2);
+    for (const k of roundKeys) expect(k).toMatch(/:aw\d$/);
   });
 
   it('non-masonry / uncrenellated runs get NO towers (curtain chunks only)', () => {
