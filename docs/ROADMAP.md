@@ -230,10 +230,39 @@ inspector + whisper. The **whisper card is the first declarative `UiSpec`**
 spec the **WebGPU** UI renders (`src/render/ui/ui-runtime.ts`), structure
 sim-owned/deterministic + prose LLM-enriched. **Brainstormed:** the Presentation
 Director (adaptive score, cinematic camera, SFX/voice — observes the sim, off the
-command bus). Remaining:
+command bus).
 
-- **Semantic-zoom stretch goals** — area targets ("lightning on a bush", "rain on
-  a farm"), Fate-authored `UiSpec` via `onArmed`, crossfade between zoom bands.
+**Also shipped — abilities: cast targeting, area effects, and the Hall of the Gods**
+📋 **[plan A+B](superpowers/plans/2026-07-26-abilities-cast-targeting-hall-of-gods.md)** ·
+📋 **[plan C](superpowers/plans/2026-07-26-hall-of-the-gods-plan.md)**
+- ✅ **Phases A+B (2026-07-26)** — CAST always arms a **reticle** (the auto-pick fast
+  path that shadowed the feature is gone); an invalid click **stays armed** and says
+  why instead of missing in silence; Esc has an explicit precedence (cancel aim →
+  screen → card → menu); **click+drag area storms** with radius²-scaled cost;
+  `area` targets over MCP; cast FX moved onto the **event log** so an agent's cast is
+  as visible as a player's.
+- ✅ **Phase C — the HALL OF THE GODS (2026-07-26)** — the skill screen as the divine
+  realm above the clouds: a shell screen (`src/render/ui/shell/hall-screen.ts`) with
+  one **pedestal per belief domain**, materializing from hazy to lit as conviction
+  grows, each carrying a **CLAIM → COMMAND → DOCTRINE** ladder. It is an
+  **observatory of follower belief, never a point shop** — nothing in it spends, buys,
+  or unlocks; the sim is truth and the hall makes it legible. The ladder is **derived
+  every read** from live numbers (`BeliefPowerView.dimensions`/`tier`, both optional —
+  the single-payload law held), so a pedestal regresses honestly when belief decays.
+  The one interactive concession is **CAST**, which closes the hall and arms the same
+  reticle the powers panel does. Entered from the Esc menu or `open_screen screen=hall`
+  — one route for a click and an agent alike — and `Shell.describe()` enumerates every
+  pedestal with its refusal reason, so a headless agent navigates it without
+  screenshots. Works with **no world loaded** (honest empty state).
+
+Remaining:
+
+- **Semantic-zoom stretch goals** — Fate-authored `UiSpec` via `onArmed`, crossfade
+  between zoom bands. (Area targets shipped with abilities phase B, above.)
+- **Hall of the Gods, next round** — rival/great-god pedestals (the `spiritId`
+  plumbing exists), the per-node `hint` prose the view already carries but 10-foot
+  type has no room for yet, and a real `pause` shell screen to replace the legacy
+  `drawMenu` nav row that is currently the way in.
 - **Spec E — The Book of [Spirit Name]** (emergent divine identity, naming ritual,
   chapter detection). The strongest expression of VISION §6.
 - **Act 0 stone-age tutorial / Drifting Spirit opening** — first believer; an
