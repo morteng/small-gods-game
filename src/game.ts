@@ -911,7 +911,6 @@ export class Game {
       // Barebones: the settings shortcut opens the WebGPU pause menu (which hosts
       // settings); only legacy mode toggles the old DOM settings panel.
       onToggleSettings: () => { if (this.barebones) getUiRuntime().toggleMenu(); else this.ui.unifiedSettings.toggle(); },
-      onShowTutorial: () => this.ui.tutorial?.show('welcome'),
       onPhotoMode: () => this.bus.emit({ verb: 'capture_photo', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } }),
       getKeymap: () => this.keymap,
       onRedraw: this.requestRender,  // controls fire this on drag-pan + wheel-zoom

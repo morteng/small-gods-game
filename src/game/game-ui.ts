@@ -1,10 +1,8 @@
 import { createSettingsPanel as createUnifiedSettings, type SettingsHandle } from '@/ui/settings-unified';
-import { createTutorial, type TutorialHandle } from '@/ui/tutorial';
 import { createSpiritHud, type SpiritHudHandle } from '@/ui/spirit-hud';
 import { createCameraControls, type CameraControlsHandle } from '@/ui/camera-controls';
 import { DivineEffects } from '@/render/divine-effects';
 import type { ProviderConfig } from '@/llm/provider-factory';
-import { setFirstRunSeen } from '@/services/settings-store';
 
 export interface GameUiCallbacks {
   onGameSettingChange: (key: string, value: unknown) => void;
@@ -34,7 +32,6 @@ export class GameUi {
   readonly debugHud: HTMLDivElement;
   readonly tooltip: HTMLDivElement;
   readonly unifiedSettings: SettingsHandle;
-  readonly tutorial: TutorialHandle;
   readonly spiritHud: SpiritHudHandle;
   readonly divineEffects = new DivineEffects();
   readonly llmSettingsBtn: HTMLButtonElement;
@@ -95,18 +92,6 @@ export class GameUi {
     // shell mode nothing ever hid, so it sat over the title screen forever.
     // Nothing may mount a second progress surface: there is exactly one, and the
     // Shell owns it. Pinned by `tests/unit/no-dom-loading-screen.test.ts`.
-
-    // ── NEW: Tutorial System ──────────────────────────────
-    this.tutorial = createTutorial(container, {
-      onComplete: () => {
-        setFirstRunSeen(true);
-        console.log('[tutorial] Completed');
-      },
-      onSkip: () => {
-        setFirstRunSeen(true);
-        console.log('[tutorial] Skipped');
-      },
-    });
 
     // ── NEW: Spirit HUD ───────────────────────────────────
     // L3: the rival chip's click used to open the DOM rival-panel (below,
@@ -171,7 +156,6 @@ export class GameUi {
     this.bottomLeftBar.remove();
     this.spiritHud.destroy();
     this.cameraControls.destroy();
-    this.tutorial.destroy();
     this.unifiedSettings.destroy();
   }
 }

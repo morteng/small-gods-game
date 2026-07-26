@@ -24,7 +24,6 @@ export type Action =
   | 'toggle_debug'
   | 'follow_selected'
   | 'open_settings'
-  | 'open_tutorial'
   | 'toggle_time_bar'
   | 'toggle_pause'
   | 'rate_1'
@@ -43,7 +42,7 @@ export type Action =
  *  tab draws in, so a designer reordering this list reorders the screen too. */
 export const ACTIONS: readonly Action[] = [
   'toggle_labels', 'toggle_debug', 'follow_selected',
-  'open_settings', 'open_tutorial', 'toggle_time_bar', 'toggle_pause',
+  'open_settings', 'toggle_time_bar', 'toggle_pause',
   'rate_1', 'rate_2', 'rate_4', 'rate_8',
   'menu_up', 'menu_down', 'menu_left', 'menu_right', 'confirm', 'cancel', 'photo_mode',
 ];
@@ -64,27 +63,24 @@ export type Keymap = Readonly<Record<Action, readonly string[]>>;
 /**
  * Today's bindings, verbatim (see `src/ui/controls.ts`'s pre-P5 `onKeyDown`/
  * `attachTimeKeys`): L labels, ` debug, F follow, K settings, T time
- * bar, Space pause, 1/2/4/8 rates, Esc cancel. (M/minimap retired — L5,
- * legacy chrome retirement: D4 ruled no GPU minimap; FIT + world labels
- * replace it, so there is nothing left for this key to toggle.)
+ * bar, Space pause, 1/2/4/8 rates, Esc cancel. Two retirements since, both
+ * P6 (legacy chrome retirement): (M/minimap — L5, D4 ruled no GPU minimap,
+ * FIT + world labels replace it) and (Slash/tutorial — `tutorial.ts` deleted,
+ * first-run `tiding` inbox items gated on `settings.firstRunSeen` replace it,
+ * per the P5b handoff note). Both keys are simply unbound now, not silently
+ * reassigned.
  *
- * DEVIATION from the P5 brief's illustrative examples, both documented here
- * rather than silently: (1) `open_tutorial` was gated on Shift+"/" (only "?"
- * opened it); this module models bindings as bare physical codes with no
- * modifier concept, so the shift requirement is dropped — "/" alone now opens
- * it. `tutorial.ts` is slated for retirement in P6 (tiding-based first-run
- * guidance replaces it), so this is a low-stakes simplification, not a
- * feature regression worth a whole modifier system for one binding. (2) the
- * brief's example prompt for `Backquote` is a literal backtick, but the
- * pixel font (`text/pixel-font.ts`) has no backtick glyph — `promptFor` below
- * renders it "GRAVE" instead (ASCII-safe, and it actually renders).
+ * DEVIATION from the P5 brief's illustrative example, documented here rather
+ * than silently: the brief's example prompt for `Backquote` is a literal
+ * backtick, but the pixel font (`text/pixel-font.ts`) has no backtick glyph
+ * — `promptFor` below renders it "GRAVE" instead (ASCII-safe, and it
+ * actually renders).
  */
 export const DEFAULT_KEYMAP: Keymap = Object.freeze({
   toggle_labels: ['KeyL'],
   toggle_debug: ['Backquote'],
   follow_selected: ['KeyF'],
   open_settings: ['KeyK'],
-  open_tutorial: ['Slash'],
   toggle_time_bar: ['KeyT'],
   toggle_pause: ['Space'],
   rate_1: ['Digit1'],

@@ -14,7 +14,6 @@ export interface ControlsCallbacks {
   onToggleDebug?: () => void;
   onToggleFollow?: () => void;
   onToggleSettings?: () => void;
-  onShowTutorial?: () => void;
   /** P5b: `photo_mode` — capture a chrome-free photo (the `capture_photo`
    *  meta verb). */
   onPhotoMode?: () => void;
@@ -241,9 +240,6 @@ export function attachControls(canvas: HTMLCanvasElement, camera: Camera, callba
         break;
       case 'open_settings':
         callbacks.onToggleSettings?.();
-        break;
-      case 'open_tutorial':
-        callbacks.onShowTutorial?.();
         break;
       case 'photo_mode':
         callbacks.onPhotoMode?.();

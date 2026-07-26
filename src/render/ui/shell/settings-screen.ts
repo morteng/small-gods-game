@@ -161,7 +161,6 @@ const ACTION_LABELS: Readonly<Record<Action, string>> = {
   toggle_debug: 'DEBUG OVERLAY',
   follow_selected: 'TOGGLE FOLLOW',
   open_settings: 'OPEN SETTINGS',
-  open_tutorial: 'TUTORIAL',
   toggle_time_bar: 'TIME BAR',
   toggle_pause: 'PAUSE / RESUME',
   rate_1: 'SET RATE 1X',
