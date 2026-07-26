@@ -80,12 +80,24 @@ describe('drawLoadingScreen — the WebGPU heir to the DOM loading overlay', () 
       chronicle: ['The river rose in the night and the millers cursed the small god of eaves, who had promised otherwise.'],
       elapsedMs: 0,
     }));
+    // Reduced to a BOUNDING BOX and asserted four times rather than once per
+    // vertex. The claim is identical — min ≥ 0 and max ≤ edge over every vertex
+    // IS "every vertex is inside" — and the failure still names the offending
+    // extreme. But a busy screen emits tens of thousands of vertices, and an
+    // `expect` object each was enough churn to blow the 5 s timeout on a loaded
+    // machine (it did, in a full-suite run). Same reduction
+    // `shell-runtime-integration.test.ts` already made for its two cases.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const [x, y] of verts(groups, UiPage.Solid)) {
-      expect(x).toBeGreaterThanOrEqual(0);
-      expect(y).toBeGreaterThanOrEqual(0);
-      expect(x).toBeLessThanOrEqual(W);
-      expect(y).toBeLessThanOrEqual(H);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
     }
+    expect(minX).toBeGreaterThanOrEqual(0);
+    expect(minY).toBeGreaterThanOrEqual(0);
+    expect(maxX).toBeLessThanOrEqual(W);
+    expect(maxY).toBeLessThanOrEqual(H);
   });
 
   it('the progress fill WIDTH tracks the fraction (measured from the painted pixels)', () => {
