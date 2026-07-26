@@ -94,7 +94,7 @@ import { mountPastVeil } from '@/ui/chrome';
 import { mountTimeBar, type TimeBarHandle } from '@/ui/panels/time-bar';
 import type { RenderContextDeps } from '@/game/render-context';
 import { applyFollowCamera, applyCameraFly } from '@/game/camera-follow';
-import { coverageFor, descentCameraOffsetPx, ascentResetDue } from '@/game/sky-transition';
+import { coverageFor, descentCameraOffsetPx, ascentResetDue, stepHallOverlay } from '@/game/sky-transition';
 import { zoomBand, type ZoomBand, SOUL_FLY_ZOOM, SETTLEMENT_FLY_ZOOM } from '@/game/affordance/zoom-band';
 import { buildWorldLabels, type SettlementContest } from '@/game/affordance/world-labels';
 import {
@@ -378,6 +378,16 @@ export class Game {
    *  (`returnToTitle`) so it fires exactly once per ascent — see
    *  `tickShellTransition`/`beginQuitToTitle`. */
   private ascentResetFired = false;
+  /** Phase C H4: the Hall of the Gods' cloud ramp — its LINEAR position
+   *  (0 = clear sky, 1 = fully closed above the world), carried across frames.
+   *  Presentation state like `currentSkyOverlay`, deliberately NOT a
+   *  `GameState` field (that would trip the field-count pin for something a
+   *  save has no business remembering). Stepped by `stepHallOverlay`. */
+  private hallRampLinear = 0;
+  /** Wall-clock ms of the last `hallRampLinear` step, so the ramp is driven by
+   *  elapsed time rather than by frame count (render-on-demand means frames
+   *  are not evenly spaced). Null = no step yet. */
+  private hallRampAtMs: number | null = null;
   /** UI v2 W0/D1: the last committed attention band (world/settlement/soul), carried
    *  across frames so `zoomBand`'s per-boundary hysteresis can't flicker at a rung. */
   private zoomBandState: ZoomBand = 'soul';
@@ -3279,13 +3289,15 @@ export class Game {
     // The cinematic camera owns the view while active; stash it for onRender.
     this.lastCinematic = !paused && this.presentation.cameraActive();
     // Animating = anything that needs continuous redraw: live sim, a scrub, an in-flight
-    // divine effect, the cinematic camera, or a sky-cloud transition (descent/ascent,
-    // spike) — all full-rate. Ambient water ripples alone demote to 'ambient' so the
+    // divine effect, the cinematic camera, a sky-cloud transition (descent/ascent,
+    // spike) or the hall's cloud ramp mid-flight (H4 — a paused world must still
+    // watch its sky close when the hall opens) — all full-rate. Ambient water ripples
+    // alone demote to 'ambient' so the
     // driver renders at a reduced cadence (~20 fps) instead of burning full-scene GPU
     // at display rate on an otherwise idle watery world. (A hard pause forces all of
     // these false, so the driver renders one frame then rests.)
     if (!!live || this.timeline.isScrubbed || this.ui.divineEffects.isActive() || this.lastCinematic
-      || this.state.cameraFly || this.shell.transitionActive()) return true;
+      || this.state.cameraFly || this.shell.transitionActive() || this.hallRampAnimating()) return true;
     if (!paused && this.waterAnimating()) return 'ambient';
     return gamepadConnected ? 'ambient' : false;
   }
@@ -3350,6 +3362,18 @@ export class Game {
   }
 
   /**
+   * H4: is the hall's cloud ramp mid-flight? Read by `onFrame`'s animating
+   * chain, which runs BEFORE the render that steps the ramp — so it must be
+   * derivable from stored state alone: the ramp is in flight exactly when its
+   * carried position differs from the target the CURRENT screen implies. False
+   * once settled (clouds fully closed above an open hall are not moving, so
+   * the loop is free to idle again).
+   */
+  private hallRampAnimating(): boolean {
+    return this.hallRampLinear !== (this.shell.top() === 'hall' ? 1 : 0);
+  }
+
+  /**
    * UI v3 sky-transition spike: drive the descent/ascent's overlay-coverage +
    * camera-nudge each frame the world is up, off `Shell.transition()`/
    * `transitionPhase()`. Sets `currentSkyOverlay` for `renderDeps()`; returns
@@ -3358,15 +3382,32 @@ export class Game {
    * rendering the now-torn-down world for this one frame — the next frame's
    * meta-mode branch takes over cleanly). Pure decision logic lives in
    * `src/game/sky-transition.ts`; this method is only the per-frame glue.
+   *
+   * Phase C H4: it also steps the HALL's coverage ramp, because that ramp and
+   * a real transition write the same one uniform — computing both in ONE pure
+   * call is what makes "the transition owns the sky" a rule rather than a
+   * race. Only ever reached from the WORLD render path; meta mode has no world
+   * to hide, so it resets the ramp instead (see `onRender`).
    */
   private tickShellTransition(nowMs: number): { resetFired: boolean; cameraOffsetPx: number } {
     const t = this.shell.transition();
-    if (!t) {
-      this.currentSkyOverlay = null;
-      return { resetFired: false, cameraOffsetPx: 0 };
-    }
-    const phase = this.shell.transitionPhase(nowMs) ?? 1;
-    this.currentSkyOverlay = { coverage: coverageFor(t.kind, phase), timeSec: nowMs / 1000 };
+    const phase = t ? this.shell.transitionPhase(nowMs) ?? 1 : null;
+    // ONE author for `currentSkyOverlay`: the pure step composes the real
+    // transition's coverage (if any) with the hall's own ramp (H4) and hands
+    // back the single number this frame's overlay wants — the two never race
+    // over the field. See `stepHallOverlay`'s doc for the precedence rule.
+    const hall = stepHallOverlay({
+      transitionCoverage: t && phase !== null ? coverageFor(t.kind, phase) : null,
+      hallOpen: this.shell.top() === 'hall',
+      linear01: this.hallRampLinear,
+      deltaMs: this.hallRampAtMs === null ? 0 : nowMs - this.hallRampAtMs,
+    });
+    this.hallRampLinear = hall.linear01;
+    this.hallRampAtMs = nowMs;
+    this.currentSkyOverlay = hall.coverage === null
+      ? null
+      : { coverage: hall.coverage, timeSec: nowMs / 1000 };
+    if (!t || phase === null) return { resetFired: false, cameraOffsetPx: 0 };
     if (t.kind === 'descent') {
       // Nothing further to do once fully parted — drop the transition so it
       // stops being "active" (frees the click-to-skip pointer capture, stops
@@ -3398,6 +3439,14 @@ export class Game {
     // in a second loop keeps ONE frame driver for both modes.
     if (!this.state.map) {
       this.currentSkyOverlay = null;
+      // H4: meta mode SKIPS the hall's cloud ramp — `renderMeta` already IS the
+      // sky, so there is nothing beneath the hall to hide. Resetting (rather
+      // than merely ignoring) the ramp is what guarantees no dangling coverage
+      // survives a world: quit-to-title lands here, and so does the direct
+      // `returnToTitle` a mid-world NEW WORLD takes, so the next world's
+      // descent always starts from a genuinely clear sky.
+      this.hallRampLinear = 0;
+      this.hallRampAtMs = null;
       this.renderMeta?.({ nowMs });
       return;
     }
