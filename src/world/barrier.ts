@@ -115,8 +115,10 @@ export function segmentIndexAt(path: [number, number][], t: number): number {
   return Math.max(0, path.length - 2);
 }
 
-/** Map a path distance `t` (tiles) to a world point along the polyline. */
-function pointAt(path: [number, number][], t: number): [number, number] {
+/** Map a path distance `t` (tiles) to a world point along the polyline. Exported for
+ *  `tactical-positions.ts`'s `arcLengthPoint` — the on-wall movement track reads the SAME
+ *  interpolation the gate/tower placement already uses, never a reimplementation. */
+export function pointAt(path: [number, number][], t: number): [number, number] {
   let acc = 0;
   for (let i = 1; i < path.length; i++) {
     const [ax, ay] = path[i - 1], [bx, by] = path[i];
@@ -126,7 +128,8 @@ function pointAt(path: [number, number][], t: number): [number, number] {
   }
   return path[path.length - 1];
 }
-function pathLength(path: [number, number][]): number {
+/** Total path length (tiles). Exported for `tactical-positions.ts`'s station-walking loop. */
+export function pathLength(path: [number, number][]): number {
   let s = 0; for (let i = 1; i < path.length; i++) s += Math.hypot(path[i][0] - path[i-1][0], path[i][1] - path[i-1][1]);
   return s;
 }
