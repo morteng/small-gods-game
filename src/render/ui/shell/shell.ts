@@ -42,6 +42,9 @@ import { drawPhotoScreen, type PhotoView } from '@/render/ui/shell/photo-screen'
 import {
   drawNewGameScreen, type NewGameAction, type NewGameView,
 } from '@/render/ui/shell/newgame-screen';
+import {
+  drawHallScreen, hallRows, type HallAction, type HallView,
+} from '@/render/ui/shell/hall-screen';
 import { DEFAULT_KEYMAP } from '@/game/input/keymap';
 
 /** A device-px rect (a DOM island's reserved region). Mirrors `ui-runtime`'s. */
@@ -57,11 +60,13 @@ export interface ShellDrawResult {
   settings: SettingsAction | null;
   gameover: GameOverAction | null;
   newgame: NewGameAction | null;
+  hall: HallAction | null;
 }
 
 /** Nothing drawn, nothing triggered — shared so the common case allocates once. */
 const INERT_DRAW: ShellDrawResult = {
-  island: null, title: null, save: null, load: null, settings: null, gameover: null, newgame: null,
+  island: null, title: null, save: null, load: null, settings: null, gameover: null,
+  newgame: null, hall: null,
 };
 
 /**
@@ -141,6 +146,13 @@ export interface ShellDeps {
   /** Supplies the new-world screen's last paste-decode refusal, if any.
    *  Absent ⇒ no refusal shown yet. */
   newGameView?: () => NewGameView;
+  /** Supplies the Hall of the Gods' pedestals + spirit strip. The FIRST view
+   *  that reads live sim state (every other screen is meta-only), so `Game`
+   *  builds it off the `hudSim()` wall-clock memo rather than a raw query —
+   *  the hall draws every frame over a running world and `beliefPowers()` is a
+   *  full congregation sweep. Absent ⇒ `EMPTY_HALL_VIEW`, the honest "no world"
+   *  hall (it still stands; nothing is believed in it). */
+  hallView?: () => HallView;
 }
 
 /** The title view used when no provider is wired — the honest empty state, never
@@ -155,6 +167,25 @@ const EMPTY_TITLE_VIEW: TitleView = {
 const EMPTY_GAMEOVER_VIEW: GameOverView = { note: null };
 const EMPTY_PHOTO_VIEW: PhotoView = { hintText: null, alpha: 0 };
 const EMPTY_NEWGAME_VIEW: NewGameView = { error: null };
+
+/** The hall with nothing believed in it — no world loaded, or no `hallView`
+ *  wired. Deliberately NOT a fabricated pantheon: no pedestals at all (the
+ *  screen draws hazy, hitless niches for them, see `GHOST_PEDESTALS`) and an
+ *  `emptyLine` that states the truth. `faded` is false because a god with no
+ *  world has not faded — it has not begun. */
+export const EMPTY_HALL_VIEW: HallView = {
+  spirit: {
+    name: 'A GOD WITH NO WORLD',
+    tierLine: 'UNBELIEVED',
+    massLine: '',
+    intimacyLine: 'NO ONE HAS HEARD OF YOU',
+    intimacy: 0,
+    faded: false,
+    fadedLine: null,
+  },
+  pedestals: [],
+  emptyLine: 'THE HALL STANDS EMPTY — NO WORLD BELIEVES IN YOU YET',
+};
 
 /** Four empty slots — the honest default for the save/load screens when no
  *  provider is wired, mirroring `EMPTY_TITLE_VIEW` above. */
@@ -259,6 +290,15 @@ export class Shell implements LoadingSurface {
   private readonly gameoverView: () => GameOverView;
   private readonly photoView: () => PhotoView;
   private readonly newGameView: () => NewGameView;
+  private readonly hallView: () => HallView;
+  /** The Hall of the Gods' SELECTED PEDESTAL (a belief-domain id), or null for
+   *  "nothing selected". Exactly the `settingsTab` precedent below: pure
+   *  presentation state, so it lives here and NOT on `GameState` (which pins
+   *  its field count) and NOT in `open_screen` params (no such mechanism
+   *  exists). Selecting only adds the detail pane — it never changes which
+   *  choices the hall offers, which is why `hallRows` is a function of the view
+   *  alone and `describe()` can ignore this entirely. */
+  private hallDomain: string | null = null;
   /** The settings screen's SELECTED TAB — pure presentation state, not game
    *  state (see `ShellDeps.settingsView`'s doc), so it lives here rather than
    *  in `Game`. Set by `Game`'s `onSettingsAction` hook on a `{kind:'tab'}`
@@ -284,6 +324,7 @@ export class Shell implements LoadingSurface {
     this.gameoverView = deps.gameoverView ?? ((): GameOverView => EMPTY_GAMEOVER_VIEW);
     this.photoView = deps.photoView ?? ((): PhotoView => EMPTY_PHOTO_VIEW);
     this.newGameView = deps.newGameView ?? ((): NewGameView => EMPTY_NEWGAME_VIEW);
+    this.hallView = deps.hallView ?? ((): HallView => EMPTY_HALL_VIEW);
   }
 
   /** The settings screen's full view: the caller's persisted values, with the
@@ -302,6 +343,24 @@ export class Shell implements LoadingSurface {
     this.settingsTab = tab;
     this.requestRender();
   }
+
+  /** Select a pedestal in the Hall of the Gods (or `null` to deselect).
+   *  Called by `Game`'s `onHallAction` hook on a `{kind:'select'}` — a direct
+   *  method call, not a bus round-trip, for exactly the reason
+   *  `setSettingsTab` is: which pedestal's detail pane is open is Shell-local
+   *  presentation, not game state, and an agent already sees the full pedestal
+   *  set through `describe()` without selecting anything. Re-selecting the
+   *  same domain TOGGLES it back off, so the pane is dismissable without
+   *  leaving the hall. */
+  setHallDomain(domain: string | null): void {
+    const next = domain !== null && domain === this.hallDomain ? null : domain;
+    if (next === this.hallDomain) return;
+    this.hallDomain = next;
+    this.requestRender();
+  }
+
+  /** The selected pedestal, for tests + the drawer (mirrors `loadingView`). */
+  selectedHallDomain(): string | null { return this.hallDomain; }
 
   /**
    * The shell's readable state — the external-agent navigation surface
@@ -332,6 +391,15 @@ export class Shell implements LoadingSurface {
         { id: 'newgame.random', label: 'RANDOM WORLD', enabled: true, note: null },
         { id: 'newgame.back', label: 'BACK', enabled: true, note: null },
       ];
+    } else if (screen === 'hall') {
+      // DERIVED from `hallRows` — the same function `drawHallScreen` walks, so a
+      // headless agent's choice list and the painted buttons cannot disagree
+      // about what exists or why a CAST is refused. (The hardcoded `newgame`
+      // arm above is the anti-pattern; it predates that screen having a rows
+      // function at all.)
+      choices = hallRows(this.hallView()).map((r) => ({
+        id: r.id, label: r.label, enabled: r.enabled, note: r.reason,
+      }));
     }
     // `photo` deliberately reports NO choices — see `photo-screen.ts`'s header:
     // there is genuinely nothing to click while a photo is framing (Esc/back is
@@ -539,6 +607,10 @@ export class Shell implements LoadingSurface {
         // screen is up.
         const res = drawNewGameScreen(c, w, h, s, this.newGameView());
         return { ...INERT_DRAW, island: res.island, newgame: res.action };
+      }
+      case 'hall': {
+        const hall = drawHallScreen(c, w, h, s, this.hallView(), this.hallDomain);
+        return hall ? { ...INERT_DRAW, hall } : INERT_DRAW;
       }
       case null:
         return INERT_DRAW;
