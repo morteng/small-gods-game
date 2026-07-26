@@ -19,6 +19,7 @@
 // never a duplicate copy of the derivation.
 import { pathLength, pointAt, segmentIndexAt, type BarrierRun, type BarrierGate } from '@/world/barrier';
 import { parapetHeight } from '@/assetgen/geometry/battlement';
+import { stairFlightExtent } from '@/assetgen/geometry/stair-spec';
 import { mToTiles } from '@/render/scale-contract';
 
 type Pt = [number, number];
@@ -169,7 +170,7 @@ function stairsEnabled(run: BarrierRun): boolean {
  *  opening frame, half a tile clear of the passage + gatehouse (`off`), and the inward unit vector
  *  toward the ring centroid a climbing soldier walks along. `null` when the run has no stair
  *  (uncrenellated, no centroid, non-masonry, or no real gate to stand the flight beside). */
-export function stairPlacementOf(run: BarrierRun): { foot: Pt; dir: Pt; inward: Pt; walkZ: number } | null {
+export function stairPlacementOf(run: BarrierRun): StairPlacement | null {
   if (!stairsEnabled(run)) return null;
   const gate = run.gates.find((g) => isRealGate(g) && !gateSwallowedByGap(run, g));   // the main (first real) gate
   if (!gate) return null;
@@ -180,7 +181,33 @@ export function stairPlacementOf(run: BarrierRun): { foot: Pt; dir: Pt; inward: 
   const foot: Pt = [p[0] - dir[0] * off, p[1] - dir[1] * off];
   const inx = c[0] - foot[0], iny = c[1] - foot[1], m = Math.hypot(inx, iny) || 1;
   const inward: Pt = [inx / m, iny / m];
-  return { foot, dir, inward, walkZ };
+  return { foot, dir, inward, walkZ, t: snappedGateOpening(run, gate).t - off };
+}
+
+/** The mural stair's placement on a ring. `foot` is the flight's reference point ON the wall
+ *  centreline; `t` is that point's PATH DISTANCE along `run.path` — the arc coordinate the on-wall
+ *  movement track is parameterised by, so a soldier stepping off the flight knows where on the
+ *  polyline it has landed (exact wherever the flight sits on the gate's own leg, which is by
+ *  construction — `off` is a couple of tiles). */
+export interface StairPlacement { foot: Pt; dir: Pt; inward: Pt; walkZ: number; t: number }
+
+/** The parametric CLIMB the mural stair defines: the ground point at the flight's bottom step, the
+ *  wall-walk point at its top, and the arc coordinate that top sits at. A garrisoning soldier walks
+ *  the ground to `bottom`, slides `bottom → top` while its height rises `0 → walkZ`, and steps onto
+ *  the allure at path distance `topT`. Derived from `stairFlightExtent` — the same envelope the
+ *  drawn flight is emitted from, never a parallel guess at where the steps are. `null` whenever
+ *  `stairPlacementOf` is (no stair ⇒ no way onto the wall ⇒ no garrison). */
+export function stairClimbOf(run: BarrierRun): { bottom: Pt; top: Pt; walkZ: number; topT: number } | null {
+  const placement = stairPlacementOf(run);
+  if (!placement) return null;
+  const { foot, inward, walkZ, t } = placement;
+  const { topInset, runIn } = stairFlightExtent(walkZ, run.thickness);
+  return {
+    bottom: [foot[0] + inward[0] * runIn, foot[1] + inward[1] * runIn],
+    top: [foot[0] + inward[0] * topInset, foot[1] + inward[1] * topInset],
+    walkZ,
+    topT: t,
+  };
 }
 
 /** Default spacing (tiles) between patrol stations — a soldier every ~2 tiles along the allure. */
@@ -208,6 +235,11 @@ export interface WallStationPosition {
   outward: Pt;
   /** Index into `run.path` of the leg (`path[segIdx] → path[segIdx + 1]`) the station sits on. */
   segIdx: number;
+  /** PATH DISTANCE (tiles) of the station along `run.path` — the arc coordinate the on-wall
+   *  movement track is parameterised by (`arcLengthPoint(run, t)` returns exactly `{x, y}`).
+   *  Carried here so a consumer never has to re-derive the spacing walk (and drift out of step
+   *  with which spans got skipped) just to know how far along the allure a post is. */
+  t: number;
 }
 
 /** Ordered patrol stations along a crenellated ring's wall-walk, at ~`spacing` tiles apart.
@@ -228,7 +260,7 @@ export function wallStations(run: BarrierRun, spacing: number = DEFAULT_STATION_
     const dot = perp[0] * (p[0] - c[0]) + perp[1] * (p[1] - c[1]);
     const sign = dot >= 0 ? 1 : -1;
     const outward: Pt = [perp[0] * sign, perp[1] * sign];
-    out.push({ kind: 'wall_station', x: p[0], y: p[1], walkZ, outward, segIdx: segmentIndexAt(run.path, t) });
+    out.push({ kind: 'wall_station', x: p[0], y: p[1], walkZ, outward, segIdx: segmentIndexAt(run.path, t), t });
   }
   return out;
 }
