@@ -74,7 +74,7 @@ import {
 import { SAVE_VERSION } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
 import { Shell, EMPTY_HALL_VIEW } from '@/render/ui/shell/shell';
-import { ALL_SCREEN_IDS, type ScreenId } from '@/render/ui/shell/shell-state';
+import { isScreenId } from '@/render/ui/shell/shell-state';
 import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
 import type { SaveAction, SaveScreenView, SlotRow } from '@/render/ui/shell/save-screen';
 import type { LoadAction } from '@/render/ui/shell/load-screen';
@@ -191,21 +191,12 @@ function hasQueryFlag(flag: string): boolean {
   catch { return false; }
 }
 
-/** The shell screen ids an `open_screen` command may name. Validated rather than
- *  cast, because this value arrives from OUTSIDE (an agent over the bus) and an
- *  unknown screen must be refused, not pushed onto the stack.
- *
- *  DERIVED from `ALL_SCREEN_IDS`, which the compiler forces to stay exhaustive
- *  over `ScreenId` (see its doc). This used to be a hand-written second list,
- *  and the failure mode was silent: a screen the shell stack accepted was
- *  REFUSED over the external agent API with no error anywhere. */
-const SCREEN_IDS = new Set<ScreenId>(ALL_SCREEN_IDS);
-/** Exported (like `isSettingsKey` below, and for the same stated reason) so
- *  `tests/unit/screen-id-parity.test.ts` can pin the PREDICATE — that every
- *  `ScreenId` really is accepted here — rather than reaching into `Game`. */
-export function isScreenId(v: string): v is ScreenId {
-  return SCREEN_IDS.has(v as ScreenId);
-}
+// The shell screen ids an `open_screen` command may name USED to be a second
+// hand-written list here, drifting freely from the `ScreenId` union — a screen
+// the stack accepted was silently REFUSED over the external agent API. The
+// predicate now lives with the union it decides (`shell-state.isScreenId`), and
+// the union's runtime members are compiler-checked for exhaustiveness there;
+// `tests/unit/screen-id-parity.test.ts` pins both.
 
 /** Validates a bus-supplied slot param the same way `isScreenId` validates a
  *  screen name — an agent's `save_slot`/`load_slot`/`delete_slot` must be

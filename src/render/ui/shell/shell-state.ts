@@ -55,6 +55,22 @@ const SCREEN_ID_KEYS: Record<ScreenId, true> = {
  *  declaration order and carries no meaning — callers treat it as a set. */
 export const ALL_SCREEN_IDS: readonly ScreenId[] = Object.keys(SCREEN_ID_KEYS) as ScreenId[];
 
+/**
+ * Whether an OUTSIDE-supplied string names a screen — the guard `open_screen`
+ * (a meta capability verb, so the value arrives from an agent over the bus)
+ * validates its `screen` param with, rather than casting and trusting.
+ *
+ * It lives here, next to the union it decides, precisely because it used to live
+ * in `game.ts` over a second hand-written list. One module owns the union, its
+ * runtime members, and the predicate over them; there is nothing left to drift.
+ */
+export function isScreenId(v: string): v is ScreenId {
+  // `hasOwnProperty.call`, not `v in SCREEN_ID_KEYS`: the value is untrusted, and
+  // `in` would happily accept 'toString'. (`Object.hasOwn` would read better but
+  // is above this project's `lib` target.)
+  return Object.prototype.hasOwnProperty.call(SCREEN_ID_KEYS, v);
+}
+
 /** A sky/cloud TRANSITION (UI v3 spike): the loading→world DESCENT (clouds
  *  part, camera eases in — starts only once the art-settle gate clears) or
  *  the world→title ASCENT (clouds billow to cover, then `Game` performs the
