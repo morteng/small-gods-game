@@ -14,8 +14,15 @@
 // away, and it still holds with no wall-clock cap until every building/barrier/
 // sheet has settled (`art-settle-gate.ts`, `maxWaitMs` defaults to Infinity).
 // Never add a timeout here.
+//
+// UI v3 sky-transition spike: the loading BACKGROUND is now the animated sky
+// backdrop itself (leaned into, per the title screen's own approach — a narrow
+// scrim band behind the text column, not a full-frame wash), so the loading
+// screen reads as one continuous surface with the title before it and the
+// descent transition after it, rather than a dark box interrupting both.
 
 import type { UiContext } from '@/render/ui/ui-context';
+import { COLOR, SPACING } from '@/render/ui/ui-tokens';
 import { UI_PALETTE } from '@/render/ui/ui-palette';
 import { shade, withAlpha } from '@/render/ui/ui-color';
 import { wrapLines, rotationIndex } from '@/render/ui/shell/text-layout';
@@ -55,12 +62,6 @@ const CHRONICLE_CAPTION = 'FROM THE CHRONICLE OF THIS WORLD';
  * unscaled design px multiplied by it, the same idiom the HUD uses.
  */
 export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number, view: LoadingView): void {
-  // A dark wash over the animated sky backdrop. The backdrop is deliberately
-  // low-contrast, but a rising cloud band can still drift behind the status
-  // label — the wash guarantees the text reads regardless of what the shader
-  // is doing this second.
-  c.rect(0, 0, w, h, withAlpha([0, 0, 0, 1], 0.55));
-
   const fsWord = 6 * s;   // display scale — the wordmark is the largest text on screen
   const fsBody = 2 * s;
   const fsCaption = Math.max(1, Math.round(1.5 * s)); // integer-snapped: no fractional glyph cells
@@ -71,6 +72,23 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
   const cx = Math.round(w / 2);
   let y = Math.round(h * 0.34);
 
+  // Track + chronicle widths are needed for the scrim band below AND for their
+  // own drawing further down — computed once, up front, so both agree.
+  const trackW = Math.round(Math.min(340 * s, w * 0.6));
+  const chronicleMaxW = Math.round(Math.min(520 * s, w * 0.78));
+
+  // ── the text column's own scrim ──
+  // A narrow band behind the text column, not a full-frame wash — the same
+  // idiom `title-screen.ts` uses (§ "the text column's own scrim"): the
+  // animated sky backdrop IS the loading background now, darkened only where
+  // the wordmark/bar/status/chronicle need it to read regardless of what a
+  // cloud band is doing behind them this second.
+  const edge = SPACING.xxl * s;
+  const contentW = Math.max(c.measure(WORDMARK, fsWord), trackW, view.chronicle.length ? chronicleMaxW : 0);
+  const bandW = Math.min(w, contentW + edge * 2);
+  const bandX = Math.round(cx - bandW / 2);
+  c.rect(bandX, 0, bandW, h, withAlpha(COLOR.ink, 0.42));
+
   // ── wordmark ──
   c.labelCentered(WORDMARK, cx, y, fsWord, UI_PALETTE.text);
   y += Math.round(c.lineHeight(fsWord) + 26 * s);
@@ -78,7 +96,6 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
   // ── progress track + fill ──
   // Track width tracks the window (60% at narrow sizes) but caps out, so it
   // never becomes a hairline stretched across an ultrawide display.
-  const trackW = Math.round(Math.min(340 * s, w * 0.6));
   const trackH = Math.max(2, Math.round(4 * s));
   const trackX = Math.round(cx - trackW / 2);
   c.rect(trackX, y, trackW, trackH, withAlpha(shade(UI_PALETTE.panelBg, -0.3), 0.9));
@@ -103,8 +120,7 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
   const text = view.chronicle[idx] ?? '';
   if (!text) return;
 
-  const maxW = Math.round(Math.min(520 * s, w * 0.78));
-  const lines = wrapLines(text, maxW, fsBody, (t, sc) => c.measure(t, sc));
+  const lines = wrapLines(text, chronicleMaxW, fsBody, (t, sc) => c.measure(t, sc));
   const lineGap = Math.round(c.lineHeight(fsBody) + 4 * s);
   // Bail rather than overflow if the window is too short for the block — the
   // excerpt is flavour, the bar above it is the information.

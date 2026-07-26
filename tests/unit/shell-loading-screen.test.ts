@@ -54,17 +54,23 @@ function maxXOfColor(groups: UiDrawGroup[], color: readonly number[]): number {
 }
 
 describe('drawLoadingScreen — the WebGPU heir to the DOM loading overlay', () => {
-  it('paints a full-bleed scrim plus the wordmark and the bar', () => {
+  it('paints a full-HEIGHT scrim BAND (not a full-bleed wash) behind the text column, plus the wordmark and the bar', () => {
+    // UI v3 sky-transition spike: the animated sky backdrop IS the loading
+    // background now — the scrim is a narrow band behind the text column
+    // (title-screen.ts's own idiom), not a full-frame wash. It still spans
+    // the whole HEIGHT (nothing above/below it to leak an un-scrimmed
+    // sliver) but is narrower than the viewport width, and centred.
     const groups = draw(view({ progress: 0.5, label: 'Carving rivers…' }));
     expect(totalVerts(groups)).toBeGreaterThan(0);
     const all = verts(groups, UiPage.Solid);
-    // the scrim covers the target: something is painted at both extremes
     const xs = all.map(([x]) => x);
     const ys = all.map(([, y]) => y);
-    expect(Math.min(...xs)).toBe(0);
     expect(Math.min(...ys)).toBe(0);
-    expect(Math.max(...xs)).toBe(W);
     expect(Math.max(...ys)).toBe(H);
+    expect(Math.min(...xs)).toBeGreaterThan(0);
+    expect(Math.max(...xs)).toBeLessThan(W);
+    // centred on the viewport's midline
+    expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(W / 2, 0);
   });
 
   it('every painted vertex stays inside the target (nothing bleeds off-screen)', () => {
