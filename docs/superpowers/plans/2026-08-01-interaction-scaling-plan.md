@@ -621,3 +621,316 @@ now differ in faith after a single tick (+0.00075 vs exactly 0.0).
   persisted need-direction field would want a save/snapshot round-trip it
   hasn't earned yet. Deferred deliberately; the aggregate store's directional
   `needPressure` (S1.1) is the read path Fate needs.
+
+## Phase 2c — the meaning economy (2026-08-01, `feat/scaling-p2c-meaning`)
+
+Branch off `integration/scaling-p2` (main + 2a + 2b). This slice exists because
+integrating 2a and 2b exposed a blocking defect neither branch owned: **2a
+measured that `meaning` is a one-way street (99.04% of NPC-time in `worship`),
+and 2b's correct tightening of comfort decay to "EVERY need > 0.6" made that
+one-way street fatal to VISION §4's counter-loop.** Both halves of the master
+loop were dead at once.
+
+### The diagnosis, which is sharper than "a constant is mistuned"
+
+R8 stretched the day from **240 ticks to 86,400 fires** — a 360× stretch — and
+left the whole need economy denominated per fire. Sorting the needs by what
+their INFLOW is denominated in explains everything the probes measured:
+
+| need | outflow | inflow | inflow's clock | survived R8? |
+|---|---|---|---|---|
+| `prosperity` | per fire | `work`, ~0.3 per errand | **per fire** | ✅ ratio preserved |
+| `community` | per fire | `socialize`, ~0.3 per errand | **per fire** | ✅ ratio preserved |
+| `safety` | per fire | `sleep` | **once a night** | ❌ 360× |
+| `meaning` | per fire | `answer_prayer` | **a god's attention** | ❌ 360× |
+| `prosperity` (vagrant roles) | per fire | *nothing* — no `work` branch | — | ❌ no channel |
+
+So the conversion was right wherever the mortal's answer to a need is also a
+per-second errand, and wrong by exactly 360× wherever the answer is gated by
+something that is *not* a per-second errand. `meaning` is the extreme case: no
+mortal channel at all, so a rate that meant "erodes over about a day" in the
+compressed era (0.004/fire × a 240-fire day ≈ 1.0/day) became "empties in 250
+real seconds."
+
+**And the lock cascades.** A praying mortal cannot work, sleep or socialize, so
+once `meaning` pinned every OTHER need collapsed behind it. Measured on a
+12-soul village over a full 24-hour day (the real `NpcActivitySystem` +
+`tickNpcEntity` + movement loop, no god, no events):
+
+| | before (`integration/scaling-p2`) | after |
+|---|---|---|
+| `worship` share of all time | **62.5%** (= **100% of waking time**) | **25.5%** |
+| `work` share | 0.03% | 24.7% |
+| prayer subject mix | 96% `safety`, 2% `prosperity`, 1% `meaning` | **100% `meaning`** |
+| prayer episodes / soul / day | 2 (median **13 h** each, i.e. permanent) | **3** (median **2.3 h** each) |
+| mean `safety` | 0.381 | 0.720 |
+| mean `prosperity` | 0.005 | 0.747 |
+| mean `community` | 0.004 | 0.749 |
+| mean `meaning` | 0.000 | 0.319 |
+| desperation fires | **99.98%** at magnitude **0.999** | 74.5% at magnitude **0.243** |
+| comfort fires | 0.00% | 0.00% *(correct — see below)* |
+
+Note the before column's prayer mix: because every need pinned at zero,
+`prayerSubject`'s tie-break handed 96% of all pleas to **`safety`**, not
+`meaning`. The shipped game's prayers were not about what the sim thought they
+were about.
+
+### What was rejected, and why
+
+- **Retuning `MEANING_DECAY` alone** (the plan's option 1). It cannot work: with
+  no mortal inflow, a slower decay only postpones the lock — the mortal still
+  crosses 0.3 and then prays forever, just later. It also leaves the identical
+  defect standing on `safety` and on vagrant `prosperity`.
+- **Separating the petition from the activity** (a standing `prayerNeed` a mortal
+  carries while it goes on working, so pleas can outlive an errand). This is the
+  *architecturally* right end state and would let a plea persist for days, which
+  is what `PRAYER_CLAIM_WINDOW_TICKS` wants. Rejected for this slice on blast
+  radius: `activity === 'worship'` is the plea in ~10 sim/game sites and ~15 test
+  files, and the acceptance criteria are reachable without it. Written up as the
+  follow-up below.
+- **Loosening `COMFORT_THRESHOLD` or the S2b "every need" rule** to make
+  secularization fire. That is moving the assertion instead of the mechanism.
+
+### What shipped
+
+1. **The four need rates are denominated PER DAY** (`FIRES_PER_DAY`, derived from
+   `SIM_TICK_MS`, not written as 86,400). `MEANING_DECAY = 1.0 / FIRES_PER_DAY`
+   restores the original fiction exactly — a full measure of meaning erodes in
+   about a day — and only the denomination moved.
+2. **The communal rite** (`RITE_MEANING_RESTORE`, `MORTAL_MEANING_CEILING`).
+   A mortal performing its plea *at the settlement's public shrine* recovers
+   `meaning` per fire, capped at 0.5 — **below** `COMFORT_THRESHOLD` (0.6).
+   Mortals cope; only a god consoles (VISION §11's rites of the dead, tenet 9).
+   Sized as a **multiple** of the erosion (4:1) because that ratio *is* the
+   observable: the share of a day a mortal spends at the shrine settles at
+   `decay / rite`. Measured worship share with no god: **25.5%** against a design
+   target of 25%. The rite is EARNED — `atVenue`, the same rule S2a.1 put on
+   `socialize` — which makes shrine-reach a spatial property of a settlement
+   (see the claim-window note below).
+3. **A plea is a state, not a threshold sample** (`PLEA_SETTLE_MARGIN`,
+   `standingPlea`). It stands until the need has recovered 0.2 past the line that
+   opened it, so pleas last **hours** — long enough to be seen, answered and
+   claimed — instead of flickering across the line every few seconds. No new
+   state: `props.prayerNeed` (shipped with M0.b) *is* the plea. A fresh, more
+   urgent need still pre-empts a standing one, so raiders interrupt a mourner.
+4. **The household keeps its dependents.** `child`/`beggar`/`elder` have no
+   `work` branch, so `prosperity` was a one-way street for them the way `meaning`
+   was for everyone. A partial living, capped at 0.5 — below contentment, so the
+   poor get by, never prosper, and never secularize. Deliberately **not** tied to
+   an errand: being kept is not something you do, and tying it to `wander` just
+   moves the lock (a dependent that starts praying could never be fed again).
+5. **`COMMUNITY_THRESHOLD` 0.35 → 0.65**, derived: belonging's own sawtooth sat
+   above 0.6 for a third of its cycle and was silently vetoing the comfort band
+   no matter how attentive a god was (measured: comfort 0.24% with a god
+   answering, because community's mean sat at 0.58). The trigger must clear 0.6
+   *and* carry the ~9-hour night, when no mortal channel runs at all.
+6. **`ANSWER_PRAYER_NEED_BOOST` 0.3 → 0.45.** `WORSHIP_THRESHOLDS.meaning` (0.3)
+   + 0.3 is **exactly** `COMFORT_THRESHOLD` (0.6): a god answering a fresh plea
+   landed its follower precisely ON the secularization line and never over it, so
+   the counter-loop's trigger was measure-zero — and the *more attentive* the
+   god, the worse it got, because a prompt answer catches the mortal at the
+   bottom of the band. Measured: comfort **fell** from 1.22% to 0.34% as answers
+   rose from 2.7 to 3.0 per soul per day.
+7. **A material plea no longer pre-empts its own remedy** (`prosperityChannel`,
+   `selfServiceable`). Praying outranks every other errand, so a mortal whose
+   `prosperity` crossed its worship line could never *work* again — and work was
+   the one thing that would have ended the plea. The meaning lock had been hiding
+   it (`prayerSubject`'s tie-break always handed the plea to whatever hit zero
+   first); with that gone, one measurement found it. On a day measured **from
+   dusk** — so every soul sleeps before it can work, and nobody works in the dark
+   — every farmer and merchant spent **100% of its waking hours** praying about
+   bread it was perfectly able to earn, permanently, and worship went back up to
+   52% of all time. The gate is M0's own written rule, which the code had only
+   ever approximated with a low threshold: a plea over bread requires
+   **self-service to be failing**, not merely the need to be low. Only
+   `prosperity` is gated; `safety`'s only channel is a night's sleep (so a day
+   under raiders genuinely cannot be self-served, and nightfall bounds that plea),
+   `community`'s worship line sits a whole day of isolation below its socialize
+   trigger, and `meaning`'s channel is the capped rite.
+
+### Measured acceptance (12 souls, 24 real hours, no events, no rivals)
+
+Run from **dusk** (solar 21:00), so every soul has had a night's sleep before the
+day it is measured on. That matters: `safety`'s only channel is night sleep, and
+a run started in the morning measures a first-day transient in which safety has
+never been restored at all — it sat below the comfort line for 87% of samples and
+made every comfort number meaningless. The *before* column is the same harness on
+`integration/scaling-p2`, started at 08:00; its state is absorbing (every need is
+pinned at zero within ~17 minutes of waking) so the start hour cannot change it —
+`worship` at 62.45% of all time IS 100% of waking hours either way.
+
+| | **before** | **after, no god** | **after, 1.5 answers/soul/day** | **after, 2.0 answers/soul/day** |
+|---|---|---|---|---|
+| `worship` share of all time | **62.5%** (100% of waking) | **30.2%** | 12.9% | 5.6% |
+| `work` share | 0.03% | 21.7% | 31.9% | 38.3% |
+| `socialize` / `wander` / `idle` | 0.02% | 10.6% | 17.7% | 18.7% |
+| prayer episodes / soul / day | ~1, **never lifting** | **2.0** | 1.75 | 2.0 |
+| median plea duration | 13 h (i.e. permanent) | 4.0 h | 1.3 h | 32 min |
+| prayer subjects | 96% `safety`, 3% `prosperity` | **100% `meaning`** | 100% `meaning` | 100% `meaning` |
+| **comfort fires** | **0.00%** | **0.00%** | **15.5%** | **14.8%** |
+| desperation fires | **99.98%** @ magnitude **0.999** | 69.8% @ **0.299** | 52.2% @ 0.225 | 47.4% @ **0.166** |
+| mean `safety` | 0.381 | 0.922 | 0.922 | 0.922 |
+| mean `prosperity` | 0.005 | 0.540 | 0.598 | 0.658 |
+| mean `community` | 0.004 | 0.569 | 0.625 | 0.663 |
+| mean `meaning` | 0.000 | 0.330 | 0.419 | 0.432 |
+
+Against the four acceptance criteria:
+
+- **A godless settlement is not locked in permanent worship.** 100% of waking
+  hours → **30.2% of the whole day**, which is the designed `decay / rite` ratio
+  and reads as a real congregation rather than a lock. `work` goes from 0.03% to
+  21.7%; the encounter economy's gathering supply is the congregation plus
+  `socialize`, and it is now a *rate*, not a permanent state.
+- **Secularization is reachable again**, at **≈1.5 answered prayers per soul per
+  day** — comfort fires 15.5% of the time, from a floor of exactly 0.00%. Note it
+  does **not** rise further with more attention (14.8% at 2.0/soul/day): a god can
+  only answer a plea that is standing, and pleas only open when `meaning` falls
+  under its line, so divine throughput saturates. Comfort is bought by answering
+  *deep into* a plea, not by answering more often — which is a pleasingly Pratchett
+  shape for the comfort trap.
+- **Prayer still matters.** A god's workload went from one permanent plea per soul
+  (unanswerable in any meaningful sense — the mortal never got up) to **2 discrete
+  pleas per soul per day, standing 4 hours each**. For a 12-soul village that is
+  ~24 answerable pleas a day; holding the comfort band takes ~18 of them.
+- **Desperation is not pinned.** 99.98% of samples at magnitude 0.999 (i.e. every
+  soul, at maximum, permanently) → 69.8% at magnitude 0.299 with no god at all,
+  and 47.4% at 0.166 with one. A godless village is *in want* — which is the
+  recruiting ground a small god needs (tenet 1) — without being in extremis.
+- **`prayerNeed` / `prayerSubject` / the `answer_prayer` restore path all still
+  work**, and are now the only prayer path that fires: 100% of pleas carry a
+  subject, and every subject in a healthy village is `meaning`.
+
+### Blast radius: rival claims, the inbox, and Track 3
+
+This is the one place the change costs something, and it is worth stating plainly.
+
+`PRAYER_CLAIM_WINDOW_TICKS` is half a fiction-day = **12 real hours**, and
+`updatePrayerLedger` clears `prayerSince` the moment `activity !== 'worship'`.
+
+- **Pre-existing, and not caused by this slice:** the night branch ends every plea
+  at 21:00, so a prayer's *age* has always been capped by the 15-hour waking day.
+  A 12-hour claim window was only ever reachable by a mortal that prayed from
+  06:00 to 18:00 without stopping — which, before this slice, was every mortal
+  every day, because the plea never lifted.
+- **What changes:** a `meaning` plea now self-settles. Its maximum life is
+  `MORTAL_MEANING_CEILING / (attendance × RITE − MEANING_DECAY)` ≈ **6.7 hours** at
+  the measured 76.5% shrine attendance — comfortably under the claim window. So
+  **rivals can no longer claim a `meaning` plea in a settlement whose people can
+  reach their shrine.**
+- **What still feeds Track 3**, and arguably should be all that ever did: pleas a
+  mortal genuinely cannot settle. A `safety` plea under raiders or plague (no
+  daytime channel, bounded only by nightfall). A `prosperity` plea under a tithe-1
+  lord or an unpayable castle seat (`prosperityChannel` → 0), which persists for as
+  long as the extraction does. And — the interesting one — **a settlement whose
+  shrine is out of reach**: the rite is net-negative below **25% attendance**
+  (`RITE_MEANING_RESTORE` is 4× the decay), so a sprawling settlement where people
+  cannot get to the green *does* rot its pleas, and rivals feed there. That is
+  Phase 2a's `oakshire` geography finding turning into a belief mechanic on its
+  own, and it is the honest version of "rivals eat your neglect" — neglect of a
+  need mortals cannot meet, not of a mood dip.
+- **Recommended follow-up (not done here):** re-derive `PRAYER_CLAIM_WINDOW_TICKS`
+  against the **waking** day rather than the calendar day, since the night resets
+  the clock; or, better, move the ledger onto the petition (below) so a plea's age
+  survives both the night and an errand.
+
+### Deferred, with the reason
+
+- **Separate the petition from the activity.** Today `activity === 'worship'`
+  *is* the plea, in ~10 sim/game sites and ~15 test files. Making `prayerNeed` a
+  standing petition the mortal carries *while it goes on working* would let a plea
+  outlive an errand and a night — which is what the 12-hour claim window wants,
+  and what would let a materially-desperate mortal both pray and act. It is the
+  right end state; it was too much blast radius to fold into the slice that had to
+  unblock Phase 2.
+- **`ABANDON_DECAY` (0.006/fire) is now mis-scaled against hours-long pleas.** It
+  is 6× the base faith decay and roughly 2× the maximum communion inflow, so a
+  mortal annihilates its faith within ~10 minutes of kneeling. Under the old lock
+  that was permanent and invisible (faith measured at 0.005 mean); it is now
+  intermittent, which is strictly better, but the constant wants sizing against
+  the plea's new lifetime. Belief-half constant, deliberately untouched here.
+- **`EVENT_NEED_EFFECTS` are per-fire while event *durations* are in fiction-days**
+  — 0.008/fire over a 0.25–3 day drought is a ~360× overshoot of the same class
+  this slice fixed, and in the other direction `SELF_AGENCY_RESTORE` (0.3 per
+  ~10-second errand) outruns any event effect by ~4:1, so no weather Fate sends
+  can actually move a working mortal's `prosperity`. Both want the same treatment;
+  neither blocks Phase 2.
+- **`ACTIVITY_DURATION_MIN/MAX` (3–12 fires) is the same R8 artifact**: an errand
+  that meant 18–72 fiction-minutes in the compressed era now lasts 3–12 real
+  *seconds*. This is why self-service restores are ~2,500× over-provisioned
+  against per-second decay, and why the green never has anyone standing in it for
+  long. Fixing it is the single biggest lever left on the need economy, and it
+  would let the material needs become pressurable again.
+
+## Phase 2 — final measured state (2026-08-02)
+
+`npx tsx scripts/probe-scaling.ts 12345 --hours 1 --materialize 32` on the merged
+2a + 2b + 2c tree — the same invocation, seed and materialize cap as the Phase 2a
+after-run, so the columns are comparable. One seed, 9 inhabited POIs, 1137 s wall
+(the box was heavily loaded; Phase 2a's equivalent was 218 s).
+
+Run twice, before and after the last two commits, and the output was **identical**
+— `answer_prayer` never fires in this window (see the prayers row), so the boost
+and the self-service gate cannot reach these numbers.
+
+| poi | pop | named | encounters | acquaintances | beliefΔ | prayers |
+|---|---|---|---|---|---|---|
+| ironvein_mine | 36 | 32 | 13 | 16 | 0 | 0 |
+| crossroads_inn | 36 | 32 | 23 | 24 | 0 | 0 |
+| old_watchtower | 36 | 32 | 22 | 22 | 0 | 0 |
+| khar_ordu | 72 | 38 | 85 | 39 | 21.44 | 0 |
+| dawn_temple | 72 | 32 | 12 | 13 | 1.32 | 0 |
+| millbrook_farm | 72 | 32 | 91 | 46 | 0 | 0 |
+| ironkeep_castle | 72 | 32 | 30 | 31 | 0 | 0 |
+| oakshire | 144 | 32 | 31 | 17 | 0 | 0 |
+| stonehaven_city | 144 | 32 | 68 | 34 | 0 | 0 |
+
+| quantity | Phase 0 | after 2a | **after 2c** | R² | n |
+|---|---|---|---|---|---|
+| encounters (vs total pop) | no fit (all zero) | **−0.423** | **+0.690** | 0.241 | 9 |
+| acquaintances | (no mechanism) | **−0.429** | **+0.156** | 0.038 | 9 |
+| rumours | no fit | no fit | no fit (all zero) | — | 0 |
+| beliefDeltaSum | no fit | no fit | no fit (2 settlements) | — | — |
+| prayers | no fit | +0.006 | **no fit (all zero)** | — | 0 |
+| roadSurface | −0.930 | −0.951 | −0.951 | 0.643 | 5 |
+| buildings | 1.851 | 1.850 | 1.850 | 0.693 | 9 |
+
+### Reading this honestly
+
+**The encounter slope changed sign, and that is not a demonstration of
+superlinear scaling.** R² is 0.241 — a weak fit through nine points whose x-range
+is 36→144 while the population that can actually interact was pinned at 32 in
+every settlement by `--materialize 32`. What can be said is narrower and still
+worth saying: the per-capita interaction rate is **no longer falling** with
+settlement size, and the residual negative signal Phase 2a traced to geography
+(`oakshire`, spread over 22 buildings, still under-performs at 31 encounters
+against `millbrook_farm`'s 91) is now the dominant remaining effect. Sociology
+did not beat geography; it stopped being masked by it.
+
+**Phase 2a's structural finding stands unchanged and this slice does not
+challenge it:** `MAX_SOCIAL_DEGREE` (12) plus a per-pair `ENCOUNTER_COOLDOWN_TICKS`
+(30 real minutes) caps any mortal at 24 encounters an hour regardless of town
+size, so per-capita encounter rate is transiently rising and **asymptotically
+flat**. Getting a superlinear exponent out of this channel needs the degree cap to
+become size-dependent or the cooldown to stop being per-pair. Neither cap was
+touched to move a number.
+
+**Prayers are now zero at a 1-hour probe window, and that is a non-result caused
+by the fix, not a regression.** A fresh soul is seeded at `meaning` 0.45 ± 0.1 and
+now falls at `MEANING_DECAY` = 1.0/day, so it needs
+`(0.45 − 0.30) / MEANING_DECAY` ≈ **3.6 game-hours** to reach its worship line —
+where before it took 35 seconds. The probe's window is shorter than the time it
+takes a mortal to develop a spiritual need, which is exactly the point of the
+change and exactly why the window has to grow. **`probe-scaling` needs ≥4
+game-hours to measure the prayer channel at all**, and ~24 to measure it in steady
+state; at 1137 s per seed-game-hour on a loaded box that is a server-CI job, not a
+laptop one. The 24-hour numbers in the acceptance table above come from a
+micro-village harness for exactly this reason.
+
+**`beliefDeltaSum` and `rumours` are unchanged non-results with unchanged causes**
+(materialized extras spawn with no relationships, so communion has no graph to run
+on; `spreadRumour` needs `domains` nobody carries). Both were called out in Phase
+2a and neither is touched by the belief or the meaning half.
+
+**Structural quantities are bit-identical** (−0.951 road, 1.850 buildings), which
+is the control: nothing in this slice touches worldgen, and nothing in it should
+have moved them.

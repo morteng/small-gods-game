@@ -57,7 +57,27 @@ const MIRACLE_FAITH_BOOST = 0.3;   // per NPC in settlement
 const MIRACLE_UNDERSTANDING_BOOST = 0.05;
 
 const ANSWER_PRAYER_FAITH_BOOST = 0.2;
-const ANSWER_PRAYER_NEED_BOOST = 0.3; // Answer restores the need the plea asked for (M0.b)
+/**
+ * Answer restores the need the plea asked for (M0.b) — and must carry it CLEAR
+ * of contentment, not merely to the edge of it.
+ *
+ * S2c raised this 0.3 → 0.45 on a measured arithmetic collision: a `meaning`
+ * plea opens at `WORSHIP_THRESHOLDS.meaning` (0.3), and 0.3 + 0.3 is EXACTLY
+ * `COMFORT_THRESHOLD` (0.6). A god answering a fresh plea therefore landed its
+ * follower precisely ON the comfort line and never over it, so "comfort kills
+ * belief" (VISION §4's counter-loop, and §7 Act 2's whole mid-game problem) was
+ * a measure-zero event — and the more ATTENTIVE the god, the worse it got,
+ * because a prompt answer catches the mortal at the bottom of the band. Measured
+ * over a 24-hour day: comfort fired 1.22% of the time at 2.7 answers/soul/day
+ * and *fell* to 0.34% at 3.0, for exactly that reason.
+ *
+ * 0.45 clears the line from anywhere in the plea band (0.3 → 0.75, and a late
+ * answer near `MORTAL_MEANING_CEILING` → 0.95) while still buying only ~8 hours
+ * of contentment against `MEANING_DECAY` — generous, not permanent. It also sits
+ * just above `MIRACLE_NEED_BOOST` (0.4), which is right: a miracle is broad (a
+ * whole settlement) where an Answer is deep (the one soul that asked).
+ */
+export const ANSWER_PRAYER_NEED_BOOST = 0.45;
 const ANSWER_UNDERSTANDING_BOOST = 0.04; // a heard prayer teaches a little of your form
 
 // ── Belief-content attribution (Track B) ─────────────────────────────────────

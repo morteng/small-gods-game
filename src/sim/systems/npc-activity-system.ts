@@ -28,6 +28,22 @@
  * Both stamp `props.gathering` so the encounter sim can tell "out at the green"
  * from "indoors at home", and both are honest about arrival — see the self-agency
  * note on `SELF_AGENCY_RESTORE` below.
+ *
+ * THE MEANING ECONOMY (interaction-scaling S2c). Three pieces here, and one
+ * retune in `npc-sim.ts`, close the defect that made 99% of all NPC-time
+ * `worship`: `meaning` eroded on a 250-second clock and NOTHING mortal restored
+ * it, so every soul crossed its worship line within ~35 seconds and prayed
+ * forever — which, since a praying mortal cannot work, sleep or socialize, then
+ * collapsed the other three needs behind it.
+ *   • `RITE_MEANING_RESTORE` — the communal rite. A mortal performing its plea at
+ *     the public shrine recovers `meaning` per fire, capped at
+ *     `MORTAL_MEANING_CEILING` (0.5), which sits BELOW the `COMFORT_THRESHOLD`
+ *     (0.6) that fires secularization. Mortals cope; only a god consoles.
+ *   • `PLEA_SETTLE_MARGIN` / `standingPlea` — a plea is a STATE with hysteresis,
+ *     not a threshold sample, so it stands for hours (answerable, claimable,
+ *     visible) instead of flickering on and off the line every few seconds.
+ *   • `COMMUNITY_THRESHOLD` — moved so belonging's own sawtooth stops vetoing the
+ *     comfort band and stops firing spurious desperation.
  */
 
 import type { Entity, NpcActivity, NpcNeeds, NpcProperties, GameMap } from '@/core/types';
@@ -35,7 +51,7 @@ import type { World } from '@/world/world';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
-import { clamp01 } from '@/sim/npc-sim';
+import { clamp01, MEANING_DECAY } from '@/sim/npc-sim';
 import { solarHourForTick } from '@/core/calendar';
 import { titheRateFor, workRestoreScale, patrolAnchorFor, DEFAULT_TITHE } from '@/sim/lord';
 import { marketAnchorTile } from '@/sim/population/settlement-demand';
@@ -62,13 +78,34 @@ const ACTIVITY_DURATION_MAX = 12;
 
 /**
  * For day-mode activity: weight threshold for "socialize" (community < this → socialize).
+ *
+ * S2c: raised 0.35 → 0.65, which moves the band a mortal's `community` oscillates
+ * in from [0.35, 0.65] to [0.65, 0.95] (the trigger plus `SELF_AGENCY_RESTORE`).
+ * The number is derived, not taste. Since S2b, comfort decay needs EVERY need
+ * above `COMFORT_THRESHOLD` (0.6), so belonging's own sawtooth was silently
+ * vetoing secularization no matter how attentive a god was: measured over a
+ * 24-hour day, comfort fired 0.24% of the time with a god answering, because
+ * community's mean sat at 0.58. For belonging to STAY inside the comfort band it
+ * must trigger above 0.6 AND carry enough headroom to cross the ~9-hour night,
+ * when no mortal channel runs at all (0.375 of a day × `COMMUNITY_DECAY` ≈ 0.19).
+ * 0.65 + 0.3 − 0.19 = 0.76 clears it. The frequency of the trip to the green is
+ * unchanged — that is set by `COMMUNITY_DECAY` against the restore, not by where
+ * the trigger sits — and the old trough (0.35) also dipped under
+ * `DESPERATION_THRESHOLD` (0.4) every cycle, firing the fear-boost on a mortal
+ * who was merely due an evening out.
+ *
+ * The point of all this: with the material needs sitting inside the comfort band
+ * whenever mortals are managing (tenet 9), `meaning` becomes the SOLE gate on
+ * contentment — so "comfort kills belief" reduces to "a god that keeps its
+ * flock's meaning topped up dissolves itself", which is exactly VISION §7 Act 2.
  */
-const COMMUNITY_THRESHOLD = 0.35;
+const COMMUNITY_THRESHOLD = 0.65;
 
 /**
  * M0.a — worship fires on the LOWEST need, per-need thresholds (VISION §9 rows
- * 11–12; mortal-power spec M0). `meaning` has no mortal channel at all — only a
- * god Answers — so it prays early (the classic 0.3). The material needs have
+ * 11–12; mortal-power spec M0). `meaning`'s only channels are a god's Answer and
+ * the communal rite (S2c, `RITE_MEANING_RESTORE`) — and the rite is capped well
+ * short of contentment — so it prays early (the classic 0.3). The material needs have
  * self-serve channels (`work`/`sleep`/`socialize` restore them, tenet 9:
  * "mortals act first; the god is the margin"), so only DESPERATION — self-service
  * failing to keep up (raiders, extraction, a lord's tithe) — sends a mortal to
@@ -85,19 +122,100 @@ export const WORSHIP_THRESHOLDS: Record<keyof NpcNeeds, number> = {
 const NEED_KEYS: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'community', 'meaning'];
 
 /** The need this mortal would pray about right now: the lowest need that has
- *  crossed its worship threshold, or null when none has (no plea). */
-export function prayerSubject(needs: NpcNeeds): keyof NpcNeeds | null {
+ *  crossed its worship threshold, or null when none has (no plea).
+ *
+ *  `selfServed` names the needs this mortal can still do something about ITSELF
+ *  (see `selfServiceable`) — those never become a plea, because a mortal acts
+ *  first and the god is the margin (tenet 9). Optional: omitted, this is the
+ *  bare threshold rule exactly as M0.b shipped it. */
+export function prayerSubject(needs: NpcNeeds, selfServed?: ReadonlySet<keyof NpcNeeds>): keyof NpcNeeds | null {
   let subject: keyof NpcNeeds | null = null;
   let lowest = Infinity;
   for (const k of NEED_KEYS) {
+    if (selfServed?.has(k)) continue;
     const v = needs[k];
     if (v < WORSHIP_THRESHOLDS[k] && v < lowest) { lowest = v; subject = k; }
   }
   return subject;
 }
 
+/**
+ * S2c — HOW FAR a need must recover before a STANDING plea settles.
+ *
+ * `prayerSubject` alone is a bare threshold, and a bare threshold cannot make a
+ * plea: the moment anything nudged the need a hair over the line the mortal got
+ * up, and the moment it fell back it knelt again. What the sim needs is a plea
+ * that lasts long enough to be SEEN and ANSWERED — by the player, by Fate's
+ * inbox, by a rival's claim clock — so a plea, once made, stands until the need
+ * it was made about has risen this far ABOVE the line that opened it. A Schmitt
+ * trigger, and it needs no new state: `props.prayerNeed` (shipped with M0.b) is
+ * the plea, and it already rides the snapshot.
+ *
+ * It is also what makes SECULARIZATION reachable at all. `answer_prayer` adds
+ * `ANSWER_PRAYER_NEED_BOOST` (0.3) to the need asked for; with a bare threshold
+ * the god could only ever answer a mortal sitting exactly at 0.3, landing it at
+ * exactly `COMFORT_THRESHOLD` and never above — so "comfort kills belief"
+ * (VISION §4) could not fire. Answering a mortal partway through a standing plea
+ * lands it well above the line, which is the god OVER-serving: the trap.
+ */
+export const PLEA_SETTLE_MARGIN = 0.2;
+
+/**
+ * The CEILING the mortal channel for `meaning` can carry a soul to — and the
+ * whole of "mortals cope, gods console" (VISION §11's rites of the dead, tenet 9
+ * "mortals act first; the god is the margin").
+ *
+ * It lands exactly on the level at which a `meaning` plea settles, and that is
+ * the design, not a coincidence: the rite carries a mourner to the far side of
+ * its own grief and NOT ONE STEP FURTHER. It is deliberately BELOW
+ * `COMFORT_THRESHOLD` (0.6), so a settlement no god attends can keep its feet —
+ * it is not locked on its knees — but can never be CONTENT. Everything above
+ * this line belongs to the gods, and that is the only reason a well-served
+ * population can drift into secularization while a neglected one cannot.
+ */
+export const MORTAL_MEANING_CEILING = WORSHIP_THRESHOLDS.meaning + PLEA_SETTLE_MARGIN;
+
+/**
+ * The communal rite: `meaning` restored per fire to a mortal PERFORMING its plea
+ * at the settlement's public heart (S2a.1 sent worship out to the green for
+ * exactly this reason — devotion is performed in front of the neighbours).
+ *
+ * Sized as a MULTIPLE of the erosion it fights, because that ratio *is* the
+ * observable: a mortal climbs at (rite − decay) and falls at decay, so the share
+ * of its life spent at the shrine settles at `decay / rite` — 1:4 here, a
+ * quarter of the day during a spiritual crisis, which is what a pre-modern
+ * religious community actually looks like. Change the ratio to change the
+ * congregation; changing `MEANING_DECAY` alone leaves it where it is.
+ */
+export const RITE_MEANING_RESTORE = MEANING_DECAY * 4;
+
+/**
+ * The plea this mortal is making right now.
+ *
+ * A FRESH plea always wins: any need that has actually crossed its own
+ * `WORSHIP_THRESHOLDS` line outranks whatever the mortal was already praying
+ * about, so raiders at the gate interrupt a mourner (and `prayerSubject` picks
+ * the lowest of them, unchanged). Otherwise a plea ALREADY STANDING persists
+ * until it has settled — recovered `PLEA_SETTLE_MARGIN` past the line that
+ * opened it. No new state: the plea is `props.prayerNeed`, which is only ever
+ * set alongside `activity === 'worship'` and cleared with it.
+ */
+export function standingPlea(props: NpcProperties, selfServed?: ReadonlySet<keyof NpcNeeds>): keyof NpcNeeds | null {
+  const fresh = prayerSubject(props.needs, selfServed);
+  if (fresh !== null) return fresh;
+  const open = props.prayerNeed;
+  if (open !== undefined && props.activity === 'worship'
+      && props.needs[open] < WORSHIP_THRESHOLDS[open] + PLEA_SETTLE_MARGIN) return open;
+  return null;
+}
+
 /** Need restored when an NPC completes a self-serviced activity. */
 const SELF_AGENCY_RESTORE = 0.3;
+
+/** The most `prosperity` a mortal with no work of its own (`VAGRANT_ROLES`) can
+ *  reach on its household's keeping — see the `wander`/`idle` case below. Below
+ *  `COMFORT_THRESHOLD` (0.6) on purpose: the poor get by, and stay reachable. */
+const DEPENDENT_PROSPERITY_CEILING = 0.5;
 
 /** How close (Chebyshev tiles) to the settlement's gathering tile counts as
  *  HAVING GOT THERE. Wider than `ENCOUNTER_RADIUS` (2) because the crowd spreads
@@ -184,8 +302,74 @@ export class NpcActivitySystem implements System {
         && Math.abs(e.y - (venue.y + 0.5)) <= VENUE_ARRIVAL_RADIUS;
   }
 
+  /**
+   * How well this mortal can feed ITSELF right now, 0..1 — the scale on its own
+   * `prosperity` channel. One function so the restores below and the plea gate
+   * can never disagree about whether working is worth anything:
+   *   • a dependent (`VAGRANT_ROLES`) is KEPT by its household — always fed;
+   *   • a patrolling knight is paid out of his seat's extraction (M5) — a
+   *     tithe-0 lord cannot keep knights, and they sink until they pray;
+   *   • everyone else works, scaled by the lord's tithe (M0.c) — a lord who
+   *     takes everything makes work futile, and futile work is what sends a
+   *     peasant to its knees over bread.
+   */
+  private prosperityChannel(world: World, props: NpcProperties): number {
+    if (VAGRANT_ROLES.has(props.role)) return 1;
+    if (props.role === 'soldier' && patrolAnchorFor(world, props.homePoiId) !== null) {
+      return clamp01((world.lords.get(props.homePoiId ?? '')?.tithe ?? 0) / DEFAULT_TITHE);
+    }
+    if (WORKING_ROLES.has(props.role)) return workRestoreScale(titheRateFor(world, props.homePoiId));
+    return 0;
+  }
+
+  /**
+   * S2c — the needs this mortal can still do something about ITSELF, which
+   * therefore never become a plea (tenet 9: "mortals act first; the god is the
+   * margin", and M0's own note that only self-service FAILING sends a mortal to
+   * its knees over bread).
+   *
+   * Without this gate a material plea is a ONE-WAY DOOR: praying pre-empts the
+   * very errand that would end it, so a mortal knocked under its bread line for
+   * any reason at all — a single night's sleep is enough, since nobody works in
+   * the dark — could never work again. Measured on a day started at dusk, that
+   * is exactly what happened: every farmer and merchant in the village spent
+   * **100% of its waking hours** praying about bread it was perfectly able to
+   * earn, permanently, and mean `prosperity` sat at 0.26.
+   *
+   * Only `prosperity` is gated, because only `prosperity` measured as a lock.
+   * `meaning` is never here — its mortal channel IS the rite, which is capped
+   * short of contentment, so the plea is real. `safety` is never here either,
+   * and that is the point: its only channel is a night's sleep, so by day a
+   * mortal under raiders genuinely CANNOT help itself and prays — and at night
+   * the night branch has already pre-empted the plea, which is what bounds that
+   * one (a safety plea ends at bedtime, not never). `community` is not here
+   * either, deliberately: its worship line (0.15) sits so far under its
+   * socialize trigger (0.65) that a mortal only reaches it after roughly a day
+   * of never getting to the green, which is a real isolation worth a prayer —
+   * and the longest plea that can hold it away from the green costs it 0.13.
+   */
+  private selfServiceable(world: World, props: NpcProperties): ReadonlySet<keyof NpcNeeds> {
+    const out = new Set<keyof NpcNeeds>();
+    if (this.prosperityChannel(world, props) > 0) out.add('prosperity');
+    return out;
+  }
+
   private tickNpcActivity(e: Entity, solarHour: number, world: World): void {
     const props = npcProps(e);
+
+    // THE COMMUNAL RITE (S2c) — the mortal channel for `meaning`, and the one
+    // thing that lets a settlement no god attends get back off its knees. It is
+    // paid PER FIRE (not on completion like the self-agency restores below)
+    // because it is the time spent at the shrine that does the work, and because
+    // the plea it settles is measured in hours; and it is paid only to a mortal
+    // that ACTUALLY GOT THERE (`atVenue`, the same earned-arrival rule S2a.1 put
+    // on `socialize`), so a rite is performed among the neighbours and not
+    // claimed from a doorstep halfway across town. Hard-capped at
+    // `MORTAL_MEANING_CEILING`: mortals cope, gods console.
+    if (props.activity === 'worship' && props.needs.meaning < MORTAL_MEANING_CEILING
+        && this.atVenue(e, props)) {
+      props.needs.meaning = Math.min(MORTAL_MEANING_CEILING, props.needs.meaning + RITE_MEANING_RESTORE);
+    }
 
     // If the current activity hasn't expired yet, don't re-evaluate
     if (props.activityDuration > 0) {
@@ -194,13 +378,15 @@ export class NpcActivitySystem implements System {
     }
 
     // Self-agency: the finished activity restores its own need (the god is the margin).
-    // `worship` is excluded — meaning is restored only when a god Answers.
+    // `worship` is excluded HERE — its restore is the per-fire communal rite at
+    // the top of this method, capped at `MORTAL_MEANING_CEILING`, not a full
+    // `SELF_AGENCY_RESTORE` on completion. Above that ceiling only a god Answers.
     // M0.c (mortal-power spec, model (c)): a seated lord's tithe scales the WORK
     // restore — you work as hard and you get less. No lord ⇒ scale 1 (unchanged).
     switch (props.activity) {
       case 'work':
         props.needs.prosperity = clamp01(props.needs.prosperity +
-          SELF_AGENCY_RESTORE * workRestoreScale(titheRateFor(world, props.homePoiId)));
+          SELF_AGENCY_RESTORE * this.prosperityChannel(world, props));
         break;
       case 'patrol': {
         // M5: a knight is PAID from the extraction his patrol carries — the
@@ -208,9 +394,8 @@ export class NpcActivitySystem implements System {
         // full pay). A Peace of God that caps the sworn lord's tithe halves
         // the pay; a tithe-0 lord cannot keep knights fed — their prosperity
         // sinks until they pray (M0) like any other desperate mortal.
-        const castleSeat = world.lords.get(props.homePoiId ?? '');
-        const pay = clamp01((castleSeat?.tithe ?? 0) / DEFAULT_TITHE);
-        props.needs.prosperity = clamp01(props.needs.prosperity + SELF_AGENCY_RESTORE * pay);
+        props.needs.prosperity = clamp01(props.needs.prosperity +
+          SELF_AGENCY_RESTORE * this.prosperityChannel(world, props));
         break;
       }
       case 'socialize':
@@ -228,7 +413,23 @@ export class NpcActivitySystem implements System {
         }
         break;
       case 'sleep':     props.needs.safety     = clamp01(props.needs.safety     + SELF_AGENCY_RESTORE); break;
-      default: break; // idle, wander, worship → no self-restore
+      default: break; // idle, wander, worship → see the two channels below
+    }
+
+    // S2c — THE HOUSEHOLD KEEPS ITS DEPENDENTS. The vagrant roles (child, beggar,
+    // elder) are the only mortals with no `work` branch at all, so `prosperity`
+    // was a one-way street for them exactly the way `meaning` was for everyone —
+    // they crossed their worship line and then prayed about bread forever. A
+    // child is fed, an elder kept by kin, a beggar begs: a partial living, CAPPED
+    // (the same primitive as the rite) below `COMFORT_THRESHOLD`, so the
+    // destitute get by, never prosper, and — since comfort decay needs EVERY need
+    // met — never secularize either. Deliberately NOT tied to an errand the way
+    // work is: being KEPT is not something you do, so it reaches a dependent who
+    // is at the shrine, which is the whole point (tie it to `wander` and a
+    // dependent that starts praying can never be fed again — the lock, moved).
+    if (VAGRANT_ROLES.has(props.role) && props.needs.prosperity < DEPENDENT_PROSPERITY_CEILING) {
+      props.needs.prosperity = Math.min(DEPENDENT_PROSPERITY_CEILING,
+        props.needs.prosperity + SELF_AGENCY_RESTORE);
     }
 
     // Determine new activity and target
@@ -245,7 +446,7 @@ export class NpcActivitySystem implements System {
 
     // M0.a: the plea check runs FIRST — desperation outranks the social calendar
     // (pre-M0, low community pre-empted worship and only `meaning` could pray).
-    const plea = isNight ? null : prayerSubject(props.needs);
+    const plea = isNight ? null : standingPlea(props, this.selfServiceable(world, props));
 
     if (isNight) {
       // Night: everybody sleeps at home
