@@ -156,6 +156,18 @@ describe('a plea is a state, not a threshold sample', () => {
     expect(standingPlea(p)).toBeNull();
   });
 
+  it('a need the mortal can serve itself never becomes a plea (tenet 9)', () => {
+    // S2c: without this gate a material plea is a one-way door — praying
+    // pre-empts the errand that would end it. A farmer with a workable farm
+    // WORKS, however hungry; only futile work (M0.c, a lord taking everything)
+    // sends it to its knees over bread.
+    const p = initNpcProps('a', 'farmer', 3);
+    p.needs = { safety: 0.9, prosperity: 0.05, community: 0.9, meaning: 0.9 };
+
+    expect(prayerSubject(p.needs)).toBe('prosperity');
+    expect(prayerSubject(p.needs, new Set(['prosperity']))).toBeNull();
+  });
+
   it('a fresh, more urgent need pre-empts a standing plea', () => {
     const p = initNpcProps('a', 'farmer', 3);
     p.needs = { safety: 0.05, prosperity: 0.9, community: 0.9, meaning: 0.35 };

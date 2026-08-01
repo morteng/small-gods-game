@@ -153,6 +153,15 @@ describe('NpcActivitySystem', () => {
       // work rather than heading for the green — this test is about the plea.
       needs: { safety: 0.8, prosperity: 0.1, community: 0.9, meaning: 0.7 },
     });
+    npcProps(e).homePoiId = 'poi1';
+    // S2c: the plea over BREAD now requires what M0's own note always said it
+    // required — self-service FAILING. A farmer with a workable farm goes to
+    // work, however hungry, because praying pre-empts the errand that would end
+    // the hunger and the plea would never lift (measured: every working soul in
+    // a village stuck at 100% of its waking hours praying about bread it could
+    // have earned). A lord taking everything (M0.c, workRestoreScale → 0) is the
+    // documented cause of futile work, so this test now states it.
+    world.lords.set('poi1', { npcId: 'l', lineageId: 'l', tithe: 1, garrison: 0, unrest: 0, keepTier: 0 });
 
     system.tick(createContext(world, 50));
     expect(npcProps(e).activity).toBe('worship');
@@ -203,17 +212,19 @@ describe('NpcActivitySystem', () => {
   it('clears prayerNeed when the next re-evaluation picks a different activity', () => {
     const map = makeMap();
     const world = new World(map);
+    // A `meaning` plea: this test is about the plea FIELD being cleared, and
+    // meaning is the need with no self-service to gate it (S2c).
     const e = makeNpc(world, 'lars', 'farmer', {
       // community stated ABOVE COMMUNITY_THRESHOLD so the settled mortal resumes
       // work rather than heading for the green — this test is about the plea.
-      needs: { safety: 0.8, prosperity: 0.1, community: 0.9, meaning: 0.7 },
+      needs: { safety: 0.8, prosperity: 0.9, community: 0.9, meaning: 0.1 },
     });
 
     system.tick(createContext(world, 50));
-    expect(npcProps(e).prayerNeed).toBe('prosperity');
+    expect(npcProps(e).prayerNeed).toBe('meaning');
 
     // The plea is met off-screen; when the activity expires, work resumes.
-    npcProps(e).needs.prosperity = 0.9;
+    npcProps(e).needs.meaning = 0.9;
     npcProps(e).activityDuration = 0;
     system.tick(createContext(world, 51));
     expect(npcProps(e).activity).toBe('work');

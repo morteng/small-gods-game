@@ -122,11 +122,17 @@ export const WORSHIP_THRESHOLDS: Record<keyof NpcNeeds, number> = {
 const NEED_KEYS: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'community', 'meaning'];
 
 /** The need this mortal would pray about right now: the lowest need that has
- *  crossed its worship threshold, or null when none has (no plea). */
-export function prayerSubject(needs: NpcNeeds): keyof NpcNeeds | null {
+ *  crossed its worship threshold, or null when none has (no plea).
+ *
+ *  `selfServed` names the needs this mortal can still do something about ITSELF
+ *  (see `selfServiceable`) — those never become a plea, because a mortal acts
+ *  first and the god is the margin (tenet 9). Optional: omitted, this is the
+ *  bare threshold rule exactly as M0.b shipped it. */
+export function prayerSubject(needs: NpcNeeds, selfServed?: ReadonlySet<keyof NpcNeeds>): keyof NpcNeeds | null {
   let subject: keyof NpcNeeds | null = null;
   let lowest = Infinity;
   for (const k of NEED_KEYS) {
+    if (selfServed?.has(k)) continue;
     const v = needs[k];
     if (v < WORSHIP_THRESHOLDS[k] && v < lowest) { lowest = v; subject = k; }
   }
@@ -194,8 +200,8 @@ export const RITE_MEANING_RESTORE = MEANING_DECAY * 4;
  * opened it. No new state: the plea is `props.prayerNeed`, which is only ever
  * set alongside `activity === 'worship'` and cleared with it.
  */
-export function standingPlea(props: NpcProperties): keyof NpcNeeds | null {
-  const fresh = prayerSubject(props.needs);
+export function standingPlea(props: NpcProperties, selfServed?: ReadonlySet<keyof NpcNeeds>): keyof NpcNeeds | null {
+  const fresh = prayerSubject(props.needs, selfServed);
   if (fresh !== null) return fresh;
   const open = props.prayerNeed;
   if (open !== undefined && props.activity === 'worship'
@@ -296,6 +302,58 @@ export class NpcActivitySystem implements System {
         && Math.abs(e.y - (venue.y + 0.5)) <= VENUE_ARRIVAL_RADIUS;
   }
 
+  /**
+   * How well this mortal can feed ITSELF right now, 0..1 — the scale on its own
+   * `prosperity` channel. One function so the restores below and the plea gate
+   * can never disagree about whether working is worth anything:
+   *   • a dependent (`VAGRANT_ROLES`) is KEPT by its household — always fed;
+   *   • a patrolling knight is paid out of his seat's extraction (M5) — a
+   *     tithe-0 lord cannot keep knights, and they sink until they pray;
+   *   • everyone else works, scaled by the lord's tithe (M0.c) — a lord who
+   *     takes everything makes work futile, and futile work is what sends a
+   *     peasant to its knees over bread.
+   */
+  private prosperityChannel(world: World, props: NpcProperties): number {
+    if (VAGRANT_ROLES.has(props.role)) return 1;
+    if (props.role === 'soldier' && patrolAnchorFor(world, props.homePoiId) !== null) {
+      return clamp01((world.lords.get(props.homePoiId ?? '')?.tithe ?? 0) / DEFAULT_TITHE);
+    }
+    if (WORKING_ROLES.has(props.role)) return workRestoreScale(titheRateFor(world, props.homePoiId));
+    return 0;
+  }
+
+  /**
+   * S2c — the needs this mortal can still do something about ITSELF, which
+   * therefore never become a plea (tenet 9: "mortals act first; the god is the
+   * margin", and M0's own note that only self-service FAILING sends a mortal to
+   * its knees over bread).
+   *
+   * Without this gate a material plea is a ONE-WAY DOOR: praying pre-empts the
+   * very errand that would end it, so a mortal knocked under its bread line for
+   * any reason at all — a single night's sleep is enough, since nobody works in
+   * the dark — could never work again. Measured on a day started at dusk, that
+   * is exactly what happened: every farmer and merchant in the village spent
+   * **100% of its waking hours** praying about bread it was perfectly able to
+   * earn, permanently, and mean `prosperity` sat at 0.26.
+   *
+   * Only `prosperity` is gated, because only `prosperity` measured as a lock.
+   * `meaning` is never here — its mortal channel IS the rite, which is capped
+   * short of contentment, so the plea is real. `safety` is never here either,
+   * and that is the point: its only channel is a night's sleep, so by day a
+   * mortal under raiders genuinely CANNOT help itself and prays — and at night
+   * the night branch has already pre-empted the plea, which is what bounds that
+   * one (a safety plea ends at bedtime, not never). `community` is not here
+   * either, deliberately: its worship line (0.15) sits so far under its
+   * socialize trigger (0.65) that a mortal only reaches it after roughly a day
+   * of never getting to the green, which is a real isolation worth a prayer —
+   * and the longest plea that can hold it away from the green costs it 0.13.
+   */
+  private selfServiceable(world: World, props: NpcProperties): ReadonlySet<keyof NpcNeeds> {
+    const out = new Set<keyof NpcNeeds>();
+    if (this.prosperityChannel(world, props) > 0) out.add('prosperity');
+    return out;
+  }
+
   private tickNpcActivity(e: Entity, solarHour: number, world: World): void {
     const props = npcProps(e);
 
@@ -328,7 +386,7 @@ export class NpcActivitySystem implements System {
     switch (props.activity) {
       case 'work':
         props.needs.prosperity = clamp01(props.needs.prosperity +
-          SELF_AGENCY_RESTORE * workRestoreScale(titheRateFor(world, props.homePoiId)));
+          SELF_AGENCY_RESTORE * this.prosperityChannel(world, props));
         break;
       case 'patrol': {
         // M5: a knight is PAID from the extraction his patrol carries — the
@@ -336,9 +394,8 @@ export class NpcActivitySystem implements System {
         // full pay). A Peace of God that caps the sworn lord's tithe halves
         // the pay; a tithe-0 lord cannot keep knights fed — their prosperity
         // sinks until they pray (M0) like any other desperate mortal.
-        const castleSeat = world.lords.get(props.homePoiId ?? '');
-        const pay = clamp01((castleSeat?.tithe ?? 0) / DEFAULT_TITHE);
-        props.needs.prosperity = clamp01(props.needs.prosperity + SELF_AGENCY_RESTORE * pay);
+        props.needs.prosperity = clamp01(props.needs.prosperity +
+          SELF_AGENCY_RESTORE * this.prosperityChannel(world, props));
         break;
       }
       case 'socialize':
@@ -389,7 +446,7 @@ export class NpcActivitySystem implements System {
 
     // M0.a: the plea check runs FIRST — desperation outranks the social calendar
     // (pre-M0, low community pre-empted worship and only `meaning` could pray).
-    const plea = isNight ? null : standingPlea(props);
+    const plea = isNight ? null : standingPlea(props, this.selfServiceable(world, props));
 
     if (isNight) {
       // Night: everybody sleeps at home
