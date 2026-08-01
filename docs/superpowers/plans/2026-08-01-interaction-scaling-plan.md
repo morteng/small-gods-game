@@ -54,6 +54,46 @@ is the roadmap." The audit says it's worse, in useful ways:
    (`src/sim/npc-sim.ts:61`) reads only the scalar `computeMood()` mean — and
    differentiated need is the microstate the whole theory runs on.
 
+## Prerequisites the world does not yet meet (measured 2026-08-01, at P4/P5 integration)
+
+Three *world* limitations — not code defects — that currently make parts of the
+theory unmeasurable. Recorded here because each one silently caps what a later
+phase can honestly claim, and because the natural reflex on meeting them is to
+loosen a threshold until a number appears, which is precisely the failure mode
+this plan exists to avoid.
+
+1. **Settlements have no internal street networks.** Intra-settlement paved area
+   is dominated by whether a *trunk* road happens to transit the settlement's
+   extent, not by streets it grew for itself. Measured on seed 12345:
+   `khar_ordu` holds **2.0** paved tiles inside a 19.3-tile-radius disc, against
+   `oakshire`'s **40.7** — a 15× spread in paved density across settlements of
+   near-identical size. **Consequence:** the 5/6 infrastructure exponent is not
+   observable at all yet, and `scaling.infrastructure-sublinear` (P4) will keep
+   measuring trunk incidence until this changes. It is also the *mechanism* half
+   of the plan's §6 regime transition (a settlement without a street hierarchy
+   sits in the weak 2/3 regime) — so this is a gameplay gap, not just a metrology
+   one. Road-wear promotion already exists; what is missing is intra-settlement
+   street *generation* for it to act on.
+2. **Population sparsity across settlements.** On seed 12345 only **3** of ~20
+   POIs have any dwelling capacity at all, and they span just **28–46** souls
+   (1.6×). On seed 777 only **2** do, so no cross-settlement fit is possible at
+   any threshold. **Consequence:** every cross-settlement scaling fit — structural
+   or dynamic — is starved of an x-lever. P4's contract is gated on a ≥3×
+   population range for exactly this reason and is presently silent by design.
+   Phase 3's mean-field population dynamics is the first thing that could
+   plausibly separate a city from a hamlet; until then, treat any cross-settlement
+   exponent as unmeasured.
+3. **Named NPCs live in one settlement.** Phase 0 found the entire named
+   population concentrated in `khar_ordu`. **Consequence:** anything measured per
+   *named* NPC (encounter rate, rumour spread) is a single-settlement sample and
+   cannot be fitted against size at all — which is why P4's population proxy is
+   authored housing capacity rather than headcount, and why the dynamic exponents
+   need the probe's `--materialize` path rather than the live world.
+
+**The discipline these imply:** when a slope cannot be measured, the contract
+stays SILENT and says "not measurable yet" — never "linear", never "sublinear".
+Silence is a finding. Lowering a gate until a number appears is not.
+
 ## Plan shape
 
 Six phases, each an independently shippable slice with its own tests. Order is
