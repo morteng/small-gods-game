@@ -192,6 +192,18 @@ export function removeSoul(sc: SettlementCohorts, soul: SoulObservation): void {
 export const STAT_UNTITHED_PROSPERITY = 0.5;
 
 /**
+ * The statistical tier's `community` equilibrium (S2c). A materialized extra
+ * inherits its band's need means, and materialization is NOT a birth — it is the
+ * sim making a soul that has lived here for years VISIBLE, so it must arrive in
+ * the band it has been living in: `COMMUNITY_THRESHOLD` (0.65) to that plus
+ * `SELF_AGENCY_RESTORE` (0.95), midpoint 0.8. Seeded at 0.5 an extra arrived
+ * BELOW its own socialize line and walked to the green before it had ever worked
+ * a day. Must agree with the named tier's spawn value in `initNpcProps`;
+ * `tests/unit/npc-spawn-bands.test.ts` fails if either drifts.
+ */
+export const STAT_COMMUNITY_EQUILIBRIUM = 0.8;
+
+/**
  * M3 / M0.c — the lord's tithe pressed onto the STATISTICAL tier (the spec's
  * cohort double-accounting warning: every lord effect must hit both tiers).
  * The named tier feels the tithe as a scaled `work` self-restore; the mirror
@@ -437,7 +449,12 @@ export function seedStatisticalCohorts(
       const perBand = apportion(statPop, STAT_BAND_WEIGHTS);
       perBand.forEach((n, i) => {
         sc.bands[i].count = n;
-        if (n > 0) sc.bands[i].needs = { safety: 0.5, prosperity: 0.5, community: 0.5, meaning: 0.5 };
+        if (n > 0) {
+          sc.bands[i].needs = {
+            safety: 0.5, prosperity: STAT_UNTITHED_PROSPERITY,
+            community: STAT_COMMUNITY_EQUILIBRIUM, meaning: 0.5,
+          };
+        }
       });
       const sid = dominantSpiritForPoi(poi.id, namedSc, spirits);
       if (sid !== null) {

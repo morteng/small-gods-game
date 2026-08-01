@@ -172,10 +172,21 @@ export function initNpcProps(name: string, role: NpcRole, seed: number): NpcProp
   const baseFaith = ROLE_FAITH[role] * (0.5 + personality.piety * 0.5);
   const needsRng = new Random(seed ^ 0xdeadbeef);
   const jitter = () => (needsRng.next() - 0.5) * 0.2;
+  // A soul is born INSIDE the band it will live in. `community` oscillates
+  // between `COMMUNITY_THRESHOLD` and that plus `SELF_AGENCY_RESTORE` —
+  // [0.65, 0.95] — so 0.8 is its midpoint. The old 0.55 was the midpoint of the
+  // OLD band ([0.35, 0.65]) and was left behind when S2c moved the trigger, which
+  // put every mortal in the world below its own socialize line at spawn: a fresh
+  // soul's very first errand was a trip to the green, ahead of work or patrol.
+  // Deliberately a plain literal rather than an import — `src/sim/npc-sim.ts`
+  // already imports THIS module, so reaching back for the constant would close a
+  // cycle (the `WALK_TILES_PER_SECOND` precedent in `npc-activity-system.ts`).
+  // It must agree with `COMMUNITY_THRESHOLD`; `tests/unit/npc-spawn-bands.test.ts`
+  // is what fails if it stops agreeing.
   const needs = {
     safety:     clamp01(0.6  + jitter()),
     prosperity: clamp01(0.5  + jitter()),
-    community:  clamp01(0.55 + jitter()),
+    community:  clamp01(0.8  + jitter()),
     meaning:    clamp01(0.45 + jitter()),
   };
   const mood = (needs.safety + needs.prosperity + needs.community + needs.meaning) / 4;
