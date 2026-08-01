@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { NpcActivitySystem } from '@/sim/systems/npc-activity-system';
+import { NpcActivitySystem, VENUE_ARRIVAL_RADIUS } from '@/sim/systems/npc-activity-system';
 import { initNpcProps, npcProps } from '@/world/npc-helpers';
 import { World } from '@/world/world';
 import { createRng } from '@/core/rng';
@@ -15,6 +15,17 @@ function makeMap(w = 20, h = 20): GameMap {
     tiles.push(row);
   }
   return { tiles, width: w, height: h, villages: [], seed: 1, success: true, worldSeed: null, stats: { iterations: 0, backtracks: 0 }, buildings: [] };
+}
+
+/** A map whose `village` settlement plan puts its well (the gathering tile) at
+ *  (vx,vy) — what `marketAnchorTile` resolves for the S2a venue-bound errands. */
+function mapWithVenue(vx: number, vy: number, w = 60, h = 60): GameMap & { settlementPlans: unknown[] } {
+  const map = makeMap(w, h) as GameMap & { settlementPlans: unknown[] };
+  map.settlementPlans = [{
+    poiId: 'village', center: { x: vx, y: vy }, nodes: [], edges: [], slots: [], lots: [],
+    wards: [], market: [], civics: [{ type: 'well', x: vx, y: vy, w: 1, h: 1 }],
+  }] as never;
+  return map;
 }
 
 function makeNpc(world: World, id: string, role: 'farmer' | 'priest' | 'merchant' | 'elder' | 'child' | 'beggar' = 'farmer', overrides?: Partial<ReturnType<typeof initNpcProps>>): Entity {
@@ -300,5 +311,154 @@ describe('NpcActivitySystem', () => {
     const r1 = run(42);
     const r2 = run(42);
     expect(r1).toEqual(r2);
+  });
+});
+
+// ── Interaction scaling S2a.1: the public green ─────────────────────────────
+
+describe('NpcActivitySystem — public gathering (S2a.1)', () => {
+  const VENUE = { x: 40, y: 40 };
+
+  function villager(world: World, id: string, homeX: number, homeY: number) {
+    const e = makeNpc(world, id, 'farmer');
+    const p = npcProps(e);
+    p.homePoiId = 'village';
+    p.homeX = homeX; p.homeY = homeY;
+    e.x = homeX; e.y = homeY;
+    world.updateEntity(id, { x: homeX, y: homeY });
+    return e;
+  }
+
+  it('a low-community mortal is sent to the settlement green, not its doorstep', () => {
+    const map = mapWithVenue(VENUE.x, VENUE.y);
+    const world = new World(map);
+    const e = villager(world, 'eve', 10, 10);
+    npcProps(e).needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    const p = npcProps(e);
+    expect(p.activity).toBe('socialize');
+    expect(Math.abs(p.activityTargetX! - VENUE.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(p.activityTargetY! - VENUE.y)).toBeLessThanOrEqual(1);
+    expect(p.gathering).toBe(true);
+  });
+
+  it('a plea is made IN PUBLIC — worship targets the green and flags `gathering`', () => {
+    const map = mapWithVenue(VENUE.x, VENUE.y);
+    const world = new World(map);
+    const e = villager(world, 'frank', 10, 10);
+    npcProps(e).needs = { safety: 0.8, prosperity: 0.8, community: 0.6, meaning: 0.2 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    const p = npcProps(e);
+    expect(p.activity).toBe('worship');
+    expect(p.prayerNeed).toBe('meaning');       // the plea itself is unchanged
+    expect(Math.abs(p.activityTargetX! - VENUE.x)).toBeLessThanOrEqual(1);
+    expect(p.gathering).toBe(true);
+  });
+
+  it('with no resolvable venue, worship falls back to the doorstep and is NOT a gathering', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'gret', 'farmer');
+    npcProps(e).needs = { safety: 0.8, prosperity: 0.8, community: 0.6, meaning: 0.2 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    const p = npcProps(e);
+    expect(p.activity).toBe('worship');
+    expect(p.gathering).toBeUndefined();
+  });
+
+  it('`gathering` is cleared when the mortal goes back to work', () => {
+    const map = mapWithVenue(VENUE.x, VENUE.y);
+    const world = new World(map);
+    const e = villager(world, 'hana', 10, 10);
+    const p = npcProps(e);
+    p.needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+    const sys = new NpcActivitySystem(() => map);
+    sys.tick(createContext(world, 50));
+    expect(p.gathering).toBe(true);
+
+    p.needs.community = 0.9;
+    p.activityDuration = 0;
+    sys.tick(createContext(world, 51));
+    expect(p.activity).toBe('work');
+    expect(p.gathering).toBeUndefined();
+  });
+
+  it('a venue-bound errand budgets the WALK on top of its dwell', () => {
+    const near = mapWithVenue(12, 10);
+    const far = mapWithVenue(VENUE.x, VENUE.y);
+    const durationFor = (map: GameMap): number => {
+      const world = new World(map);
+      const e = villager(world, 'iris', 10, 10);
+      npcProps(e).needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+      new NpcActivitySystem(() => map).tick(createContext(world, 50));
+      return npcProps(e).activityDuration;
+    };
+    // Same seed → same dwell draw; the difference is purely the travel allowance.
+    expect(durationFor(far)).toBeGreaterThan(durationFor(near) + 15);
+  });
+
+  it('SELF-AGENCY IS EARNED: community is NOT restored for a socialize that never arrived', () => {
+    const map = mapWithVenue(VENUE.x, VENUE.y);
+    const world = new World(map);
+    const e = villager(world, 'jonn', 10, 10);      // still at home, far from the green
+    const p = npcProps(e);
+    p.activity = 'socialize';
+    p.activityDuration = 0;
+    p.needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    expect(p.needs.community).toBeCloseTo(0.2, 10);  // no company, no restore
+  });
+
+  it('… and IS restored once the mortal actually got to the green', () => {
+    const map = mapWithVenue(VENUE.x, VENUE.y);
+    const world = new World(map);
+    const e = villager(world, 'kira', VENUE.x + VENUE_ARRIVAL_RADIUS - 1, VENUE.y);
+    const p = npcProps(e);
+    p.activity = 'socialize';
+    p.activityDuration = 0;
+    p.needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    expect(p.needs.community).toBeCloseTo(0.5, 10);
+  });
+
+  it('a venue-less world keeps the pre-S2a unconditional restore (orphans, tests)', () => {
+    const map = makeMap();
+    const world = new World(map);
+    const e = makeNpc(world, 'lior', 'farmer');
+    const p = npcProps(e);
+    p.activity = 'socialize';
+    p.activityDuration = 0;
+    p.needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    expect(p.needs.community).toBeCloseTo(0.5, 10);
+  });
+
+  it('a market VISITOR gathers where it stands, not at its source village\'s well', () => {
+    // Its cohort (`far_village`) has a well at (50,50); MaterializationSystem
+    // seats the visitor on the HOST's square at (10,10) via homeX/homeY. Marching
+    // it home to pray would empty the market it came to.
+    const map = mapWithVenue(50, 50);
+    (map.settlementPlans as unknown[]).push({
+      poiId: 'far_village', center: { x: 50, y: 50 }, nodes: [], edges: [], slots: [],
+      lots: [], wards: [], market: [], civics: [{ type: 'well', x: 50, y: 50, w: 1, h: 1 }],
+    });
+    const world = new World(map);
+    const e = makeNpc(world, 'vis', 'merchant');
+    const p = npcProps(e);
+    p.homePoiId = 'far_village';
+    p.visitorTemp = true;
+    p.homeX = 10; p.homeY = 10;
+    p.needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    expect(p.activity).toBe('socialize');
+    expect(Math.abs(p.activityTargetX! - 10)).toBeLessThanOrEqual(1);
+    expect(Math.abs(p.activityTargetY! - 10)).toBeLessThanOrEqual(1);
   });
 });

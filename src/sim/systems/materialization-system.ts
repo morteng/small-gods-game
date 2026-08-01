@@ -58,6 +58,7 @@ import {
 import { roadNeighbours } from '@/world/road-neighbours';
 import type { SettlementFluxTally } from '@/sim/settlement-flux';
 import { initNpcProps, queryNpcs, npcProps, NPC_KIND } from '@/world/npc-helpers';
+import { dropRelationshipsTo } from '@/sim/social-graph';
 import { snapToLand } from '@/world/land-snap';
 import { solarHourForTick, dayIndexForTick } from '@/core/calendar';
 import { TICKS_PER_YEAR, ageInYears } from '@/sim/mortality';
@@ -267,10 +268,12 @@ export class MaterializationSystem implements System, SerializableSystem {
       const e = ctx.world.registry.get(ref.id);
       if (e && e.kind === NPC_KIND && sc) {
         addSoul(sc, foldObservation(e, ctx.now));        // bank the (possibly drifted) soul
+        this.dissolveAcquaintances(ctx, e);
         ctx.world.removeEntity(ref.id);
       } else if (e) {
         // Entity mutated out of npc (shouldn't happen — extras are excluded from
         // mortality); drop it without double-banking.
+        this.dissolveAcquaintances(ctx, e);
         ctx.world.removeEntity(ref.id);
       }
       this.live.delete(ref.id);
@@ -393,8 +396,10 @@ export class MaterializationSystem implements System, SerializableSystem {
       const e = ctx.world.registry.get(ref.id);
       if (e && e.kind === NPC_KIND && sc) {
         addSoul(sc, foldObservation(e, ctx.now));        // bank the (possibly drifted) soul
+        this.dissolveAcquaintances(ctx, e);
         ctx.world.removeEntity(ref.id);
       } else if (e) {
+        this.dissolveAcquaintances(ctx, e);
         ctx.world.removeEntity(ref.id);
       }
       this.visitors.delete(ref.id);
@@ -423,6 +428,33 @@ export class MaterializationSystem implements System, SerializableSystem {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  /** Interaction scaling S2a.2: an extra can now make friends at the green while
+   *  it is materialized (`addAcquaintance`). Those edges are recorded on the
+   *  SURVIVORS as well, so folding the soul away without erasing them leaves
+   *  every partner holding a relationship to an entity id that no longer exists —
+   *  dead weight against `MAX_SOCIAL_DEGREE` that can never fire an encounter
+   *  again. Acquaintances of a folded soul dissolve (see `dropRelationshipsTo`
+   *  for why banking them is not worth it); the fold itself stays
+   *  conservation-exact, because a relationship is not a soul. Skipped entirely
+   *  for the common case — an extra that never spoke to anyone. */
+  private dissolveAcquaintances(ctx: SystemContext, e: { id: EntityId; properties?: Record<string, unknown> }): void {
+    if ((npcProps(e as never).relationships?.length ?? 0) === 0) return;
+    dropRelationshipsTo(queryNpcs(ctx.world), e.id);
+  }
+
+  /** PROBE-ONLY seam (interaction-scaling S2a.3). Materializes up to `n` extras
+   *  at `poi` immediately, bypassing focus / dwell / RECONCILE_BUDGET — the three
+   *  things that make this system camera-driven and therefore invisible to a
+   *  headless probe, which is why every settlement but one read as "zero named
+   *  NPCs" in the Phase 0 baseline. Uses the SAME `spawnN` the game does, so what
+   *  the probe measures is the shipped materialization path, not a replica of it.
+   *  No game code calls this; nothing about the live behaviour changes. */
+  materializeForProbe(ctx: SystemContext, poi: string, n: number): EntityId[] {
+    const materialized = new Map<string, EntityId[]>();
+    this.spawnN(ctx, poi, n, n, materialized);
+    return materialized.get(poi) ?? [];
+  }
 
   private liveCount(poi: string): number {
     let n = 0;

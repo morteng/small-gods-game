@@ -2,12 +2,13 @@
  * NpcEncounterSystem — mortals actually MEET ("A Town You Can Watch", Phase 2).
  *
  * Runs at 1 Hz, AFTER the activity + movement systems have placed everyone this
- * tick and BEFORE belief propagation. The activity system now sends socializing
- * mortals to their settlement's gathering tile (the well), so neighbours
+ * tick and BEFORE belief propagation. The activity system sends mortals on the
+ * two PUBLIC errands — `socialize`, and (since S2a.1) `worship` — to their
+ * settlement's gathering tile (the well at the green's heart), so neighbours
  * converge there. This system detects the meetings that fall out of that
  * convergence and makes them MEAN something:
  *
- *   two socially-tied mortals, both `socialize`, co-located within
+ *   two socially-tied mortals, both AT A GATHERING, co-located within
  *   ENCOUNTER_RADIUS, whose pair-cooldown has elapsed → an encounter:
  *     • their trust shifts — warmth for kin/friends, friction for rivals. The
  *       social graph, frozen at spawn until now, finally moves at runtime.
@@ -26,11 +27,30 @@
  * believe the god EXISTS to believe what it does — so this rides faith, never
  * moves it. "The sim is truth; dialog animates it."
  *
- * Deterministic: no rng at all (every effect is a fixed delta), pairs fire in a
- * canonical id order (a.id < b.id) so A-meets-B is counted once. The per-pair
- * cooldown map is sim truth that lives outside the entity world, so the system
- * joins the WP-D snapshot seam (serialize/hydrate) — a scrubbed-and-committed
- * timeline must not inherit "already met" ghosts from a discarded future.
+ * ACQUAINTANCE FORMATION (interaction-scaling S2a.2) is the second pass, and the
+ * reason encounter rate can scale with DENSITY at all. Before it, the edge set
+ * was frozen at worldgen by `seedSocialGraph` and nothing ever created a
+ * `Relationship` at runtime — so a town of 200 produced exactly as many meetings
+ * per head as a hamlet of 6, and materialized extras (who spawn with NO
+ * relationships) could never interact with anyone, ever. Now: two gathering
+ * mortals who are co-located and DON'T yet know each other may strike up an
+ * acquaintance — a weak `friend` edge — and thereafter meet like anyone else.
+ * The rate is `min(sociability) × ACQUAINTANCE_RATE` (the shyer of the pair sets
+ * the pace, which also makes the roll order-independent), and it is bounded on
+ * BOTH sides so a market square never collapses into a complete graph:
+ * `MAX_ACQUAINTANCES_PER_DAY` new edges per mortal per game-day, and
+ * `MAX_SOCIAL_DEGREE` total edges. Density still raises the rate — more bodies
+ * at the well means more candidate pairs per head — but a mortal's social world
+ * stays humanly sized.
+ *
+ * Deterministic: the encounter half draws no rng at all (every effect is a fixed
+ * delta) and pairs fire in a canonical id order (a.id < b.id) so A-meets-B is
+ * counted once; the acquaintance half takes ONE value from `ctx.rng` per tick to
+ * seed a local stream (the `NpcActivitySystem` pattern), never `Math.random`.
+ * The per-pair cooldown map and the per-day edge budget are sim truth that lives
+ * outside the entity world, so the system joins the WP-D snapshot seam
+ * (serialize/hydrate) — a scrubbed-and-committed timeline must not inherit
+ * "already met" ghosts, or a spent edge budget, from a discarded future.
  */
 
 import type { Entity, EntityId, BeliefDomain, NpcProperties } from '@/core/types';
@@ -38,12 +58,32 @@ import type { SpiritId } from '@/core/spirit';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import type { System, SystemContext } from '@/core/scheduler';
 import type { SerializableSystem } from '@/core/system-state';
-import { TICKS_PER_DAY } from '@/core/calendar';
+import { TICKS_PER_DAY, dayIndexForTick } from '@/core/calendar';
+import { Random } from '@/core/noise';
 import { recordMemory, computeSalience } from '@/llm/interaction-memory';
 import { addDomainBelief, getDomainBelief } from '@/sim/belief-domains';
+import { addAcquaintance } from '@/sim/social-graph';
 
-/** Chebyshev tile radius within which two socializing mortals count as "met". */
+/** Chebyshev tile radius within which two gathering mortals count as "met". */
 export const ENCOUNTER_RADIUS = 2;
+
+/** Per co-located tick, the chance the shyer of two strangers at the green says
+ *  something: `min(sociability) × ACQUAINTANCE_RATE`. Small — a passing crowd
+ *  yields the odd new name, not a phone book — but at 1 Hz a pair that keeps
+ *  sharing a bench for a few minutes will probably speak. */
+export const ACQUAINTANCE_RATE = 0.02;
+
+/** Trust a brand-new acquaintance starts at: barely more than a stranger, and
+ *  well under the `seedSocialGraph` community band (0.2–0.7). It warms from
+ *  there through ordinary encounters (TRUST_WARMTH) if they keep meeting. */
+export const ACQUAINTANCE_TRUST = 0.15;
+
+/** Budget: new edges one mortal may form per GAME DAY, and the total number of
+ *  social ties it can carry. Both caps are what keep encounter rate density-
+ *  DEPENDENT rather than density-EXPLOSIVE: without them a big enough gathering
+ *  converges on a complete graph and the per-capita rate runs away as O(N). */
+export const MAX_ACQUAINTANCES_PER_DAY = 3;
+export const MAX_SOCIAL_DEGREE = 12;
 
 /** A given pair meets meaningfully at most once per this window (real time,
  *  derived from the day so it survives any tick-rate change) ≈ 30 real minutes.
@@ -69,12 +109,41 @@ function pairKey(a: EntityId, b: EntityId): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
+/**
+ * Is this mortal OUT AMONG PEOPLE right now? The two public errands qualify:
+ *  • `socialize` — always, exactly as before S2a (a mortal socializing on its own
+ *    doorstep because its settlement has no resolvable venue still counts; that
+ *    is the map-less/orphan fallback and the shipped tests' world).
+ *  • `worship` — only when the activity system actually sent it to the green
+ *    (`gathering`). A soul praying alone at its own hearth (no venue, old save)
+ *    is not in company and must not strike up acquaintances with the neighbours
+ *    through the wall.
+ * Every other activity — work, patrol, wander, idle, sleep — is not a gathering:
+ * standing near someone at a plough is not a meeting.
+ */
+function isGathering(p: NpcProperties): boolean {
+  return p.activity === 'socialize' || (p.activity === 'worship' && p.gathering === true);
+}
+
 export class NpcEncounterSystem implements System, SerializableSystem {
   readonly name = 'npc_encounter';
   readonly tickHz = 1;
 
   /** pairKey → sim tick of the pair's last meaningful encounter. */
   private lastMet = new Map<string, number>();
+
+  /** Per-mortal count of acquaintances formed on `budgetDay` (S2a.2 budget).
+   *  Cleared wholesale when the game-day rolls over, so it stays bounded by the
+   *  number of mortals that gathered today. */
+  private newEdgesToday = new Map<EntityId, number>();
+  private budgetDay = -1;
+
+  /** Local stream for the acquaintance roll, re-seeded from ONE `ctx.rng` draw
+   *  per tick (the `NpcActivitySystem` pattern) so the number of values this
+   *  system takes from the shared stream never depends on how crowded the green
+   *  is — replay stays identical however many strangers happen to be standing
+   *  next to each other. */
+  private rng = new Random(0);
 
   // ── Probe-only instrumentation seam (interaction-scaling Phase 0) ──────────
   // Optional, settable AFTER construction (no constructor change, no call-site
@@ -86,9 +155,12 @@ export class NpcEncounterSystem implements System, SerializableSystem {
   // `npc_encounter` SimEvent already uses).
   onEncounter?: (a: EntityId, b: EntityId, poiId: string | undefined, warm: boolean) => void;
   onRumour?: (fromId: EntityId, toId: EntityId, poiId: string | undefined) => void;
+  /** Fired once per acquaintance edge-PAIR formed (S2a.2), in canonical id order. */
+  onAcquaintance?: (a: EntityId, b: EntityId, poiId: string | undefined) => void;
 
   tick(ctx: SystemContext): void {
     const now = ctx.now;
+    this.rng = new Random(ctx.rng.next() * 0x7fffffff);
 
     // Drop stale cooldowns (past the window they can re-fire anyway) so the map
     // stays bounded to recently-active pairs.
@@ -96,12 +168,19 @@ export class NpcEncounterSystem implements System, SerializableSystem {
       if (now - t >= ENCOUNTER_COOLDOWN_TICKS) this.lastMet.delete(k);
     }
 
+    const day = dayIndexForTick(now);
+    if (day !== this.budgetDay) { this.budgetDay = day; this.newEdgesToday.clear(); }
+
     const byId = new Map<EntityId, Entity>();
-    forEachNpc(ctx.world, (e) => byId.set(e.id, e));
+    const gatherers: Entity[] = [];
+    forEachNpc(ctx.world, (e) => {
+      byId.set(e.id, e);
+      if (isGathering(npcProps(e))) gatherers.push(e);
+    });
 
     for (const a of byId.values()) {
       const pa = npcProps(a);
-      if (pa.activity !== 'socialize' || pa.relationships.length === 0) continue;
+      if (!isGathering(pa) || pa.relationships.length === 0) continue;
 
       for (const rel of pa.relationships) {
         // Canonical order: only the lower id drives the pair, so we fire once.
@@ -109,7 +188,7 @@ export class NpcEncounterSystem implements System, SerializableSystem {
         const b = byId.get(rel.npcId);
         if (!b) continue;
         const pb = npcProps(b);
-        if (pb.activity !== 'socialize') continue;
+        if (!isGathering(pb)) continue;
 
         // Co-located? Chebyshev distance on tile coords.
         if (Math.abs(a.x - b.x) > ENCOUNTER_RADIUS || Math.abs(a.y - b.y) > ENCOUNTER_RADIUS) continue;
@@ -122,6 +201,69 @@ export class NpcEncounterSystem implements System, SerializableSystem {
         this.fireEncounter(a, b, rel.type, now, ctx);
       }
     }
+
+    this.formAcquaintances(gatherers);
+  }
+
+  /**
+   * S2a.2 — strangers who keep sharing the green start to know each other.
+   *
+   * Runs AFTER the edge-pair pass so a brand-new edge cannot also fire an
+   * encounter on the same tick (they've only just said hello). Candidate pairs
+   * come out of a coarse hash grid rather than an N² sweep, because a crowded
+   * market is exactly the case this feature exists to make common — cell size is
+   * `ENCOUNTER_RADIUS + 1`, so every co-located pair lives in the 3×3
+   * neighbourhood of a's cell and none is missed. Iteration order is world order
+   * (the `forEachNpc` order the rest of the sim already relies on) and each pair
+   * is considered once in canonical id order, so the roll sequence is replayable.
+   */
+  private formAcquaintances(gatherers: Entity[]): void {
+    if (gatherers.length < 2) return;
+
+    const cell = ENCOUNTER_RADIUS + 1;
+    const grid = new Map<string, Entity[]>();
+    for (const e of gatherers) {
+      const k = `${Math.floor(e.x / cell)},${Math.floor(e.y / cell)}`;
+      const bucket = grid.get(k);
+      if (bucket) bucket.push(e); else grid.set(k, [e]);
+    }
+
+    for (const a of gatherers) {
+      const pa = npcProps(a);
+      const cx = Math.floor(a.x / cell);
+      const cy = Math.floor(a.y / cell);
+      neighbourhood:
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const bucket = grid.get(`${cx + dx},${cy + dy}`);
+          if (!bucket) continue;
+          for (const b of bucket) {
+            if (!this.canFormEdge(a.id, pa)) break neighbourhood;   // a is full for today
+            if (!(a.id < b.id)) continue;                 // canonical order, once per pair
+            if (Math.abs(a.x - b.x) > ENCOUNTER_RADIUS || Math.abs(a.y - b.y) > ENCOUNTER_RADIUS) continue;
+            const pb = npcProps(b);
+            if (!this.canFormEdge(b.id, pb)) continue;
+            if (pa.relationships.some(r => r.npcId === b.id)) continue;   // already known
+
+            // The shyer of the two sets the pace — symmetric, so the roll does
+            // not depend on which of the pair the outer loop reached first.
+            const chance = Math.min(pa.personality.sociability, pb.personality.sociability) * ACQUAINTANCE_RATE;
+            if (this.rng.next() >= chance) continue;
+
+            addAcquaintance(a, b, ACQUAINTANCE_TRUST);
+            this.newEdgesToday.set(a.id, (this.newEdgesToday.get(a.id) ?? 0) + 1);
+            this.newEdgesToday.set(b.id, (this.newEdgesToday.get(b.id) ?? 0) + 1);
+            this.onAcquaintance?.(a.id, b.id, pa.homePoiId);
+          }
+        }
+      }
+    }
+  }
+
+  /** Both budget caps for one mortal: today's new-edge allowance and total degree. */
+  private canFormEdge(id: EntityId, p: NpcProperties): boolean {
+    return (this.newEdgesToday.get(id) ?? 0) < MAX_ACQUAINTANCES_PER_DAY
+        && p.relationships.length < MAX_SOCIAL_DEGREE;
   }
 
   private fireEncounter(
@@ -166,12 +308,25 @@ export class NpcEncounterSystem implements System, SerializableSystem {
   }
 
   serialize(): unknown {
-    return { lastMet: [...this.lastMet] };
+    return {
+      lastMet: [...this.lastMet],
+      newEdgesToday: [...this.newEdgesToday],
+      budgetDay: this.budgetDay,
+    };
   }
 
   hydrate(state: unknown): void {
-    const s = state as { lastMet?: [string, number][] } | undefined;
+    const s = state as {
+      lastMet?: [string, number][];
+      newEdgesToday?: [EntityId, number][];
+      budgetDay?: number;
+    } | undefined;
     this.lastMet = new Map(Array.isArray(s?.lastMet) ? s!.lastMet : []);
+    // S2a.2: the per-day acquaintance budget is history, not a derived value —
+    // a scrub-back that dropped it would hand every mortal a fresh allowance for
+    // a day it has already half-spent. Absent (pre-S2a saves) ⇒ clean slate.
+    this.newEdgesToday = new Map(Array.isArray(s?.newEdgesToday) ? s!.newEdgesToday : []);
+    this.budgetDay = typeof s?.budgetDay === 'number' ? s.budgetDay : -1;
   }
 }
 
