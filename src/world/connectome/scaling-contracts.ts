@@ -78,7 +78,30 @@ const SUBLINEAR_SLOPE_THRESHOLD = 1.0;
  *  below this a line has no meaningful residual (2 points always fit exactly). */
 const MIN_SETTLEMENTS = 3;
 
-interface FitResult { slope: number; r2: number; n: number }
+/**
+ * Minimum population DYNAMIC RANGE (largest/smallest, as a natural log) before a fitted
+ * exponent means anything. `ln 3` — the world's biggest settlement must hold at least 3× the
+ * smallest one it is being fitted against.
+ *
+ * This gate is load-bearing, not defensive boilerplate. Measured on the default world
+ * (seed 12345, 2026-08-01): the three fittable settlements are khar_ordu (pop 28, surface
+ * 2.0), stonehaven_city (40, 11.9) and oakshire (46, 40.7) — population spans 1.6× while
+ * surface spans 20×, which fits a slope of 5.873 at R²=0.980. That number is an artifact of
+ * dividing a large y-spread by an almost-absent x-lever, NOT a measurement of scaling: road
+ * surface here varies with whether a trunk happens to pass through a settlement's extent,
+ * which is uncorrelated with its size. Reporting it would be exactly the "contract measuring
+ * noise" the plan warns against, and an R² computed from 3 points against 2 fitted parameters
+ * has one residual degree of freedom — it cannot distinguish signal from a coincidence.
+ *
+ * So the contract stays SILENT until the world actually grows settlements of differing size
+ * (Phase 3's mean-field population dynamics, or settlement growth running long enough to
+ * separate a city from a hamlet). Silence here means "not measurable yet", never "sublinear" —
+ * the same discipline Phase 0's baseline used when it refused to report a slope it couldn't
+ * attribute.
+ */
+const MIN_LOG_POP_SPREAD = Math.log(3);
+
+interface FitResult { slope: number; r2: number; n: number; popMin: number; popMax: number }
 
 /** Least-squares log-log slope + R². Small and self-contained rather than imported from
  *  `scripts/probe-scaling.ts`: that script is a standalone probe harness, not a module other
@@ -88,6 +111,9 @@ function fitLogLog(points: { x: number; y: number }[]): FitResult | null {
   if (valid.length < MIN_SETTLEMENTS) return null;
   const xs = valid.map((p) => Math.log(p.x));
   const ys = valid.map((p) => Math.log(p.y));
+  const popMin = Math.min(...valid.map((p) => p.x));
+  const popMax = Math.max(...valid.map((p) => p.x));
+  if (Math.log(popMax) - Math.log(popMin) < MIN_LOG_POP_SPREAD) return null;  // no x-lever — see the constant
   const n = xs.length;
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = ys.reduce((a, b) => a + b, 0) / n;
@@ -99,7 +125,7 @@ function fitLogLog(points: { x: number; y: number }[]): FitResult | null {
   if (sxx === 0) return null;                              // zero population variance — can't fit a slope
   const slope = sxy / sxx;
   const r2 = syy === 0 ? 1 : (sxy * sxy) / (sxx * syy);
-  return { slope, r2, n };
+  return { slope, r2, n, popMin, popMax };
 }
 
 export const infrastructureSublinear: Contract = {
@@ -168,11 +194,12 @@ export const infrastructureSublinear: Contract = {
       rule: 'scaling.infrastructure-sublinear',
       severity: 'warn',
       message: 'intra-settlement road surface vs housing capacity fits a log-log slope of '
-        + `${fit.slope.toFixed(3)} (R²=${fit.r2.toFixed(3)}, n=${fit.n}) across ${points.length} `
-        + 'settlements — settlement-scaling theory predicts SUBLINEAR growth (~0.83); this '
-        + 'world shows no per-capita economy of scale in its road network.',
+        + `${fit.slope.toFixed(3)} (R²=${fit.r2.toFixed(3)}, n=${fit.n}, population `
+        + `${fit.popMin}–${fit.popMax}) across ${points.length} settlements — settlement-scaling `
+        + 'theory predicts SUBLINEAR growth (~0.83); this world shows no per-capita economy of '
+        + 'scale in its road network.',
       locus: { pois: points.map((p) => p.poiId) },
-      metrics: { slope: fit.slope, r2: fit.r2, n: fit.n },
+      metrics: { slope: fit.slope, r2: fit.r2, n: fit.n, popMin: fit.popMin, popMax: fit.popMax },
     }];
   },
 };

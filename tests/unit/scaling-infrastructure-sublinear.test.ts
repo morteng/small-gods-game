@@ -115,6 +115,26 @@ describe('scaling.infrastructure-sublinear — degenerate cases (never throw, no
     expect(infrastructureSublinear.evaluate(ctxOf(map), {})).toHaveLength(0);
   });
 
+  it('is a no-op when population varies but spans less than 3× (no x-lever)', () => {
+    // The default world's real shape as of 2026-08-01: three settlements of 28/40/46 souls —
+    // population barely varies while road surface varies wildly, which fits a huge slope that
+    // measures nothing. Mirrored here as 2 : 2 : 3 cottages (capacity 10/10/15, a 1.5× spread)
+    // against road lengths that scream superlinear. Without the MIN_LOG_POP_SPREAD gate this
+    // fixture warns; with it the contract correctly says "not measurable yet".
+    const pois = [poi('a', 30, 30), poi('b', 130, 30), poi('c', 230, 30)];
+    const map = grassMap(280, 60, 8, pois);
+    map.buildings = [
+      ...clusterBuildings('a', 30, 30, 2), farMarker('a', 33, 30),
+      ...clusterBuildings('b', 130, 30, 2), farMarker('b', 145, 30),
+      ...clusterBuildings('c', 230, 30, 3), farMarker('c', 270, 30),
+    ];
+    map.roadGraph = graphOf(
+      straightEdge('ea', 30, 30, 3), straightEdge('eb', 130, 30, 15), straightEdge('ec', 230, 30, 40),
+    );
+    clearRoadFeatureGeometryCache();
+    expect(infrastructureSublinear.evaluate(ctxOf(map), {})).toHaveLength(0);
+  });
+
   it('is a no-op when fewer than 3 settlements have a measurable footprint', () => {
     // Three placed POIs, but only two have any buildings — the third can't have its extent
     // measured and is excluded (not zero-filled), leaving 2 points: not enough to fit.
