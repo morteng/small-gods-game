@@ -81,7 +81,11 @@ describe('NpcActivitySystem', () => {
   it('sets work activity for working roles during day', () => {
     const map = makeMap();
     const world = new World(map);
-    const e = makeNpc(world, 'bob', 'farmer');
+    // Needs stated explicitly: this test means "nothing is pressing", and the
+    // seeded jitter around community 0.55 sits either side of COMMUNITY_THRESHOLD.
+    const e = makeNpc(world, 'bob', 'farmer', {
+      needs: { safety: 0.9, prosperity: 0.9, community: 0.9, meaning: 0.9 },
+    });
 
     // Day tick, all needs high
     system.tick(createContext(world, 50));
@@ -97,6 +101,7 @@ describe('NpcActivitySystem', () => {
     const world = new World(map);
     const e = makeNpc(world, 'charlie', 'child', {
       personality: { assertiveness: 0.5, skepticism: 0.1, piety: 0.3, sociability: 0.7 },
+      needs: { safety: 0.9, prosperity: 0.9, community: 0.9, meaning: 0.9 },
     });
 
     system.tick(createContext(world, 50));
@@ -108,6 +113,7 @@ describe('NpcActivitySystem', () => {
     const world = new World(map);
     const e = makeNpc(world, 'dave', 'elder', {
       personality: { assertiveness: 0.5, skepticism: 0.1, piety: 0.3, sociability: 0.3 },
+      needs: { safety: 0.9, prosperity: 0.9, community: 0.9, meaning: 0.9 },
     });
 
     system.tick(createContext(world, 50));
@@ -143,7 +149,9 @@ describe('NpcActivitySystem', () => {
     const map = makeMap();
     const world = new World(map);
     const e = makeNpc(world, 'grim', 'farmer', {
-      needs: { safety: 0.8, prosperity: 0.1, community: 0.6, meaning: 0.7 },
+      // community stated ABOVE COMMUNITY_THRESHOLD so the settled mortal resumes
+      // work rather than heading for the green — this test is about the plea.
+      needs: { safety: 0.8, prosperity: 0.1, community: 0.9, meaning: 0.7 },
     });
 
     system.tick(createContext(world, 50));
@@ -196,7 +204,9 @@ describe('NpcActivitySystem', () => {
     const map = makeMap();
     const world = new World(map);
     const e = makeNpc(world, 'lars', 'farmer', {
-      needs: { safety: 0.8, prosperity: 0.1, community: 0.6, meaning: 0.7 },
+      // community stated ABOVE COMMUNITY_THRESHOLD so the settled mortal resumes
+      // work rather than heading for the green — this test is about the plea.
+      needs: { safety: 0.8, prosperity: 0.1, community: 0.9, meaning: 0.7 },
     });
 
     system.tick(createContext(world, 50));
@@ -278,7 +288,9 @@ describe('NpcActivitySystem', () => {
   it('re-evaluates activity when duration reaches 0', () => {
     const map = makeMap();
     const world = new World(map);
-    const e = makeNpc(world, 'heidi', 'farmer');
+    const e = makeNpc(world, 'heidi', 'farmer', {
+      needs: { safety: 0.9, prosperity: 0.9, community: 0.9, meaning: 0.9 },
+    });
     const props = npcProps(e);
 
     // Force activity to 'idle' with short remaining duration

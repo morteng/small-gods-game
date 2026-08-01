@@ -42,6 +42,22 @@ function run(policy: Policy, ticks: number) {
   const spiritSys = new SpiritSystem();
 
   for (let t = 0; t < ticks; t++) {
+    // A SETTLEMENT UNDER SUSTAINED HARDSHIP — the harness states its own pressure.
+    //
+    // This proof is about the SHAPE of a divine strategy (ignore / answer-all /
+    // balanced), not about how fast `meaning` happens to erode this month, and
+    // 800 ticks only ever contained several prayer cycles because the ambient
+    // MEANING_DECAY was a pre-R8 rate that emptied the need in 250 real seconds.
+    // S2c re-denominated that constant per DAY (and gave mortals a capped rite),
+    // so at 1:1 realtime an 800-second window now contains no crisis at all and
+    // every policy silently collapsed into `ignore`. Applying the pressure here
+    // keeps the proof honest AND decouples it from the balance constant, which
+    // is where it always belonged: Fate leans on this village every tick.
+    forEachNpc(world, (e) => {
+      const n = npcProps(e).needs;
+      n.meaning = Math.max(0, n.meaning - 0.004);
+    });
+
     const ctx = { world, spirits, log, clock, rng, dt: 1000, now: t };
     sim.tick(ctx);
     abandon.tick(ctx);

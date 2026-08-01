@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tickNpcEntity } from '@/sim/npc-sim';
+import { tickNpcEntity, MEANING_DECAY } from '@/sim/npc-sim';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { Entity, NpcProperties } from '@/core/types';
 
@@ -56,6 +56,11 @@ describe('meaning decay', () => {
     const e = npc();
     P(e).needs = { safety: 0.8, prosperity: 0.8, community: 0.8, meaning: 0.8 };
     tickNpcEntity(e);
-    expect(P(e).needs.meaning).toBeCloseTo(0.8 - 0.004, 5);
+    // S2c: pinned against the exported constant, not the old 0.004 literal. That
+    // literal was a pre-R8 rate (0.004 x a 240-fire day = ~1.0/day); under 1:1
+    // realtime the same rate emptied `meaning` in 250 REAL seconds. The constant
+    // is now denominated per DAY, restoring the original fiction; what this test
+    // is for — that the decay is applied once per fire — is unchanged.
+    expect(P(e).needs.meaning).toBeCloseTo(0.8 - MEANING_DECAY, 8);
   });
 });

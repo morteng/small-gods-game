@@ -7,21 +7,80 @@ import { clamp01 } from '@/core/math';
 // modules importing `clamp01` from this file keep working unchanged.
 export { clamp01 };
 
-// 1:1-REALTIME NOTE: the belief/need economy below is deliberately REAL-TIME
-// tuned (rates are per 1 Hz fire = per real second at rate 1), NOT day-keyed.
-// It's the live gameplay loop — whispers visibly move faith, meaning decays
-// fast enough to drive prayers while you watch. Under the honest 24 h day this
-// means belief moves a lot over a real day of ambient play; that is the
+// 1:1-REALTIME NOTE: the BELIEF half below is deliberately REAL-TIME tuned
+// (rates are per 1 Hz fire = per real second at rate 1), NOT day-keyed. It's the
+// live gameplay loop — whispers visibly move faith. Under the honest 24 h day
+// this means belief moves a lot over a real day of ambient play; that is the
 // intended idle-game direction. (Day-keyed lifecycle — mortality/births/
 // growth/claims — runs on fiction days instead; see those systems.)
+//
+// The NEED half is NOT, and the difference is the whole of S2c. R8 converted the
+// day from 240 ticks to 86,400 fires — a 360× stretch — and every rate here was
+// left per-fire. That was CORRECT for any need whose INFLOW is also per-fire:
+// `work` restores prosperity and `socialize` restores community on the same
+// stretched clock, so those ratios survived the conversion untouched. It was
+// wrong — by exactly 360× — for every need whose inflow is gated by something
+// that is NOT per-fire:
+//
+//   • `meaning`  — inflow is A GOD'S ATTENTION (`answer_prayer`) plus the
+//     festival. A god cannot answer 86,400 times a day, so `meaning` drained
+//     full-to-empty in 250 REAL SECONDS and pinned at zero. Measured: 99.04% of
+//     all NPC-time in `worship`, `socialize` fired 0 times in a game-hour, and
+//     because a praying mortal cannot work/sleep/socialize the OTHER three needs
+//     collapsed behind it (all four means < 0.12 after one game-hour).
+//   • `safety`   — inflow is `sleep`, gated to NIGHT. A 15-hour waking day is
+//     54,000 fires, so 0.001/fire emptied it 54× over before bedtime.
+//   • `prosperity` — inflow is `work`, per-fire for working roles (fine), but
+//     the vagrant roles (child/beggar/elder) have no work channel at all, so for
+//     them it behaved like `meaning`.
+//
+// So the four rates are now denominated PER DAY and divided by the day, which
+// states the fiction intent directly and survives any future tick-rate change.
+// Per-day is also what the ORIGINAL constants meant: 0.004/fire × a 240-fire day
+// = 0.96/day, i.e. "a full measure of meaning erodes in about a day". That
+// fiction is restored here; only the denomination moved. See
+// `RITE_MEANING_RESTORE` / `MORTAL_MEANING_CEILING` in `npc-activity-system.ts`
+// for the mortal half of the meaning economy (rites cope; gods console).
 export const SIM_TICK_MS = 1000;
+
+/** 1 Hz fires in one solar day. Under 1:1 realtime a calendar day IS a 24-hour
+ *  solar day and a fire is `SIM_TICK_MS`, so this is the seconds in a day —
+ *  derived rather than written as 86,400 so a tick-rate change carries. */
+export const FIRES_PER_DAY = (24 * 60 * 60 * 1000) / SIM_TICK_MS;
+
 const FAITH_DECAY_BASE = 0.002;
 const NEED_FAITH_BOOST = 0.001;
 const COMFORT_THRESHOLD = 0.6;   // EVERY need above this → secularization pressure
 const DESPERATION_THRESHOLD = 0.4; // ANY need below this → desperation pressure
 const COMFORT_DECAY = 0.004;     // max extra faith decay from comfort, per fire
 const ABANDON_DECAY = 0.006;     // extra faith decay while praying unanswered, per fire
-const MEANING_DECAY = 0.004;     // the divine need decays fast enough to drive prayers
+
+// ── Need erosion, denominated PER DAY (see the note above) ───────────────────
+
+/** A full measure of `meaning` erodes in ONE DAY with no god and no rite. The
+ *  mortal channel (`RITE_MEANING_RESTORE`) outruns this 4:1 while a mortal is at
+ *  the shrine, which is what sets the ~25% worship duty cycle: duty = decay/rite. */
+export const MEANING_DECAY = 1.0 / FIRES_PER_DAY;
+
+/** A waking day away from your own bed costs ~0.27 of `safety` (0.4/day over the
+ *  15 waking hours), which a night's `sleep` restores several times over. The
+ *  REAL pressure on safety is Fate's — raiders, plague — and those event effects
+ *  are per-fire and unchanged, so they still dominate this baseline drift. */
+export const SAFETY_DECAY = 0.4 / FIRES_PER_DAY;
+
+/** A day without work leaves you destitute (1.0/day). A working mortal restores
+ *  `SELF_AGENCY_RESTORE` many times an hour and sits near full; this rate is what
+ *  the ROLES WITH NO WORK CHANNEL (child/beggar/elder) and a fully-tithed peasant
+ *  (`workRestoreScale` → 0) actually fall at — a day of hunger, not 17 minutes. */
+export const PROSPERITY_DECAY = 1.0 / FIRES_PER_DAY;
+
+/** Belonging fades slowest of the four (0.5/day) — but it is the one need whose
+ *  channel is genuinely per-fire, so this rate sets how often a mortal walks to
+ *  the green (~1.7×/day from the `COMMUNITY_THRESHOLD` band). It must also be
+ *  slow enough that a mortal held at the shrine by a standing plea for an hour or
+ *  two does not have its belonging starve out from under it — that cross-need
+ *  starvation is what turned one collapsed need into all four. */
+export const COMMUNITY_DECAY = 0.5 / FIRES_PER_DAY;
 
 const ROLE_PIETY_BONUS: Record<NpcRole, number> = {
   priest:   0.3,
@@ -121,9 +180,9 @@ export function tickNpcEntity(e: Entity): void {
     }
   }
 
-  p.needs.safety     = clamp01(p.needs.safety     - 0.001);
-  p.needs.prosperity = clamp01(p.needs.prosperity - 0.001);
-  p.needs.community  = clamp01(p.needs.community  - 0.0005);
+  p.needs.safety     = clamp01(p.needs.safety     - SAFETY_DECAY);
+  p.needs.prosperity = clamp01(p.needs.prosperity - PROSPERITY_DECAY);
+  p.needs.community  = clamp01(p.needs.community  - COMMUNITY_DECAY);
   p.needs.meaning    = clamp01(p.needs.meaning    - MEANING_DECAY);
 
   p.mood = computeMood(p.needs);
