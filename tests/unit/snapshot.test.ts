@@ -172,6 +172,24 @@ describe('snapshot', () => {
     expect(s.settlementAggregates.size()).toBe(0);
   });
 
+  it('the Fate settlement-digest baseline scrubs with the timeline, and a pre-P5 snapshot restores it empty', () => {
+    const s = createState();
+    attachWorld(s);
+    s.fateSettlementDigestBaseline.set('poi1', new Map([['player', 0.5]]));
+    const snap = captureSnapshot(s);
+    // A later digest (the "discarded future" a scrub must undo) moves the baseline.
+    s.fateSettlementDigestBaseline.set('poi1', new Map([['player', 0.9]]));
+    s.fateSettlementDigestBaseline.set('poi2', new Map([['rival-1', 0.3]]));
+    restoreSnapshot(s, snap);
+    expect(s.fateSettlementDigestBaseline.get('poi1', 'player')).toBe(0.5);
+    expect(s.fateSettlementDigestBaseline.get('poi2', 'rival-1')).toBeUndefined();
+
+    delete (snap as { fateSettlementDigestBaseline?: unknown }).fateSettlementDigestBaseline;
+    restoreSnapshot(s, snap);
+    expect(s.fateSettlementDigestBaseline.get('poi1', 'player')).toBeUndefined();
+    expect(s.fateSettlementDigestBaseline.size()).toBe(0);
+  });
+
   it('the contention ladder scrubs with the timeline (escalation state reverts)', () => {
     const s = createState();
     attachWorld(s);

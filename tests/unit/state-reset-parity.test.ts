@@ -7,6 +7,7 @@ import { RoadUseTally } from '@/world/road-use';
 import { ContentionLedger } from '@/sim/rival-contention';
 import { SettlementAggregateStore } from '@/sim/settlement-aggregates';
 import { SettlementFluxTally } from '@/sim/settlement-flux';
+import { FateSettlementDigestBaseline } from '@/sim/fate/settlement-digest-baseline';
 
 /**
  * The guard behind in-process quit-to-title (UI v3 §3.4).
@@ -66,6 +67,11 @@ function dirty(): GameState {
   s.settlementFlux = new SettlementFluxTally();
   s.settlementFlux.sinceTick = 4242;
   s.settlementFlux.noteVisitor('poi-stale', 'poi-other');
+  // Interaction scaling P5: the Fate belief-trend baseline is REPLACEABLE too
+  // (no external closure holds it) — dirty it so a reset that missed it would
+  // leave a stale settlement's meanFaith baseline feeding the next digest's trend.
+  s.fateSettlementDigestBaseline = new FateSettlementDigestBaseline();
+  s.fateSettlementDigestBaseline.set('poi-stale', new Map([['rival-1', 0.42]]));
 
   // identity-stable containers
   s.camera.x = 999; s.camera.y = 888; s.camera.zoom = 7;
@@ -179,6 +185,7 @@ describe('resetState — in-process world teardown', () => {
     expect(s.settlementAggregates.size()).toBe(0);
     expect(s.settlementFlux.sinceTick).toBe(-1);
     expect(s.settlementFlux.activePairs()).toBe(0);
+    expect(s.fateSettlementDigestBaseline.size()).toBe(0);
   });
 
   it('keeps event-log SUBSCRIBERS attached across the reset', () => {

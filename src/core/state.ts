@@ -23,6 +23,7 @@ import { AdoptionLedger } from '@/world/desire-line-adoption';
 import { ContentionLedger } from '@/sim/rival-contention';
 import { SettlementAggregateStore } from '@/sim/settlement-aggregates';
 import { SettlementFluxTally } from '@/sim/settlement-flux';
+import { FateSettlementDigestBaseline } from '@/sim/fate/settlement-digest-baseline';
 
 export interface GameState {
   map: GameMap | null;
@@ -165,6 +166,13 @@ export interface GameState {
    *  scrubs with the timeline; the folded rate rides the store). The `roadUse`
    *  split, exactly. See `@/sim/settlement-flux`. */
   settlementFlux: SettlementFluxTally;
+  /** Interaction scaling (P5 / S5.1): the previous Fate settlement digest's
+   *  per-spirit meanFaith, so `describeSettlementsForFate` can report a belief
+   *  TREND — written inline by that function each time Fate deliberates, not on
+   *  a scheduler cadence (the `fateArcs.recomputeGoals` precedent). Rides the
+   *  Snapshot as `fateSettlementDigestBaseline?`, hydrating empty for older
+   *  saves (no SAVE_VERSION bump). See `@/sim/fate/settlement-digest-baseline`. */
+  fateSettlementDigestBaseline: FateSettlementDigestBaseline;
 }
 
 export function createState(): GameState {
@@ -228,6 +236,7 @@ export function createState(): GameState {
     contention: new ContentionLedger(),
     settlementAggregates: new SettlementAggregateStore(),
     settlementFlux: new SettlementFluxTally(),
+    fateSettlementDigestBaseline: new FateSettlementDigestBaseline(),
   };
 }
 
@@ -258,7 +267,7 @@ const IDENTITY_STABLE = new Set<keyof GameState>([
  * rather than letting a new field silently survive a quit-to-title as stale
  * world data. Bump it in the same commit as the new field.
  */
-export const GAME_STATE_FIELD_COUNT = 43;
+export const GAME_STATE_FIELD_COUNT = 44;
 
 /**
  * Return `state` to exactly the shape `createState()` would produce, MUTATING IT
