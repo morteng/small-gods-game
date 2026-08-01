@@ -99,6 +99,66 @@ describe('game-query', () => {
     expect(q.settlement('absent')).toBeNull();
   });
 
+  // ── interaction scaling P1 (S1.3): the aggregate read path ────────────────
+  describe('settlementAggregates', () => {
+    it('computes live when the hourly sweep has never run', () => {
+      const v = q.settlementAggregates();
+      expect(v.computedTick).toBe(-1);          // honest: nothing swept yet
+      const poi1 = v.settlements.find(s => s.poiId === 'poi1')!;
+      expect(poi1.name).toBe('Hollow');
+      expect(poi1.population).toEqual({ named: 2, statistical: 0, total: 2 });
+      expect(poi1.believers).toEqual([
+        { spiritId: 'player', count: 1, durable: 1, meanFaith: (0.8 + 0.05) / 2 },
+      ]);
+      // Four separate need axes, never a scalar; pressure is UNMET need.
+      expect(Object.keys(poi1.needPressure).sort()).toEqual(
+        ['community', 'meaning', 'prosperity', 'safety']);
+      expect(poi1.prayerPressure).toBe(0);
+      expect(poi1.flux).toEqual({ inPerDay: 0, outPerDay: 0 });
+      // A live read has no previous sweep, so it claims no trend.
+      expect('populationTrend' in poi1).toBe(false);
+      expect(v.flows).toEqual([]);
+    });
+
+    it('reads the store once it has been swept, and reports measured flux', () => {
+      state.settlementAggregates.replace(new Map([['poi1', {
+        poiId: 'poi1',
+        population: { named: 2, statistical: 40 },
+        believers: { player: { count: 11, durable: 1, meanFaith: 0.25 } },
+        needPressure: { safety: 0.1, prosperity: 0.6, community: 0.2, meaning: 0.3 },
+        prayerPressure: 3,
+        populationTrend: -2,
+      }]]), 7000);
+      state.settlementFlux.sinceTick = 0;
+      state.settlementFlux.noteVisitor('poi2', 'poi1');
+      state.settlementAggregates.foldFlux(state.settlementFlux, TICKS_PER_DAY);
+
+      const v = q.settlementAggregates();
+      expect(v.computedTick).toBe(7000);
+      expect(v.settlements).toHaveLength(1);
+      const poi1 = v.settlements[0];
+      expect(poi1.population).toEqual({ named: 2, statistical: 40, total: 42 });
+      expect(poi1.populationTrend).toBe(-2);
+      expect(poi1.prayerPressure).toBe(3);
+      expect(poi1.flux.inPerDay).toBeCloseTo(1, 10);
+      expect(poi1.flux.outPerDay).toBe(0);
+      expect(v.flows).toEqual([{ srcPoiId: 'poi2', dstPoiId: 'poi1', perDay: poi1.flux.inPerDay }]);
+    });
+
+    it('settlement().npcCount reads the store once swept, and agrees with the sweep', () => {
+      const swept = q.settlement('poi1')!.npcCount;    // pre-sweep: the O(N) fallback
+      expect(swept).toBe(2);
+      state.settlementAggregates.replace(new Map([['poi1', {
+        poiId: 'poi1',
+        population: { named: 2, statistical: 40 },
+        believers: {},
+        needPressure: { safety: 0, prosperity: 0, community: 0, meaning: 0 },
+        prayerPressure: 0,
+      }]]), 7000);
+      expect(q.settlement('poi1')!.npcCount).toBe(swept);   // NAMED tier only, unchanged
+    });
+  });
+
   it('events delegates to EventLog.since', () => {
     const all = q.events();              // since 0
     expect(all).toEqual(state.eventLog.since(0));

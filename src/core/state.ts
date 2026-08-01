@@ -21,6 +21,8 @@ import { RoadUseTally } from '@/world/road-use';
 import { CrossingTierStore } from '@/world/crossing-tier-store';
 import { AdoptionLedger } from '@/world/desire-line-adoption';
 import { ContentionLedger } from '@/sim/rival-contention';
+import { SettlementAggregateStore } from '@/sim/settlement-aggregates';
+import { SettlementFluxTally } from '@/sim/settlement-flux';
 
 export interface GameState {
   map: GameMap | null;
@@ -147,6 +149,22 @@ export interface GameState {
    *  as `contention?`, hydrating to empty for old saves (no SAVE_VERSION bump).
    *  See `@/sim/rival-contention`. */
   contention: ContentionLedger;
+  /** Interaction scaling (P1 / S1.1): the per-settlement aggregate store — ONE
+   *  sweep per GAME_HOUR over BOTH population tiers (named entities + statistical
+   *  cohorts), plus the FOLDED half of the cross-settlement visitor flux (per
+   *  game-day EMAs). Written only by `SettlementAggregateSystem`; read by
+   *  `GameQuery` (`settlementAggregates`, and `settlement().npcCount` in place of
+   *  its O(N) sweep). Snapshot-authoritative like the road stores — rides the
+   *  Snapshot as `settlementAggregates?`, hydrating empty for old saves (no
+   *  SAVE_VERSION bump). See `@/sim/settlement-aggregates`. */
+  settlementAggregates: SettlementAggregateStore;
+  /** Interaction scaling (P1 / S1.2): the TRANSIENT per-settlement-pair visitor
+   *  tally — `MaterializationSystem`'s market-day pull increments it, the hourly
+   *  aggregate sweep folds it into `settlementAggregates`' EMAs and resets the
+   *  window. Rides the Snapshot as `settlementFlux?` (the transient counter
+   *  scrubs with the timeline; the folded rate rides the store). The `roadUse`
+   *  split, exactly. See `@/sim/settlement-flux`. */
+  settlementFlux: SettlementFluxTally;
 }
 
 export function createState(): GameState {
@@ -208,6 +226,8 @@ export function createState(): GameState {
     crossingTiers: new CrossingTierStore(),
     adoptions: new AdoptionLedger(),
     contention: new ContentionLedger(),
+    settlementAggregates: new SettlementAggregateStore(),
+    settlementFlux: new SettlementFluxTally(),
   };
 }
 
@@ -221,8 +241,9 @@ export function createState(): GameState {
  *
  * This split is not invented here — it is exactly the one `restoreSnapshot`
  * already lives by on every timeline scrub: it REPLACES `rng`/`world`/`roadUse`/
- * `contention`/`cohorts`/`trample` and `hydrate`s/`clear`s everything on this
- * list. So each choice below is already battle-tested by the scrub path.
+ * `contention`/`cohorts`/`trample`/`settlementAggregates`/`settlementFlux` and
+ * `hydrate`s/`clear`s everything on this list. So each choice below is already
+ * battle-tested by the scrub path.
  */
 const IDENTITY_STABLE = new Set<keyof GameState>([
   'camera', 'spirits', 'eventLog', 'clock',
@@ -237,7 +258,7 @@ const IDENTITY_STABLE = new Set<keyof GameState>([
  * rather than letting a new field silently survive a quit-to-title as stale
  * world data. Bump it in the same commit as the new field.
  */
-export const GAME_STATE_FIELD_COUNT = 41;
+export const GAME_STATE_FIELD_COUNT = 43;
 
 /**
  * Return `state` to exactly the shape `createState()` would produce, MUTATING IT

@@ -32,6 +32,7 @@ import { TrampleDepositSystem, TramplePromoteDecaySystem } from '@/sim/systems/t
 import { BirthSystem } from '@/sim/systems/birth-system';
 import { LordSystem } from '@/sim/systems/lord-system';
 import { CohortSystem } from '@/sim/systems/cohort-system';
+import { SettlementAggregateSystem } from '@/sim/systems/settlement-aggregate-system';
 import { MaterializationSystem } from '@/sim/systems/materialization-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import type { ZoomBand } from '@/game/affordance/zoom-band';
@@ -123,7 +124,8 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   // NpcActivitySystem so the extras it mints are swept by the already-registered
   // activity/movement systems on the same tick. Stateful (hysteresis) → joins
   // the WP-D snapshot seam; rebuilds its live set from materializedTemp on load.
-  const materialization = new MaterializationSystem(getCohorts, () => state.map, deps.focusView);
+  const materialization = new MaterializationSystem(
+    getCohorts, () => state.map, deps.focusView, () => state.settlementFlux);
   scheduler.register(materialization);
   state.systemState.register(materialization);
   scheduler.register(new SpiritSystem(getCohorts));
@@ -152,6 +154,16 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
   const cohorts = new CohortSystem(getCohorts);
   scheduler.register(cohorts);
   state.systemState.register(cohorts);
+  // Interaction scaling (P1): ONE per-settlement sweep per GAME_HOUR over both
+  // population tiers, plus the fold of the cross-settlement visitor tally the
+  // MaterializationSystem above feeds. Pure measurement — it writes nothing back
+  // to the sim, so its position in the roster is free; it sits beside CohortSystem
+  // because both are hourly observers of the same two tiers. Stateful (the trend
+  // baseline) → joins the WP-D snapshot seam.
+  const aggregates = new SettlementAggregateSystem(
+    () => state.settlementAggregates, getCohorts, () => state.settlementFlux);
+  scheduler.register(aggregates);
+  state.systemState.register(aggregates);
   // Social gravity (roads round 8): live growth reads the trample grid so new
   // housing prefers lots along the desire lines believers actually walk.
   // P1: growth also counts statistical souls — towns house their fiction pop.

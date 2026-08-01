@@ -87,6 +87,10 @@ server.registerTool('settlement',
     inputSchema: { poiId: z.string() } },
   ({ poiId }) => run(() => client.query('settlement', poiId)));
 
+server.registerTool('settlement_aggregates',
+  { description: 'Per-settlement aggregates over BOTH population tiers (named NPCs + statistical cohorts): population and its hourly trend, per-spirit believer/durable counts and mean faith, the four need-pressure axes kept directional (higher = more unmet), standing prayer pressure, and the measured cross-settlement market-visitor flux (visitors per game-day, in and out). One hourly sweep — cheaper and more complete than walking list_npcs.' },
+  () => run(() => client.query('settlementAggregates')));
+
 server.registerTool('timeline',
   { description: 'Time state: rate, current/max tick, whether scrubbed, number of committed branch points.' },
   () => run(() => client.query('timeline')));

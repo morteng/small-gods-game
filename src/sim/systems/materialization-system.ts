@@ -56,6 +56,7 @@ import {
   localVisitorTarget, neighbourVisitorTarget, VISITOR_CAP, MARKET_PULL_MAX_HOPS,
 } from '@/sim/population/settlement-demand';
 import { roadNeighbours } from '@/world/road-neighbours';
+import type { SettlementFluxTally } from '@/sim/settlement-flux';
 import { initNpcProps, queryNpcs, npcProps, NPC_KIND } from '@/world/npc-helpers';
 import { snapToLand } from '@/world/land-snap';
 import { solarHourForTick, dayIndexForTick } from '@/core/calendar';
@@ -114,6 +115,11 @@ export class MaterializationSystem implements System, SerializableSystem {
     private readonly getCohorts: () => ReadonlyMap<string, SettlementCohorts> | null | undefined,
     private readonly getMap: () => GameMap | null | undefined,
     private readonly focusView: () => { poiId: string | null; band: ZoomBand },
+    /** Interaction scaling (P1 / S1.2): the cross-settlement visitor meter. The
+     *  market-day pull below is the sim's only genuine inter-POI commute flux and
+     *  was entirely unmetered; each realized guest is noted here. Optional — a
+     *  harness that omits it just measures nothing (the pull is unaffected). */
+    private readonly getFlux: () => SettlementFluxTally | null | undefined = () => null,
   ) {}
 
   tick(ctx: SystemContext): void {
@@ -363,6 +369,9 @@ export class MaterializationSystem implements System, SerializableSystem {
 
       ctx.world.addEntity({ id, kind: NPC_KIND, x: spot.x, y: spot.y, properties: props as unknown as Record<string, unknown> });
       this.visitors.set(id, { id, srcPoi: src, bandIndex: bandIndexForAge(obs.age) });
+      // P1 / S1.2: meter the commute. `noteVisitor` drops src === host itself, so
+      // only the market-day pull from a road-neighbour registers as flux.
+      this.getFlux()?.noteVisitor(src, host);
       (materialized.get(src) ?? materialized.set(src, []).get(src)!).push(id);
       made++;
       budget--;
