@@ -36,6 +36,8 @@ import {
 } from '@/sim/rival-claims';
 import { housingCapacityByPoi } from '@/sim/systems/settlement-growth-system';
 import { cohortPopulation, cohortBelievers, totalCohortBelievers } from '@/sim/cohorts';
+import { buildSettlementAggregates } from '@/sim/settlement-aggregates';
+import { parseFluxKey } from '@/sim/settlement-flux';
 import { peaceActive } from '@/sim/lord';
 import { blueprintOf } from '@/blueprint/entity';
 import { buildingInfoOf } from '@/world/building-helpers';
@@ -193,6 +195,54 @@ export interface SettlementView {
   position: { x: number; y: number } | null;
   npcCount: number;
   wards: { name: string; type: string }[];
+}
+
+/** One spirit's standing in one settlement, both population tiers folded. */
+export interface SettlementBelieverRow {
+  spiritId: SpiritId;
+  /** Practising believers (faith ≥ the believer line). */
+  count: number;
+  /** The stricter durable set. */
+  durable: number;
+  /** Mean faith over the settlement's WHOLE population — non-believers dilute. */
+  meanFaith: number;
+}
+
+/**
+ * Interaction scaling (P1 / S1.3): one settlement's aggregate record — the read
+ * path the probe, the UI and Fate share instead of each running its own O(N)
+ * sweep. Covers BOTH population tiers.
+ */
+export interface SettlementAggregateRow {
+  poiId: string;
+  /** POI name when the id resolves in `worldSeed.pois`; absent for the unhomed
+   *  bucket (`poiId: ''`) and for cohort buckets with no POI record. */
+  name?: string;
+  population: { named: number; statistical: number; total: number };
+  /** spiritId-sorted, so the payload is byte-stable across frames. */
+  believers: SettlementBelieverRow[];
+  /** UNMET need per axis, 0..1 — higher = more pressure, so "the worst need" is
+   *  the argmax. Four separate values, deliberately never a scalar mood. */
+  needPressure: NpcNeeds;
+  /** Standing pleas already old enough to be at risk of a rival claim. */
+  prayerPressure: number;
+  /** Population change since the previous hourly sweep. ABSENT on the first
+   *  sweep after a load/scrub — an unknown trend is not a flat one. */
+  populationTrend?: number;
+  /** Realized market visitors per game-day arriving from / departing to OTHER
+   *  settlements (folded EMA; 0 until the first daily fold completes). */
+  flux: { inPerDay: number; outPerDay: number };
+}
+
+export interface SettlementAggregatesView {
+  /** Sim tick of the sweep these rows came from; -1 when the store has never
+   *  been swept (a world that has not run a game-hour yet), in which case the
+   *  rows are computed live so the answer is never empty-but-wrong. */
+  computedTick: number;
+  /** poiId-sorted. */
+  settlements: SettlementAggregateRow[];
+  /** Every measured cross-settlement flow, key-sorted. Visitors per game-day. */
+  flows: { srcPoiId: string; dstPoiId: string; perDay: number }[];
 }
 
 export interface TimelineView {
@@ -374,6 +424,11 @@ export interface GameQuery {
   inspect(target: CommandTarget, spiritId?: SpiritId, opts?: { buildingId?: EntityId }): InspectorView | null;
   beliefState(spiritId?: SpiritId): BeliefView;
   settlement(poiId: string): SettlementView | null;
+  /** Interaction scaling (P1 / S1.3): per-settlement aggregates over BOTH
+   *  population tiers + the measured cross-settlement visitor flux. Reads the
+   *  hourly store when it has been swept; otherwise computes one live so a
+   *  freshly-loaded world still answers honestly. */
+  settlementAggregates(): SettlementAggregatesView;
   events(sinceId?: number): AppendedEvent[];
   timeline(): TimelineView;
   spirits(): SpiritView[];
@@ -757,9 +812,17 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
       const poi = state.worldSeed?.pois.find(p => p.id === poiId);
       if (!poi) return null;
       const village = state.map?.villages.find(v => v.name && v.name === poi.name);
-      const npcCount = state.world
-        ? state.world.query({ kind: 'npc' }).filter(e => npcProps(e).homePoiId === poiId).length
-        : 0;
+      // P1 / S1.3: read the hourly aggregate store instead of re-sweeping every
+      // NPC. `population.named` is built from the SAME predicate this sweep used
+      // (living `kind:'npc'` entities whose `homePoiId` is this settlement), so
+      // the number is identical — see the parity test. Falls back to the sweep
+      // for a world whose first hourly sweep has not run yet.
+      const swept = state.settlementAggregates?.computedTick ?? -1;
+      const npcCount = swept >= 0
+        ? state.settlementAggregates.get(poiId)?.population.named ?? 0
+        : state.world
+          ? state.world.query({ kind: 'npc' }).filter(e => npcProps(e).homePoiId === poiId).length
+          : 0;
       return {
         poiId: poi.id,
         name: poi.name,
@@ -769,6 +832,55 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         npcCount,
         wards: (village?.wards ?? []).map(w => ({ name: w.name, type: w.type })),
       };
+    },
+
+    settlementAggregates(): SettlementAggregatesView {
+      const store = state.settlementAggregates;
+      const swept = store?.computedTick ?? -1;
+      // Live fallback so a world that has not yet run a game-hour (fresh load,
+      // just-scrubbed timeline) answers with real numbers rather than nothing.
+      // No baseline is passed here — a live read has no previous sweep to
+      // measure against, so it emits no trend at all.
+      const aggregates = swept >= 0
+        ? store.all()
+        : state.world
+          ? buildSettlementAggregates(state.world, state.spirits, {
+            now: state.clock.now(), cohorts: state.cohorts,
+          })
+          : new Map();
+      const nameOf = (poiId: string): string | undefined =>
+        state.worldSeed?.pois.find(p => p.id === poiId)?.name;
+
+      const settlements = [...aggregates.values()].map((a) => {
+        const total = a.population.named + a.population.statistical;
+        const row: SettlementAggregateRow = {
+          poiId: a.poiId,
+          population: { named: a.population.named, statistical: a.population.statistical, total },
+          believers: Object.keys(a.believers).sort().map(sid => ({
+            spiritId: sid,
+            count: a.believers[sid].count,
+            durable: a.believers[sid].durable,
+            meanFaith: a.believers[sid].meanFaith,
+          })),
+          needPressure: { ...a.needPressure },
+          prayerPressure: a.prayerPressure,
+          flux: {
+            inPerDay: store?.fluxInFor(a.poiId) ?? 0,
+            outPerDay: store?.fluxOutFor(a.poiId) ?? 0,
+          },
+        };
+        const name = nameOf(a.poiId);
+        if (name !== undefined) row.name = name;
+        if (a.populationTrend !== undefined) row.populationTrend = a.populationTrend;
+        return row;
+      });
+
+      const flows: SettlementAggregatesView['flows'] = [];
+      for (const [key, perDay] of store?.fluxEntries() ?? []) {
+        const ends = parseFluxKey(key);
+        if (ends) flows.push({ srcPoiId: ends.srcPoiId, dstPoiId: ends.dstPoiId, perDay });
+      }
+      return { computedTick: swept, settlements, flows };
     },
 
     events(sinceId = 0): AppendedEvent[] {
