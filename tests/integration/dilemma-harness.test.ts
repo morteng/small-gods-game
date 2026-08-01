@@ -53,6 +53,12 @@ function run(policy: Policy, ticks: number) {
     // every policy silently collapsed into `ignore`. Applying the pressure here
     // keeps the proof honest AND decouples it from the balance constant, which
     // is where it always belonged: Fate leans on this village every tick.
+    //
+    // The window (1600 ticks) has to hold ENOUGH PRAYER CYCLES for a policy to
+    // differentiate: one cycle is however long ANSWER_PRAYER_NEED_BOOST takes to
+    // drain at the rate below, and `balanced` needs several before faith clears
+    // the `dream` gate. 800 was sized against the old 0.3 boost and went vacuous
+    // when S2c raised it to 0.45.
     forEachNpc(world, (e) => {
       const n = npcProps(e).needs;
       n.meaning = Math.max(0, n.meaning - 0.004);
@@ -85,23 +91,23 @@ function run(policy: Policy, ticks: number) {
 
 describe('the dilemma (headless proof)', () => {
   it('ignore-everything → believers abandon you', () => {
-    const r = run('ignore', 800);
+    const r = run('ignore', 1600);
     expect(r.believers).toBeLessThan(6);   // some left
     expect(r.durable).toBe(0);
   });
 
   it('answer-everything → can never build durable believers (Answer gives no devotion)', () => {
-    const r = run('answerAll', 800);
+    const r = run('answerAll', 1600);
     expect(r.believers).toBeGreaterThan(0); // believers DO survive — so durable===0 is non-vacuous
     expect(r.durable).toBe(0);
   });
 
   it('balanced (answer + deepen) → grows durable believers', () => {
-    const r = run('balanced', 800);
+    const r = run('balanced', 1600);
     expect(r.durable).toBeGreaterThan(0);
   });
 
   it('balanced retains more believers than ignore', () => {
-    expect(run('balanced', 800).believers).toBeGreaterThan(run('ignore', 800).believers);
+    expect(run('balanced', 1600).believers).toBeGreaterThan(run('ignore', 1600).believers);
   });
 });
