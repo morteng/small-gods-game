@@ -517,3 +517,107 @@ rather than quietly loosening a cap to hit a number.
   test that stops re-pathing once the mortal is inside `VENUE_ARRIVAL_RADIUS`.
   Until that is understood, size probe runs by materialized NPC count, not by
   simulated hours.
+## Phase 2b — the belief half, as shipped (2026-08-01)
+
+Branch `feat/scaling-p2b-belief` (S2.2 + S2.3, the two mechanisms that don't
+touch the encounter/interaction half). Both are behaviour changes; neither adds
+state, a constant file, or a save field.
+
+### S2b.1 — communion de-saturated
+
+`communeFrom` (`src/sim/systems/belief-propagation-system.ts`) weighted the
+congregation term by `min(1, S)`, flat above S≈1 (~5 mutual believers), so a
+50-strong congregation was worth exactly what a 5-strong one was. New curve:
+
+```
+g(S) = (√(1 + 4S) − 1) / 2          // the positive root of  g·(1 + g) = S
+inflow/tick = COMMUNION_RATE × sociability × (1 − skepticism/2) × g(S) × (1 − faith)
+COMMUNION_RATE: 0.006 → 0.0092
+```
+
+`g` is concave and **unbounded** — but, unlike a plain `√S`, it is *linear* as
+S → 0 and only √-asymptotic as S → ∞. That shape was chosen deliberately over
+the plan's suggested "`sqrt(S)` normalized so S=5 matches today's value":
+
+- Normalizing a plain √ at S = 5 is incompatible with the invariant. Today's
+  value at S = 5 is the saturated 1.0, and matching there pushes the sustain
+  boundary from ~5 mutual believers out past **14** — a 5-strong congregation
+  would wither. The documented equilibrium wins over the suggested
+  normalization point; the honest normalization anchor is the *5-believer
+  congregation's operating point* (S ≈ 1.1–1.3), not S = 5.
+- Every concave curve through the origin that matches `min(1,S)` near S ≈ 1 is
+  necessarily *above* it below that point, so a plain √ also lifts the low end:
+  measured, a pair bled out at 44% of its old rate and survived past the
+  believer line for the full 2000-tick pin in `belief-selfsustain.test.ts`.
+  Linear-at-the-low-end fixes that by construction — the whole
+  small-congregation arithmetic is untouched, and only the tail moved.
+
+**Equilibrium arithmetic preserved** (median NPC: sociability .5, skepticism .5,
+trust .5; decay = FAITH_DECAY_BASE 0.002 × 0.5 = 0.001/tick; A = 0.0092 × .5 ×
+.75 = 0.00345; a mutual congregation of N at faith f has S = (N−1) × 0.5 × f):
+
+```
+sustain ⇔ max_f  g(0.5(N−1)f) × (1−f)  ≥  0.001 / A = 0.290
+        ⇒ N ≥ 4.57            (old curve: N ≥ 4.56 — unchanged)
+```
+
+| N | f* (deterministic channel only) | old f* |
+|---|---|---|
+| ≤ 4 | 0 (withers) | 0 (withers) |
+| 5 | 0.577 | 0.556 |
+| 8 | 0.760 | 0.556 |
+| 20 | 0.881 | 0.556 |
+| 50 | 0.933 | 0.556 |
+| 1 (lone) | 0 — S = 0, isolation kills gods | 0 |
+
+So: five-plus still self-sustain, four or fewer still wither, the hermit still
+dies — and congregation size now pays, monotonically and without a ceiling.
+Pinned by two new tests in `tests/unit/belief-selfsustain.test.ts` (the N=5
+boundary case, and "a bigger congregation rests at higher faith", which the old
+saturated curve would have failed); the pre-existing lone/pair/N=8 pins pass
+**unchanged**.
+
+### S2b.2 — need direction (VISION §9 row 11, now closed)
+
+`tickNpcEntity` (`src/sim/npc-sim.ts`) read only `computeMood()`, the scalar
+mean. Both belief terms now key on the **worst** need via a new exported
+`lowestNeed(needs) → { need, value }`:
+
+- **desperation boost** — fires when *any* need is below `DESPERATION_THRESHOLD`
+  (0.4, the same literal as before, now named), scaled by how far that one axis
+  has fallen. `NEED_FAITH_BOOST` unchanged, so the peak magnitude is what it
+  was; only the condition that selects it moved.
+- **comfort decay** — fires only when *every* need is above `COMFORT_THRESHOLD`
+  (0.6, unchanged), scaled by the worst. One collapsing axis now suspends
+  secularization, which is what "when needs are met" (§3) should always have
+  meant. Consequence worth knowing: because `meaning` decays fast by design
+  (`MEANING_DECAY`), all-needs-met is a *rarer* state than mean-above-0.6 was,
+  so secularization now essentially requires a god that keeps its flock's
+  meaning topped up — the "answer everything and dissolve yourself" trap, made
+  literal. Flagged as a tuning item for a later balance pass, not a defect.
+
+`lowestNeed` iterates `['safety','prosperity','community','meaning']`, the same
+fixed order as `prayerSubject`'s `NEED_KEYS`, so the need a mortal is desperate
+about and the need they pray about break ties identically — the desperation
+signal and the shipped `prayerNeed`/`prayerSubject` mechanism agree by
+construction. `computeMood()` is untouched and still feeds `p.mood`, the
+presentation layer and the probes.
+
+`tests/unit/need-direction.test.ts` pins the row-11 case directly: two need
+vectors with the *same* mean (0.5), one balanced and one with `prosperity`
+drained while `safety` is supplied, are indistinguishable to `computeMood` and
+now differ in faith after a single tick (+0.00075 vs exactly 0.0).
+
+### What was NOT done here
+
+- **S2.1 (runtime acquaintance formation)** and **S2.4 (probe re-run)** belong
+  to the interaction half of Phase 2 and are out of this slice's file scope.
+  Until S2.1 lands, the P0 finding stands: `NpcEncounterSystem` fires zero
+  encounters even in `khar_ordu`, so a probe re-run would measure the belief
+  change against an unchanged (absent) interaction signal.
+- The plan's S2.3 line mentions the desperation term "stamps which one".
+  `lowestNeed` *returns* the axis, but nothing persists it — `props.prayerNeed`
+  already carries a stamped subject for the prayer path, and adding a second
+  persisted need-direction field would want a save/snapshot round-trip it
+  hasn't earned yet. Deferred deliberately; the aggregate store's directional
+  `needPressure` (S1.1) is the read path Fate needs.

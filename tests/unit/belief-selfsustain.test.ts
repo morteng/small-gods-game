@@ -8,18 +8,26 @@
  * without constant divine input. The communion term in BeliefPropagationSystem
  * fixes the balance generatively:
  *
- *   inflow/tick = COMMUNION_RATE(0.006) × sociability × (1 − skepticism/2)
- *                 × min(1, S) × (1 − faith),  S = Σ trust × neighbourFaith
- *                 over neighbours with faith > 0.3.
+ *   inflow/tick = COMMUNION_RATE(0.0092) × sociability × (1 − skepticism/2)
+ *                 × g(S) × (1 − faith),  S = Σ trust × neighbourFaith
+ *                 over neighbours with faith > 0.3,  g(S) = (√(1+4S) − 1)/2.
+ *
+ * The congregation term was `min(1, S)` until 2026-08-01 (scaling P2b S2b.1):
+ * flat above S≈1, so a 50-strong congregation was worth what a 5-strong one
+ * was. g is concave but UNBOUNDED — linear near S=0 (so the small-congregation
+ * arithmetic below is unchanged) and √-asymptotic (so big congregations keep
+ * paying). The rate was retuned 0.006 → 0.0092 to hold the documented
+ * equilibrium fixed across that change.
  *
  * Equilibrium condition for the median NPC (soc .5, skep .5, trust .5),
- * ignoring the stochastic socialization bonus (conservative):
- *   0.006 × .5 × .75 × min(1,S) × (1−f*) = 0.002 × .5
- *   ⇒ 0.00225 × min(1,S) × (1−f*) = 0.001
- *   • S ≥ 1 (saturated congregation): f* = 1 − 0.001/0.00225 ≈ 0.556
- *   • saturation needs S = (N−1)×0.5×f ≥ 1 at f≈0.556 ⇒ N ≥ ~4.6 ⇒ 5+ sustains
- *   • N ≤ 4: inflow ≤ 0.00225 × 0.5(N−1) × max f(1−f)=0.25 < 0.001 ⇒ withers,
- *     and once faith < 0.3 (influence threshold) all inflow cuts out
+ * ignoring the stochastic socialization bonus (conservative). Write
+ * A = 0.0092 × .5 × .75 = 0.00345; a mutual congregation of N at faith f has
+ * S = (N−1) × 0.5 × f, and inflow = A·g(S)·(1−f):
+ *   • SUSTAIN: max_f g(0.5(N−1)f)(1−f) ≥ 0.001/A = 0.290 ⇒ N ≥ 4.57
+ *     ⇒ 5+ sustains, ≤4 withers (old curve: 4.56 — unchanged boundary)
+ *   • once faith < 0.3 (influence threshold) all inflow cuts out
+ *   • resting faith now RISES with size: f* ≈ 0.58 (N=5), 0.76 (N=8),
+ *     0.93 (N=50), where the old curve pinned every N ≥ 5 to f* ≈ 0.556
  *   • lone believer: S = 0 ⇒ pure decay ⇒ 0. Isolation kills gods.
  *
  * These tests run the REAL per-tick pipeline (tickAllNpcEntities decay +
@@ -107,6 +115,36 @@ describe('congregation self-sustenance (R7 WP-B)', () => {
     const mean = flock.reduce((s, e) => s + faithOf(e), 0) / flock.length;
     expect(mean).toBeGreaterThanOrEqual(0.45);
     for (const e of flock) expect(faithOf(e)).toBeGreaterThanOrEqual(BELIEVER_THRESHOLD);
+  });
+
+  it('the documented boundary holds: FIVE mutual believers self-sustain', () => {
+    // The load-bearing invariant of the COMMUNION_RATE header block. N=5 is the
+    // smallest congregation past the sustain condition (N ≥ 4.55), so it is the
+    // one that pins the retune: too weak a rate and it withers with the pair.
+    const world = makeWorld();
+    const flock: Entity[] = [];
+    for (let i = 0; i < 5; i++) flock.push(addBeliever(world, `f${i}`));
+    linkAllPairs(flock);
+    runTicks(world, K);
+    for (const e of flock) expect(faithOf(e)).toBeGreaterThanOrEqual(BELIEVER_THRESHOLD);
+    // Deterministic f* ≈ 0.58 for N=5; the stochastic channel lifts it further.
+    // Assert it holds around its starting 0.6 rather than bleeding away.
+    const mean = flock.reduce((s, e) => s + faithOf(e), 0) / flock.length;
+    expect(mean).toBeGreaterThanOrEqual(0.45);
+  });
+
+  it('a bigger congregation rests at HIGHER faith (√S is unbounded)', () => {
+    // The point of S2b.1. Under the old min(1, S) curve both of these saturated
+    // at the same f* ≈ 0.556 and this assertion would have failed.
+    const restingFaith = (n: number): number => {
+      const world = makeWorld();
+      const flock: Entity[] = [];
+      for (let i = 0; i < n; i++) flock.push(addBeliever(world, `g${i}`));
+      linkAllPairs(flock);
+      runTicks(world, K);
+      return flock.reduce((s, e) => s + faithOf(e), 0) / flock.length;
+    };
+    expect(restingFaith(20)).toBeGreaterThan(restingFaith(5));
   });
 
   it('a lone believer decays to nothing (S = 0 → pure 0.001/tick decay)', () => {
