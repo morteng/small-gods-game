@@ -356,3 +356,164 @@ cohort-only settlements) are both prerequisites for a re-run of this probe to
 show anything other than "insufficient data" on the interaction quantities —
 matching the plan's own dependency note that P3 (mean-field) is what makes the
 majority of settlements measurable at all, not just P2.
+
+## After Phase 2a (measured 2026-08-01, `feat/scaling-p2a-encounters`)
+
+### Root cause of the zero-encounter baseline (S2a.0)
+
+The audit's finding #1 (frozen social graph) was **not** why zero encounters
+fired. Instrumenting positions + activities at 1 sim-second resolution over one
+game-hour inside `khar_ordu` (genSeed 12345, the settlement that *does* have six
+fully cross-connected named NPCs) gives an unambiguous answer:
+
+| activity | NPC-samples over 1 game-hour (6 NPCs × 3600 s) | share |
+|---|---|---|
+| `worship` | 21,393 | **99.04 %** |
+| `work` | 117 | 0.54 % |
+| `wander` | 53 | 0.25 % |
+| `idle` | 37 | 0.17 % |
+| `socialize` | **0** | **0 %** |
+
+`meaning` decays `MEANING_DECAY = 0.004` per 1 Hz `tickNpcEntity` fire and
+**nothing mortal restores it** — `SELF_AGENCY_RESTORE` deliberately excludes
+`worship` ("meaning is restored only when a god Answers"), leaving exactly two
+inflows: `answerPrayer` and the `festival` settlement event. In a headless probe
+(and in any unattended stretch of a live game) neither fires, so every named soul
+crossed the 0.3 worship threshold within ~35 sim-seconds and then prayed
+**forever**. `worship` outranks the social calendar by design (M0.a), so
+`socialize` never fired once — and `NpcEncounterSystem`'s gate (BOTH parties
+`socialize`) was therefore unsatisfiable by construction. Not a tuning gap: a
+structural lock.
+
+Two secondary findings, both worth recording:
+
+- **The travel-budget hypothesis is real but was not the blocker here.**
+  `ACTIVITY_DURATION_MIN/MAX = 3/12` are counts of 1 Hz fires, and NPCs walk at
+  `NPC_WALK_SPEED = 1.4` tiles/s — but `khar_ordu`'s six homes sit 3–5 tiles from
+  its well (2.3–4.6 s of walking), which fits inside the window. The mismatch
+  bites in the *larger* settlements the probe could not previously populate,
+  whose resident slots spread over tens of tiles. Fixed anyway (S2a.1): the walk
+  is now budgeted on top of the dwell.
+- **The Phase 0 probe's own chunking was an artifact.** `Scheduler.tick` runs each
+  system's whole catch-up loop before moving to the next system, so the probe's
+  one-GAME-HOUR chunk ran 216,000 consecutive movement ticks against frozen
+  activity targets, THEN 3,600 consecutive activity re-evaluations against frozen
+  positions, THEN 3,600 encounter checks at a single frozen `now` — at most ONE
+  encounter per pair per chunk was even reachable, and the per-GAME_HOUR-gated
+  systems (growth, mortality, births, road evolution) saw a `now` that never
+  moved. The probe now chunks at `RATE_CHUNK_SIM_MS` (250 ms), the live
+  fast-forward slice. **This makes the probe ~8× more expensive**, which is why
+  the after-run below uses fewer seeds/hours than Phase 0's 3 × 6 h.
+
+### What changed (S2a.1 / S2a.2)
+
+1. **Worship became a public errand.** It prayed at the mortal's own doorstep
+   behind a "future: go to temple/altar" placeholder; it now walks to the same
+   gathering tile socializing mortals head for. The plea is untouched (same
+   `prayerNeed`, same `activity === 'worship'` the Track-3 claim ledger ages and
+   `tickNpcEntity` bleeds faith against) — only the place moved.
+2. **Venue-bound errands budget the walk** on top of the 3–12 s dwell, and
+   `socialize` only earns its `SELF_AGENCY_RESTORE` if the mortal actually
+   arrived (`VENUE_ARRIVAL_RADIUS`). A failed errand leaves community low so the
+   mortal sets out again instead of being paid for company it never had.
+3. **Runtime acquaintance formation** — the first code path in the game that
+   creates a `Relationship` after worldgen. Co-located gathering strangers form a
+   weak `friend` edge at `min(sociability) × ACQUAINTANCE_RATE`, capped by
+   `MAX_ACQUAINTANCES_PER_DAY = 3` and `MAX_SOCIAL_DEGREE = 12`. Materialized
+   extras participate.
+4. **Probe seam** (`MaterializationSystem.materializeForProbe`, game-unused) so
+   `--materialize N` populates every settlement through the shipped `spawnN`.
+
+### Controlled before/after (mechanism only, identical harness)
+
+Same seed (12345), same world, same 250 ms chunking, `khar_ordu`, 1 game-hour,
+named residents only — the ONLY variable is the S2a code:
+
+| | encounters | socialize episodes |
+|---|---|---|
+| before (main @ 74700789) | **0** | 0 |
+| after (this branch) | **30** | 0 |
+
+30 = 15 pairs × 2 `ENCOUNTER_COOLDOWN_TICKS` windows per hour: the **saturation
+ceiling** for a frozen 6-node complete graph. Note `socialize` is still zero —
+every one of those meetings is the *worship congregation*, because the
+meaning-decay lock is untouched by this branch (see "open, and not ours" below).
+
+### Scaling fits, populated world
+
+`npx tsx scripts/probe-scaling.ts 12345 --hours 1 --materialize 32` — one seed,
+9 inhabited POIs, 32 cohort souls materialized per settlement:
+
+| poi | pop | named | encounters | acquaintances |
+|---|---|---|---|---|
+| ironvein_mine | 36 | 32 | 88 | 46 |
+| crossroads_inn | 36 | 32 | 90 | 45 |
+| old_watchtower | 36 | 32 | 96 | 48 |
+| khar_ordu | 72 | 38 | 138 | 54 |
+| dawn_temple | 72 | 32 | 89 | 45 |
+| millbrook_farm | 72 | 32 | 94 | 47 |
+| ironkeep_castle | 72 | 32 | 94 | 48 |
+| oakshire | 144 | 32 | 30 | 15 |
+| stonehaven_city | 144 | 32 | 73 | 38 |
+
+| quantity | Phase 0 slope | after slope | R² | n |
+|---|---|---|---|---|
+| encounters | **no fit (all zero)** | −0.423 | 0.306 | 9 |
+| acquaintances | (mechanism did not exist) | −0.429 | 0.363 | 9 |
+| rumours | no fit (all zero) | no fit (all zero) | — | 0 |
+| beliefDeltaSum | no fit | no fit (only `khar_ordu`) | — | — |
+| prayers | no fit | +0.006 | 0.003 | 9 |
+| roadSurface | −0.930 | −0.951 | 0.643 | 5 |
+| buildings | 1.851 | 1.850 | 0.693 | 9 |
+
+**Read this honestly: encounters are now nonzero everywhere, and the slope is
+NEGATIVE.** That is a measurement artifact of the cap, not a property of the
+mechanism — the x-axis is TOTAL population (36→144) while the population that
+can actually interact was pinned at 32 by `--materialize 32` in every settlement.
+The probe now also fits against NAMED population for exactly this reason. The
+residual negative signal is real, though, and has a real cause: `oakshire`
+(30 encounters vs `old_watchtower`'s 96) spreads its 32 extras over 22 buildings
+across a much wider footprint, so fewer of them reach the well inside a dwell —
+**geography, not sociology**. That is the travel-budget effect surviving the
+travel budget, and it is the honest lead for the next slice.
+
+**Also honest: this mechanism cannot produce sustained superlinear encounter
+scaling, by construction.** `MAX_SOCIAL_DEGREE = 12` plus a per-pair
+`ENCOUNTER_COOLDOWN_TICKS` (30 real minutes) caps any mortal at 24 encounters per
+hour no matter how big its town is. Density changes how FAST a soul fills its
+degree budget, not the ceiling it fills to — so per-capita encounter rate is
+transiently rising and asymptotically FLAT. If the round wants a superlinear
+exponent out of this channel, the degree cap has to become size-dependent, or the
+cooldown has to stop being per-pair. Recording that as a mechanism property
+rather than quietly loosening a cap to hit a number.
+
+### Open, and NOT fixed by this branch
+
+- **The meaning-decay runaway** (`MEANING_DECAY` in `src/sim/npc-sim.ts`) is the
+  root cause above and it is still live: at 1:1 realtime a mortal's `meaning`
+  falls from full to the 0.3 worship line in ~3 real minutes, and only a god's
+  answer or a festival raises it. A settlement no god is attending is
+  permanently on its knees. Deliberately untouched here — `npc-sim.ts` and need
+  *direction* are the belief half's file (plan S2.3) — but it needs a decision,
+  because it is not obviously a bug: it may be exactly the "gods must answer"
+  pressure VISION intends, in which case the constant is simply mistuned for
+  1:1 realtime (it predates R8).
+- **Rumours stay at zero** because `spreadRumour` needs `domains` on the speaker,
+  and neither the authored named NPCs nor materialized extras carry any.
+- **`beliefDeltaSum` stays confined to `khar_ordu`**: communion runs on the
+  relationship graph, and extras start with none. Acquaintance edges will feed it,
+  but a 1-hour probe only just starts building them (3 edges/soul/day cap).
+- **A multi-seed, fully-populated after-run was attempted and abandoned on cost.**
+  `--materialize 400` (materialize every cohort: ~684 NPCs across 9 settlements)
+  did not finish ONE seed-game-hour in 50 minutes of wall clock, against 218 s for
+  the same seed-hour at `--materialize 32` (~296 NPCs). Wall-clock grows far
+  faster than linearly in materialized population. **Unverified hypothesis worth
+  checking before the next probe run:** the S2a convergence mechanism now sends
+  hundreds of mortals to ONE tile, and `findPath` (which takes `world` + the
+  entity id, i.e. considers occupancy) degrades badly when a destination
+  neighbourhood is crowded. If so it is not only a probe problem — it is the
+  frame budget in any focused, materialized town, and the natural fix is a spread
+  of gathering tiles (a market APRON rather than the wellhead) plus an arrival
+  test that stops re-pathing once the mortal is inside `VENUE_ARRIVAL_RADIUS`.
+  Until that is understood, size probe runs by materialized NPC count, not by
+  simulated hours.
