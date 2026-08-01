@@ -121,6 +121,57 @@ describe('snapshot', () => {
     expect(s.roadUse.activeEdges()).toBe(0);
   });
 
+  it('settlement-flux tally scrubs with the timeline (raw flows + window anchor revert)', () => {
+    const s = createState();
+    attachWorld(s);
+    s.settlementFlux.sinceTick = 100;
+    s.settlementFlux.noteVisitor('poi-b', 'poi-a');
+    s.settlementFlux.noteVisitor('poi-b', 'poi-a');
+    const snap = captureSnapshot(s);
+    // Visitors realized AFTER capture are the "future" a scrub must undo.
+    s.settlementFlux.noteVisitor('poi-b', 'poi-a');
+    s.settlementFlux.noteVisitor('poi-c', 'poi-a');
+    s.settlementFlux.sinceTick = 999;
+    expect(s.settlementFlux.rawFlow('poi-b', 'poi-a')).toBe(3);
+    restoreSnapshot(s, snap);
+    expect(s.settlementFlux.rawFlow('poi-b', 'poi-a')).toBe(2);   // reverted to capture time
+    expect(s.settlementFlux.rawFlow('poi-c', 'poi-a')).toBe(0);   // the future pair is gone
+    expect(s.settlementFlux.sinceTick).toBe(100);                 // window anchor reverted too
+  });
+
+  it('a pre-P1 snapshot (no settlementFlux field) restores to an empty tally', () => {
+    const s = createState();
+    attachWorld(s);
+    s.settlementFlux.noteVisitor('poi-b', 'poi-a');
+    const snap = captureSnapshot(s);
+    delete (snap as { settlementFlux?: unknown }).settlementFlux;   // simulate an older save
+    restoreSnapshot(s, snap);
+    expect(s.settlementFlux.activePairs()).toBe(0);
+    expect(s.settlementFlux.sinceTick).toBe(-1);
+  });
+
+  it('the aggregate store scrubs with the timeline, and a pre-P1 snapshot restores it empty', () => {
+    const s = createState();
+    attachWorld(s);
+    s.settlementAggregates.replace(new Map([['poi1', {
+      poiId: 'poi1',
+      population: { named: 4, statistical: 20 },
+      believers: {},
+      needPressure: { safety: 0.1, prosperity: 0.2, community: 0.3, meaning: 0.4 },
+      prayerPressure: 2,
+    }]]), 500);
+    const snap = captureSnapshot(s);
+    s.settlementAggregates.replace(new Map(), 900);      // the discarded future
+    restoreSnapshot(s, snap);
+    expect(s.settlementAggregates.computedTick).toBe(500);
+    expect(s.settlementAggregates.get('poi1')!.population.statistical).toBe(20);
+
+    delete (snap as { settlementAggregates?: unknown }).settlementAggregates;
+    restoreSnapshot(s, snap);
+    expect(s.settlementAggregates.computedTick).toBe(-1);
+    expect(s.settlementAggregates.size()).toBe(0);
+  });
+
   it('the contention ladder scrubs with the timeline (escalation state reverts)', () => {
     const s = createState();
     attachWorld(s);

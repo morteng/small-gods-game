@@ -5,6 +5,8 @@ import {
 } from '@/core/state';
 import { RoadUseTally } from '@/world/road-use';
 import { ContentionLedger } from '@/sim/rival-contention';
+import { SettlementAggregateStore } from '@/sim/settlement-aggregates';
+import { SettlementFluxTally } from '@/sim/settlement-flux';
 
 /**
  * The guard behind in-process quit-to-title (UI v3 §3.4).
@@ -50,6 +52,20 @@ function dirty(): GameState {
   s.roadUse = new RoadUseTally();
   s.roadUse.sinceTick = 12345;
   s.contention = new ContentionLedger();
+  // Interaction scaling P1: both new stores are REPLACEABLE (restoreSnapshot
+  // swaps them wholesale, like roadUse/contention) — dirty them so a reset that
+  // missed either would leave the previous world's settlement numbers standing.
+  s.settlementAggregates = new SettlementAggregateStore();
+  s.settlementAggregates.replace(new Map([['poi-stale', {
+    poiId: 'poi-stale',
+    population: { named: 3, statistical: 30 },
+    believers: {},
+    needPressure: { safety: 0.1, prosperity: 0.2, community: 0.3, meaning: 0.4 },
+    prayerPressure: 1,
+  }]]), 4242);
+  s.settlementFlux = new SettlementFluxTally();
+  s.settlementFlux.sinceTick = 4242;
+  s.settlementFlux.noteVisitor('poi-stale', 'poi-other');
 
   // identity-stable containers
   s.camera.x = 999; s.camera.y = 888; s.camera.zoom = 7;
@@ -159,6 +175,10 @@ describe('resetState — in-process world teardown', () => {
     expect(s.waterLevelM).toBe(0);
     expect(s.generatedDecorations).toEqual([]);
     expect(s.roadUse.sinceTick).toBe(-1);
+    expect(s.settlementAggregates.computedTick).toBe(-1);
+    expect(s.settlementAggregates.size()).toBe(0);
+    expect(s.settlementFlux.sinceTick).toBe(-1);
+    expect(s.settlementFlux.activePairs()).toBe(0);
   });
 
   it('keeps event-log SUBSCRIBERS attached across the reset', () => {

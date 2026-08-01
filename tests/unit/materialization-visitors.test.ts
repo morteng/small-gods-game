@@ -28,6 +28,7 @@ import {
   attractorCapacity, marketAnchorTile, settlementDraws,
   MARKET_OPEN_HOUR, MARKET_CLOSE_HOUR, LOCAL_VISITOR_MAX, NEIGHBOUR_VISITOR_MAX,
 } from '@/sim/population/settlement-demand';
+import { SettlementFluxTally } from '@/sim/settlement-flux';
 import { cottages, seedCohort } from './materialization-harness';
 
 beforeAll(() => loadDefaultPacks());
@@ -49,6 +50,8 @@ interface MktHarness {
   sys: MaterializationSystem;
   log: EventLog;
   clock: SimClock;
+  /** P1 / S1.2: the cross-settlement flow meter the visitor pull feeds. */
+  flux: SettlementFluxTally;
   setFocus(p: string | null, band: ZoomBand): void;
   tick(now: number): void;
   visitorSrcCounts(): Map<string, number>;
@@ -107,10 +110,11 @@ function mkt(opts: {
   let focus: { poiId: string | null; band: ZoomBand } = { poiId: null, band: 'world' };
   const clock = new SimClock();
   const log = new EventLog(clock);
-  const sys = new MaterializationSystem(() => cohorts, () => map, () => focus);
+  const flux = new SettlementFluxTally();
+  const sys = new MaterializationSystem(() => cohorts, () => map, () => focus, () => flux);
 
   return {
-    map, world, cohorts, sys, log, clock,
+    map, world, cohorts, sys, log, clock, flux,
     setFocus(p, band) { focus = { poiId: p, band }; },
     tick(now) { sys.tick({ world, spirits: new Map(), log, clock, rng: createRng(1), dt: 250, now }); },
     visitorSrcCounts() {
@@ -288,6 +292,25 @@ describe('slice-3 market-day pull (road-neighbour, cross-POI)', () => {
       expect(npcProps(e).homePoiId).toBe('nb');
       expect(e.x).toBeLessThan(15);
     }
+  });
+
+  it('METERS the neighbour pull into the settlement-flux tally (P1 / S1.2)', () => {
+    const H = mkt({ withNeighbour: true, hostSouls: 40, neighbourSouls: 40 });
+    settle(H, 'host', noon(5));                          // host's market day
+    const pulled = H.visitorSrcCounts().get('nb')!;
+    expect(pulled).toBeGreaterThan(0);
+    // Every realized guest is one nb→host crossing, and nothing else is recorded.
+    expect(H.flux.rawFlow('nb', 'host')).toBe(pulled);
+    expect(H.flux.activePairs()).toBe(1);
+    expect(H.flux.rawFlow('host', 'nb')).toBe(0);        // the pull is directed
+  });
+
+  it('records NO flux for local bustle — a town visiting itself is not a commute', () => {
+    // Host attractors, no neighbour: purely LOCAL visitors, on a non-market day.
+    const H = mkt({ hostAttractors: ['market_stall', 'market_stall'], hostSouls: 90 });
+    settle(H, 'host', noon(0));
+    expect(H.visitorSrcCounts().get('host') ?? 0).toBeGreaterThan(0);
+    expect(H.flux.activePairs()).toBe(0);
   });
 
   it('does NOT pull neighbours on a non-market day', () => {

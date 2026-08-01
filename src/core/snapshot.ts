@@ -14,6 +14,8 @@ import { RoadUseTally, type RoadUseSnapshot } from '@/world/road-use';
 import { reconcileCrossingTiers, type CrossingTierSnapshot } from '@/world/crossing-tier-store';
 import { AdoptionLedger, reconcileAdoptions, type AdoptionLedgerSnapshot } from '@/world/desire-line-adoption';
 import { ContentionLedger, type ContentionLedgerSnapshot } from '@/sim/rival-contention';
+import { SettlementAggregateStore, type SettlementAggregateStoreSnapshot } from '@/sim/settlement-aggregates';
+import { SettlementFluxTally, type SettlementFluxSnapshot } from '@/sim/settlement-flux';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -93,6 +95,20 @@ export interface Snapshot {
    *  restores the exact escalation state; optional so pre-contention saves +
    *  partial test states restore to an empty ledger (no SAVE_VERSION bump). */
   contention?: ContentionLedgerSnapshot;
+  /** Interaction scaling (P1 / S1.1): the per-settlement aggregate store — the
+   *  latest hourly sweep plus the FOLDED cross-settlement flux EMAs. Derived
+   *  data, but snapshotted anyway: at 1:1 realtime a sweep is a whole real hour
+   *  apart, so a scrub that left the previous numbers standing would read as a
+   *  ghost for that long. Optional so pre-P1 saves + partial test states restore
+   *  to an empty store. */
+  settlementAggregates?: SettlementAggregateStoreSnapshot;
+  /** Interaction scaling (P1 / S1.2): the inter-fold RAW visitor tally per
+   *  settlement pair (`sinceTick` + sparse `[srcPoi>dstPoi, count][]`). The
+   *  folded per-game-day EMA rides `settlementAggregates` above, not here — only
+   *  the transient counter needs to scrub with the timeline. The `roadUse`
+   *  split, exactly. Optional so pre-P1 saves + partial test states restore to
+   *  an empty tally. */
+  settlementFlux?: SettlementFluxSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -172,6 +188,8 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     crossingTiers: state.crossingTiers?.serialize(),
     adoptions: state.adoptions?.serialize(),
     contention: state.contention?.serialize(),
+    settlementAggregates: state.settlementAggregates?.serialize(),
+    settlementFlux: state.settlementFlux?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -244,6 +262,17 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   // reconcile, so restore is a straight rebuild (or reset to empty for a
   // pre-contention snapshot so a scrub can't inherit a future escalation).
   state.contention = snap.contention ? ContentionLedger.fromSnapshot(snap.contention) : new ContentionLedger();
+
+  // Interaction scaling (P1): the aggregate store + the raw settlement-flux tally
+  // are pure counters like `roadUse` — a straight rebuild from the (authoritative)
+  // snapshot, or a reset to empty for a pre-P1 snapshot so a scrub past a sweep or
+  // a fold can never inherit future numbers. Nothing to reconcile onto the map.
+  state.settlementAggregates = snap.settlementAggregates
+    ? SettlementAggregateStore.fromSnapshot(snap.settlementAggregates)
+    : new SettlementAggregateStore();
+  state.settlementFlux = snap.settlementFlux
+    ? SettlementFluxTally.fromSnapshot(snap.settlementFlux)
+    : new SettlementFluxTally();
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.
