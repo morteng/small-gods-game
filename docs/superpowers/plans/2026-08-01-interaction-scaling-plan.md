@@ -761,44 +761,98 @@ pinned at zero within ~17 minutes of waking) so the start hour cannot change it 
 
 | | **before** | **after, no god** | **after, 1.5 answers/soul/day** | **after, 2.0 answers/soul/day** |
 |---|---|---|---|---|
-| `worship` share of all time | **62.5%** (100% of waking) | **30.2%** | 12.9% | 5.6% |
-| `work` share | 0.03% | 21.7% | 31.9% | 38.3% |
-| `socialize` / `wander` / `idle` | 0.02% | 10.6% | 17.7% | 18.7% |
+| `worship` share of all time | **62.5%** (100% of waking) | **30.3%** | 10.1% | 4.9% |
+| `work` share | 0.03% | 21.7% | 34.6% | 37.9% |
+| `socialize` / `wander` / `idle` | 0.02% | 10.5% | 17.8% | 19.7% |
 | prayer episodes / soul / day | ~1, **never lifting** | **2.0** | 1.75 | 2.0 |
-| median plea duration | 13 h (i.e. permanent) | 4.0 h | 1.3 h | 32 min |
+| median plea duration | 13 h (i.e. permanent) | 4.0 h | 57 min | 33 min |
 | prayer subjects | 96% `safety`, 3% `prosperity` | **100% `meaning`** | 100% `meaning` | 100% `meaning` |
-| **comfort fires** | **0.00%** | **0.00%** | **15.5%** | **14.8%** |
-| desperation fires | **99.98%** @ magnitude **0.999** | 69.8% @ **0.299** | 52.2% @ 0.225 | 47.4% @ **0.166** |
+| **comfort fires** | **0.00%** | **0.00%** | **15.0%** | **15.5%** |
+| desperation fires | **99.98%** @ magnitude **0.999** | 68.2% @ **0.293** | 50.4% @ 0.203 | 47.2% @ **0.165** |
 | mean `safety` | 0.381 | 0.922 | 0.922 | 0.922 |
-| mean `prosperity` | 0.005 | 0.540 | 0.598 | 0.658 |
-| mean `community` | 0.004 | 0.569 | 0.625 | 0.663 |
-| mean `meaning` | 0.000 | 0.330 | 0.419 | 0.432 |
+| mean `prosperity` | 0.005 | 0.540 | 0.619 | 0.659 |
+| mean `community` | 0.004 | 0.707 | 0.750 | 0.764 |
+| mean `meaning` | 0.000 | 0.330 | 0.419 | 0.430 |
+
+*(Re-measured after S2c.1 below moved the spawn seeds. Only the `community` row
+shifted materially — 0.569 → 0.707 with no god — because souls no longer start
+below their own socialize line. `comfort` moved by half a point, inside noise.)*
 
 Against the four acceptance criteria:
 
 - **A godless settlement is not locked in permanent worship.** 100% of waking
-  hours → **30.2% of the whole day**, which is the designed `decay / rite` ratio
+  hours → **30.3% of the whole day**, which is the designed `decay / rite` ratio
   and reads as a real congregation rather than a lock. `work` goes from 0.03% to
   21.7%; the encounter economy's gathering supply is the congregation plus
   `socialize`, and it is now a *rate*, not a permanent state.
 - **Secularization is reachable again**, at **≈1.5 answered prayers per soul per
-  day** — comfort fires 15.5% of the time, from a floor of exactly 0.00%. Note it
-  does **not** rise further with more attention (14.8% at 2.0/soul/day): a god can
-  only answer a plea that is standing, and pleas only open when `meaning` falls
-  under its line, so divine throughput saturates. Comfort is bought by answering
-  *deep into* a plea, not by answering more often — which is a pleasingly Pratchett
-  shape for the comfort trap.
+  day** — comfort fires **15.0%** of the time, from a floor of exactly 0.00%. Note
+  it is **flat** across the attention range measured (15.5% at 2.0 answers/soul/
+  day — half a point, inside noise): a god can only answer a plea that is
+  *standing*, and pleas only open when `meaning` falls under its line, so divine
+  throughput saturates at roughly two pleas per soul per day however attentive the
+  god is. Comfort is bought by answering *deep into* a plea, not by answering more
+  often — which is a pleasingly Pratchett shape for the comfort trap.
 - **Prayer still matters.** A god's workload went from one permanent plea per soul
   (unanswerable in any meaningful sense — the mortal never got up) to **2 discrete
   pleas per soul per day, standing 4 hours each**. For a 12-soul village that is
   ~24 answerable pleas a day; holding the comfort band takes ~18 of them.
 - **Desperation is not pinned.** 99.98% of samples at magnitude 0.999 (i.e. every
-  soul, at maximum, permanently) → 69.8% at magnitude 0.299 with no god at all,
-  and 47.4% at 0.166 with one. A godless village is *in want* — which is the
+  soul, at maximum, permanently) → 68.2% at magnitude 0.293 with no god at all,
+  and 47.2% at 0.165 with one. A godless village is *in want* — which is the
   recruiting ground a small god needs (tenet 1) — without being in extremis.
 - **`prayerNeed` / `prayerSubject` / the `answer_prayer` restore path all still
   work**, and are now the only prayer path that fires: 100% of pleas carry a
   subject, and every subject in a healthy village is `meaning`.
+
+### S2c.1 — souls were born below the line S2c moved (found by server CI)
+
+Server CI failed three tests in two files that were not in the set run during the
+slice: a castle knight `socialize`-ing instead of `patrol`-ing, and a village
+soldier and a freshly materialized farmhand `socialize`-ing instead of working.
+The socialize branch outranks both `patrol` and `work`, so the obvious suspicion
+was that `COMMUNITY_THRESHOLD` had made that ORDERING wrong.
+
+**Measured first, and it has not.** Over a full 24-hour day with the real activity
+system (a castle knight with a seated lord and a dominion link, plus a village
+farmer):
+
+| | `patrol` / `work` | `worship` | `socialize` | `sleep` |
+|---|---|---|---|---|
+| castle knight, share of **waking** fires | **76.4%** (patrol) | 23.6% | **0.01%** | — |
+| village farmer, share of **waking** fires | **78.6%** (work) | 21.4% | **0.01%** | — |
+
+`socialize`'s steady-state duty cycle is **0.01–0.03% of waking fires** — about
+two errands of ~10 seconds each per day. That is set by `COMMUNITY_DECAY` against
+`SELF_AGENCY_RESTORE`, *not* by where the trigger sits: moving the trigger changed
+the BAND belonging oscillates in (0.35–0.65 → 0.65–0.95) and left its FREQUENCY
+untouched. **There is no M5 regression** and the branch ordering is left alone.
+
+What was stale is the **spawn value**, in both population tiers. A soul must be
+born inside the band it will live in, and both seeds were the midpoint of the OLD
+band: `initNpcProps` at 0.55 and `seedStatisticalCohorts` at 0.5. So every mortal
+in the world arrived *below its own socialize line*, and its first errand was a
+trip to the green ahead of work or patrol — precisely what the three tests caught.
+Same class of defect as the rest of S2c: a constant left behind when the one next
+to it moved. The tests were right; they test role→activity mapping and are
+unchanged.
+
+For the statistical tier this is more than tidiness. **Materialization is not a
+birth** — it makes a soul that has lived in the settlement for years *visible*, so
+it has to arrive in the band it has been living in.
+
+Both seeds are now 0.8, the midpoint of [0.65, 0.95]. `STAT_COMMUNITY_EQUILIBRIUM`
+names it beside the existing `STAT_UNTITHED_PROSPERITY`; the named tier keeps a
+plain literal because `npc-sim.ts` already imports `world/npc-helpers`, so
+reaching back for the constant would close a cycle (the `WALK_TILES_PER_SECOND`
+precedent). `tests/unit/npc-spawn-bands.test.ts` fails if either seed drifts out
+of the band again — all 8 roles × 200 seeds.
+
+**`safety` has the same shape and is deliberately left alone**: seeded 0.6 ± 0.1
+against a lived band of [0.73, 1.0]. It is a measurement transient rather than a
+behavioural one (0.5 is nowhere near the 0.15 worship line, and the first night
+restores it), and it is exactly why the acceptance table above is measured from
+dusk. Worth folding into the same guard when someone next touches these seeds.
 
 ### Blast radius: rival claims, the inbox, and Track 3
 
