@@ -100,7 +100,9 @@ export interface Snapshot {
    *  data, but snapshotted anyway: at 1:1 realtime a sweep is a whole real hour
    *  apart, so a scrub that left the previous numbers standing would read as a
    *  ghost for that long. Optional so pre-P1 saves + partial test states restore
-   *  to an empty store. */
+   *  to an empty store. (P5 / S5.1: the belief-trend baseline `describeSettlementsForFate`
+   *  reads rides `SettlementAggregateSystem`'s own `systems?` entry below, not
+   *  a separate field — it's the same hourly baseline as `populationTrend`.) */
   settlementAggregates?: SettlementAggregateStoreSnapshot;
   /** Interaction scaling (P1 / S1.2): the inter-fold RAW visitor tally per
    *  settlement pair (`sinceTick` + sparse `[srcPoi>dstPoi, count][]`). The

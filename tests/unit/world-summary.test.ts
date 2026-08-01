@@ -45,4 +45,13 @@ describe('buildWorldSummary', () => {
   it('does not throw on a null world / missing worldSeed', () => {
     expect(() => buildWorldSummary({ world: null, worldSeed: null } as unknown as GameState)).not.toThrow();
   });
+
+  it('P5 S5.2: { roster: false } drops the per-NPC roster line but keeps settlements + population', () => {
+    const s = buildWorldSummary(state(), { roster: false });
+    expect(s).toContain('Testlands');
+    expect(s).toContain('northvale');
+    expect(s).toMatch(/2 NPC/);
+    expect(s).not.toContain('Roster:');
+    expect(s).not.toContain('Aldous');
+  });
 });

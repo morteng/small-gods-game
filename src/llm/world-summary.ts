@@ -9,7 +9,18 @@ import { queryNpcs, npcProps } from '@/world/npc-helpers';
 
 const ROSTER_CAP = 30;
 
-export function buildWorldSummary(state: GameState): string {
+export interface WorldSummaryOptions {
+  /** Include the per-NPC roster line (id/name/role/home, capped at
+   *  `ROSTER_CAP`). Defaults to `true` — the Create panel needs it to resolve
+   *  name references. Interaction scaling P5 (S5.2): Fate passes `false` — its
+   *  prompt carries a per-settlement mean-field digest instead
+   *  (`describeSettlementsForFate`), and VISION §2.1 keeps Fate impersonal:
+   *  no per-NPC roster belongs in its context at all. */
+  roster?: boolean;
+}
+
+export function buildWorldSummary(state: GameState, opts: WorldSummaryOptions = {}): string {
+  const roster = opts.roster ?? true;
   const name = state.worldSeed?.name ?? 'unnamed';
   const lines: string[] = [`World "${name}".`];
 
@@ -34,13 +45,13 @@ export function buildWorldSummary(state: GameState): string {
   const roleText = [...roleCounts.entries()].map(([r, n]) => `${r} ${n}`).join(', ');
   lines.push(`Population: ${npcs.length} NPCs${roleText ? ` (${roleText})` : ''}.`);
 
-  if (npcs.length) {
-    const roster = npcs.slice(0, ROSTER_CAP).map(e => {
+  if (roster && npcs.length) {
+    const rosterText = npcs.slice(0, ROSTER_CAP).map(e => {
       const p = npcProps(e);
       return `${e.id} "${p.name}" ${p.role}${p.homePoiId ? ` @${p.homePoiId}` : ''}`;
     }).join('; ');
     const more = npcs.length > ROSTER_CAP ? ` …(+${npcs.length - ROSTER_CAP} more)` : '';
-    lines.push(`Roster: ${roster}${more}.`);
+    lines.push(`Roster: ${rosterText}${more}.`);
   }
 
   // Object counts by kind (non-npc), helps the model reference existing objects.

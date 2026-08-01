@@ -9,6 +9,8 @@
 import type { GameState } from '@/core/state';
 import type { SimEvent } from '@/core/events';
 import type { ThreadId } from '@/sim/threads/thread-types';
+import type { SpiritId } from '@/core/spirit';
+import type { NpcNeeds } from '@/core/types';
 import { buildWorldSummary } from '@/llm/world-summary';
 import { evaluateContracts } from '@/world/connectome-contracts';
 import { PLAYER_SPIRIT_ID } from '@/sim/believers';
@@ -69,6 +71,118 @@ const SYSTEM_CHARTER =
   'Only ever use a subjectPoiId listed in the active threads, a ' +
   'flooded settlement, or a causal site, and only a rivalId from the Rivals list. Act sparingly — often the ' +
   'right choice is to call no tool.';
+
+/** Bound on how many settlements the mean-field digest enumerates (it rides an
+ *  LLM prompt; a large world would otherwise dump every settlement every turn). */
+const MAX_SETTLEMENTS_IN_DIGEST = 12;
+
+/** Fixed scan order for the "worst need" argmax — deterministic tie-break
+ *  (first axis wins a tie), independent of object key iteration order. */
+const NEED_AXES: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'community', 'meaning'];
+
+/** `delta` here is always an EXPLICIT-baseline difference (never a fabricated
+ *  one) — small floating noise below `epsilon` reads as "steady", never as a
+ *  direction. It's a per-GAME-HOUR delta (`SettlementAggregateSystem` sweeps at
+ *  `GAME_HOUR_HZ`), so the "/hr" suffix is load-bearing: without it the same
+ *  underlying rate would read differently depending on how long it had been
+ *  since the number was last printed. */
+function trendWord(delta: number, epsilon: number): string {
+  if (Math.abs(delta) < epsilon) return 'steady';
+  const sign = delta > 0 ? '+' : '';
+  return delta > 0 ? `rising (${sign}${delta.toFixed(2)}/hr)` : `falling (${delta.toFixed(2)}/hr)`;
+}
+
+/**
+ * S5.1 (interaction scaling P5): Fate's MEAN-FIELD view of every settlement —
+ * the brainstorm's §4 ("Fate plans on the mean field; the player plays the
+ * fluctuations"). Reads `state.settlementAggregates` (Phase 1's one sweep over
+ * BOTH population tiers) instead of re-sweeping, and reports population +
+ * trend, dominant belief + trend, the WORST need axis (argmax of
+ * `needPressure` — directional by construction, so a settlement whose
+ * prosperity is collapsing while its safety is fine reads differently from one
+ * that's uniformly mediocre), standing prayer pressure, cross-settlement
+ * visitor flux, and contention state when it isn't calm. Deliberately holds
+ * NO per-NPC or per-player data — VISION §2.1 keeps Fate impersonal; that's
+ * rival spirits' job.
+ *
+ * Population trend rides the aggregate's own `populationTrend`, and belief
+ * trend rides the SAME aggregate's per-spirit `SettlementBelieverStats.
+ * faithTrend` — BOTH threaded by `SettlementAggregateSystem`'s one hourly
+ * baseline (`@/sim/settlement-aggregates`), so both numbers are honest
+ * per-GAME-HOUR deltas rather than "however long it's been since Fate last
+ * looked" (Fate is woken by triggers on an irregular, cooldown-throttled
+ * cadence — a delta measured against ITS OWN previous look would print a
+ * different number for the same underlying rate of change). This function
+ * reads that baseline; it writes nothing.
+ *
+ * Bounded (`MAX_SETTLEMENTS_IN_DIGEST`), sorted (poiId, so two runs over
+ * identical state emit byte-identical text — prompt-cache friendliness), `''`
+ * when the sweep hasn't run yet or nothing is worth saying, and wrapped in
+ * try/catch (a quiet world must never crash the deliberation). Every named
+ * poiId is a legal Fate subject, so its ids are unioned into `validPoiIds` by
+ * the caller.
+ */
+export function describeSettlementsForFate(state: GameState): { text: string; poiIds: Set<string> } {
+  try {
+    const poiIds = new Set<string>();
+    const store = state.settlementAggregates;
+    if (!store || store.size() === 0) return { text: '', poiIds };
+    const poiName = new Map<string, string>();
+    for (const p of state.worldSeed?.pois ?? []) poiName.set(p.id, p.name ?? p.id);
+
+    const candidates = [...store.all().keys()].filter((id) => id !== '').sort();
+    const lines: string[] = [];
+    for (const poiId of candidates) {
+      if (lines.length >= MAX_SETTLEMENTS_IN_DIGEST) break;
+      const agg = store.get(poiId);
+      if (!agg) continue;
+      const total = agg.population.named + agg.population.statistical;
+      if (total <= 0) continue; // nothing lives here yet — nothing to report
+
+      const popTrend = agg.populationTrend === undefined
+        ? ''
+        : agg.populationTrend === 0
+          ? ' (steady)'
+          : ` (${agg.populationTrend > 0 ? '+' : ''}${agg.populationTrend} ${agg.populationTrend > 0 ? 'growing' : 'shrinking'})`;
+
+      // Dominant belief: the highest practising-believer count, id-sorted tie-break.
+      let dominant: [SpiritId, { count: number; meanFaith: number; faithTrend?: number }] | undefined;
+      for (const sid of Object.keys(agg.believers).sort()) {
+        const rec = agg.believers[sid];
+        if (!dominant || rec.count > dominant[1].count) dominant = [sid, rec];
+      }
+      let beliefText = 'dominant belief: none';
+      if (dominant && dominant[1].count > 0) {
+        const [sid, rec] = dominant;
+        const spiritName = state.spirits?.get(sid)?.name ?? sid;
+        const beliefTrend = rec.faithTrend === undefined ? '' : `, ${trendWord(rec.faithTrend, 0.005)}`;
+        beliefText = `dominant belief: ${spiritName} (${rec.count} believer(s)${beliefTrend})`;
+      }
+
+      let worstAxis = NEED_AXES[0];
+      let worstVal = agg.needPressure[worstAxis];
+      for (const axis of NEED_AXES.slice(1)) {
+        if (agg.needPressure[axis] > worstVal) { worstAxis = axis; worstVal = agg.needPressure[axis]; }
+      }
+
+      const fluxIn = store.fluxInFor(poiId);
+      const fluxOut = store.fluxOutFor(poiId);
+      const contentionState = state.contention?.stateOf(poiId) ?? 'calm';
+      const contentionText = contentionState === 'calm' ? '' : ` — CONTESTED (${contentionState})`;
+
+      poiIds.add(poiId);
+      lines.push(
+        `- "${poiName.get(poiId) ?? poiId}" (${poiId}): ${total} soul(s)${popTrend}; ${beliefText}; ` +
+        `worst need: ${worstAxis} (${worstVal.toFixed(2)}); ${agg.prayerPressure} plea(s) at risk; ` +
+        `flux ${fluxIn.toFixed(1)}/day in, ${fluxOut.toFixed(1)}/day out${contentionText}.`,
+      );
+    }
+    if (lines.length === 0) return { text: '', poiIds };
+    return { text: `Settlements (the mean field):\n${lines.join('\n')}`, poiIds };
+  } catch {
+    return { text: '', poiIds: new Set<string>() };
+  }
+}
 
 /** A compact, deterministic digest of active settlement threads + their poiIds. */
 export function describeThreadsForFate(state: GameState): { text: string; poiIds: Set<string> } {
@@ -314,7 +428,12 @@ export function buildFateContext(
   validPoiIds: Set<string>; validRivalIds: Set<string>; validLordPoiIds: Set<string>;
 } {
   const isPulse = focus.kind === 'pulse';
+  // S5.1: the mean-field settlement digest — replaces the per-NPC roster in this
+  // prompt (S5.2 passes { roster: false } to buildWorldSummary below). Its poiIds
+  // join validPoiIds first; every later digest's ids fold into the same set.
+  const { text: settlementsText, poiIds: settlementPoiIds } = describeSettlementsForFate(state);
   const { text: threadsText, poiIds } = describeThreadsForFate(state);
+  for (const id of settlementPoiIds) poiIds.add(id);
   // A flood is a beat-worthy event even at a settlement with no open thread, so the
   // triggering flood's POI is a valid subject — let Fate respond to the deluge there.
   if (!isPulse && focus.event.type === 'place_flooded') poiIds.add(focus.event.poiId);
@@ -338,7 +457,8 @@ export function buildFateContext(
       'grounded beat to be discovered — or, just as often, do nothing this turn.'
     : 'Decide whether to prepare one grounded beat to be discovered. Use a subjectPoiId from the active threads, a flooded settlement, or a causal site listed above.';
   const user = [
-    buildWorldSummary(state),
+    buildWorldSummary(state, { roster: false }), // S5.2: the mean-field digest below replaces the roster
+    settlementsText,                      // S5.1: per-settlement mean-field digest (empty when the sweep hasn't run)
     threadsText,
     sitesText,
     rivalsText,

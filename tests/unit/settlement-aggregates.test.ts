@@ -14,7 +14,7 @@ import { createState } from '@/core/state';
 import type { GameMap, Tile, NpcProperties } from '@/core/types';
 import type { Spirit, SpiritId } from '@/core/spirit';
 import {
-  buildSettlementAggregates, populationBaseline, SettlementAggregateStore,
+  buildSettlementAggregates, settlementBaseline, SettlementAggregateStore,
 } from '@/sim/settlement-aggregates';
 import {
   SettlementFluxTally, FLUX_FOLD_WINDOW_TICKS, fluxKey, parseFluxKey,
@@ -207,17 +207,38 @@ describe('buildSettlementAggregates — record contents', () => {
     const { world, spirits, cohorts } = twoTierWorld(now);
     const a = buildSettlementAggregates(world, spirits, { now, cohorts }).get('poi-a')!;
     expect('populationTrend' in a).toBe(false);
+    // Same discipline for belief: no baseline ⇒ no per-spirit faithTrend either.
+    expect('faithTrend' in a.believers['player']).toBe(false);
   });
 
   it('an explicit baseline yields a signed trend, including for a vanished settlement', () => {
     const { world, spirits, cohorts } = twoTierWorld(now);
-    const baseline = new Map([['poi-a', 10], ['poi-b', 5]]);
+    const baseline = new Map([
+      ['poi-a', { population: 10, meanFaith: new Map() }],
+      ['poi-b', { population: 5, meanFaith: new Map() }],
+    ]);
     const agg = buildSettlementAggregates(world, spirits, { now, cohorts, baseline });
     expect(agg.get('poi-a')!.populationTrend).toBe(13 - 10);
     expect(agg.get('poi-b')!.populationTrend).toBe(5 - 5);
     // A settlement absent from the baseline reads its whole population as growth
     // — correct, because the baseline explicitly said it had none.
     expect(agg.get('')!.populationTrend).toBe(1);
+  });
+
+  it('an explicit baseline yields a signed faithTrend PER SPIRIT, ' +
+     'and a spirit missing from the baseline gets none (one data point, not two)', () => {
+    const { world, spirits, cohorts } = twoTierWorld(now);
+    const firstFaith = buildSettlementAggregates(world, spirits, { now, cohorts }).get('poi-a')!.believers['player'].meanFaith;
+    const baseline = new Map([
+      // 'player' has a prior reading; the unrelated 'gone-god' key never appears
+      // in poi-a's believers, so it can never surface a trend there either.
+      ['poi-a', { population: 13, meanFaith: new Map([['player', firstFaith - 0.1]]) }],
+      // poi-b has NO reading for 'rival-1' — its lone believer must read no trend.
+      ['poi-b', { population: 1, meanFaith: new Map() }],
+    ]);
+    const agg = buildSettlementAggregates(world, spirits, { now, cohorts, baseline });
+    expect(agg.get('poi-a')!.believers['player'].faithTrend).toBeCloseTo(0.1, 10);
+    expect('faithTrend' in agg.get('poi-b')!.believers['rival-1']).toBe(false);
   });
 
   it('is deterministic and poiId-sorted', () => {
@@ -228,11 +249,16 @@ describe('buildSettlementAggregates — record contents', () => {
     expect(JSON.stringify([...a])).toBe(JSON.stringify([...b]));
   });
 
-  it('populationBaseline totals both tiers', () => {
+  it('settlementBaseline totals both tiers and captures per-spirit meanFaith', () => {
     const { world, spirits, cohorts } = twoTierWorld(now);
-    const base = populationBaseline(buildSettlementAggregates(world, spirits, { now, cohorts }));
-    expect(base.get('poi-a')).toBe(13);
-    expect(base.get('poi-b')).toBe(5);
+    const aggregates = buildSettlementAggregates(world, spirits, { now, cohorts });
+    const base = settlementBaseline(aggregates);
+    expect(base.get('poi-a')!.population).toBe(13);
+    expect(base.get('poi-b')!.population).toBe(5);
+    expect(base.get('poi-a')!.meanFaith.get('player'))
+      .toBeCloseTo(aggregates.get('poi-a')!.believers['player'].meanFaith, 10);
+    expect(base.get('poi-b')!.meanFaith.get('rival-1'))
+      .toBeCloseTo(aggregates.get('poi-b')!.believers['rival-1'].meanFaith, 10);
   });
 });
 
@@ -372,6 +398,25 @@ describe('SettlementAggregateSystem', () => {
     expect(store.get('poi-b')!.populationTrend).toBe(0);
   });
 
+  it('the SECOND sweep measures a faithTrend against the first, per spirit — ' +
+     'the same GAME_HOUR cadence Fate\'s digest reads', () => {
+    const now = TICKS_PER_DAY;
+    const { world, spirits, cohorts } = twoTierWorld(now);
+    const store = new SettlementAggregateStore();
+    const sys = new SettlementAggregateSystem(() => store, () => cohorts, () => null);
+    sys.tick(ctxFor(world, spirits, now));
+    const before = store.get('poi-a')!.believers['player'].meanFaith;
+    expect('faithTrend' in store.get('poi-a')!.believers['player']).toBe(false); // first sweep: no trend
+
+    // A whisper lands between sweeps: a1's faith rises.
+    const a1 = world.registry.get('a1')!;
+    (a1.properties as unknown as { beliefs: { player: { faith: number } } }).beliefs.player.faith = 0.95;
+    sys.tick(ctxFor(world, spirits, now * 2));
+    const after = store.get('poi-a')!.believers['player'].meanFaith;
+    expect(store.get('poi-a')!.believers['player'].faithTrend).toBeCloseTo(after - before, 10);
+    expect(store.get('poi-a')!.believers['player'].faithTrend!).toBeGreaterThan(0);
+  });
+
   it('hydrate(undefined) resets the trend baseline (no scrub ghost)', () => {
     const now = TICKS_PER_DAY;
     const { world, spirits, cohorts } = twoTierWorld(now);
@@ -394,8 +439,12 @@ describe('SettlementAggregateSystem', () => {
     const store = new SettlementAggregateStore();
     const sys = new SettlementAggregateSystem(() => store, () => cohorts, () => null);
     sys.tick(ctxFor(world, spirits, now));
-    const dump = sys.serialize() as { baseline: [string, number][] };
+    const dump = sys.serialize() as {
+      baseline: [string, { population: number; meanFaith: [string, number][] }][];
+    };
     expect(dump.baseline.map(([k]) => k)).toEqual(['', 'poi-a', 'poi-b']);
+    // The meanFaith sub-record round-trips too (the actual P5 payload).
+    expect(dump.baseline.find(([k]) => k === 'poi-a')![1].meanFaith.map(([sid]) => sid)).toEqual(['player']);
 
     const other = new SettlementAggregateSystem(() => store, () => cohorts, () => null);
     other.hydrate(structuredClone(dump));

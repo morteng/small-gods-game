@@ -6,12 +6,19 @@ import { StagingBuffer } from '@/sim/threads/staging-buffer';
 import { initNpcProps } from '@/world/npc-helpers';
 import type { GameMap, Tile, Entity, ActiveEvent } from '@/core/types';
 import type { GameState } from '@/core/state';
-import { buildFateContext, describeThreadsForFate, describeRivalsForFate, describeLordsForFate, describeArcsForFate, type FateFocus } from '@/game/fate/fate-context';
+import {
+  buildFateContext, describeThreadsForFate, describeRivalsForFate, describeLordsForFate,
+  describeArcsForFate, describeSettlementsForFate, type FateFocus,
+} from '@/game/fate/fate-context';
 import { FateArcStore } from '@/sim/fate/arc-store';
 import { getArcShape, openArcFromShape } from '@/sim/fate/arc-library';
 import { CausalSiteStore } from '@/world/causal-site';
 import { EventLog } from '@/core/events';
 import type { Spirit } from '@/core/spirit';
+import {
+  SettlementAggregateStore, buildSettlementAggregates, settlementBaseline, type SettlementAggregate,
+} from '@/sim/settlement-aggregates';
+import { ContentionLedger } from '@/sim/rival-contention';
 
 function map(): GameMap {
   const tiles: Tile[][] = [];
@@ -219,6 +226,174 @@ describe('describeArcsForFate — F5 weaving visibility', () => {
   });
 });
 
+function believerSpirit(): Spirit {
+  return { id: 'player', name: 'You', sigil: '✦', color: '#fff', isPlayer: true, power: 20, manifestation: null };
+}
+
+function agg(overrides: Partial<SettlementAggregate> & { poiId: string }): SettlementAggregate {
+  return {
+    population: { named: 0, statistical: 0 },
+    believers: {},
+    needPressure: { safety: 0, prosperity: 0, community: 0, meaning: 0 },
+    prayerPressure: 0,
+    ...overrides,
+  };
+}
+
+/** A state carrying a real `SettlementAggregateStore` + a real (empty)
+ *  `ContentionLedger`, the substrate `describeSettlementsForFate` reads. Two
+ *  settlements: `poi1` "Northvale" (Phase 1's aggregate shape) and `poi2`
+ *  "Ashfen" not otherwise referenced. */
+function settlementState(records: SettlementAggregate[], computedTick = 1000): GameState {
+  const s = state();
+  s.worldSeed = { name: 'Test', pois: [{ id: 'poi1', name: 'Northvale' }, { id: 'poi2', name: 'Ashfen' }] } as unknown as GameState['worldSeed'];
+  s.spirits = new Map([['player', believerSpirit()]]);
+  s.settlementAggregates = new SettlementAggregateStore();
+  s.settlementAggregates.replace(new Map(records.map((r) => [r.poiId, r])), computedTick);
+  s.contention = new ContentionLedger();
+  return s;
+}
+
+describe('describeSettlementsForFate (interaction scaling P5, S5.1)', () => {
+  it('returns empty text + no ids when the sweep has never run', () => {
+    const { text, poiIds } = describeSettlementsForFate(state());
+    expect(text).toBe('');
+    expect(poiIds.size).toBe(0);
+  });
+
+  it('pins the exact digest line for a seeded settlement (golden — prompt-cache stability)', () => {
+    const s = settlementState([
+      agg({
+        poiId: 'poi1',
+        population: { named: 5, statistical: 20 },
+        believers: { player: { count: 4, durable: 2, meanFaith: 0.62 } },
+        needPressure: { safety: 0.1, prosperity: 0.2, community: 0.15, meaning: 0.05 },
+        prayerPressure: 1,
+        populationTrend: 3,
+      }),
+    ]);
+    const { text, poiIds } = describeSettlementsForFate(s);
+    expect(text).toBe(
+      'Settlements (the mean field):\n' +
+      '- "Northvale" (poi1): 25 soul(s) (+3 growing); dominant belief: You (4 believer(s)); ' +
+      'worst need: prosperity (0.20); 1 plea(s) at risk; flux 0.0/day in, 0.0/day out.',
+    );
+    expect([...poiIds]).toEqual(['poi1']);
+  });
+
+  it('skips an empty settlement (no population) and returns "" when nothing is left to say', () => {
+    const s = settlementState([agg({ poiId: 'poi1' })]);
+    const { text, poiIds } = describeSettlementsForFate(s);
+    expect(text).toBe('');
+    expect(poiIds.size).toBe(0);
+  });
+
+  it('no populationTrend field (no baseline) ⇒ no trend clause at all', () => {
+    const s = settlementState([
+      agg({ poiId: 'poi1', population: { named: 1, statistical: 0 } }),
+    ]);
+    const { text } = describeSettlementsForFate(s);
+    expect(text).toContain('1 soul(s); dominant belief: none');
+    expect(text).not.toContain('growing');
+    expect(text).not.toContain('shrinking');
+    expect(text).not.toContain('steady');
+  });
+
+  it('belief trend rides the aggregate SWEEP\'s own faithTrend — no prior sweep ⇒ ' +
+     'no trend; a second sweep threading the first sweep\'s baseline reports one', () => {
+    // Drive the REAL builder twice, threading its own baseline the way
+    // `SettlementAggregateSystem` does — the digest merely READS
+    // `believers[sid].faithTrend`; it owns no baseline of its own.
+    const world = new World(map());
+    const npc = resident('bp');
+    (npc.properties as unknown as { beliefs: Record<string, { faith: number; understanding: number; devotion: number }> })
+      .beliefs.player.faith = 0.5;
+    world.addEntity(npc);
+    const spirits = new Map([['player', believerSpirit()]]);
+
+    // FIRST sweep: no baseline yet ⇒ no faithTrend on the believer record.
+    const firstAgg = buildSettlementAggregates(world, spirits, {});
+    const s = settlementState([...firstAgg.values()]);
+    const first = describeSettlementsForFate(s);
+    expect(first.text).toContain('dominant belief: You (1 believer(s))'); // no trend yet
+    expect(first.text).not.toContain('rising');
+
+    // Faith moves up between sweeps (e.g. a whisper landed), and the SECOND
+    // sweep threads the first sweep's own baseline.
+    (npc.properties as unknown as { beliefs: Record<string, { faith: number }> }).beliefs.player.faith = 0.58;
+    const secondAgg = buildSettlementAggregates(world, spirits, { baseline: settlementBaseline(firstAgg) });
+    s.settlementAggregates.replace(secondAgg, 2000);
+    const second = describeSettlementsForFate(s);
+    // Honest per-GAME-HOUR wording: this is the aggregate sweep's own hourly
+    // cadence, not "however long since Fate last looked."
+    expect(second.text).toContain('rising (+0.08/hr)');
+  });
+
+  it('worst need is the argmax, fixed axis order tie-breaks (safety before prosperity)', () => {
+    const s = settlementState([
+      agg({
+        poiId: 'poi1', population: { named: 1, statistical: 0 },
+        needPressure: { safety: 0.4, prosperity: 0.4, community: 0.1, meaning: 0.1 },
+      }),
+    ]);
+    const { text } = describeSettlementsForFate(s);
+    expect(text).toContain('worst need: safety (0.40)');
+  });
+
+  it('a settlement in distress (high prayer pressure + a collapsing need axis) surfaces plainly', () => {
+    const s = settlementState([
+      agg({
+        poiId: 'poi1', population: { named: 12, statistical: 40 },
+        needPressure: { safety: 0.1, prosperity: 0.85, community: 0.2, meaning: 0.1 },
+        prayerPressure: 6,
+      }),
+    ]);
+    const { text } = describeSettlementsForFate(s);
+    expect(text).toContain('worst need: prosperity (0.85)');
+    expect(text).toContain('6 plea(s) at risk');
+  });
+
+  it('reports a non-calm contention state, and stays silent when calm', () => {
+    const s = settlementState([agg({ poiId: 'poi1', population: { named: 1, statistical: 0 } })]);
+    expect(describeSettlementsForFate(s).text).not.toContain('CONTESTED');
+
+    // Drive poi1 to `tension` (near-even, populous believer census) — one `step`
+    // clears heat past TENSION_ON but stays below SCHISM_ON, the hysteresis
+    // ladder's "at most one rung per step" rule (mirrors snapshot.test.ts).
+    const census = new Map([['poi1', new Map([['player', 30], ['rival-1', 28]])]]);
+    s.contention.step(census, new Map(), 0);
+    expect(s.contention.stateOf('poi1')).toBe('tension');
+    expect(describeSettlementsForFate(s).text).toContain('CONTESTED (tension)');
+  });
+
+  it('is bounded by MAX_SETTLEMENTS_IN_DIGEST, sorted by poiId, deterministic', () => {
+    const records = Array.from({ length: 15 }, (_, i) =>
+      agg({ poiId: `poi-${String(i).padStart(2, '0')}`, population: { named: 1, statistical: 0 } }));
+    const s = state();
+    s.worldSeed = { name: 'Test', pois: [] } as unknown as GameState['worldSeed'];
+    s.settlementAggregates = new SettlementAggregateStore();
+    s.settlementAggregates.replace(new Map(records.map((r) => [r.poiId, r])), 1);
+    s.contention = new ContentionLedger();
+
+    const { text, poiIds } = describeSettlementsForFate(s);
+    const lines = text.split('\n').slice(1); // drop the header line
+    expect(lines.length).toBe(12);
+    expect(poiIds.size).toBe(12);
+    expect(lines[0]).toContain('poi-00');
+    expect(lines[11]).toContain('poi-11');
+
+    // Two runs over identical state are byte-identical (prompt-cache friendliness).
+    expect(describeSettlementsForFate(s).text).toBe(text);
+  });
+
+  it('never crashes on a malformed contention ledger (wrapped in try/catch)', () => {
+    const s = settlementState([agg({ poiId: 'poi1', population: { named: 1, statistical: 0 } })]);
+    s.contention = { stateOf: () => { throw new Error('boom'); } } as unknown as ContentionLedger;
+    expect(() => describeSettlementsForFate(s)).not.toThrow();
+    expect(describeSettlementsForFate(s).text).toBe('');
+  });
+});
+
 describe('buildFateContext', () => {
   it('the charter states the weaving discipline (F5)', () => {
     const { system } = buildFateContext(state(), { kind: 'pulse' });
@@ -272,5 +447,29 @@ describe('buildFateContext', () => {
     expect(user).toContain('The Drowned Reach of Northvale');
     expect(user).toContain('causal site');
     expect(user.toLowerCase()).toContain('transient');   // the triggering site_born description
+  });
+
+  it('S5.1/S5.3: a settlement in distress surfaces in the built context, and its poiId ' +
+     'joins validPoiIds even with no open thread there', () => {
+    const s = settlementState([
+      agg({
+        poiId: 'poi2', population: { named: 8, statistical: 30 },
+        needPressure: { safety: 0.1, prosperity: 0.9, community: 0.2, meaning: 0.1 },
+        prayerPressure: 7,
+      }),
+    ]);
+    const { user, validPoiIds } = buildFateContext(s, { kind: 'pulse' });
+    expect(user).toContain('Settlements (the mean field):');
+    expect(user).toContain('"Ashfen" (poi2)');
+    expect(user).toContain('worst need: prosperity (0.90)');
+    expect(user).toContain('7 plea(s) at risk');
+    expect(validPoiIds.has('poi2')).toBe(true);      // no thread named poi2 — the digest alone grants it
+  });
+
+  it('S5.2: the roster is dropped from the Fate prompt in favour of the mean-field digest', () => {
+    // `state()`'s world carries one named NPC ('r1') — well under buildWorldSummary's
+    // own 30-cap, so a "Roster:" line would appear here if `roster: false` weren't passed.
+    const { user } = buildFateContext(state(), { kind: 'pulse' });
+    expect(user).not.toContain('Roster:');
   });
 });
