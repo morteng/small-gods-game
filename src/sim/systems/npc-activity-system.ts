@@ -10,7 +10,24 @@
  * lit day/night cycle (lamps come on around dusk, `nightFactorForTick`).
  *
  * Activity duration is stochastic (3-12 fires ≈ seconds) so NPCs don't all
- * switch simultaneously, creating organic-looking crowd behavior.
+ * switch simultaneously, creating organic-looking crowd behavior. For the two
+ * VENUE-BOUND activities the stochastic dwell is spent AT the venue: the walk is
+ * budgeted on top (`travelAllowanceTicks`), so a mortal sent across town does not
+ * have its errand expire mid-street (interaction-scaling S2a — see below).
+ *
+ * PUBLIC GATHERING (interaction-scaling S2a.1). Two activities send a mortal OUT
+ * to the settlement's public heart — the well at the green (`marketAnchorTile`):
+ *   • `socialize` — always did (Phase 2 encounter sim).
+ *   • `worship`   — now does too. It used to pray at its own doorstep with a
+ *     "future: go to temple/altar" placeholder, which made public religion
+ *     invisible AND private: a congregation is the most reliable crowd a
+ *     medieval settlement has, and the sim was throwing it away. Devotion is
+ *     performed in front of the neighbours; the plea itself is unchanged (same
+ *     `prayerNeed`, same `activity === 'worship'` the Track-3 claim ledger and
+ *     `tickNpcEntity`'s abandonment decay read), only the PLACE moved.
+ * Both stamp `props.gathering` so the encounter sim can tell "out at the green"
+ * from "indoors at home", and both are honest about arrival — see the self-agency
+ * note on `SELF_AGENCY_RESTORE` below.
  */
 
 import type { Entity, NpcActivity, NpcNeeds, GameMap } from '@/core/types';
@@ -82,6 +99,31 @@ export function prayerSubject(needs: NpcNeeds): keyof NpcNeeds | null {
 /** Need restored when an NPC completes a self-serviced activity. */
 const SELF_AGENCY_RESTORE = 0.3;
 
+/** How close (Chebyshev tiles) to the settlement's gathering tile counts as
+ *  HAVING GOT THERE. Wider than `ENCOUNTER_RADIUS` (2) because the crowd spreads
+ *  around the well — arriving at the green is arriving, even a couple of tiles
+ *  off the wellhead. Kept local: the encounter sim owns its own meeting radius. */
+export const VENUE_ARRIVAL_RADIUS = 4;
+
+/** Tiles per second an NPC walks — must agree with `NPC_WALK_SPEED`
+ *  (`src/sim/npc-movement.ts`). Duplicated as a plain literal rather than
+ *  imported so `src/sim/systems/` keeps its import graph flat; the activity
+ *  system only needs it to SIZE a budget, and a mismatch degrades to a slightly
+ *  short or long allowance, never to a wrong sim result. */
+const WALK_TILES_PER_SECOND = 1.4;
+
+/** Ceiling on the travel allowance (fires ≈ seconds). A mortal will not spend
+ *  more than this walking to a venue before the activity re-evaluates — bounds
+ *  the pathological case (a venue across a huge map, or an unreachable one). */
+const MAX_TRAVEL_ALLOWANCE = 60;
+
+/** Fires needed to walk from (x,y) to a target at NPC walk speed, rounded up and
+ *  capped. Euclidean, matching how `tickNpcMovementEntities` actually moves. */
+function travelAllowanceTicks(x: number, y: number, tx: number, ty: number): number {
+  const d = Math.hypot(tx - x, ty - y);
+  return Math.min(MAX_TRAVEL_ALLOWANCE, Math.ceil(d / WALK_TILES_PER_SECOND));
+}
+
 /** M5 — how close (tiles) to the gripped settlement's anchor a patrolling
  *  knight rides before turning for home. Spatial, not temporal — the leg
  *  length is however long the walk takes at NPC_WALK_SPEED. */
@@ -119,6 +161,16 @@ export class NpcActivitySystem implements System {
     return tile;
   }
 
+  /** True when this mortal is standing at (or beside) its settlement's gathering
+   *  tile right now. A mortal with no resolvable venue is trivially "there" — it
+   *  socializes on its own doorstep, which is where it already is. */
+  private atVenue(e: Entity, poiId: string | undefined): boolean {
+    const venue = poiId ? this.venueTile(poiId) : null;
+    if (!venue) return true;
+    return Math.abs(e.x - (venue.x + 0.5)) <= VENUE_ARRIVAL_RADIUS
+        && Math.abs(e.y - (venue.y + 0.5)) <= VENUE_ARRIVAL_RADIUS;
+  }
+
   private tickNpcActivity(e: Entity, solarHour: number, world: World): void {
     const props = npcProps(e);
 
@@ -148,7 +200,20 @@ export class NpcActivitySystem implements System {
         props.needs.prosperity = clamp01(props.needs.prosperity + SELF_AGENCY_RESTORE * pay);
         break;
       }
-      case 'socialize': props.needs.community  = clamp01(props.needs.community  + SELF_AGENCY_RESTORE); break;
+      case 'socialize':
+        // S2a.1 — self-agency is EARNED, not clocked. Pre-S2a this restored
+        // community unconditionally, so a mortal who set off for the green and
+        // never arrived (the errand expired mid-street) got the full benefit of
+        // company it never had — and, restored above the threshold, promptly
+        // stopped trying. Two mortals were therefore essentially never socializing
+        // in the same place at the same time, which is why `NpcEncounterSystem`
+        // fired ZERO encounters over six measured game-hours. Now the walk is
+        // budgeted (see below) AND the restore requires having got there, so a
+        // failed errand leaves community low and the mortal sets out again.
+        if (this.atVenue(e, props.homePoiId)) {
+          props.needs.community = clamp01(props.needs.community + SELF_AGENCY_RESTORE);
+        }
+        break;
       case 'sleep':     props.needs.safety     = clamp01(props.needs.safety     + SELF_AGENCY_RESTORE); break;
       default: break; // idle, wander, worship → no self-restore
     }
@@ -160,6 +225,10 @@ export class NpcActivitySystem implements System {
     let targetX: number | undefined;
     let targetY: number | undefined;
     let patrolAnchor: { x: number; y: number } | null = null;
+    /** Set by the two venue-bound branches: this errand is a trip to the public
+     *  green, so it gets a travel budget on top of its dwell and stamps
+     *  `props.gathering` for the encounter sim. */
+    let gathering = false;
 
     // M0.a: the plea check runs FIRST — desperation outranks the social calendar
     // (pre-M0, low community pre-empted worship and only `meaning` could pray).
@@ -172,11 +241,21 @@ export class NpcActivitySystem implements System {
       targetY = props.homeY;
     } else if (plea !== null) {
       // A need crossed its worship threshold → pray, ABOUT that need (M0.b).
+      // S2a.1: the plea is made IN PUBLIC, at the settlement's green (the well /
+      // shrine at its heart) — closing this branch's "future: go to temple/altar"
+      // placeholder. Nothing about the plea itself changes: same `prayerNeed`,
+      // same `activity === 'worship'` that `updatePrayerLedger` ages and
+      // `tickNpcEntity` bleeds faith against. Only the PLACE moved, and with it
+      // the possibility of meeting anyone. No venue (orphan / map-less test) →
+      // the old doorstep behaviour, and the same two rng draws either way so no
+      // other NPC's deterministic stream shifts by branch.
       activity = 'worship';
       props.prayerNeed = plea;
-      // Worship at home (placeholder — future: go to temple/altar)
-      targetX = props.homeX;
-      targetY = props.homeY;
+      const shrine = props.homePoiId ? this.venueTile(props.homePoiId) : null;
+      const at = shrine ?? { x: props.homeX, y: props.homeY };
+      gathering = shrine !== null;
+      targetX = at.x + (Math.floor(this.rng.next() * 3) - 1);
+      targetY = at.y + (Math.floor(this.rng.next() * 3) - 1);
     } else if (this.hasLowNeed(props.needs.community, COMMUNITY_THRESHOLD)) {
       // Low community → socialize. Head for the settlement's gathering tile (the
       // well at the green's heart) so neighbours CONVERGE and actually meet there
@@ -187,6 +266,7 @@ export class NpcActivitySystem implements System {
       activity = 'socialize';
       const venue = props.homePoiId ? this.venueTile(props.homePoiId) : null;
       const base = venue ?? { x: props.homeX, y: props.homeY };
+      gathering = venue !== null;
       targetX = base.x + (Math.floor(this.rng.next() * 3) - 1);
       targetY = base.y + (Math.floor(this.rng.next() * 3) - 1);
     } else if (props.role === 'soldier' && (patrolAnchor = patrolAnchorFor(world, props.homePoiId)) !== null) {
@@ -231,11 +311,21 @@ export class NpcActivitySystem implements System {
 
     props.activity = activity;
     if (activity !== 'worship' && props.prayerNeed !== undefined) delete props.prayerNeed;
+    if (gathering) props.gathering = true; else delete props.gathering;
     props.activityTargetX = targetX;
     props.activityTargetY = targetY;
-    // Set duration for the new activity
-    props.activityDuration = ACTIVITY_DURATION_MIN +
+    // Set duration for the new activity: the stochastic DWELL (3–12 fires ≈ s),
+    // plus — for a trip to the public green — however long the walk takes. S2a.1:
+    // pre-S2a the whole errand had to fit inside 3–12 s, so any venue further than
+    // ~4 tiles expired mid-street and the mortal turned around. The dwell is what
+    // is spent in company; travel is overhead, and overhead is budgeted, not
+    // deducted. The rng draw is unconditional and unchanged in COUNT, so no other
+    // NPC's stream shifts.
+    const dwell = ACTIVITY_DURATION_MIN +
       Math.floor(this.rng.next() * (ACTIVITY_DURATION_MAX - ACTIVITY_DURATION_MIN + 1));
+    props.activityDuration = gathering && targetX !== undefined && targetY !== undefined
+      ? dwell + travelAllowanceTicks(e.x, e.y, targetX, targetY)
+      : dwell;
   }
 
   private hasLowNeed(value: number, threshold: number): boolean {
