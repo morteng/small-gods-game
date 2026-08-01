@@ -27,6 +27,10 @@
  * Phase 1 is PURE MEASUREMENT: nothing here writes to the world, and no
  * gameplay reads it except `GameQuery` (the O(N) `settlement().npcCount` sweep).
  * Deterministic; no rng.
+ *
+ * P5 (S5.1) extends the SAME baseline with per-spirit `meanFaith`, so Fate's
+ * settlement digest gets a belief TREND on the same honest, per-GAME-HOUR
+ * cadence as `populationTrend` — see `SettlementBelieverStats.faithTrend`.
  */
 import type { World } from '@/world/world';
 import type { Spirit, SpiritId } from '@/core/spirit';
@@ -51,6 +55,15 @@ export interface SettlementBelieverStats {
    *  express EXACTLY (its running sums have no "holders" denominator), and it is
    *  the same one `dominantCohortBelief` uses. 0 for an empty settlement. */
   meanFaith: number;
+  /**
+   * Change in `meanFaith` since the caller-supplied baseline's reading of THIS
+   * (poiId, spiritId) pair — the same per-GAME-HOUR cadence as `populationTrend`
+   * (the baseline is threaded by `SettlementAggregateSystem`, which sweeps at
+   * `GAME_HOUR_HZ`). ABSENT when no baseline was supplied, OR when this spirit
+   * has no prior reading at this settlement (a brand-new believer): an unknown
+   * trend is not a flat one, and it is certainly not growth.
+   */
+  faithTrend?: number;
 }
 
 export interface SettlementAggregate {
@@ -86,15 +99,28 @@ export interface SettlementAggregate {
   populationTrend?: number;
 }
 
+/** One settlement's reading as of a previous sweep — the shape
+ *  `settlementBaseline` produces and the next sweep's `populationTrend` /
+ *  `faithTrend` are measured against. */
+export interface SettlementAggregateBaseline {
+  /** Total population (both tiers) as of the baseline sweep. */
+  population: number;
+  /** `meanFaith` per spirit as of the baseline sweep. A spirit absent here
+   *  had no reading at that sweep — the next sweep must not fabricate a
+   *  trend for it (see `SettlementBelieverStats.faithTrend`). */
+  meanFaith: ReadonlyMap<SpiritId, number>;
+}
+
 export interface SettlementAggregateOptions {
   /** Current sim tick — needed to age standing pleas. Omitted ⇒ prayer pressure
    *  reads 0 everywhere. */
   now?: number;
   /** The STATISTICAL tier. Omitted ⇒ named-tier-only aggregates. */
   cohorts?: ReadonlyMap<string, SettlementCohorts> | null;
-  /** Total population per poiId as of the previous sweep. Omitted ⇒ no
-   *  `populationTrend` is emitted at all (see the field doc). */
-  baseline?: ReadonlyMap<string, number> | null;
+  /** Per-settlement reading as of the previous sweep (population total +
+   *  per-spirit meanFaith). Omitted ⇒ no `populationTrend` / `faithTrend` is
+   *  emitted at all (see the field docs). */
+  baseline?: ReadonlyMap<string, SettlementAggregateBaseline> | null;
 }
 
 /** Mutable accumulator — needs are summed as SATISFACTION and inverted once at
@@ -204,10 +230,17 @@ export function buildSettlementAggregates(
     const acc = accs.get(poiId)!;
     const total = acc.named + acc.statistical;
     const denom = total || 1;
+    const baseFaith = opts.baseline?.get(poiId)?.meanFaith;
     const believers: Record<SpiritId, SettlementBelieverStats> = {};
     for (const sid of [...acc.believers.keys()].sort()) {
       const rec = acc.believers.get(sid)!;
-      believers[sid] = { count: rec.count, durable: rec.durable, meanFaith: rec.faithSum / denom };
+      const meanFaith = rec.faithSum / denom;
+      const stats: SettlementBelieverStats = { count: rec.count, durable: rec.durable, meanFaith };
+      // No prior reading of THIS spirit at THIS settlement ⇒ no trend, never a
+      // fabricated one — a brand-new believer has one data point, not two.
+      const prevFaith = baseFaith?.get(sid);
+      if (prevFaith !== undefined) stats.faithTrend = meanFaith - prevFaith;
+      believers[sid] = stats;
     }
     const agg: SettlementAggregate = {
       poiId,
@@ -224,19 +257,26 @@ export function buildSettlementAggregates(
       prayerPressure: acc.prayerPressure,
     };
     // No baseline ⇒ no trend. An unknown trend is not a flat one.
-    if (opts.baseline) agg.populationTrend = total - (opts.baseline.get(poiId) ?? 0);
+    if (opts.baseline) agg.populationTrend = total - (opts.baseline.get(poiId)?.population ?? 0);
     out.set(poiId, agg);
   }
   return out;
 }
 
-/** Total population (both tiers) per poiId — the baseline shape the next sweep's
- *  `populationTrend` is measured against. */
-export function populationBaseline(
+/** Total population (both tiers) + per-spirit `meanFaith`, per poiId — the
+ *  baseline shape the next sweep's `populationTrend` / `faithTrend` are
+ *  measured against. Covers every spirit `believers` recorded, so a spirit
+ *  with only sub-threshold faith (not yet a "believer") still seeds a trend
+ *  the moment it crosses. */
+export function settlementBaseline(
   aggregates: ReadonlyMap<string, SettlementAggregate>,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const [poiId, a] of aggregates) out.set(poiId, a.population.named + a.population.statistical);
+): Map<string, SettlementAggregateBaseline> {
+  const out = new Map<string, SettlementAggregateBaseline>();
+  for (const [poiId, a] of aggregates) {
+    const meanFaith = new Map<SpiritId, number>();
+    for (const sid of Object.keys(a.believers).sort()) meanFaith.set(sid, a.believers[sid].meanFaith);
+    out.set(poiId, { population: a.population.named + a.population.statistical, meanFaith });
+  }
   return out;
 }
 

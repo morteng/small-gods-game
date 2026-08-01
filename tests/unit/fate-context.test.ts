@@ -15,9 +15,10 @@ import { getArcShape, openArcFromShape } from '@/sim/fate/arc-library';
 import { CausalSiteStore } from '@/world/causal-site';
 import { EventLog } from '@/core/events';
 import type { Spirit } from '@/core/spirit';
-import { SettlementAggregateStore, type SettlementAggregate } from '@/sim/settlement-aggregates';
+import {
+  SettlementAggregateStore, buildSettlementAggregates, settlementBaseline, type SettlementAggregate,
+} from '@/sim/settlement-aggregates';
 import { ContentionLedger } from '@/sim/rival-contention';
-import { FateSettlementDigestBaseline } from '@/sim/fate/settlement-digest-baseline';
 
 function map(): GameMap {
   const tiles: Tile[][] = [];
@@ -240,9 +241,9 @@ function agg(overrides: Partial<SettlementAggregate> & { poiId: string }): Settl
 }
 
 /** A state carrying a real `SettlementAggregateStore` + a real (empty)
- *  `ContentionLedger` + `FateSettlementDigestBaseline`, the substrate
- *  `describeSettlementsForFate` reads. Two settlements: `poi1` "Northvale"
- *  (Phase 1's aggregate shape) and `poi2` "Ashfen" not otherwise referenced. */
+ *  `ContentionLedger`, the substrate `describeSettlementsForFate` reads. Two
+ *  settlements: `poi1` "Northvale" (Phase 1's aggregate shape) and `poi2`
+ *  "Ashfen" not otherwise referenced. */
 function settlementState(records: SettlementAggregate[], computedTick = 1000): GameState {
   const s = state();
   s.worldSeed = { name: 'Test', pois: [{ id: 'poi1', name: 'Northvale' }, { id: 'poi2', name: 'Ashfen' }] } as unknown as GameState['worldSeed'];
@@ -250,7 +251,6 @@ function settlementState(records: SettlementAggregate[], computedTick = 1000): G
   s.settlementAggregates = new SettlementAggregateStore();
   s.settlementAggregates.replace(new Map(records.map((r) => [r.poiId, r])), computedTick);
   s.contention = new ContentionLedger();
-  s.fateSettlementDigestBaseline = new FateSettlementDigestBaseline();
   return s;
 }
 
@@ -299,25 +299,34 @@ describe('describeSettlementsForFate (interaction scaling P5, S5.1)', () => {
     expect(text).not.toContain('steady');
   });
 
-  it('belief trend: no prior digest ⇒ no trend; a later digest with a moved meanFaith reports it', () => {
-    const s = settlementState([
-      agg({
-        poiId: 'poi1', population: { named: 1, statistical: 0 },
-        believers: { player: { count: 1, durable: 0, meanFaith: 0.5 } },
-      }),
-    ]);
+  it('belief trend rides the aggregate SWEEP\'s own faithTrend — no prior sweep ⇒ ' +
+     'no trend; a second sweep threading the first sweep\'s baseline reports one', () => {
+    // Drive the REAL builder twice, threading its own baseline the way
+    // `SettlementAggregateSystem` does — the digest merely READS
+    // `believers[sid].faithTrend`; it owns no baseline of its own.
+    const world = new World(map());
+    const npc = resident('bp');
+    (npc.properties as unknown as { beliefs: Record<string, { faith: number; understanding: number; devotion: number }> })
+      .beliefs.player.faith = 0.5;
+    world.addEntity(npc);
+    const spirits = new Map([['player', believerSpirit()]]);
+
+    // FIRST sweep: no baseline yet ⇒ no faithTrend on the believer record.
+    const firstAgg = buildSettlementAggregates(world, spirits, {});
+    const s = settlementState([...firstAgg.values()]);
     const first = describeSettlementsForFate(s);
     expect(first.text).toContain('dominant belief: You (1 believer(s))'); // no trend yet
     expect(first.text).not.toContain('rising');
 
-    // Same call site, later digest: meanFaith moved up — the store now holds a
-    // baseline from the FIRST call, so the SECOND call can report a trend.
-    s.settlementAggregates.replace(new Map([['poi1', agg({
-      poiId: 'poi1', population: { named: 1, statistical: 0 },
-      believers: { player: { count: 1, durable: 0, meanFaith: 0.58 } },
-    })]]), 2000);
+    // Faith moves up between sweeps (e.g. a whisper landed), and the SECOND
+    // sweep threads the first sweep's own baseline.
+    (npc.properties as unknown as { beliefs: Record<string, { faith: number }> }).beliefs.player.faith = 0.58;
+    const secondAgg = buildSettlementAggregates(world, spirits, { baseline: settlementBaseline(firstAgg) });
+    s.settlementAggregates.replace(secondAgg, 2000);
     const second = describeSettlementsForFate(s);
-    expect(second.text).toContain('rising (+0.08)');
+    // Honest per-GAME-HOUR wording: this is the aggregate sweep's own hourly
+    // cadence, not "however long since Fate last looked."
+    expect(second.text).toContain('rising (+0.08/hr)');
   });
 
   it('worst need is the argmax, fixed axis order tie-breaks (safety before prosperity)', () => {
@@ -365,7 +374,6 @@ describe('describeSettlementsForFate (interaction scaling P5, S5.1)', () => {
     s.settlementAggregates = new SettlementAggregateStore();
     s.settlementAggregates.replace(new Map(records.map((r) => [r.poiId, r])), 1);
     s.contention = new ContentionLedger();
-    s.fateSettlementDigestBaseline = new FateSettlementDigestBaseline();
 
     const { text, poiIds } = describeSettlementsForFate(s);
     const lines = text.split('\n').slice(1); // drop the header line

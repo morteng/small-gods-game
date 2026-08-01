@@ -82,11 +82,14 @@ const NEED_AXES: readonly (keyof NpcNeeds)[] = ['safety', 'prosperity', 'communi
 
 /** `delta` here is always an EXPLICIT-baseline difference (never a fabricated
  *  one) — small floating noise below `epsilon` reads as "steady", never as a
- *  direction. */
+ *  direction. It's a per-GAME-HOUR delta (`SettlementAggregateSystem` sweeps at
+ *  `GAME_HOUR_HZ`), so the "/hr" suffix is load-bearing: without it the same
+ *  underlying rate would read differently depending on how long it had been
+ *  since the number was last printed. */
 function trendWord(delta: number, epsilon: number): string {
   if (Math.abs(delta) < epsilon) return 'steady';
   const sign = delta > 0 ? '+' : '';
-  return delta > 0 ? `rising (${sign}${delta.toFixed(2)})` : `falling (${delta.toFixed(2)})`;
+  return delta > 0 ? `rising (${sign}${delta.toFixed(2)}/hr)` : `falling (${delta.toFixed(2)}/hr)`;
 }
 
 /**
@@ -102,12 +105,15 @@ function trendWord(delta: number, epsilon: number): string {
  * NO per-NPC or per-player data — VISION §2.1 keeps Fate impersonal; that's
  * rival spirits' job.
  *
- * Population trend rides the aggregate's own `populationTrend` (threaded by
- * `SettlementAggregateSystem`'s hourly baseline). Belief trend has no such
- * upstream source, so this function writes its OWN baseline —
- * `state.fateSettlementDigestBaseline` — after building each line, the same
- * "no baseline ⇒ no trend, never growth" discipline `rivalFollowerDelta`
- * uses, scrub-safe because that store rides the Snapshot.
+ * Population trend rides the aggregate's own `populationTrend`, and belief
+ * trend rides the SAME aggregate's per-spirit `SettlementBelieverStats.
+ * faithTrend` — BOTH threaded by `SettlementAggregateSystem`'s one hourly
+ * baseline (`@/sim/settlement-aggregates`), so both numbers are honest
+ * per-GAME-HOUR deltas rather than "however long it's been since Fate last
+ * looked" (Fate is woken by triggers on an irregular, cooldown-throttled
+ * cadence — a delta measured against ITS OWN previous look would print a
+ * different number for the same underlying rate of change). This function
+ * reads that baseline; it writes nothing.
  *
  * Bounded (`MAX_SETTLEMENTS_IN_DIGEST`), sorted (poiId, so two runs over
  * identical state emit byte-identical text — prompt-cache friendliness), `''`
@@ -123,7 +129,6 @@ export function describeSettlementsForFate(state: GameState): { text: string; po
     if (!store || store.size() === 0) return { text: '', poiIds };
     const poiName = new Map<string, string>();
     for (const p of state.worldSeed?.pois ?? []) poiName.set(p.id, p.name ?? p.id);
-    const baseline = state.fateSettlementDigestBaseline;
 
     const candidates = [...store.all().keys()].filter((id) => id !== '').sort();
     const lines: string[] = [];
@@ -141,25 +146,18 @@ export function describeSettlementsForFate(state: GameState): { text: string; po
           : ` (${agg.populationTrend > 0 ? '+' : ''}${agg.populationTrend} ${agg.populationTrend > 0 ? 'growing' : 'shrinking'})`;
 
       // Dominant belief: the highest practising-believer count, id-sorted tie-break.
-      let dominant: [SpiritId, { count: number; meanFaith: number }] | undefined;
+      let dominant: [SpiritId, { count: number; meanFaith: number; faithTrend?: number }] | undefined;
       for (const sid of Object.keys(agg.believers).sort()) {
         const rec = agg.believers[sid];
         if (!dominant || rec.count > dominant[1].count) dominant = [sid, rec];
       }
       let beliefText = 'dominant belief: none';
-      const currentFaithBySpirit = new Map<SpiritId, number>();
-      for (const [sid, rec] of Object.entries(agg.believers)) currentFaithBySpirit.set(sid, rec.meanFaith);
       if (dominant && dominant[1].count > 0) {
         const [sid, rec] = dominant;
         const spiritName = state.spirits?.get(sid)?.name ?? sid;
-        const prevFaith = baseline?.get(poiId, sid);
-        const beliefTrend = prevFaith === undefined ? '' : `, ${trendWord(rec.meanFaith - prevFaith, 0.005)}`;
+        const beliefTrend = rec.faithTrend === undefined ? '' : `, ${trendWord(rec.faithTrend, 0.005)}`;
         beliefText = `dominant belief: ${spiritName} (${rec.count} believer(s)${beliefTrend})`;
       }
-      // Persist THIS digest's numbers as next time's baseline, whether or not a
-      // dominant spirit was found — a settlement that gains its first believer
-      // between digests should still get a trend once it has two data points.
-      baseline?.set(poiId, currentFaithBySpirit);
 
       let worstAxis = NEED_AXES[0];
       let worstVal = agg.needPressure[worstAxis];

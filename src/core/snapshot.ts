@@ -16,9 +16,6 @@ import { AdoptionLedger, reconcileAdoptions, type AdoptionLedgerSnapshot } from 
 import { ContentionLedger, type ContentionLedgerSnapshot } from '@/sim/rival-contention';
 import { SettlementAggregateStore, type SettlementAggregateStoreSnapshot } from '@/sim/settlement-aggregates';
 import { SettlementFluxTally, type SettlementFluxSnapshot } from '@/sim/settlement-flux';
-import {
-  FateSettlementDigestBaseline, type SettlementDigestBaselineSnapshot,
-} from '@/sim/fate/settlement-digest-baseline';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -103,7 +100,9 @@ export interface Snapshot {
    *  data, but snapshotted anyway: at 1:1 realtime a sweep is a whole real hour
    *  apart, so a scrub that left the previous numbers standing would read as a
    *  ghost for that long. Optional so pre-P1 saves + partial test states restore
-   *  to an empty store. */
+   *  to an empty store. (P5 / S5.1: the belief-trend baseline `describeSettlementsForFate`
+   *  reads rides `SettlementAggregateSystem`'s own `systems?` entry below, not
+   *  a separate field — it's the same hourly baseline as `populationTrend`.) */
   settlementAggregates?: SettlementAggregateStoreSnapshot;
   /** Interaction scaling (P1 / S1.2): the inter-fold RAW visitor tally per
    *  settlement pair (`sinceTick` + sparse `[srcPoi>dstPoi, count][]`). The
@@ -112,12 +111,6 @@ export interface Snapshot {
    *  split, exactly. Optional so pre-P1 saves + partial test states restore to
    *  an empty tally. */
   settlementFlux?: SettlementFluxSnapshot;
-  /** Interaction scaling (P5 / S5.1): the previous Fate settlement digest's
-   *  per-spirit meanFaith, so a belief TREND survives a scrub instead of being
-   *  recomputed against a discarded future's numbers. Optional so pre-P5 saves
-   *  + partial test states restore to an empty baseline (Fate simply reports no
-   *  trend the first time it looks again). */
-  fateSettlementDigestBaseline?: SettlementDigestBaselineSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -199,7 +192,6 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     contention: state.contention?.serialize(),
     settlementAggregates: state.settlementAggregates?.serialize(),
     settlementFlux: state.settlementFlux?.serialize(),
-    fateSettlementDigestBaseline: state.fateSettlementDigestBaseline?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -283,15 +275,6 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   state.settlementFlux = snap.settlementFlux
     ? SettlementFluxTally.fromSnapshot(snap.settlementFlux)
     : new SettlementFluxTally();
-
-  // Interaction scaling (P5): the Fate belief-trend baseline is Fate's own
-  // memory of what it last saw — a scrub past the last deliberation must not
-  // leave a discarded future's meanFaith numbers as "the trend", so it rebuilds
-  // from the snapshot exactly like the P1 stores above (or resets to empty for
-  // a pre-P5 snapshot).
-  state.fateSettlementDigestBaseline = FateSettlementDigestBaseline.fromSnapshot(
-    snap.fateSettlementDigestBaseline,
-  );
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.
