@@ -32,6 +32,9 @@ import { defenseRingContracts } from '@/world/connectome/defense-contracts';
 // world-level invariant globally, so this import wires it into the default recipe's lint;
 // declaring it per-ring as well would double-report).
 import '@/world/connectome/road-contracts';
+// Registers `scaling.infrastructure-sublinear` (world-level invariant, interaction-scaling
+// plan Phase 4 S4.1) — same side-effect-import wiring as `road-contracts` above.
+import '@/world/connectome/scaling-contracts';
 import { wireGateToRoad } from '@/world/wire-gate';
 import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';
