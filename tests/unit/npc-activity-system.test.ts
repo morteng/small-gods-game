@@ -19,12 +19,12 @@ function makeMap(w = 20, h = 20): GameMap {
 
 /** A map whose `village` settlement plan puts its well (the gathering tile) at
  *  (vx,vy) — what `marketAnchorTile` resolves for the S2a venue-bound errands. */
-function mapWithVenue(vx: number, vy: number, w = 60, h = 60): GameMap {
-  const map = makeMap(w, h);
-  (map as unknown as { settlementPlans: unknown[] }).settlementPlans = [{
+function mapWithVenue(vx: number, vy: number, w = 60, h = 60): GameMap & { settlementPlans: unknown[] } {
+  const map = makeMap(w, h) as GameMap & { settlementPlans: unknown[] };
+  map.settlementPlans = [{
     poiId: 'village', center: { x: vx, y: vy }, nodes: [], edges: [], slots: [], lots: [],
     wards: [], market: [], civics: [{ type: 'well', x: vx, y: vy, w: 1, h: 1 }],
-  }];
+  }] as never;
   return map;
 }
 
@@ -437,5 +437,28 @@ describe('NpcActivitySystem — public gathering (S2a.1)', () => {
 
     new NpcActivitySystem(() => map).tick(createContext(world, 50));
     expect(p.needs.community).toBeCloseTo(0.5, 10);
+  });
+
+  it('a market VISITOR gathers where it stands, not at its source village\'s well', () => {
+    // Its cohort (`far_village`) has a well at (50,50); MaterializationSystem
+    // seats the visitor on the HOST's square at (10,10) via homeX/homeY. Marching
+    // it home to pray would empty the market it came to.
+    const map = mapWithVenue(50, 50);
+    (map.settlementPlans as unknown[]).push({
+      poiId: 'far_village', center: { x: 50, y: 50 }, nodes: [], edges: [], slots: [],
+      lots: [], wards: [], market: [], civics: [{ type: 'well', x: 50, y: 50, w: 1, h: 1 }],
+    });
+    const world = new World(map);
+    const e = makeNpc(world, 'vis', 'merchant');
+    const p = npcProps(e);
+    p.homePoiId = 'far_village';
+    p.visitorTemp = true;
+    p.homeX = 10; p.homeY = 10;
+    p.needs = { safety: 0.8, prosperity: 0.8, community: 0.2, meaning: 0.7 };
+
+    new NpcActivitySystem(() => map).tick(createContext(world, 50));
+    expect(p.activity).toBe('socialize');
+    expect(Math.abs(p.activityTargetX! - 10)).toBeLessThanOrEqual(1);
+    expect(Math.abs(p.activityTargetY! - 10)).toBeLessThanOrEqual(1);
   });
 });

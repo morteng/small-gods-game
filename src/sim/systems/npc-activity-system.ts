@@ -30,7 +30,7 @@
  * note on `SELF_AGENCY_RESTORE` below.
  */
 
-import type { Entity, NpcActivity, NpcNeeds, GameMap } from '@/core/types';
+import type { Entity, NpcActivity, NpcNeeds, NpcProperties, GameMap } from '@/core/types';
 import type { World } from '@/world/world';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { Random } from '@/core/noise';
@@ -161,11 +161,24 @@ export class NpcActivitySystem implements System {
     return tile;
   }
 
-  /** True when this mortal is standing at (or beside) its settlement's gathering
-   *  tile right now. A mortal with no resolvable venue is trivially "there" — it
-   *  socializes on its own doorstep, which is where it already is. */
-  private atVenue(e: Entity, poiId: string | undefined): boolean {
-    const venue = poiId ? this.venueTile(poiId) : null;
+  /** Where THIS mortal goes to be among people.
+   *
+   *  Normally its settlement's green. But a P2 market VISITOR is seated on the
+   *  HOST's market square while its `homePoiId` names the cohort it was drawn
+   *  from — a road-neighbour that can be most of a map away. Sending it back
+   *  there to pray or to pass the time would march the market crowd out of the
+   *  market. A visitor gathers where it stands: its `homeX/homeY` IS the square
+   *  (`MaterializationSystem.spawnVisitors` seats it there deliberately). */
+  private gatheringTileFor(props: NpcProperties): { x: number; y: number } | null {
+    if (props.visitorTemp === true) return { x: props.homeX, y: props.homeY };
+    return props.homePoiId ? this.venueTile(props.homePoiId) : null;
+  }
+
+  /** True when this mortal is standing at (or beside) its gathering tile right
+   *  now. A mortal with no resolvable venue is trivially "there" — it socializes
+   *  on its own doorstep, which is where it already is. */
+  private atVenue(e: Entity, props: NpcProperties): boolean {
+    const venue = this.gatheringTileFor(props);
     if (!venue) return true;
     return Math.abs(e.x - (venue.x + 0.5)) <= VENUE_ARRIVAL_RADIUS
         && Math.abs(e.y - (venue.y + 0.5)) <= VENUE_ARRIVAL_RADIUS;
@@ -210,7 +223,7 @@ export class NpcActivitySystem implements System {
         // fired ZERO encounters over six measured game-hours. Now the walk is
         // budgeted (see below) AND the restore requires having got there, so a
         // failed errand leaves community low and the mortal sets out again.
-        if (this.atVenue(e, props.homePoiId)) {
+        if (this.atVenue(e, props)) {
           props.needs.community = clamp01(props.needs.community + SELF_AGENCY_RESTORE);
         }
         break;
@@ -251,7 +264,7 @@ export class NpcActivitySystem implements System {
       // other NPC's deterministic stream shifts by branch.
       activity = 'worship';
       props.prayerNeed = plea;
-      const shrine = props.homePoiId ? this.venueTile(props.homePoiId) : null;
+      const shrine = this.gatheringTileFor(props);
       const at = shrine ?? { x: props.homeX, y: props.homeY };
       gathering = shrine !== null;
       targetX = at.x + (Math.floor(this.rng.next() * 3) - 1);
@@ -264,7 +277,7 @@ export class NpcActivitySystem implements System {
       // map-less test fall back to socializing at home — the two rng draws are the
       // same either way, so no other NPC's deterministic stream shifts by branch.
       activity = 'socialize';
-      const venue = props.homePoiId ? this.venueTile(props.homePoiId) : null;
+      const venue = this.gatheringTileFor(props);
       const base = venue ?? { x: props.homeX, y: props.homeY };
       gathering = venue !== null;
       targetX = base.x + (Math.floor(this.rng.next() * 3) - 1);

@@ -378,9 +378,19 @@ async function main(): Promise<void> {
   for (const q of QUANTITIES) {
     fits[q] = fitLogLog(allRows.map((r) => ({ x: r.popTotal, y: r[q] })));
   }
+  // S2a.4 — a SECOND fit against the NAMED population. Only named souls carry
+  // per-soul state, so only they can meet, spread a rumour or commune; the
+  // statistical tier is inert until Phase 3 gives it laws. When a run is
+  // materialization-capped (`--materialize N` with N below a settlement's
+  // population) the two x-axes diverge sharply, and the named fit is the one
+  // that says anything about the INTERACTION mechanism rather than about the cap.
+  const fitsNamed: Record<Quantity, { slope: number; r2: number; n: number } | null> = {} as never;
+  for (const q of QUANTITIES) {
+    fitsNamed[q] = fitLogLog(allRows.map((r) => ({ x: r.popNamed, y: r[q] })));
+  }
 
   if (asJson) {
-    console.log(JSON.stringify({ seeds, hours, materializeCap, wallMs, settlements: allRows, fits }, null, 2));
+    console.log(JSON.stringify({ seeds, hours, materializeCap, wallMs, settlements: allRows, fits, fitsNamed }, null, 2));
     return;
   }
 
@@ -394,13 +404,19 @@ async function main(): Promise<void> {
     ].join('\t') + '\n');
   }
 
-  process.stdout.write('\nlog-log fit vs total population (slope, R², n):\n');
-  for (const q of QUANTITIES) {
-    const f = fits[q];
-    process.stdout.write(f
-      ? `  ${q.padEnd(14)} slope=${f.slope.toFixed(3)}  r2=${f.r2.toFixed(3)}  n=${f.n}\n`
-      : `  ${q.padEnd(14)} — insufficient positive-valued settlements to fit\n`);
-  }
+  const report = (
+    title: string, table: Record<Quantity, { slope: number; r2: number; n: number } | null>,
+  ): void => {
+    process.stdout.write(`\nlog-log fit vs ${title} (slope, R², n):\n`);
+    for (const q of QUANTITIES) {
+      const f = table[q];
+      process.stdout.write(f
+        ? `  ${q.padEnd(14)} slope=${f.slope.toFixed(3)}  r2=${f.r2.toFixed(3)}  n=${f.n}\n`
+        : `  ${q.padEnd(14)} — insufficient positive-valued settlements to fit\n`);
+    }
+  };
+  report('total population', fits);
+  report('NAMED population', fitsNamed);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
