@@ -76,6 +76,17 @@ export class NpcEncounterSystem implements System, SerializableSystem {
   /** pairKey → sim tick of the pair's last meaningful encounter. */
   private lastMet = new Map<string, number>();
 
+  // ── Probe-only instrumentation seam (interaction-scaling Phase 0) ──────────
+  // Optional, settable AFTER construction (no constructor change, no call-site
+  // churn), default undefined — ZERO behaviour change when unset. Fired once
+  // per detected encounter regardless of warmth, and once per DIRECTION a warm
+  // encounter actually pulled a domain-belief gap toward zero (not merely
+  // "warm" — a warm pair with nothing to spread fires no rumour). `poiId` is
+  // the meeting pair's settlement (`a`'s homePoiId — same field the logged
+  // `npc_encounter` SimEvent already uses).
+  onEncounter?: (a: EntityId, b: EntityId, poiId: string | undefined, warm: boolean) => void;
+  onRumour?: (fromId: EntityId, toId: EntityId, poiId: string | undefined) => void;
+
   tick(ctx: SystemContext): void {
     const now = ctx.now;
 
@@ -121,6 +132,8 @@ export class NpcEncounterSystem implements System, SerializableSystem {
     const warm = WARM_TYPES.has(relType);
     const delta = warm ? TRUST_WARMTH : TRUST_FRICTION;
 
+    this.onEncounter?.(a.id, b.id, pa.homePoiId, warm);
+
     // The social graph moves: nudge BOTH directional entries (a→b and b→a).
     bumpTrust(pa, b.id, delta);
     bumpTrust(pb, a.id, delta);
@@ -130,8 +143,8 @@ export class NpcEncounterSystem implements System, SerializableSystem {
     // by how much they trust them. Content only; faith is never moved here. A
     // barb spreads nothing (you don't take a rival's word for the divine).
     if (warm) {
-      spreadRumour(pa, pb, trustToward(pb, a.id));
-      spreadRumour(pb, pa, trustToward(pa, b.id));
+      if (spreadRumour(pa, pb, trustToward(pb, a.id))) this.onRumour?.(a.id, b.id, pa.homePoiId);
+      if (spreadRumour(pb, pa, trustToward(pa, b.id))) this.onRumour?.(b.id, a.id, pb.homePoiId);
     }
 
     // Each remembers the other — a forgettable social memory (lowest salience of
@@ -179,16 +192,19 @@ function trustToward(listener: NpcProperties, speakerId: EntityId): number {
  * spirit the speaker holds domain beliefs about that the listener ALSO believes
  * exists (faith > 0 — the BeliefContentSystem guard), pull the listener up toward
  * the speaker on every domain where the speaker believes more strongly. Faith,
- * understanding, devotion are untouched. Deterministic; no rng.
+ * understanding, devotion are untouched. Deterministic; no rng. Returns true iff
+ * at least one domain gap was actually pulled (the probe's rumour-count seam).
  */
-function spreadRumour(speaker: NpcProperties, listener: NpcProperties, trust: number): void {
-  if (trust <= 0 || !speaker.domains) return;
+function spreadRumour(speaker: NpcProperties, listener: NpcProperties, trust: number): boolean {
+  if (trust <= 0 || !speaker.domains) return false;
+  let applied = false;
   for (const spirit of Object.keys(speaker.domains) as SpiritId[]) {
     if ((listener.beliefs[spirit]?.faith ?? 0) <= 0) continue; // no god, no rumour of its deeds
     const doms = speaker.domains[spirit]!;
     for (const domain of Object.keys(doms) as BeliefDomain[]) {
       const gap = (doms[domain] ?? 0) - getDomainBelief(listener, spirit, domain);
-      if (gap > 0) addDomainBelief(listener, spirit, domain, RUMOUR_RATE * trust * gap);
+      if (gap > 0) { addDomainBelief(listener, spirit, domain, RUMOUR_RATE * trust * gap); applied = true; }
     }
   }
+  return applied;
 }

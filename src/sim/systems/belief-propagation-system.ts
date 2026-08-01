@@ -18,7 +18,7 @@
  *     an isolated believer still withers. Arithmetic at COMMUNION_RATE below.
  */
 
-import type { Entity } from '@/core/types';
+import type { Entity, EntityId } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { trustWeightedBeliefConnections } from '@/sim/social-graph';
 import { Random } from '@/core/noise';
@@ -77,6 +77,14 @@ export class BeliefPropagationSystem implements System {
   readonly tickHz = 1;
   private rng = new Random(0);
 
+  // ── Probe-only instrumentation seam (interaction-scaling Phase 0) ──────────
+  // Optional, settable AFTER construction, default undefined — ZERO behaviour
+  // change when unset. Fired once per ACTUALLY APPLIED faith delta (both the
+  // deterministic communion inflow and the stochastic edge-propagation kick),
+  // so a probe can sum "belief activity" per NPC without re-deriving this
+  // module's arithmetic externally.
+  onPropagate?: (entityId: EntityId, kind: 'commune' | 'propagate', faithDelta: number) => void;
+
   tick(ctx: SystemContext): void {
     // Build a convenient lookup from the ECS
     const byId = new Map<string, Entity>();
@@ -107,6 +115,7 @@ export class BeliefPropagationSystem implements System {
       belief.faith = Math.min(1, belief.faith + delta);
       belief.understanding = Math.min(1, belief.understanding + delta * UNDERSTANDING_FRAC);
       belief.devotion = Math.min(1, belief.devotion + delta * DEVOTION_FRAC);
+      this.onPropagate?.(e.id, 'commune', delta);
     }
   }
 
@@ -148,6 +157,7 @@ export class BeliefPropagationSystem implements System {
       myBelief.faith = Math.min(1, myBelief.faith + cappedDelta);
       myBelief.understanding = Math.min(1, myBelief.understanding + cappedDelta * UNDERSTANDING_FRAC);
       myBelief.devotion = Math.min(1, myBelief.devotion + cappedDelta * DEVOTION_FRAC);
+      this.onPropagate?.(e.id, 'propagate', cappedDelta);
     }
   }
 }
