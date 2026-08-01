@@ -210,11 +210,12 @@ describe('reconcileFilletRaster — render/raster agreement (WP-Q #1)', () => {
         blueprint: { rb: {}, collision: { blocked: ['0,0'], doorCells: [] }, anchors: [] },
       },
     } as unknown as Entity;
+    const atTile = (tx: number, ty: number): Entity[] =>
+      tx === target.x && ty === target.y ? [toll] : [];
+    // Collision reads the COLLIDER half of the tile index (mortals excluded so a
+    // crowd cannot make the check O(crowd)); a toll is a hard kind, so it is in both.
     const world = {
-      registry: {
-        getAtTile: (tx: number, ty: number): Entity[] =>
-          tx === target.x && ty === target.y ? [toll] : [],
-      },
+      registry: { getAtTile: atTile, getCollidersAtTile: atTile },
     } as unknown as World;
 
     const map = grassMap(24, 24, { barrierRuns: [townRing()] });

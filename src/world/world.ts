@@ -98,11 +98,17 @@ export class World {
       candidateIds = this.registry.all().map(e => e.id);
     }
 
-    const seen = new Set<string>();
+    // Only the spatial rect scan can hand back an id twice (a body straddling
+    // buckets); the kind/tag indexes are Sets and `registry.all()` is the
+    // primary store, so those skip the dedupe Set entirely. It was being built —
+    // one entry per NPC — on EVERY `forEachNpc`, sixty times a sim-second.
+    const seen = opts.region ? new Set<string>() : null;
     const out: Entity[] = [];
     for (const id of candidateIds) {
-      if (seen.has(id)) continue;
-      seen.add(id);
+      if (seen) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+      }
       const e = this.registry.get(id);
       if (!e) continue;
       if (opts.region) {

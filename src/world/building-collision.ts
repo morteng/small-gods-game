@@ -4,10 +4,16 @@
  *
  * A building occupies a rectangular footprint of tiles
  * (`entity.properties.footprint`). The {@link EntityRegistry} indexes *every*
- * footprint cell (`registry.byTile`), so `registry.getAtTile(x, y)`
- * authoritatively reports which building(s) cover a tile. World's own spatial
- * index is point-based (it only knows the origin corner), which is why
- * collision must go through the registry tile index, not `world.query({region})`.
+ * footprint cell, so `registry.getCollidersAtTile(x, y)` authoritatively reports
+ * which building(s) cover a tile. World's own spatial index is point-based (it
+ * only knows the origin corner), which is why collision must go through the
+ * registry tile index, not `world.query({region})`.
+ *
+ * It reads the COLLIDER half of that index, not `getAtTile`: mortals are indexed
+ * by tile too, and once a whole settlement gathers on one venue tile, walking the
+ * full occupant list made every walkability test — and therefore every A*
+ * neighbour expansion — cost O(crowd). Nothing soft can block, so nothing soft
+ * is worth looking at.
  *
  * ## Designed to grow
  *
@@ -68,7 +74,9 @@ export function tileBlockedByBuilding(
   tileY: number,
   excludeEntityId?: EntityId,
 ): boolean {
-  for (const e of world.registry.getAtTile(tileX, tileY)) {
+  // Colliders, not every body: a gathering tile can carry a hundred mortals and
+  // none of them is a wall. `getCollidersAtTile` is the crowd-independent index.
+  for (const e of world.registry.getCollidersAtTile(tileX, tileY)) {
     if (excludeEntityId && e.id === excludeEntityId) continue;
     if (isBuilding(e) && !isFootprintCellPassable(e, tileX, tileY)) return true;
   }

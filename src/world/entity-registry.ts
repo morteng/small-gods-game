@@ -11,10 +11,28 @@
  *   - Map<poiId, Set<id>>         secondary index by owning POI
  *   - Map<category, Set<id>>      secondary index by category (from properties)
  *   - Map<`${x},${y}`, Set<id>>   secondary index by tile
+ *   - Map<`${x},${y}`, Set<id>>   the COLLIDER half of that tile index (below)
  */
 
 import type { Entity } from '@/core/types';
 import { SpatialHashGrid } from './spatial-hash';
+
+/**
+ * Kinds that can never form a movement collider: mortals and their remains are
+ * walked through, not around. Everything else may block — a building through
+ * its footprint, a prop through the `obstacle` tag — and an `obstacle` tag
+ * re-arms even these (see {@link canCollide}), so the collider index stays an
+ * exact superset of what `isWalkable` treats as solid.
+ */
+const SOFT_KINDS = new Set(['npc', 'remains']);
+
+/** Could this entity ever block ground movement? Cheap and registry-local (no
+ *  blueprint or kind-registry lookup) — the precise "is it solid on THIS cell"
+ *  test still lives in `building-collision.ts`; this only decides what is worth
+ *  indexing as a candidate. */
+function canCollide(e: Entity): boolean {
+  return !SOFT_KINDS.has(e.kind) || (e.tags?.includes('obstacle') ?? false);
+}
 
 export class EntityRegistry {
   private entities = new Map<string, Entity>();
@@ -22,6 +40,13 @@ export class EntityRegistry {
   private byPoi = new Map<string, Set<string>>();
   private byCategory = new Map<string, Set<string>>();
   private byTile = new Map<string, Set<string>>();
+  /** The tile index restricted to `canCollide` entities. `byTile` holds EVERY
+   *  body on a tile, so a crowded gathering tile makes `getAtTile` O(crowd) —
+   *  and walkability is tested for every A* neighbour, which made pathfinding
+   *  cost O(population²) once Phase 2 sent whole settlements to one venue.
+   *  Collision only ever cares about the handful of solid things, so it reads
+   *  this index and stays flat however deep the crowd. */
+  private byColliderTile = new Map<string, Set<string>>();
 
   // ─── Core CRUD ──────────────────────────────────────────────────────────────
 
@@ -103,6 +128,23 @@ export class EntityRegistry {
     return [...ids].map(id => this.entities.get(id)!).filter(Boolean);
   }
 
+  /**
+   * The entities at (x, y) that can form a movement collider — `getAtTile`
+   * minus the mortals. This is what collision must read: a tile holding eighty
+   * worshippers and one well returns exactly the well, so a walkability test
+   * costs the same in a packed market as in an empty field.
+   */
+  getCollidersAtTile(x: number, y: number): Entity[] {
+    const ids = this.byColliderTile.get(`${x},${y}`);
+    if (!ids || ids.size === 0) return [];
+    const out: Entity[] = [];
+    for (const id of ids) {
+      const e = this.entities.get(id);
+      if (e) out.push(e);
+    }
+    return out;
+  }
+
   // ─── Index queries ───────────────────────────────────────────────────────────
 
   getByPoi(poiId: string): Entity[] {
@@ -174,6 +216,7 @@ export class EntityRegistry {
     this.byPoi.clear();
     this.byCategory.clear();
     this.byTile.clear();
+    this.byColliderTile.clear();
   }
 
   // ─── Private helpers ─────────────────────────────────────────────────────────
@@ -204,25 +247,26 @@ export class EntityRegistry {
 
     // Tile index — explicit absolute cell list (opt-in) takes precedence over
     // the rectangle. Used for arbitrary footprints (e.g. barrier blocking cells).
+    const collides = canCollide(entity);
+    const addCell = (key: string): void => {
+      let ts = this.byTile.get(key);
+      if (!ts) { ts = new Set(); this.byTile.set(key, ts); }
+      ts.add(entity.id);
+      if (!collides) return;
+      let cs = this.byColliderTile.get(key);
+      if (!cs) { cs = new Set(); this.byColliderTile.set(key, cs); }
+      cs.add(entity.id);
+    };
+
     const cells = props.footprintCells as [number, number][] | undefined;
     if (cells) {
-      for (const [cx, cy] of cells) {
-        const key = `${cx},${cy}`;
-        let ts = this.byTile.get(key);
-        if (!ts) { ts = new Set(); this.byTile.set(key, ts); }
-        ts.add(entity.id);
-      }
+      for (const [cx, cy] of cells) addCell(`${cx},${cy}`);
       return; // do NOT also run the rect loop
     }
 
     // Tile index — register every footprint cell (rectangle from {w,h})
     for (let dy = 0; dy < fh; dy++) {
-      for (let dx = 0; dx < fw; dx++) {
-        const key = `${tx + dx},${ty + dy}`;
-        let ts = this.byTile.get(key);
-        if (!ts) { ts = new Set(); this.byTile.set(key, ts); }
-        ts.add(entity.id);
-      }
+      for (let dx = 0; dx < fw; dx++) addCell(`${tx + dx},${ty + dy}`);
     }
   }
 
@@ -239,19 +283,23 @@ export class EntityRegistry {
     if (poiId) this.byPoi.get(poiId)?.delete(entity.id);
     if (category) this.byCategory.get(category)?.delete(entity.id);
 
-    // Mirror indexEntity: explicit absolute cell list takes precedence.
+    // Mirror indexEntity: explicit absolute cell list takes precedence. The
+    // collider drop is unconditional — `update` re-runs the predicate on the
+    // NEW entity, so an entity that just lost its `obstacle` tag must not keep
+    // a stale collider cell from when it had one.
+    const dropCell = (key: string): void => {
+      this.byTile.get(key)?.delete(entity.id);
+      this.byColliderTile.get(key)?.delete(entity.id);
+    };
+
     const cells = props.footprintCells as [number, number][] | undefined;
     if (cells) {
-      for (const [cx, cy] of cells) {
-        this.byTile.get(`${cx},${cy}`)?.delete(entity.id);
-      }
+      for (const [cx, cy] of cells) dropCell(`${cx},${cy}`);
       return; // do NOT also run the rect loop
     }
 
     for (let dy = 0; dy < fh; dy++) {
-      for (let dx = 0; dx < fw; dx++) {
-        this.byTile.get(`${tx + dx},${ty + dy}`)?.delete(entity.id);
-      }
+      for (let dx = 0; dx < fw; dx++) dropCell(`${tx + dx},${ty + dy}`);
     }
   }
 }

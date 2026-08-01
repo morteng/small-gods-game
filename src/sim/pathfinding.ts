@@ -109,7 +109,9 @@ function tileHasObstacle(
   tileY: number,
   excludeEntityId?: EntityId,
 ): boolean {
-  for (const e of world.registry.getAtTile(tileX, tileY)) {
+  // Colliders, not every body — `getCollidersAtTile` skips the mortals, so this
+  // costs the same whether the tile is empty or carries a whole congregation.
+  for (const e of world.registry.getCollidersAtTile(tileX, tileY)) {
     if (excludeEntityId && e.id === excludeEntityId) continue;
     if (e.tags?.includes('obstacle')) return true;
   }
