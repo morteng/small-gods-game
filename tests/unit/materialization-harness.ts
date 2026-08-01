@@ -10,7 +10,8 @@ import { createRng } from '@/core/rng';
 import type { GameMap, BuildingInstance, WorldSeed, Tile, Entity } from '@/core/types';
 import type { ZoomBand } from '@/game/affordance/zoom-band';
 import {
-  emptySettlementCohorts, addSoul, type SettlementCohorts, type SoulObservation,
+  emptySettlementCohorts, addSoul, STAT_COMMUNITY_EQUILIBRIUM,
+  type SettlementCohorts, type SoulObservation,
 } from '@/sim/cohorts';
 import { initNpcProps } from '@/world/npc-helpers';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
@@ -48,7 +49,13 @@ export function seedCohort(poiId: string, n: number): SettlementCohorts {
     const obs: SoulObservation = {
       age: 25 + (i % 20),
       beliefs: { player: { faith, understanding: 0.15, devotion: 0.05 } },
-      needs: { safety: 0.5, prosperity: 0.5, community: 0.5, meaning: 0.4 },
+      // S2c: `community` is seeded in the band a mortal actually lives in
+      // (`STAT_COMMUNITY_EQUILIBRIUM` — the socialize trigger plus half its
+      // restore). At the old 0.5 every extra this fixture produced arrived
+      // BELOW its own socialize line, so its first errand was a trip to the
+      // green instead of to work, which is not what a materialized soul is:
+      // materialization makes an already-resident soul visible, not newborn.
+      needs: { safety: 0.5, prosperity: 0.5, community: STAT_COMMUNITY_EQUILIBRIUM, meaning: 0.4 },
     };
     addSoul(sc, obs);
   }

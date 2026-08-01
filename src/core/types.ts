@@ -671,6 +671,14 @@ export interface NpcProperties {
   activityTargetY?: number;
   /** Ticks remaining for the current activity before the next activity tick re-evaluates. */
   activityDuration: number;
+  /** Interaction scaling (S2a): the current activity sent this mortal OUT to the
+   *  settlement's public gathering place (the well at the green's heart) rather
+   *  than keeping it at its own doorstep — so being co-located with another
+   *  gatherer is a real meeting, not two neighbours in separate kitchens. Set by
+   *  `NpcActivitySystem` for the venue-bound activities (`socialize`, `worship`),
+   *  cleared for every other activity. Optional → old saves read as "not out";
+   *  rides the snapshot on properties like every other activity field. */
+  gathering?: boolean;
   /** Sim tick at which the NPC's *current* unanswered plea began (Track-3 rival
    *  claims). Set when a `worship` state is first observed and cleared the moment
    *  the plea lifts, so `now - prayerSince` is the prayer's age. Optional → old

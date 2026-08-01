@@ -42,7 +42,7 @@ const MIN_SOCIABILITY = 0.1;
 /** Starting faith when a new spirit belief is seeded via social graph */
 const SEED_FAITH = 0.05;
 
-// ── Communion (R7 WP-B): congregation self-sustenance ─────────────────────────
+// ── Communion (R7 WP-B; de-saturated 2026-08-01, scaling P2b S2b.1) ───────────
 // The stochastic socialization above transfers an EXPECTED ~0.00045 faith/tick
 // (0.2 socialize chance × trust 0.5 × faith 0.6 × (1−skep 0.5) × 0.015) — less
 // than the baseline decay of FAITH_DECAY_BASE(0.002)×skepticism ≈ 0.001/tick
@@ -50,27 +50,58 @@ const SEED_FAITH = 0.05;
 // neighbour per event). So organic faith always withered; conversion was
 // divine-action-only. Communion is the deterministic counterpart: living among
 // the faithful sustains faith, scaling with how much believing neighbourhood
-// surrounds you, saturating so dense graphs can't run away.
+// surrounds you.
 //
 //   inflow/tick = COMMUNION_RATE × sociability × (1 − skepticism/2)
-//                 × min(1, S) × (1 − faith),
+//                 × g(S) × (1 − faith),
 //   where S = Σ over neighbours with faith > 0.3 of trust × neighbourFaith
-//   (trustWeightedBeliefConnections — the congregation term).
+//   (trustWeightedBeliefConnections — the congregation term) and g is the
+//   congregation curve below.
+//
+// g, NOT min(1, S): the old saturation made congregation strength FLAT above
+// S ≈ 1 (≈5 mutual believers), so a 50-strong congregation was worth exactly
+// what a 5-strong one was — the belief economy was sublinear by construction,
+// the opposite of what settlement-scaling theory predicts. `congregationCurve`
+// is concave (diminishing returns) but UNBOUNDED: bigger congregations keep
+// paying, forever, just less per head.
 //
 // Equilibrium arithmetic for the median NPC (sociability .5, skepticism .5,
-// trust ~.5), balancing against decay = 0.002 × 0.5 = 0.001/tick:
-//   inflow = 0.006 × .5 × .75 × min(1,S) × (1−f) = 0.00225 × min(1,S) × (1−f)
-//   • saturated congregation (S ≥ 1): 0.00225(1−f*) = 0.001 → f* ≈ 0.556 —
-//     a congregation holds faith ~0.56 with ZERO divine input.
-//   • saturation needs S = (N−1)×0.5×f ≥ 1 at f≈0.556 → N ≥ ~4.6:
-//     FIVE-plus mutual believers self-sustain.
-//   • below saturation: inflow ≤ 0.00225×0.5(N−1)×f(1−f) ≤ 0.00225×0.5(N−1)×0.25
-//     < 0.001 for N ≤ 4 → a pair or trio withers (slowly), and once faith drops
-//     under the 0.3 influence threshold both channels cut out entirely.
-//   • a LONE believer has S = 0 → pure decay → faith → 0. Isolation kills gods.
+// trust ~.5), balancing against decay = 0.002 × 0.5 = 0.001/tick. Write
+// A = COMMUNION_RATE × .5 × .75 = 0.00345, and for a mutual congregation of N
+// all at faith f, S = (N−1) × 0.5 × f:
+//   inflow(f) = A × g(0.5(N−1)·f) × (1−f)
+//   • SUSTAIN CONDITION — peak inflow over f must clear decay:
+//       max_f g(0.5(N−1)f)(1−f) ≥ 0.001/A = 0.290  ⇒  N ≥ 4.57.
+//     FIVE-plus mutual believers self-sustain; four or fewer wither (slowly),
+//     and once faith drops under the 0.3 influence threshold both channels cut
+//     out entirely. THE OLD CURVE PUT THIS BOUNDARY AT N ≥ 4.56 —
+//     holding that tuned equilibrium is what COMMUNION_RATE 0.006 → 0.0092
+//     buys, and it is why g is linear (not √) near S = 0: the whole
+//     small-congregation arithmetic is unchanged, only the tail moved.
+//   • a LONE believer has S = 0 → g(0) = 0 → pure decay → faith → 0.
+//     Isolation kills gods.
+//   • the resting faith a congregation holds now GROWS with its size, where the
+//     old curve pinned every N ≥ 5 to the same saturated f* ≈ 0.556:
+//         N =  5 → S = 2.0f  → f* ≈ 0.58   (old 0.556)
+//         N =  8 → S = 3.5f  → f* ≈ 0.76   (old 0.556)
+//         N = 50 → S = 24.5f → f* ≈ 0.93   (old 0.556)
+//     (deterministic channel alone; the stochastic socialization bonus adds on
+//     top and lifts all three, preserving the ordering.)
 // Generative: the same formula scales with any congregation size/trust — no
 // per-world hand-tuning.
-const COMMUNION_RATE = 0.006;
+const COMMUNION_RATE = 0.0092;
+
+/**
+ * Congregation strength from the trust-weighted believing neighbourhood S.
+ * The positive root of `g(1 + g) = S`, i.e. `g(S) = (√(1+4S) − 1) / 2` — the
+ * simplest curve that is LINEAR as S → 0 (g ≈ S: a lone pair's arithmetic is
+ * the pre-2026-08-01 arithmetic) and √-ASYMPTOTIC as S → ∞ (g ≈ √S: a city
+ * congregation keeps paying, with diminishing returns per head). Concave and
+ * unbounded — never saturating, which was the defect this replaced.
+ */
+function congregationCurve(s: number): number {
+  return (Math.sqrt(1 + 4 * s) - 1) / 2;
+}
 
 export class BeliefPropagationSystem implements System {
   readonly name = 'belief_propagation';
@@ -110,7 +141,7 @@ export class BeliefPropagationSystem implements System {
     for (const [spiritId, belief] of Object.entries(props.beliefs)) {
       const s = trustWeightedBeliefConnections(e, all, spiritId);
       if (s <= 0) continue;
-      const delta = COMMUNION_RATE * soc * openness * Math.min(1, s) * (1 - belief.faith);
+      const delta = COMMUNION_RATE * soc * openness * congregationCurve(s) * (1 - belief.faith);
       if (delta <= 0) continue;
       belief.faith = Math.min(1, belief.faith + delta);
       belief.understanding = Math.min(1, belief.understanding + delta * UNDERSTANDING_FRAC);

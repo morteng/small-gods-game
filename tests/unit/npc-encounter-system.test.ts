@@ -23,10 +23,11 @@ function makeMap(w = 20, h = 20): GameMap {
 /** An NPC placed at (x,y), socializing by default, with a given social graph. */
 function makeNpc(
   world: World, id: string, x: number, y: number,
-  rels: Relationship[], opts: { activity?: string } = {},
+  rels: Relationship[], opts: { activity?: string; gathering?: boolean } = {},
 ): Entity {
   const props = initNpcProps(id, 'farmer', id.charCodeAt(0) * 37);
   props.activity = (opts.activity ?? 'socialize') as typeof props.activity;
+  if (opts.gathering) props.gathering = true;
   props.relationships = rels;
   const e: Entity = { id, kind: 'npc', x, y, properties: props as unknown as Record<string, unknown> };
   world.addEntity(e);
@@ -72,6 +73,34 @@ describe('NpcEncounterSystem', () => {
     expect(ev.warm).toBe(true);
     expect(ev.aId).toBe('aaa');
     expect(ev.bId).toBe('bbb');
+  });
+
+  // ── S2a.1: worship is a PUBLIC errand, so a congregation is a crowd ──
+
+  it('two friends praying together AT THE GREEN meet (worship is a gathering)', () => {
+    const world = new World(makeMap());
+    const a = makeNpc(world, 'aaa', 5, 5, [{ npcId: 'bbb', type: 'friend', trust: 0.5 }], { activity: 'worship', gathering: true });
+    makeNpc(world, 'bbb', 6, 5, [{ npcId: 'aaa', type: 'friend', trust: 0.5 }], { activity: 'worship', gathering: true });
+    const log = new EventLog({ now: () => 0 } as any);
+    const events: AppendedEvent[] = [];
+    log.subscribe(e => events.push(e));
+
+    new NpcEncounterSystem().tick(ctx(world, log, 1000));
+    expect(events.filter(e => e.event.type === 'npc_encounter').length).toBe(1);
+    expect(npcProps(a).relationships[0].trust).toBeCloseTo(0.5 + TRUST_WARMTH, 6);
+  });
+
+  it('two friends praying ALONE at their own hearths do NOT meet through the wall', () => {
+    const world = new World(makeMap());
+    const a = makeNpc(world, 'aaa', 5, 5, [{ npcId: 'bbb', type: 'friend', trust: 0.5 }], { activity: 'worship' });
+    makeNpc(world, 'bbb', 6, 5, [{ npcId: 'aaa', type: 'friend', trust: 0.5 }], { activity: 'worship' });
+    const log = new EventLog({ now: () => 0 } as any);
+    const events: AppendedEvent[] = [];
+    log.subscribe(e => events.push(e));
+
+    new NpcEncounterSystem().tick(ctx(world, log, 1000));
+    expect(events.filter(e => e.event.type === 'npc_encounter').length).toBe(0);
+    expect(npcProps(a).relationships[0].trust).toBe(0.5);
   });
 
   it('a rival meeting is friction: trust drops on both sides, event is not warm', () => {

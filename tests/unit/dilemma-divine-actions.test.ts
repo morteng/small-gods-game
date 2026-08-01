@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { answerPrayer, dream, whisper, omen } from '@/sim/divine-actions';
+import { answerPrayer, dream, whisper, omen, ANSWER_PRAYER_NEED_BOOST } from '@/sim/divine-actions';
 import { World } from '@/world/world';
 import type { GameMap } from '@/core/types';
 import { SimClock } from '@/core/clock';
@@ -29,7 +29,7 @@ describe('Answer', () => {
     });
     const ok = answerPrayer(spirit(), e, log());
     expect(ok).toBe(true);
-    expect(P(e).needs.meaning).toBeCloseTo(0.4, 5);
+    expect(P(e).needs.meaning).toBeCloseTo(0.1 + ANSWER_PRAYER_NEED_BOOST, 5);
     // ANSWER_PRAYER_FAITH_BOOST=0.2; signResponse(0.2)=0.6 → +0.12 → 0.42
     expect(P(e).beliefs['player'].faith).toBeCloseTo(0.42, 5);
     // a successful answer nudges understanding up by 0.04 → 0.24
@@ -69,7 +69,7 @@ describe('Answer', () => {
     });
     const l = log();
     expect(answerPrayer(spirit(), e, l)).toBe(true);
-    expect(P(e).needs.prosperity).toBeCloseTo(0.4, 5);  // the bread-plea was answered with bread
+    expect(P(e).needs.prosperity).toBeCloseTo(0.1 + ANSWER_PRAYER_NEED_BOOST, 5);  // the bread-plea was answered with bread
     expect(P(e).needs.meaning).toBeCloseTo(0.7, 5);     // meaning untouched
     expect(P(e).prayerNeed).toBeUndefined();
     expect(P(e).prayerSince).toBeUndefined();
@@ -85,7 +85,7 @@ describe('Answer', () => {
     });
     const l = log();
     answerPrayer(spirit(), e, l);
-    expect(P(e).needs.meaning).toBeCloseTo(0.4, 5);
+    expect(P(e).needs.meaning).toBeCloseTo(0.1 + ANSWER_PRAYER_NEED_BOOST, 5);
     const ev = l.since(0).find(a => a.event.type === 'answer_prayer')?.event as { need?: string };
     expect(ev?.need).toBe('meaning');
   });

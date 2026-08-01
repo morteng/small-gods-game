@@ -42,6 +42,28 @@ function run(policy: Policy, ticks: number) {
   const spiritSys = new SpiritSystem();
 
   for (let t = 0; t < ticks; t++) {
+    // A SETTLEMENT UNDER SUSTAINED HARDSHIP — the harness states its own pressure.
+    //
+    // This proof is about the SHAPE of a divine strategy (ignore / answer-all /
+    // balanced), not about how fast `meaning` happens to erode this month, and
+    // 800 ticks only ever contained several prayer cycles because the ambient
+    // MEANING_DECAY was a pre-R8 rate that emptied the need in 250 real seconds.
+    // S2c re-denominated that constant per DAY (and gave mortals a capped rite),
+    // so at 1:1 realtime an 800-second window now contains no crisis at all and
+    // every policy silently collapsed into `ignore`. Applying the pressure here
+    // keeps the proof honest AND decouples it from the balance constant, which
+    // is where it always belonged: Fate leans on this village every tick.
+    //
+    // The window (1600 ticks) has to hold ENOUGH PRAYER CYCLES for a policy to
+    // differentiate: one cycle is however long ANSWER_PRAYER_NEED_BOOST takes to
+    // drain at the rate below, and `balanced` needs several before faith clears
+    // the `dream` gate. 800 was sized against the old 0.3 boost and went vacuous
+    // when S2c raised it to 0.45.
+    forEachNpc(world, (e) => {
+      const n = npcProps(e).needs;
+      n.meaning = Math.max(0, n.meaning - 0.004);
+    });
+
     const ctx = { world, spirits, log, clock, rng, dt: 1000, now: t };
     sim.tick(ctx);
     abandon.tick(ctx);
@@ -69,23 +91,23 @@ function run(policy: Policy, ticks: number) {
 
 describe('the dilemma (headless proof)', () => {
   it('ignore-everything → believers abandon you', () => {
-    const r = run('ignore', 800);
+    const r = run('ignore', 1600);
     expect(r.believers).toBeLessThan(6);   // some left
     expect(r.durable).toBe(0);
   });
 
   it('answer-everything → can never build durable believers (Answer gives no devotion)', () => {
-    const r = run('answerAll', 800);
+    const r = run('answerAll', 1600);
     expect(r.believers).toBeGreaterThan(0); // believers DO survive — so durable===0 is non-vacuous
     expect(r.durable).toBe(0);
   });
 
   it('balanced (answer + deepen) → grows durable believers', () => {
-    const r = run('balanced', 800);
+    const r = run('balanced', 1600);
     expect(r.durable).toBeGreaterThan(0);
   });
 
   it('balanced retains more believers than ignore', () => {
-    expect(run('balanced', 800).believers).toBeGreaterThan(run('ignore', 800).believers);
+    expect(run('balanced', 1600).believers).toBeGreaterThan(run('ignore', 1600).believers);
   });
 });

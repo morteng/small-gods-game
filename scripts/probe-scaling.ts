@@ -8,6 +8,8 @@
  *
  *   npx tsx scripts/probe-scaling.ts                     # default seeds/hours
  *   npx tsx scripts/probe-scaling.ts 12345 777 42 --hours 6 --json
+ *   npx tsx scripts/probe-scaling.ts --materialize 64    # S2a.3: populate EVERY
+ *                                                        # settlement first
  *
  * Harness shape copied from scripts/bench-sim-rate.ts (state → planWorldLayout
  * → generateWithNoise → seedWorld → cohort seeding → rival spirits →
@@ -47,6 +49,8 @@ import { generateRivalSpirits } from '@/sim/rival-spirit';
 import { rivalToSpirit } from '@/sim/command/rival-adapter';
 import { seedStatisticalCohorts } from '@/sim/cohorts';
 import { residentsByPoi } from '@/sim/systems/settlement-growth-system';
+import { MaterializationSystem, MATERIALIZE_CAP } from '@/sim/systems/materialization-system';
+import { RATE_CHUNK_SIM_MS } from '@/game/time-controller';
 import { type RoadClass } from '@/world/road-graph';
 
 import { CommandExecutorSystem } from '@/sim/command/command-system';
@@ -93,6 +97,7 @@ interface SettlementRow {
   rumours: number;
   beliefDeltaSum: number;
   prayers: number;
+  acquaintances: number;
   roadSurface: number;
   buildings: number;
 }
@@ -172,15 +177,23 @@ async function buildWorld(genSeed: number, laidOut: WorldSeed) {
   sched.register(new WeatherSystem(() => state.weather, () => state.floodWatch, () => state.causalSites));
   sched.register(new PerceptionSystem(identityOracle, () => state.map, undefined, getCohorts));
 
-  return { state, sched, world, encounters, propagation, ws };
+  // S2a.3 — constructed but NOT registered: the probe never focuses a settlement,
+  // so a ticking MaterializationSystem would do exactly nothing (that is the whole
+  // reason the Phase 0 baseline saw named NPCs in one settlement only). It is used
+  // out-of-band by `materializeAll` below, through its probe seam.
+  const materialization = new MaterializationSystem(getCohorts, () => state.map, () => ({ poiId: null, band: 'world' }));
+
+  return { state, sched, world, encounters, propagation, materialization, ws };
 }
 
 function ctxFor(state: ReturnType<typeof createState>) {
   return { world: state.world!, spirits: state.spirits, log: state.eventLog, clock: state.clock, rng: state.rng };
 }
 
-async function runSeed(genSeed: number, laidOut: WorldSeed, hours: number): Promise<SettlementRow[]> {
-  const { state, sched, world, encounters, propagation, ws } = await buildWorld(genSeed, laidOut);
+async function runSeed(
+  genSeed: number, laidOut: WorldSeed, hours: number, materializeCap: number,
+): Promise<SettlementRow[]> {
+  const { state, sched, world, encounters, propagation, materialization, ws } = await buildWorld(genSeed, laidOut);
 
   // Per-poi counters, filled by the instrumentation hooks + a prayer-answered
   // subscription (no EventLog.range scan — `subscribe` is an O(1)-per-append
@@ -189,6 +202,7 @@ async function runSeed(genSeed: number, laidOut: WorldSeed, hours: number): Prom
   const rumourCount = new Map<string, number>();
   const beliefDeltaSum = new Map<string, number>();
   const prayerCount = new Map<string, number>();
+  const acquaintanceCount = new Map<string, number>();
   const bump = (m: Map<string, number>, key: string | undefined, by = 1): void => {
     if (!key) return;
     m.set(key, (m.get(key) ?? 0) + by);
@@ -196,6 +210,7 @@ async function runSeed(genSeed: number, laidOut: WorldSeed, hours: number): Prom
 
   encounters.onEncounter = (_a, _b, poiId): void => bump(encounterCount, poiId);
   encounters.onRumour = (_from, _to, poiId): void => bump(rumourCount, poiId);
+  encounters.onAcquaintance = (_a, _b, poiId): void => bump(acquaintanceCount, poiId);
   const homePoiOf = (id: EntityId): string | undefined => world.registry.get(id)?.properties?.homePoiId as string | undefined;
   propagation.onPropagate = (entityId, _kind, delta): void => bump(beliefDeltaSum, homePoiOf(entityId), delta);
 
@@ -218,13 +233,38 @@ async function runSeed(genSeed: number, laidOut: WorldSeed, hours: number): Prom
   };
 
   const ctx = ctxFor(state);
+
+  // S2a.3 — populate the settlements the camera would have populated. Every POI
+  // with a statistical cohort gets up to `materializeCap` extras drawn through the
+  // SHIPPED `spawnN` path (conservation-exact: each draw removes the soul from the
+  // cohort, so `residentsByPoi` still totals the same population). Without this the
+  // probe can only measure named-tier quantities in the one settlement the world
+  // seed authors residents into — the Phase 0 baseline's "unmeasurable" finding.
+  if (materializeCap > 0) {
+    for (const poiId of [...(state.cohorts?.keys() ?? [])].sort()) {
+      materialization.materializeForProbe(
+        { ...ctx, dt: 0, now: state.clock.now() }, poiId, materializeCap);
+    }
+  }
+
+  // Scheduler chunk = the LIVE fast-forward slice (`RATE_CHUNK_SIM_MS`, 250 ms).
+  // GOTCHA THIS PROBE SHIPPED WITH IN PHASE 0: `Scheduler.tick` runs each system's
+  // whole catch-up loop before moving to the next system, so a one-GAME-HOUR chunk
+  // ran 216,000 consecutive movement ticks against frozen activity targets, THEN
+  // 3,600 consecutive activity re-evaluations against frozen positions, THEN 3,600
+  // encounter checks at a single frozen `now`. Systems never interleaved, and at
+  // most ONE encounter per pair per chunk was even reachable. 250 ms restores the
+  // interleaving the live game runs at (and is the coarsest granularity any shipped
+  // code path uses), at the cost of more per-call overhead for the same total work.
   let remainingMs = hours * TICKS_PER_HOUR_MS;
-  const CHUNK_MS = TICKS_PER_HOUR_MS; // one game-hour per Scheduler.tick call
+  const CHUNK_MS = RATE_CHUNK_SIM_MS;
+  let sinceSample = 0;
   while (remainingMs > 0) {
     const step = Math.min(CHUNK_MS, remainingMs);
     sched.tick(step, ctx);
     remainingMs -= step;
-    sampleWorship();
+    sinceSample += step;
+    if (sinceSample >= TICKS_PER_HOUR_MS) { sinceSample = 0; sampleWorship(); }
   }
 
   const residents = residentsByPoi(world, state.cohorts);
@@ -271,6 +311,7 @@ async function runSeed(genSeed: number, laidOut: WorldSeed, hours: number): Prom
       rumours: rumourCount.get(poi.id) ?? 0,
       beliefDeltaSum: beliefDeltaSum.get(poi.id) ?? 0,
       prayers: prayerCount.get(poi.id) ?? 0,
+      acquaintances: acquaintanceCount.get(poi.id) ?? 0,
       roadSurface: roadSurfaceByPoi.get(poi.id) ?? 0,
       buildings: buildingsByPoi.get(poi.id) ?? 0,
     });
@@ -300,7 +341,7 @@ function fitLogLog(points: { x: number; y: number }[]): { slope: number; r2: num
   return { slope, r2, n };
 }
 
-const QUANTITIES = ['encounters', 'rumours', 'beliefDeltaSum', 'prayers', 'roadSurface', 'buildings'] as const;
+const QUANTITIES = ['encounters', 'rumours', 'acquaintances', 'beliefDeltaSum', 'prayers', 'roadSurface', 'buildings'] as const;
 type Quantity = typeof QUANTITIES[number];
 
 async function main(): Promise<void> {
@@ -308,9 +349,15 @@ async function main(): Promise<void> {
   const asJson = args.includes('--json');
   const hoursIdx = args.indexOf('--hours');
   const hours = hoursIdx >= 0 ? Number(args[hoursIdx + 1]) : 6;
-  const skip = new Set([hoursIdx, hoursIdx + 1]);
+  // S2a.3: how many cohort souls to materialize per settlement before ticking.
+  // 0 = the Phase 0 behaviour (named residents only, i.e. one settlement).
+  const matIdx = args.indexOf('--materialize');
+  const materializeCap = matIdx >= 0
+    ? (Number.isFinite(Number(args[matIdx + 1])) ? Number(args[matIdx + 1]) : MATERIALIZE_CAP)
+    : 0;
+  const skip = new Set([hoursIdx, hoursIdx + 1, matIdx, matIdx + 1]);
   const seedArgs = args
-    .filter((a, i) => a !== '--json' && a !== '--hours' && !skip.has(i))
+    .filter((a, i) => a !== '--json' && a !== '--hours' && a !== '--materialize' && !skip.has(i))
     .map(Number).filter((n) => Number.isFinite(n));
   const seeds = seedArgs.length ? seedArgs : [12345, 777, 42];
 
@@ -321,8 +368,8 @@ async function main(): Promise<void> {
   const t0 = performance.now();
   const allRows: SettlementRow[] = [];
   for (const seed of seeds) {
-    if (!asJson) process.stdout.write(`seed ${seed}: generating + simulating ${hours}h…\n`);
-    const rows = await runSeed(seed, laidOut, hours);
+    if (!asJson) process.stdout.write(`seed ${seed}: generating + simulating ${hours}h (materialize=${materializeCap})…\n`);
+    const rows = await runSeed(seed, laidOut, hours, materializeCap);
     allRows.push(...rows);
   }
   const wallMs = performance.now() - t0;
@@ -331,29 +378,45 @@ async function main(): Promise<void> {
   for (const q of QUANTITIES) {
     fits[q] = fitLogLog(allRows.map((r) => ({ x: r.popTotal, y: r[q] })));
   }
+  // S2a.4 — a SECOND fit against the NAMED population. Only named souls carry
+  // per-soul state, so only they can meet, spread a rumour or commune; the
+  // statistical tier is inert until Phase 3 gives it laws. When a run is
+  // materialization-capped (`--materialize N` with N below a settlement's
+  // population) the two x-axes diverge sharply, and the named fit is the one
+  // that says anything about the INTERACTION mechanism rather than about the cap.
+  const fitsNamed: Record<Quantity, { slope: number; r2: number; n: number } | null> = {} as never;
+  for (const q of QUANTITIES) {
+    fitsNamed[q] = fitLogLog(allRows.map((r) => ({ x: r.popNamed, y: r[q] })));
+  }
 
   if (asJson) {
-    console.log(JSON.stringify({ seeds, hours, wallMs, settlements: allRows, fits }, null, 2));
+    console.log(JSON.stringify({ seeds, hours, materializeCap, wallMs, settlements: allRows, fits, fitsNamed }, null, 2));
     return;
   }
 
   process.stdout.write(`\n${allRows.length} settlements across ${seeds.length} seed(s), ${hours}h simulated each (${(wallMs / 1000).toFixed(1)}s wall)\n\n`);
-  const header = ['seed', 'poi', 'name', 'pop', 'enc', 'rumour', 'beliefΔ', 'prayer', 'road', 'bldg'];
+  const header = ['seed', 'poi', 'name', 'pop', 'named', 'enc', 'rumour', 'acq', 'beliefΔ', 'prayer', 'road', 'bldg'];
   process.stdout.write(header.join('\t') + '\n');
   for (const r of allRows.sort((a, b) => a.popTotal - b.popTotal)) {
     process.stdout.write([
-      r.seed, r.poiId, r.name, r.popTotal, r.encounters, r.rumours,
+      r.seed, r.poiId, r.name, r.popTotal, r.popNamed, r.encounters, r.rumours, r.acquaintances,
       r.beliefDeltaSum.toFixed(3), r.prayers, r.roadSurface.toFixed(1), r.buildings,
     ].join('\t') + '\n');
   }
 
-  process.stdout.write('\nlog-log fit vs total population (slope, R², n):\n');
-  for (const q of QUANTITIES) {
-    const f = fits[q];
-    process.stdout.write(f
-      ? `  ${q.padEnd(14)} slope=${f.slope.toFixed(3)}  r2=${f.r2.toFixed(3)}  n=${f.n}\n`
-      : `  ${q.padEnd(14)} — insufficient positive-valued settlements to fit\n`);
-  }
+  const report = (
+    title: string, table: Record<Quantity, { slope: number; r2: number; n: number } | null>,
+  ): void => {
+    process.stdout.write(`\nlog-log fit vs ${title} (slope, R², n):\n`);
+    for (const q of QUANTITIES) {
+      const f = table[q];
+      process.stdout.write(f
+        ? `  ${q.padEnd(14)} slope=${f.slope.toFixed(3)}  r2=${f.r2.toFixed(3)}  n=${f.n}\n`
+        : `  ${q.padEnd(14)} — insufficient positive-valued settlements to fit\n`);
+    }
+  };
+  report('total population', fits);
+  report('NAMED population', fitsNamed);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
