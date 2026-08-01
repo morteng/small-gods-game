@@ -860,3 +860,77 @@ This is the one place the change costs something, and it is worth stating plainl
   against per-second decay, and why the green never has anyone standing in it for
   long. Fixing it is the single biggest lever left on the need economy, and it
   would let the material needs become pressurable again.
+
+## Phase 2 — final measured state (2026-08-02)
+
+`npx tsx scripts/probe-scaling.ts 12345 --hours 1 --materialize 32` on the merged
+2a + 2b + 2c tree — the same invocation, seed and materialize cap as the Phase 2a
+after-run, so the columns are comparable. One seed, 9 inhabited POIs, 1137 s wall
+(the box was heavily loaded; Phase 2a's equivalent was 218 s).
+
+Run twice, before and after the last two commits, and the output was **identical**
+— `answer_prayer` never fires in this window (see the prayers row), so the boost
+and the self-service gate cannot reach these numbers.
+
+| poi | pop | named | encounters | acquaintances | beliefΔ | prayers |
+|---|---|---|---|---|---|---|
+| ironvein_mine | 36 | 32 | 13 | 16 | 0 | 0 |
+| crossroads_inn | 36 | 32 | 23 | 24 | 0 | 0 |
+| old_watchtower | 36 | 32 | 22 | 22 | 0 | 0 |
+| khar_ordu | 72 | 38 | 85 | 39 | 21.44 | 0 |
+| dawn_temple | 72 | 32 | 12 | 13 | 1.32 | 0 |
+| millbrook_farm | 72 | 32 | 91 | 46 | 0 | 0 |
+| ironkeep_castle | 72 | 32 | 30 | 31 | 0 | 0 |
+| oakshire | 144 | 32 | 31 | 17 | 0 | 0 |
+| stonehaven_city | 144 | 32 | 68 | 34 | 0 | 0 |
+
+| quantity | Phase 0 | after 2a | **after 2c** | R² | n |
+|---|---|---|---|---|---|
+| encounters (vs total pop) | no fit (all zero) | **−0.423** | **+0.690** | 0.241 | 9 |
+| acquaintances | (no mechanism) | **−0.429** | **+0.156** | 0.038 | 9 |
+| rumours | no fit | no fit | no fit (all zero) | — | 0 |
+| beliefDeltaSum | no fit | no fit | no fit (2 settlements) | — | — |
+| prayers | no fit | +0.006 | **no fit (all zero)** | — | 0 |
+| roadSurface | −0.930 | −0.951 | −0.951 | 0.643 | 5 |
+| buildings | 1.851 | 1.850 | 1.850 | 0.693 | 9 |
+
+### Reading this honestly
+
+**The encounter slope changed sign, and that is not a demonstration of
+superlinear scaling.** R² is 0.241 — a weak fit through nine points whose x-range
+is 36→144 while the population that can actually interact was pinned at 32 in
+every settlement by `--materialize 32`. What can be said is narrower and still
+worth saying: the per-capita interaction rate is **no longer falling** with
+settlement size, and the residual negative signal Phase 2a traced to geography
+(`oakshire`, spread over 22 buildings, still under-performs at 31 encounters
+against `millbrook_farm`'s 91) is now the dominant remaining effect. Sociology
+did not beat geography; it stopped being masked by it.
+
+**Phase 2a's structural finding stands unchanged and this slice does not
+challenge it:** `MAX_SOCIAL_DEGREE` (12) plus a per-pair `ENCOUNTER_COOLDOWN_TICKS`
+(30 real minutes) caps any mortal at 24 encounters an hour regardless of town
+size, so per-capita encounter rate is transiently rising and **asymptotically
+flat**. Getting a superlinear exponent out of this channel needs the degree cap to
+become size-dependent or the cooldown to stop being per-pair. Neither cap was
+touched to move a number.
+
+**Prayers are now zero at a 1-hour probe window, and that is a non-result caused
+by the fix, not a regression.** A fresh soul is seeded at `meaning` 0.45 ± 0.1 and
+now falls at `MEANING_DECAY` = 1.0/day, so it needs
+`(0.45 − 0.30) / MEANING_DECAY` ≈ **3.6 game-hours** to reach its worship line —
+where before it took 35 seconds. The probe's window is shorter than the time it
+takes a mortal to develop a spiritual need, which is exactly the point of the
+change and exactly why the window has to grow. **`probe-scaling` needs ≥4
+game-hours to measure the prayer channel at all**, and ~24 to measure it in steady
+state; at 1137 s per seed-game-hour on a loaded box that is a server-CI job, not a
+laptop one. The 24-hour numbers in the acceptance table above come from a
+micro-village harness for exactly this reason.
+
+**`beliefDeltaSum` and `rumours` are unchanged non-results with unchanged causes**
+(materialized extras spawn with no relationships, so communion has no graph to run
+on; `spreadRumour` needs `domains` nobody carries). Both were called out in Phase
+2a and neither is touched by the belief or the meaning half.
+
+**Structural quantities are bit-identical** (−0.951 road, 1.850 buildings), which
+is the control: nothing in this slice touches worldgen, and nothing in it should
+have moved them.
