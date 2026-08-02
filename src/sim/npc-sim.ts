@@ -3,6 +3,10 @@ import type { NpcRole, NpcPersonality, NpcNeeds, Entity } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import type { World } from '@/world/world';
 import { clamp01 } from '@/core/math';
+import {
+  FAITH_DECAY_BASE, NEED_FAITH_BOOST, COMFORT_THRESHOLD, DESPERATION_THRESHOLD,
+  COMFORT_DECAY, ABANDON_DECAY,
+} from '@/sim/belief-forces';
 // Re-exported (consolidated from ~14 local copies into `@/core/math`) so the sim
 // modules importing `clamp01` from this file keep working unchanged.
 export { clamp01 };
@@ -48,12 +52,11 @@ export const SIM_TICK_MS = 1000;
  *  derived rather than written as 86,400 so a tick-rate change carries. */
 export const FIRES_PER_DAY = (24 * 60 * 60 * 1000) / SIM_TICK_MS;
 
-const FAITH_DECAY_BASE = 0.002;
-const NEED_FAITH_BOOST = 0.001;
-const COMFORT_THRESHOLD = 0.6;   // EVERY need above this → secularization pressure
-const DESPERATION_THRESHOLD = 0.4; // ANY need below this → desperation pressure
-const COMFORT_DECAY = 0.004;     // max extra faith decay from comfort, per fire
-const ABANDON_DECAY = 0.006;     // extra faith decay while praying unanswered, per fire
+// The faith-force constants now live in `@/sim/belief-forces` (imported at the
+// top of this file) — a pure leaf, so the mean-field cohort tier can DERIVE from
+// the same numbers instead of re-typing them (scaling P3 / S3.1). This module is
+// REPOINTED at the leaf rather than keeping local copies: a re-export would not
+// cut the edge, and two copies of a rate is exactly the class of defect S2c.1 was.
 
 // ── Need erosion, denominated PER DAY (see the note above) ───────────────────
 
