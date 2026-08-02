@@ -92,4 +92,68 @@ describe('seedWorld', () => {
       expect(Math.abs(npc.y - 10)).toBeLessThanOrEqual(3);
     }
   });
+
+  // ── the authored nobility ─────────────────────────────────────────────────
+  // Without these, `world.lords` stays empty forever and the shipped M3 lord/tithe
+  // economy never runs: nothing else in the codebase spawns a `role: 'noble'` entity.
+
+  it('spawns every authored noble as a named entity, at its own settlement', () => {
+    const { world } = seedFixture({
+      pois: [
+        { id: 'village-1', type: 'village', position: { x: 10, y: 10 },
+          npcs: [{ name: 'Alice', role: 'farmer' }] },
+        { id: 'keep', type: 'castle', position: { x: 4, y: 4 },
+          npcs: [{ name: 'Lady Vane', role: 'noble' }, { name: 'Sgt Pike', role: 'soldier' }] },
+      ],
+    });
+
+    const nobles = world.query({ kind: 'npc' })
+      .filter((e) => (e.properties as { role?: string }).role === 'noble');
+    expect(nobles.length).toBe(1);
+    const p = nobles[0].properties as { name: string; homePoiId: string; lineageId: string };
+    expect(p.name).toBe('Lady Vane');
+    expect(p.homePoiId).toBe('keep');
+    expect(p.lineageId).toBe(nobles[0].id);       // a noble founds his own house
+    // Placed at his own settlement, not at the cradle.
+    expect(Math.abs(nobles[0].x - 4)).toBeLessThanOrEqual(8);
+    expect(Math.abs(nobles[0].y - 4)).toBeLessThanOrEqual(8);
+    // The rest of the roster stays statistical — ONLY nobles are spawned.
+    expect(world.query({ kind: 'npc' }).length).toBe(6 + 1);
+  });
+
+  it('seeds nobles deterministically and rng-free (two runs are identical)', () => {
+    const pois: WorldSeed['pois'] = [
+      { id: 'village-1', type: 'village', position: { x: 10, y: 10 },
+        npcs: [{ name: 'Alice', role: 'farmer' }] },
+      { id: 'keep', type: 'castle', position: { x: 4, y: 4 },
+        npcs: [{ name: 'Lady Vane', role: 'noble' }] },
+    ];
+    const shape = () => seedFixture({ pois: structuredClone(pois) }).world
+      .query({ kind: 'npc' })
+      .filter((e) => (e.properties as { role?: string }).role === 'noble')
+      .map((e) => `${e.id}@${e.x},${e.y}#${(e.properties as { birthTick: number }).birthTick}`)
+      .sort();
+
+    expect(shape()).toEqual(shape());
+  });
+
+  it('spawns no noble when no roster authors one', () => {
+    const { world } = seedFixture({});
+    expect(world.query({ kind: 'npc' }).length).toBe(6);
+  });
 });
+
+/** One seeded world, with an optional WorldSeed override — the setup above, factored. */
+function seedFixture(over: Partial<WorldSeed>) {
+  const clock = new SimClock();
+  const log = new EventLog(clock);
+  const map = emptyMap();
+  const world = new World(map);
+  const spirits = new Map<SpiritId, Spirit>([['player', {
+    id: 'player', name: 'Fooob', sigil: '⊙', color: '#ffd700', isPlayer: true,
+    power: 3, manifestation: null,
+  }]]);
+  const ws: WorldSeed = { ...minimalWorldSeed(), ...over };
+  seedWorld({ world, log, clock, spirits, rng: createRng(map.seed), worldSeed: ws, map, oracle: identityOracle });
+  return { world, log, clock, map, ws };
+}

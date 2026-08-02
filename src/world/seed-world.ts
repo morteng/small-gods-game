@@ -9,6 +9,7 @@ import { PerceptionSystem } from '@/world/perception-system';
 import { initNpcProps, forEachNpc } from '@/world/npc-helpers';
 import { snapToLand } from '@/world/land-snap';
 import { seedSocialGraph } from '@/sim/social-graph';
+import { nearestWalkableTile } from '@/sim/pathfinding';
 import { TICKS_PER_YEAR } from '@/sim/mortality';
 import { placeWallConnections } from '@/world/wall-connections';
 
@@ -120,6 +121,12 @@ export function seedWorld(args: SeedWorldArgs): void {
     log.append({ type: 'npc_spawn', npcId: id, role: member.role, poiId: seedPoi.id });
   });
 
+  // 3b. Seat the authored nobility (see `seedAuthoredNobles`). Runs BEFORE the social
+  //     graph so the nobles are in it, and before `seedStatisticalCohorts` (a later
+  //     bootstrap step) which subtracts named residents from each settlement's fiction
+  //     target — so the world population is conserved without any change there.
+  seedAuthoredNobles(world, log, map, worldSeed);
+
   // 4. Seed social graph over the initial band
   const allNpcs: Entity[] = [];
   forEachNpc(world, e => allNpcs.push(e));
@@ -141,6 +148,74 @@ export function seedWorld(args: SeedWorldArgs): void {
     worldSeed,
     substrateSeed: map.seed,
   });
+}
+
+/** A seated lord opens as a grown man with a house behind him, not a youth. */
+const NOBLE_MIN_AGE = 35;
+const NOBLE_MAX_AGE = 58;
+
+/**
+ * Spawn every authored `role: 'noble'` roster entry as a named entity.
+ *
+ * WHY THIS EXISTS: `LordSystem`'s attachment step crowns the eldest resident noble of
+ * any settlement that has one — but nothing ever spawned a noble. `seedWorld` seeds only
+ * the six-soul cradle band, and the authored `POI.npcs` rosters (which name Bayan Khan,
+ * Mayor Corwin and Lord Garrick) were read for nothing but "is this POI inhabited?". So
+ * `world.lords` stayed EMPTY forever, `titheRateFor` returned 0, and every statistical
+ * band sat at `STAT_UNTITHED_PROSPERITY` — measured 0.5000 at all nine settlements, 30
+ * game-days in. The whole M3 lord/tithe economy shipped inert, and with prosperity flat
+ * world-wide the migration prospect had no gradient to read (interaction-scaling Phase 3,
+ * "S3.2 … population spread NOT ACHIEVED").
+ *
+ * ONLY nobles are spawned, not whole rosters. The two-tier population design says a
+ * settlement's ordinary residents live in the statistical tier and MATERIALIZE when
+ * looked at; a lord is the one authored role with a shipped mechanism that cannot run
+ * from the statistical side, because a seat needs an entity to hold it. Spawning every
+ * roster would be a different (much larger) design change.
+ *
+ * Deterministic and rng-FREE: iteration is sorted by POI id then roster index, and each
+ * noble's age comes from its own id hash. Deliberately does not touch the world rng —
+ * consuming from it here would shift the stream for every later system and re-roll
+ * unrelated worldgen.
+ */
+function seedAuthoredNobles(
+  world: World,
+  log: EventLog,
+  map: GameMap,
+  worldSeed: WorldSeed,
+): void {
+  const pois = (worldSeed.pois ?? [])
+    .filter(p => p.position && (p.npcs?.length ?? 0) > 0)
+    .slice()
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  for (const poi of pois) {
+    (poi.npcs ?? []).forEach((authored, i) => {
+      if (authored.role !== 'noble') return;
+      const id = `${poi.id}-noble-${i}`;
+      if (world.registry.get(id)) return;              // idempotent (re-seed safety)
+      const seed = hashId(id);
+      const { x: lx, y: ly } = snapToLand(map, poi.position!.x, poi.position!.y);
+      // Nothing is realized yet at seed time (step 1 voids every tile and the cradle
+      // bubble opens later, at step 5), so the perception gate has to be waived here —
+      // the SOLIDITY half of the check is the part that matters, and it still applies.
+      const spot = nearestWalkableTile(map, lx, ly, world, 8, true) ?? { x: lx, y: ly };
+      const p = initNpcProps(authored.name, 'noble', seed);
+      p.homePoiId = poi.id;
+      p.homeX = spot.x;
+      p.homeY = spot.y;
+      p.birthTick = -Math.round(
+        (NOBLE_MIN_AGE + (seed % 1000) / 1000 * (NOBLE_MAX_AGE - NOBLE_MIN_AGE)) * TICKS_PER_YEAR,
+      );
+      p.lineageId = id;
+      p.parentIds = [];
+      world.addEntity({
+        id, kind: 'npc', x: spot.x, y: spot.y,
+        properties: p as unknown as Record<string, unknown>,
+      });
+      log.append({ type: 'npc_spawn', npcId: id, role: 'noble', poiId: poi.id });
+    });
+  }
 }
 
 function hashId(s: string): number {

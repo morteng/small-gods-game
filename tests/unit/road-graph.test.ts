@@ -172,6 +172,53 @@ describe('buildRoadGraph', () => {
     const graph = buildRoadGraph([{ from: 'hi', to: 'lo', type: 'river' }], pois, tiles, fields);
     expect(graph.edges[0].class).toBe('road'); // class is meaningless for rivers
   });
+
+  // ── endpoint identity ─────────────────────────────────────────────────────
+  // A connection's walked polyline does not have to touch the settlement centre:
+  // `gateApproachPlan` REPLACES a walled POI's endpoint with its ring's gate cell. A
+  // node tagged only by coordinate match therefore missed every ringed settlement,
+  // which left it with no `poi` node and made it invisible to `roadNeighbours`.
+
+  it('tags a connection endpoint with its POI even when the route starts off-centre', () => {
+    const tiles = makeTiles(12, 1);
+    const fields = flatField(12, 1);
+    const pois = [poi('walled', 0, 0), poi('far', 11, 0)];
+    // What gateApproachPlan hands over: 'walled' begins at its gate (3,0), not (0,0).
+    const conns: Connection[] = [
+      { from: 'walled', to: 'far', type: 'road', waypoints: [{ x: 3, y: 0 }, { x: 11, y: 0 }] },
+    ];
+    const graph = buildRoadGraph(conns, pois, tiles, fields);
+
+    const gate = graph.nodes.find((n) => n.x === 3 && n.y === 0);
+    expect(gate?.kind).toBe('poi');
+    expect(gate?.poiRef).toBe('walled');
+    expect(graph.nodes.find((n) => n.x === 11)?.poiRef).toBe('far');
+  });
+
+  it('a literal coordinate hit still wins over the endpoint hint', () => {
+    const tiles = makeTiles(12, 1);
+    const fields = flatField(12, 1);
+    // 'sitting' is authored AT (3,0) — the same cell another connection terminates on.
+    const pois = [poi('walled', 0, 0), poi('sitting', 3, 0), poi('far', 11, 0)];
+    const conns: Connection[] = [
+      { from: 'walled', to: 'far', type: 'road', waypoints: [{ x: 3, y: 0 }, { x: 11, y: 0 }] },
+    ];
+    const graph = buildRoadGraph(conns, pois, tiles, fields);
+    expect(graph.nodes.find((n) => n.x === 3 && n.y === 0)?.poiRef).toBe('sitting');
+  });
+
+  it('ignores an endpoint naming a POI the world does not have', () => {
+    const tiles = makeTiles(12, 1);
+    const fields = flatField(12, 1);
+    const pois = [poi('a', 0, 0), poi('b', 11, 0)];
+    const conns: Connection[] = [
+      { from: 'ghost', to: 'b', type: 'road', waypoints: [{ x: 3, y: 0 }, { x: 11, y: 0 }] },
+    ];
+    const graph = buildRoadGraph(conns, pois, tiles, fields);
+    const start = graph.nodes.find((n) => n.x === 3 && n.y === 0);
+    expect(start?.poiRef).toBeUndefined();
+    expect(start?.kind).toBe('end');
+  });
 });
 
 describe('rasterizeRoadGraph (pure projection)', () => {

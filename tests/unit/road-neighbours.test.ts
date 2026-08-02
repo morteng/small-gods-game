@@ -115,4 +115,41 @@ describe('roadNeighbours', () => {
 
     expect(roadNeighbours(map, 'a', 5)).toEqual([]);
   });
+
+  // ── multi-gate settlements ────────────────────────────────────────────────
+  // A walled POI carries ONE poi node per gate its roads were rewritten onto
+  // (`gateApproachPlan` → `buildRoadGraph`'s endpoint tagging), so the search has to
+  // start from all of them. Starting from one left adjacency asymmetric on the
+  // shipped world: `crossroads_inn` saw `oakshire`, `oakshire` did not see it back.
+
+  it('starts from EVERY node of the queried POI, so a multi-gate settlement is symmetric', () => {
+    // 'a' has two gates; 'b' hangs off the first, 'c' off the second.
+    const nodes = [
+      poiNode('nA1', 'a', 0, 0), poiNode('nA2', 'a', 10, 0),
+      poiNode('nB', 'b', 0, 4), poiNode('nC', 'c', 10, 3),
+    ];
+    const edges = [road('e1', 'nA1', 'nB'), road('e2', 'nA2', 'nC')];
+    const map = mapWith({ nodes, edges });
+
+    expect(roadNeighbours(map, 'a', 1).map((n) => n.poiId).sort()).toEqual(['b', 'c']);
+    // …and the relation reads the same from the far ends (migration reads it both ways).
+    expect(roadNeighbours(map, 'b', 1).map((n) => n.poiId)).toEqual(['a']);
+    expect(roadNeighbours(map, 'c', 1).map((n) => n.poiId)).toEqual(['a']);
+  });
+
+  it('stepping between the queried POI\'s own gates spends no hop budget', () => {
+    // b — a(gate1) — a(gate2) — c. From 'a', the internal gate-to-gate step must be
+    // free, so both neighbours sit at one hop. From 'b', passing THROUGH 'a' still
+    // costs, so 'c' is two hops away — a settlement is free to cross only for itself.
+    const nodes = [
+      poiNode('nA1', 'a', 5, 0), poiNode('nA2', 'a', 6, 0),
+      poiNode('nB', 'b', 0, 0), poiNode('nC', 'c', 11, 0),
+    ];
+    const edges = [road('e1', 'nB', 'nA1'), road('e2', 'nA1', 'nA2'), road('e3', 'nA2', 'nC')];
+    const map = mapWith({ nodes, edges });
+
+    expect(roadNeighbours(map, 'a', 1).map((n) => n.poiId).sort()).toEqual(['b', 'c']);
+    expect(roadNeighbours(map, 'b', 1).map((n) => n.poiId)).toEqual(['a']);
+    expect(roadNeighbours(map, 'b', 2).map((n) => n.poiId).sort()).toEqual(['a', 'c']);
+  });
 });

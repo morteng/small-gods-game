@@ -202,14 +202,31 @@ export function buildRoadGraph(
   for (const p of pois) {
     if (p.position) poiAt.set(`${p.position.x},${p.position.y}`, p.id);
   }
+  const poiPosById = new Map(pois.filter((p) => p.position).map((p) => [p.id, p.position!]));
 
   // Dedupe nodes by coordinate so a shared endpoint becomes one node.
   const nodeByCoord = new Map<string, RoadNode>();
   let nodeSeq = 0;
   const KIND_RANK: Record<RoadNodeKind, number> = { poi: 3, junction: 2, end: 1, waypoint: 0 };
-  const nodeFor = (x: number, y: number, terminal: boolean): RoadNode => {
+  /**
+   * `endpointOf` names the POI whose END of a connection this point is, when it is one
+   * (`conn.from` for the first point, `conn.to` for the last). A walked polyline does NOT
+   * generally touch the settlement's centre — `gateApproachPlan` REPLACES a walled POI's
+   * endpoint with its ring's gate cell, so a coordinate match against `poiAt` misses every
+   * ringed settlement and that POI ends up with no `poi` node at all. Without one,
+   * `roadNeighbours` returns [] for it (it has no start node) AND strands every neighbour
+   * whose only authored link runs to it — measured on the default world: 4 of 9 inhabited
+   * POIs nodeless, 8 of 9 with no reachable neighbour. So identity comes from the AUTHORED
+   * connection, not from a coordinate collision; the node marks the settlement's road
+   * ATTACHMENT point (its gate), which is exactly what adjacency means here.
+   *
+   * A literal coordinate hit still wins: a node sitting ON a POI centre is that POI even if
+   * some other connection terminates there.
+   */
+  const nodeFor = (x: number, y: number, terminal: boolean, endpointOf?: string): RoadNode => {
     const key = `${x},${y}`;
-    const poiRef = poiAt.get(key);
+    const hinted = endpointOf && poiPosById.has(endpointOf) ? endpointOf : undefined;
+    const poiRef = poiAt.get(key) ?? hinted;
     const kind: RoadNodeKind = poiRef ? 'poi' : terminal ? 'end' : 'waypoint';
     const existing = nodeByCoord.get(key);
     if (existing) {
@@ -217,6 +234,10 @@ export function buildRoadGraph(
       if (KIND_RANK[kind] > KIND_RANK[existing.kind]) {
         existing.kind = kind;
         if (poiRef) existing.poiRef = poiRef;
+      } else if (poiRef && !existing.poiRef) {
+        // Same kind, but this occurrence carries the identity the earlier one lacked
+        // (two connections sharing one gate cell: whichever walked first left it bare).
+        existing.poiRef = poiRef;
       }
       return existing;
     }
@@ -347,8 +368,8 @@ export function buildRoadGraph(
       const bridgeCells = feature === 'road' ? [...routedBridgeCells].sort((m, n) => m - n) : [];
       const edge: RoadEdge = {
         id: `re${edgeSeq++}`,
-        a: nodeFor(a.x, a.y, i === 0).id,
-        b: nodeFor(b.x, b.y, i === points.length - 2).id,
+        a: nodeFor(a.x, a.y, i === 0, i === 0 ? conn.from : undefined).id,
+        b: nodeFor(b.x, b.y, i === points.length - 2, i === points.length - 2 ? conn.to : undefined).id,
         polyline: cells.map(c => ({ x: c.x, y: c.y })),
         feature,
         class: roadClass, // Slice 4: tiered by endpoint significance (see classForConnection).

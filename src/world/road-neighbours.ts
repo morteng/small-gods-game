@@ -68,13 +68,18 @@ export function roadNeighbours(map: GameMap, poiId: string, maxHops: number): Ro
   const graph = map.roadGraph;
   if (!graph || graph.nodes.length === 0) return [];
 
-  // Deterministic start pick: the lexicographically smallest node id among poi nodes
-  // referencing `poiId` (normally exactly one; a graph with duplicates still resolves).
-  const startCandidates = graph.nodes
+  // MULTI-SOURCE start: a settlement is ALL of its road attachment points, not one of them.
+  // A walled POI gets one `poi` node per gate its connections were rewritten onto
+  // (`gateApproachPlan` moves each endpoint to the gate nearest the far end, and
+  // `buildRoadGraph` tags them all), so starting from a single node explored only the roads
+  // through THAT gate — leaving adjacency ASYMMETRIC (`crossroads_inn` saw `oakshire`;
+  // `oakshire` did not see it back), and migration reads this relation from both ends.
+  // Arrival at ANY node of a target POI counts as reaching it — the same collapse
+  // `roadGraphToConnectome`'s `zoneIdOf` already applies on the connectome side.
+  const starts = graph.nodes
     .filter((n) => n.kind === 'poi' && n.poiRef === poiId)
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const start = startCandidates[0];
-  if (!start) return [];
+  if (starts.length === 0) return [];
 
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
   const adj = buildAdjacency(graph);
@@ -87,8 +92,8 @@ export function roadNeighbours(map: GameMap, poiId: string, maxHops: number): Ro
   const neighbours = new Map<string, PathCost>(); // poiId -> first (best) arrival
 
   type QueueEntry = { nodeId: string; cost: PathCost };
-  const queue: QueueEntry[] = [{ nodeId: start.id, cost: { hops: 0, dist: 0 } }];
-  best.set(start.id, { hops: 0, dist: 0 });
+  const queue: QueueEntry[] = starts.map((n) => ({ nodeId: n.id, cost: { hops: 0, dist: 0 } }));
+  for (const n of starts) best.set(n.id, { hops: 0, dist: 0 });
 
   while (queue.length > 0) {
     // Linear-scan extract-min: fine for the small per-query graphs this serves. Tie-break
@@ -121,8 +126,15 @@ export function roadNeighbours(map: GameMap, poiId: string, maxHops: number): Ro
       if (finalized.has(to)) continue;
       const toNode = nodeById.get(to);
       if (!toNode) continue;
+      // A hop is entering a DIFFERENT settlement, not touching a poi node. Stepping between
+      // two gates of the SAME settlement stays inside it and must not spend budget the
+      // caller meant for POI-to-POI links. (Only adjacent gate nodes are recognised as the
+      // same settlement — two gates joined through a bare waypoint still read as a hop.
+      // Both shipped callers use maxHops 1, where that case cannot arise.)
+      const sameSettlement =
+        toNode.kind === 'poi' && toNode.poiRef !== undefined && toNode.poiRef === node.poiRef;
       const nextCost: PathCost = {
-        hops: toNode.kind === 'poi' ? cost.hops + 1 : cost.hops,
+        hops: toNode.kind === 'poi' && !sameSettlement ? cost.hops + 1 : cost.hops,
         dist: cost.dist + dist,
       };
       const known = best.get(to);

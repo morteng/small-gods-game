@@ -82,10 +82,16 @@ export function isWalkable(
   y: number,
   world?: World,
   excludeEntityId?: EntityId,
+  /** Accept ground the player has never seen. ONLY for placement decisions taken
+   *  BEFORE the first `PerceptionSystem` pass, where nothing is realized yet and
+   *  the perception gate would refuse the whole map (worldgen-time seeding). A
+   *  MOVEMENT check must never pass this — an NPC walking unrealized ground is
+   *  the bug the gate exists to prevent. */
+  allowUnrealized = false,
 ): boolean {
   if (x < 0 || y < 0 || x >= map.width || y >= map.height) return false;
   const t = map.tiles[y]?.[x];
-  if (!t || t.state !== 'realized' || !t.walkable) return false;
+  if (!t || (!allowUnrealized && t.state !== 'realized') || !t.walkable) return false;
   if (tileCost(t) === Infinity) return false;
 
   // Check for blocking entities if world is provided. Both checks use the
@@ -115,15 +121,18 @@ export function nearestWalkableTile(
   y: number,
   world?: World,
   maxR = 6,
+  /** See `isWalkable` — worldgen-time seeding only. */
+  allowUnrealized = false,
 ): { x: number; y: number } | null {
   const cx = Math.round(x), cy = Math.round(y);
-  if (isWalkable(map, cx, cy, world)) return { x: cx, y: cy };
+  const ok = (tx: number, ty: number) => isWalkable(map, tx, ty, world, undefined, allowUnrealized);
+  if (ok(cx, cy)) return { x: cx, y: cy };
   for (let r = 1; r <= maxR; r++) {
     for (let dx = -r; dx <= r; dx++) {
       for (let dy = -r; dy <= r; dy++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring only
         const tx = cx + dx, ty = cy + dy;
-        if (isWalkable(map, tx, ty, world)) return { x: tx, y: ty };
+        if (ok(tx, ty)) return { x: tx, y: ty };
       }
     }
   }
