@@ -1454,3 +1454,108 @@ deliberately excludes the statistical tier. P3's drift made that false — cohor
 now carry real `sumD` — so the miracle devotion pool silently ignores a
 settlement's fiction population. Pre-existing to this round, moves trajectories
 if changed, and therefore left for its own slice.
+
+## Phase 3 follow-up — the world gets something to differentiate (2026-08-02)
+
+Phase 3 shipped the mean-field laws and then reported its own headline acceptance
+criterion as a non-result: **spread ratio 4.000 → 4.000, zero migrants, 30
+game-days**, with three independently sufficient causes. Two of them were plain
+bugs in the world, not properties of the mechanism. Both are now fixed
+(`e9c14a12`, `9ed73927`), with a new worldgen probe —
+`scripts/probe-settlement-graph.ts` (worldgen only, `--days N` to tick the
+settlement economy) — as the repro.
+
+### Cause 2: no lord was ever seated (FIXED)
+
+`seedWorld` spawns the six-soul cradle band and nothing else. The authored
+`POI.npcs` rosters — which name **Bayan Khan, Mayor Corwin and Lord Garrick** —
+were read only for "is this POI inhabited?". With no `role: 'noble'` entity in the
+world, `LordSystem`'s attachment step could never fire, `world.lords` stayed empty,
+`titheRateFor` returned 0, and every statistical band sat at
+`STAT_UNTITHED_PROSPERITY`. **The whole M3 lord/tithe economy shipped inert** — not
+mistuned, never running.
+
+Nobles now seed as named entities: deterministic and **rng-free** (age from the id
+hash — consuming the world rng there would re-roll every downstream worldgen
+decision). ONLY nobles, not whole rosters: ordinary residents belong to the
+statistical tier and materialize on demand, and a seat is the one authored role
+that structurally needs an entity to hold it.
+
+**A noble seeds UNAFFILIATED**, and that is not a detail. `initNpcProps` gives
+every NPC a starting belief in `player`, and `dominantSpiritForPoi` picks a
+settlement's statistical lean from its NAMED believers — the rival that HOLDS the
+POI is only the fallback when there are none. Seeding believing nobles therefore
+re-pointed three settlements' entire congregations at the player, drove a rival to
+`beliefMass` 0 and faded it on game-day 2. Server CI caught it through
+`god-lifecycle.test.ts`, the test written for exactly that failure. Worth
+remembering as a shape: **adding a named soul to a settlement is a belief-economy
+act, whatever else it was meant to be.**
+
+### Cause 3: ringed settlements had no node in the road graph (FIXED)
+
+`gateApproachPlan` REPLACES a walled POI's connection endpoint with its ring's gate
+cell (so roads lead to gates, not through curtains). `buildRoadGraph` tagged
+`poiRef` only on an exact coordinate match against the POI centre — so every ringed
+settlement lost its identity in the graph. Measured on seed 12345: **4 of 9
+inhabited POIs had no `poi` node at all** (nearest node 3.0–15.1 tiles away), and
+`roadNeighbours` returns `[]` for a POI with no start node. That also stranded
+`millbrook_farm` and `old_watchtower`, whose only authored link runs to a nodeless
+POI. Net: **1 usable pair out of 9 settlements**, against 10 authored road
+connections.
+
+Identity now comes from the AUTHORED connection endpoint (`conn.from`/`conn.to`),
+not from a coordinate collision; a literal coordinate hit still wins. The node
+marks the settlement's road ATTACHMENT point, which is what adjacency means here —
+and it fixes the connectome too, where those settlements had been projecting as
+anonymous `end` Zones rather than settlement Zones.
+
+That surfaced a second defect: a settlement with several gates gets **one node per
+gate**, and `roadNeighbours` started from only one of them — so adjacency was
+**asymmetric** (`crossroads_inn` saw `oakshire`; `oakshire` did not see it back)
+and migration reads the relation from both ends. The search is now multi-source,
+and stepping between two gates of the same settlement spends no hop budget.
+
+### Measured (seed 12345; identical on 777)
+
+| quantity | before | after |
+|---|---|---|
+| noble entities / seated lords | 0 / 0 | 3 / 3 (tithe 0.10) |
+| statistical prosperity | flat 0.5000 | 0.4500…0.5000 |
+| POIs with a `poi` node | 5/9 | 9/9 |
+| migration-usable pairs | 1 | 8 |
+| POIs with no cohort-bearing neighbour | 7 | 0 |
+| 2-hop reach | 3/9 | 9/9 |
+| souls migrated (30 game-days) | 0 | 5 |
+| spread ratio (30 game-days) | 4.000 → 4.000 | 4.000 → **3.919** |
+
+The graph now reproduces all 10 authored road connections, symmetrically.
+Statistical populations fall by exactly the nobles spawned (72/66/144 →
+71/65/143), so world population is conserved with no change to cohort seeding.
+
+### The spread ratio went DOWN, and that is the honest result
+
+Migration is now live and directed — but it **equalises** rather than spreads,
+because the only differentiator is the tithe, the tithed settlements shed young
+adults to their untaxed neighbours, and one of the three seated settlements is the
+largest town. This is not a surprise: Phase 3's own closed form already established
+that **the crowding term is ~20× stiffer than the prosperity term at these
+populations**, so no tithe the game currently produces can move much.
+
+**Cause 1 — the world is seeded exactly at carrying capacity, and the prospect's
+crowding weight `c` is 1 — is therefore the whole remaining question, and it is
+deliberately still open.** Phase 3 refused to tune `c` to manufacture a population
+range, and that refusal stands: the epic's rule is mechanisms in, exponents out.
+What has changed is that the question is now *askable* — before this round, `c`
+could not have mattered, because no settlement had a neighbour to move to and no
+settlement had a reason to.
+
+The honest next lever is a mechanism, not a coefficient: settlements that grow
+their own housing (so carrying capacity stops being an authored `size` string), or
+a second live differentiator besides the tithe. Until one of those lands, P4's
+contract stays gated silent and no exponent should be quoted.
+
+### Pre-existing, unchanged by this round
+
+`npm run lint:world` FAILs on `main` and fails identically here — 44 findings
+(2 error) and 61 findings (4 error) on the two probed worlds, byte-identical
+counts before and after. Not this round's to fix, but measured rather than assumed.
