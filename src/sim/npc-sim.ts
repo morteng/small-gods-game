@@ -5,7 +5,8 @@ import type { World } from '@/world/world';
 import { clamp01 } from '@/core/math';
 import {
   FAITH_DECAY_BASE, NEED_FAITH_BOOST, COMFORT_THRESHOLD, DESPERATION_THRESHOLD,
-  COMFORT_DECAY, ABANDON_DECAY,
+  COMFORT_DECAY, ABANDON_DECAY, UNDERSTANDING_FADE, DEVOTION_FADE,
+  SIM_TICK_MS, FIRES_PER_DAY,
 } from '@/sim/belief-forces';
 // Re-exported (consolidated from ~14 local copies into `@/core/math`) so the sim
 // modules importing `clamp01` from this file keep working unchanged.
@@ -45,12 +46,13 @@ export { clamp01 };
 // fiction is restored here; only the denomination moved. See
 // `RITE_MEANING_RESTORE` / `MORTAL_MEANING_CEILING` in `npc-activity-system.ts`
 // for the mortal half of the meaning economy (rites cope; gods console).
-export const SIM_TICK_MS = 1000;
-
-/** 1 Hz fires in one solar day. Under 1:1 realtime a calendar day IS a 24-hour
- *  solar day and a fire is `SIM_TICK_MS`, so this is the seconds in a day —
- *  derived rather than written as 86,400 so a tick-rate change carries. */
-export const FIRES_PER_DAY = (24 * 60 * 60 * 1000) / SIM_TICK_MS;
+// `SIM_TICK_MS` / `FIRES_PER_DAY` moved to `@/sim/belief-forces` — they are the
+// DENOMINATOR of every rate in that leaf (the u/d fades are denominated per day
+// there and must divide by the same day), and this module cannot be their home
+// without the leaf importing a module that imports the world. Re-exported so
+// existing callers are unchanged; this file is repointed at the leaf, which is
+// what actually cuts the edge (`export { clamp01 }` above is the same pattern).
+export { SIM_TICK_MS, FIRES_PER_DAY };
 
 // The faith-force constants now live in `@/sim/belief-forces` (imported at the
 // top of this file) — a pure leaf, so the mean-field cohort tier can DERIVE from
@@ -170,6 +172,14 @@ export function tickNpcEntity(e: Entity): void {
       decay += ABANDON_DECAY * (1 - belief.devotion);
     }
     belief.faith = clamp01(belief.faith - decay);
+    // Passive fade of comprehension and practice — PROPORTIONAL to what is
+    // held, which is what gives the belief economy an equilibrium instead of
+    // the 9× ceiling it had (the arithmetic is in `@/sim/belief-forces`).
+    // AFTER the faith line on purpose: the comfort/abandonment resistance above
+    // reads the devotion the mortal woke up with, and the mean field
+    // (`@/sim/cohort-drift` pass 1) applies these in exactly the same order.
+    belief.understanding = clamp01(belief.understanding * (1 - UNDERSTANDING_FADE));
+    belief.devotion = clamp01(belief.devotion * (1 - DEVOTION_FADE));
   }
 
   // Desperation boost: a collapsing need makes existing believers cling harder

@@ -1283,3 +1283,128 @@ recorded here as a decision for the round to take with its eyes open.
   interaction counts, and migration moved one soul in a counterfactual — neither
   is a fit. Nothing here was measured against settlement size at all, so any
   scaling slope quoted from Phase 3 would be fabricated.
+
+## Phase 3 addendum — the belief economy gets an equilibrium (2026-08-02)
+
+S3.1's own reality check named the blocker for merging Phase 3: the drift's ×41.5
+increase in statistical power contribution was not a drift bug, it was the
+belief economy having no ceiling-breaker. *"The honest lever is the missing
+decay on understanding/devotion, not the drift."* This is that lever.
+
+### What was actually broken
+
+`understanding` and `devotion` were written only as `Math.min(1, x + delta·FRAC)`
+(`belief-propagation-system.ts:133-135, 175-177`). No passive drain existed for
+either; the only downward paths were EVENTS — `spendDevotionAt`'s pro-rata pool
+draw for miracles (`divine-actions.ts:391`), `SMITE_TARGET_DEVOTION_PENALTY`, and
+LLM writeback deltas. Understanding had none at all.
+
+Measured on the default world (seed 12345, 48 game-hours, drift live,
+`scripts/probe-belief-decay.ts world`): every band mean reached exactly
+`u = 1.0000, d = 1.0000` by game-hour 2 and stayed **byte-identical for 46 more
+hours**. `beliefContribution = f·(1+2u)(1+2d)` was therefore permanently 9·f, and
+belief mass was frozen to seven significant figures — player 128.50 from h3 to
+h48, rival-2 272.11 from h3 to h48. Both rivals were handed `major` (200) for
+free by game-hour 3.
+
+### The model
+
+A drain **proportional** to what is held, not flat. The communion inflow carries
+no u/d dependence (`A·g(S)·(1−f)` is all faith terms), so `du/dt = ι − λ` would
+be a knife edge with no interior fixed point — the same ceiling upside down.
+Proportional gives `du/dt = ι − λ·u`, hence `u* = ι_u/λ_u`, `d* = ι_d/λ_d`.
+
+**Why the per-day numbers are large.** At faith equilibrium the communion inflow
+EQUALS the faith decay, so `ι = FAITH_DECAY_BASE × skepticism ≈ 0.001/fire` for
+the median mortal; `UNDERSTANDING_FRAC` (0.3) and `DEVOTION_FRAC` (0.15) of that
+land on u and d — **25.9 and 13.0 whole measures per day**. Nothing that "fades
+slowly" in calendar terms can hold either below 1. The constants are denominated
+per day and divided by `FIRES_PER_DAY` (house rule; never a per-fire literal,
+never 86,400) but they are tens per day, i.e. hour-scale e-folding times. That is
+the honest consequence of a belief loop that is per-fire REAL-TIME by design
+while the need economy is day-keyed — belief churns fast in both directions and
+only the inflow half of that churn existed.
+
+Applied in `tickNpcEntity` (named) and `driftSettlementBelief` pass 1 (mean
+field), in the same position relative to the faith line on both sides, so the
+comfort/abandonment resistance reads the pre-fade devotion either way. The
+tier-parity gate (`cohort-drift-parity.test.ts`) passes unchanged at its shipped
+0.1% tolerance; `belief-fade.test.ts` pins the fade channel alone at 1e-12.
+
+### Measured — three candidate pairs
+
+Controlled fixture (`probe-belief-decay.ts bench`): 13 souls, complete graph at
+trust 0.5 (exactly `MAX_SOCIAL_DEGREE` neighbours each), median personality, all
+needs 0.5 so neither comfort nor desperation runs. Run 72 game-hours to its fixed
+point. World: seed 12345, drift live, 24–48 game-hours.
+
+| λ_u/λ_d per day | f\* | u\* | d\* | contribution | believers per `cult` | player mass (world) | player tier | rival-1 / rival-2 |
+|---|---|---|---|---|---|---|---|---|
+| **shipped (none)** | 0.958 | **1.000** | **1.000** | 8.62 | 4.6 | **128.50** (frozen) | cult @ 2h | 245.6 / 272.1 — both **major @ 2–3h** |
+| A — 32 / 48 | 0.958 | 0.810 | 0.270 | 3.87 | 10.3 | 57.6 | cult @ 2h | 89.7 / 122.0 — no major |
+| **B — 48 / 72 (chosen)** | 0.958 | 0.540 | 0.180 | 2.71 | 14.8 | 40.4 | cult @ 3h | 62.8 / 85.5 — no major |
+| C — 72 / 108 | 0.958 | 0.360 | 0.120 | 2.04 | 19.6 | 30.5 | **small, never cult** | 47.3 / 64.5 — no major |
+
+`f*` is unmoved by every candidate, which is the check that the fade is not
+secretly a faith nerf: it changes what a believer is WORTH, not how much of it
+there is. Live world means (both tiers) under B settle at u 0.40–0.60, d
+0.13–0.18 — a variable, where they were the constant 1.0.
+
+**Nobody reaches `major` (200) from ambient dynamics under any candidate.** That
+is the intended change: the ladder's top rung was being handed out in the first
+three hours of a world nobody had played yet, and it now has to be earned.
+`cult` is still reached in 2–3 hours under A and B, because the world SEEDS
+23–36 believers and faith equilibrates within a game-hour — that timing is set by
+`STAT_SEED_FAITH` and `STAT_BELIEVER_FRAC`, not by u/d, and is out of this
+round's scope.
+
+### Track 5 is not broken, and it is repaired
+
+**Hypothesis tested: belief mass was sticky and fading was harder than designed.
+Confirmed, but not by the route expected.** Isolation was never the sticky part —
+sever a congregation and faith runs to 0 in ~20 game-minutes at 0.001/fire under
+every candidate including the shipped one, so `FADE_MASS` is crossed at the same
+time either way.
+
+The stickiness was in the MULTIPLIER, and it shows up two ways:
+
+- **Believers needed to hold a rung** (mass ÷ contribution at rest):
+  `FADE_MASS` 0.1 → 0.4, `CULT_IN` 4.6 → 14.8, `MAJOR_IN` 23.2 → 73.8. A god was
+  keeping tiers on a third of the congregation the tier ladder was calibrated for
+  (that calibration — `god-tier.ts`'s comment block — assumed .5/.3/.4 believers,
+  never 1.0/1.0).
+- **VISION §4's comfort trap was literally unreachable.** `COMFORT_DECAY` is
+  scaled by `(1 − devotion)`. With devotion pinned at 1.0 that factor was
+  **exactly 0.000** — a comfortable congregation was immune to secularization by
+  construction. Measured on the comfort fixture (all four needs 0.8, communion
+  still running): resting faith 0.955 with the ceiling, i.e. *identical* to the
+  same village at needs 0.5. Under the candidates the resistance becomes
+  0.475 / 0.604 / 0.710 and resting faith falls to 0.765 / 0.695 / 0.621. The
+  trap works now. (It is self-limiting rather than a death spiral: more comfort
+  decay means more churn means more devotion means more resistance — the fixed
+  point is interior, which is the whole point of a proportional drain.)
+
+### Why B
+
+- **u\* 0.54 is the only candidate that puts understanding in the middle of its
+  range.** A rests at 0.81 and re-saturates to 1.000 under any stress that raises
+  the faith churn (comfort, an unanswered plea) — on the axis with no other drain
+  at all, that is barely a fix. `signResponse` (floor 0.5) lands at ~0.77 under B,
+  so understanding is a live lever for signs and prayer efficacy again instead of
+  a saturated constant.
+- **C overshoots.** d\* 0.12 makes devotion a vestigial ×1.24 multiplier, and
+  since `devotionPoolAt` sums named devotion, `PROCLAIM_PEACE_DEVOTION_COST`
+  (0.6) would need **6** named believers in a settlement to be affordable at all
+  (1 before the round, 3 under A, 4 under B). Gating an early verb behind six
+  co-located named believers is a soft lock, not an arc.
+- B leaves the player resting *on* the `cult` line (40.4 vs `CULT_IN` 40,
+  `CULT_OUT` 32), so the rung is held rather than given, and belief mass visibly
+  moves hour to hour (40.2 ↔ 46.9) where it was frozen to 7 s.f.
+
+### Noted, not fixed
+
+`devotionPoolAt`'s comment says cohort devotion sums are "structurally zero" and
+deliberately excludes the statistical tier. P3's drift made that false — cohorts
+now carry real `sumD` — so the miracle devotion pool silently ignores a
+settlement's fiction population. Pre-existing to this round, moves trajectories
+if changed, and therefore left for its own slice.

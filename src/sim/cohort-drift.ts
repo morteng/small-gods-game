@@ -35,7 +35,12 @@
  *   1. baseline faith decay        (FAITH_DECAY_BASE × mean skepticism)
  *   2. comfort decay               (every band need above COMFORT_THRESHOLD)
  *   3. desperation boost           (any band need below DESPERATION_THRESHOLD)
- *   4. communion                   (COMMUNION_RATE × g(S), the S2b.1 curve)
+ *   4. understanding/devotion fade (UNDERSTANDING_FADE / DEVOTION_FADE — the
+ *                                   proportional drain that gives the belief
+ *                                   economy an equilibrium instead of a 9×
+ *                                   ceiling; must be here or the two tiers
+ *                                   disagree about what a believer is worth)
+ *   5. communion                   (COMMUNION_RATE × g(S), the S2b.1 curve)
  *
  * ABSENT, and each is a stated model gap rather than an oversight:
  *   • `ABANDON_DECAY` — the statistical tier has no activity and never kneels
@@ -80,7 +85,7 @@ import { MAX_SOCIAL_DEGREE } from '@/sim/systems/npc-encounter-system';
 import {
   FAITH_DECAY_BASE, NEED_FAITH_BOOST, COMFORT_THRESHOLD, DESPERATION_THRESHOLD,
   COMFORT_DECAY, COMMUNION_RATE, UNDERSTANDING_FRAC, DEVOTION_FRAC,
-  congregationCurve,
+  UNDERSTANDING_FADE, DEVOTION_FADE, congregationCurve,
 } from '@/sim/belief-forces';
 
 /**
@@ -231,6 +236,12 @@ export function driftSettlementBelief(
           f = clamp01(f + NEED_FAITH_BOOST * desperation * p.piety);
         }
         s.faith = f;
+        // The passive fade of comprehension and practice, in the named tier's
+        // own order (`tickNpcEntity` applies it after the faith line, inside
+        // the same per-belief loop, so the comfort resistance above reads the
+        // pre-fade devotion on BOTH sides).
+        s.understanding = clamp01(s.understanding * (1 - UNDERSTANDING_FADE));
+        s.devotion = clamp01(s.devotion * (1 - DEVOTION_FADE));
       }
 
       // ── pass 2: communion, off the settlement's congregation as it now is ──
