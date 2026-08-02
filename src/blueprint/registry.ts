@@ -36,6 +36,15 @@ export interface PartType {
   toPrims(p: ResolvedPart, ctx: CompileCtx): Prim[];
   /** Structure-local cells this part blocks (collision). */
   toCollision(p: ResolvedPart, ctx: CompileCtx): Array<[number, number]>;
+  /** OPTIONAL: structure-local cells this part offers as an implicit "door" for pathing/
+   *  spawn-resolution (to-collision.ts) when it carries no threshold FEATURE of its own — an
+   *  open-frame part (a market stall: posts + a canopy, no walls) has nothing for a `door`
+   *  feature to carve a threshold through, yet a consumer still needs ONE cell to resolve a
+   *  visitor onto. Only implement this for a part type that is genuinely doorless-by-design;
+   *  a walled part (`body`) leaving this undefined means "no door" stays a real, visible gap
+   *  (an authoring omission), not a silently invented one — see
+   *  `tests/unit/blueprint-to-collision.test.ts`. */
+  toDoorCells?(p: ResolvedPart, ctx: CompileCtx): Array<[number, number]>;
   /** World-offset anchors (relative to footprint top-left). */
   toAnchors(p: ResolvedPart, ctx: CompileCtx): Array<{ kind: string; x: number; y: number; facing: [number, number]; main?: boolean; width?: number }>;
   /** Phrase for the generative brief. */

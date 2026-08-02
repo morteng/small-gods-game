@@ -20,6 +20,7 @@ import { siteFitness, type SiteProfile } from '@/world/site-fitness';
 import type { EntityRegistry } from './entity-registry';
 import type { ZoneRule } from '@/map/poi-zones';
 import { presetsForEra } from '@/map/poi-zones';
+import { getBuildingTemplate } from '@/map/building-templates';
 import type { POI } from '@/core/types';
 import { Random } from '@/core/noise';
 import { synthesizeBlueprint } from '@/blueprint/presets';
@@ -619,6 +620,15 @@ export function placeSettlement(
       const civicTags = c.type === 'mill' ? ['settlement', 'civic', 'workplace'] : ['settlement', 'civic'];
       civic.tags = [...new Set([...(civic.tags ?? []), ...civicTags])];
       clearFootprint(c.x, c.y, rb.footprint.w, rb.footprint.h, registry, world, tiles);
+      // Reopen the door threshold(s): clearFootprint marked the whole footprint
+      // solid, but a civic (the mill above all — a workplace, souls are drawn
+      // there) is enterable like any other building, so its door cells stay
+      // walkable — same rule the core `commit` and the E2 auxiliary pass apply.
+      for (const dc of toCollision(rb).doorCells) {
+        const [ddx, ddy] = dc.split(',').map(Number);
+        const dt = tiles[c.y + ddy]?.[c.x + ddx];
+        if (dt) dt.walkable = true;
+      }
       registry.add(civic);
       entities.push(civic);
       // A building-class civic (the mill) is solid for barrier gating, exactly as
@@ -737,10 +747,21 @@ export function placeSettlement(
     const anchors = toAnchors(rb, 0, 0);
     const door = anchors.find(a => a.main) ?? anchors[0];
     const facing: [number, number] = door?.facing ?? [0, 1];
+    // Open-frame presets (market_stall, bell_tent — an unwalled 'stall'/'tent' part with
+    // no door/threshold feature at all) resolve NEITHER an anchor NOR a collision door
+    // cell, so this used to default to a bare '0,0' — a cell with no relationship to the
+    // building at all. `resolveBuildingDraw` (sim/population/building-capacity.ts) hits
+    // the exact same gap and falls back to the LEGACY hand-authored template's `doorCell`
+    // for this preset; mirror that lookup here so the cell `commit()` reopens below is the
+    // SAME one the consumer resolves a spawn onto (measured: 4/279 market_stall spawn-tile
+    // failures on seed 12345, root-caused to this mismatch — '0,0' stayed solid while the
+    // consumer read the legacy door tile, which clearFootprint had also marked solid).
+    const legacy = !door && rb.preset ? getBuildingTemplate(rb.preset)?.doorCell : undefined;
+    const fallback = toCollision(rb).doorCells[0] ?? (legacy ? `${legacy.x},${legacy.y}` : '0,0');
     const doorCell = door
       ? [door.x - (facing[0] > 0 ? 1 : facing[0] < 0 ? 0 : 0.5),
          door.y - (facing[1] > 0 ? 1 : facing[1] < 0 ? 0 : 0.5)]
-      : (toCollision(rb).doorCells[0] ?? '0,0').split(',').map(Number);
+      : fallback.split(',').map(Number);
     return { facing, doorCell };
   };
 
