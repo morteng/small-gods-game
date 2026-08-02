@@ -1028,3 +1028,258 @@ on; `spreadRumour` needs `domains` nobody carries). Both were called out in Phas
 **Structural quantities are bit-identical** (−0.951 road, 1.850 buildings), which
 is the control: nothing in this slice touches worldgen, and nothing in it should
 have moved them.
+
+## Phase 3 — measured (2026-08-02, `feat/scaling-p3-meanfield`)
+
+S3.1 (cohort belief drift), S3.2 (cohort migration) and S3.3 (materialization
+consistency + the ledger) as shipped, with the numbers each one actually
+produced — including the two that produced nothing, and why.
+
+### S3.1 — the drift model, and the one denominator that decides everything
+
+`driftSettlementBelief` (`src/sim/cohort-drift.ts`) integrates the named tier's
+own forces at the named tier's own step size: `FIRES_PER_GAME_HOUR` explicit
+Euler substeps per call, in the named tier's order (all decay, then all
+communion — `NpcSimSystem` before `BeliefPropagationSystem`). Every coefficient
+is imported from `src/sim/belief-forces.ts`, a new pure leaf that `npc-sim.ts`
+and `belief-propagation-system.ts` were **repointed** at (a re-export would not
+have cut the edge). Nothing is re-typed as a literal, and
+`FIRES_PER_GAME_HOUR = NAMED_BELIEF_HZ / GAME_HOUR_HZ` is derived, never 3600 —
+with a test asserting both belief systems still declare that rate.
+
+**The load-bearing modelling decision is the DENOMINATOR**, and it is worth
+recording because the two available choices give literally opposite worlds:
+
+| denominator | what it says the record means | seeded world's fate under drift |
+|---|---|---|
+| `band.count` (the `bandMeanObservation` dilution convention) | 36 souls each at faith 0.045 | annihilation in ~3 game-minutes |
+| `believerCount` (**shipped**) | 9 holders each at faith 0.18 | sustains, rises to its equilibrium |
+
+The named tier settles it: `tickNpcEntity` iterates `Object.values(p.beliefs)`
+and `communeFrom` only reinforces beliefs already held, so **every force in the
+belief economy touches HOLDERS, not residents**. Dividing by `band.count` would
+spread one believer's faith across their heathen neighbours and then decay all
+of them — an artifact of the denominator, not a property of the economy.
+`bandMeanObservation` keeps dividing by `band.count`, because "what does an
+average resident believe" is the right question for a materialized soul and the
+wrong one for the dynamics.
+
+**Deliberate divergence from the named tier, pinned by a test:**
+`trustWeightedBeliefConnections` gates each EDGE on the neighbour's faith
+exceeding `INFLUENCE_THRESHOLD` (0.3). Re-applied to a homogeneous band mean that
+becomes a hard bifurcation at exactly f = 0.3 — an artifact of the
+delta-function assumption, since a real population has a *fraction* above 0.3
+that varies smoothly. The mean field therefore uses the tier's own membership
+definition (`believerCount`, i.e. `BELIEVER_THRESHOLD` 0.15), as the plan
+specifies. Measured consequence, and it is a real one: **between 0.15 and 0.30
+the mean field sustains a congregation the named tier lets wither.** Above 0.30
+the two agree, which is where the parity gate is measured.
+
+**Model gaps, stated rather than discovered later:** no `ABANDON_DECAY` (the
+statistical tier never kneels — `SettlementCohorts.pleas` is still inert); no
+need dynamics (band needs are read, never written — the tier has no work/sleep/
+socialize channels, so decaying them would starve every settlement to zero on
+all four axes inside a day and make `needPressure` meaningless); and — the big
+one — **no conversion channel.** The stochastic `propagateBeliefFrom` half of
+`BeliefPropagationSystem` is what SEEDS a belief in a soul holding none, and it
+is not modelled, so a band with no record for a spirit never gains one and a
+band whose faith lapses never returns. The mean field is a ratchet. Closing that
+is the first thing a follow-up slice should do.
+
+#### Tier parity — the acceptance gate
+
+`tests/unit/cohort-drift-parity.test.ts`. One settlement of **13 souls**
+(= `MAX_SOCIAL_DEGREE` + 1, so both sides see exactly 12 believing neighbours),
+homogeneous, complete graph at trust 0.5, needs held fixed on both sides,
+sociability 0.05 so the unmodelled stochastic channel is gated off
+(< `MIN_SOCIABILITY`). Named side runs the REAL pipeline (`tickAllNpcEntities` +
+`BeliefPropagationSystem`), statistical side runs `driftSettlementBelief`.
+
+**Window: 24 game-hours = 86,400 named-tier fires. Sample: 1 village, 13 souls,
+compared every game hour (24 paired readings).**
+
+| game hour | named Σ faith | statistical Σ faith | relative error |
+|---|---|---|---|
+| 1 | 8.442060 | 8.440995 | **−0.0126 %** |
+| 2 | 9.230939 | 9.230334 | −0.0066 % |
+| 3 | 9.352352 | 9.351904 | −0.0048 % |
+| 6 | 9.372403 | 9.371994 | −0.0044 % |
+| 24 | 9.372459 | 9.372050 | −0.0044 % |
+
+Worst relative error over the whole window: **0.0126 %**, at hour 1 — the
+steepest part of the transient, which is where a wrong coefficient would show.
+Both sides converge to the same fixed point, mean faith **f\* = 0.7210**, which
+is the value the `COMMUNION_RATE` header block's own arithmetic predicts for
+S = 6f at these parameters. Faith rose 0.4 → 0.721 over the window, so this is
+parity on a moving quantity, not on two frozen numbers.
+
+**Tolerance, derived first and measured second: the test gates at 0.1 %.** The
+derived bound is parts-per-thousand — the only uncontrolled difference is
+Gauss-Seidel (named: souls update sequentially within a fire, so soul 2's
+congregation already sees soul 1's new faith) versus Jacobi (mean field: the
+whole band at once), which is bounded by the per-fire faith delta (~1e-4) times
+the congregation coupling. 0.1 % sits an order of magnitude above the
+measurement and two below the bound. It was not widened; it was tightened from
+the 1 % first-principles figure once the measurement came in.
+
+#### What drift does to the SHIPPED world — the balance consequence
+
+Harness: the real `public/data/worlds/default.json` at genSeed 12345, built
+exactly as `probe-scaling.ts` builds it, then ticked with ONLY the hourly
+observer/mean-field roster (`LordSystem` → `SettlementAggregateSystem` →
+`CohortDynamicsSystem` → `CohortSystem`). **Window: 30 game-days. Sample: 9
+inhabited POIs, 678 statistical souls, one seed.** Wall clock 10.8 s.
+
+| | day 0 | day 1 | day 30 |
+|---|---|---|---|
+| player statistical faith mass | 3.060 | **13.987** | 13.987 |
+| player statistical believers | 17 | 17 | 17 |
+| total statistical `sumContribution`, all spirits | 14.400 | **597.596** | 597.596 |
+
+**Read this honestly. The statistical tier was frozen 4.6× below its own
+equilibrium, and giving it laws moved it there in under one game-day.** Mean
+believer faith goes 0.18 → 0.823, which is where the named tier's own communion
+arithmetic says a congregation of ≥13 at trust 0.5 rests (the `COMMUNION_RATE`
+block's table: N=8 → 0.76, N=50 → 0.93). That is the parity outcome working as
+intended — but it is also a **×41.5 increase in the statistical tier's total
+power contribution**, because `sumContribution` is `f × (1+2u)(1+2d)` and
+communion drives understanding and devotion up alongside faith with nothing
+decaying them (true of the named tier too; it has simply never been observed at
+19 souls). Every god in the world gets much stronger, and god tiers (1/40/200)
+will move. **This is a balance decision the round should take deliberately, not
+a number to quietly damp** — the honest lever is the missing decay on
+understanding/devotion, not the drift.
+
+`believerCount` is unchanged at 17 throughout: drift moves belief MASS and no
+souls, which is exactly what `CohortSystem`'s conservation audit is over.
+
+### S3.2 — migration is wired, conserved, ledgered… and produces ZERO flows
+
+`stepCohortMigration` (`src/sim/cohort-migration.ts`) +
+`transferCohortSouls` (`src/sim/cohorts.ts`), driven hourly by
+`CohortDynamicsSystem`. Prospect is `prosperitySatisfaction − occupancy`,
+occupancy = population / `FICTION_POP_BY_SIZE`; flows run one road hop
+(`roadNeighbours`, `MIGRATION_MAX_HOPS = 1`) down the gradient, sized at
+`MIGRATION_RATE_PER_DAY = 0.05` of the young-adult band per fiction day at a
+full unit of gradient, split largest-remainder, carried between hours by a
+fractional accumulator (`SettlementCohorts.migrationFrac` — the `agingFrac`
+device) because a small rate over a small band otherwise floors to zero forever.
+
+**The strategic acceptance criterion (refreshed-plan note (a)) — does the
+population distribution actually spread?**
+
+> **No. Population spread ratio (max/min statistical population across the 9
+> inhabited POIs) is 4.000 at day 0 and 4.000 at day 30. Zero migrants moved.
+> Window: 30 game-days, seed 12345, 9 settlements.**
+
+That is not a tuning miss; it is three independent, measured facts about the
+shipped world, each of which alone is sufficient to produce zero:
+
+1. **The world is seeded exactly at its own carrying capacity.**
+   `seedStatisticalCohorts` fills each POI to `FICTION_POP_BY_SIZE` minus its
+   named residents, so measured occupancy is **1.0000 at every settlement**. The
+   crowding term is identically −1 world-wide.
+2. **Prosperity is uniform at 0.5000 everywhere**, because no lord is ever
+   seated. Measured: `world.lords` is EMPTY after 30 game-days, and the reason is
+   upstream of this phase — `seedWorld` seeds one cradle band of six at
+   `khar_ordu` with roles `farmer/elder/child/beggar/merchant/soldier` and the
+   authored POI rosters (which do contain `noble`s: Bayan Khan, Lord Garrick,
+   Mayor Corwin) are never spawned. **No noble ⇒ no seat ⇒ `titheRateFor` is 0
+   ⇒ `applyCohortTithe` holds every band at `STAT_UNTITHED_PROSPERITY`.** The
+   lord/tithe economy — M3, shipped — is inert on the default world.
+3. **Six of nine inhabited POIs have NO road neighbour to migrate to.** Measured
+   1-hop adjacency: `crossroads_inn ↔ dawn_temple` is the only pair where both
+   ends have a cohort; `ironkeep_castle`'s only neighbour is `lakeside_dock`,
+   which has no cohort because it has no authored `npcs`; `ironvein_mine`,
+   `khar_ordu`, `millbrook_farm`, `oakshire`, `old_watchtower` and
+   `stonehaven_city` return an empty neighbour list entirely.
+
+So the resulting prospect is flat to four decimals (−0.5000 everywhere; the sole
+exception is `khar_ordu` at −0.5007, from its six named residents, and it points
+*into* a settlement with no road neighbours).
+
+**This sharpens the plan's prerequisite §2 rather than satisfying it.** The
+blocker is not only "few settlements have housing" — it is that **the authored
+world is seeded at a flat fixed point of any prospect function built from what
+the sim currently differentiates.** Migration cannot spread a population that is
+already at its own authored equilibrium with no differentiated economy.
+
+#### Counterfactual: what the mechanism does when a gradient exists
+
+To characterise the mechanism rather than the world, the same harness with an
+artificial tithe pressed onto `crossroads_inn` (the one settlement with a
+cohort-bearing road neighbour). **Window: 120 game-days, seed 12345, one
+settlement pair (36 + 72 souls).**
+
+| tithe | souls moved | equilibrium prospects | spread ratio |
+|---|---|---|---|
+| `DEFAULT_TITHE` = 0.1 | **1** (day ~31) | −0.5222 vs −0.5146 (gradient closed and slightly reversed) | 4.000 → 4.114 |
+
+The flow is **self-limiting exactly as designed** — it stopped once occupancy had
+closed the gradient — and the displacement matches the closed form: equalising
+`0.45 − p_c/36 = 0.5 − p_d/72` under `p_c + p_d = 108` gives x = **1.2 souls**,
+against 1 measured (the integer quantum).
+
+**And that closed form is the real finding about the prospect's shape.** With
+both terms weighted equally (the stated neutral unit choice: one full measure of
+prosperity = one full carrying-capacity of crowding), occupancy moves 1/36 per
+soul while prosperity can move at most 0.5 in total — so **the crowding term is
+~20× stiffer than the prosperity term at these populations, and migration is far
+too stiff to spread a population at any tithe the game currently produces.** A
+crowding weight `c` would scale the displacement as 1.2/c souls; at c = 0.1 the
+same tithe would move ~12. That weight is the single knob that decides whether
+this mechanism can create an x-lever for P4 at all. **It was deliberately NOT
+tuned to hit a spread number** — the epic's rule is mechanisms in, exponents out,
+and picking `c` to manufacture a population range is imposing the outcome. It is
+recorded here as a decision for the round to take with its eyes open.
+
+### S3.3 — materialization consistency and the ledger
+
+- **`CohortLedgerCounters` gained `cohortMigrations`**, and the stat-tier audit
+  learned `souls_migrated` as its THIRD ledgered flow (debit source, credit
+  destination) — the audit was extended, never weakened. A test asserts it
+  **still** reports a violation when souls move with no ledgered event, so
+  learning the new flow did not blunt it. Drift appears nowhere in the ledger on
+  purpose: it moves belief mass and no souls, and the audit is over counts.
+- **A soul drawn from a DRIFTED cohort arrives consistent with the drifted sums**
+  (`tests/unit/cohort-materialization-drift.test.ts`), asserted against the LIVE
+  running sums and never against a literal — the `npc-spawn-bands.test.ts` guard
+  shape, because this is the same defect class S2c.1 shipped: a constant left
+  stale when the thing beside it moved. The shipped `MaterializationSystem` path
+  is exercised, not a replica of it. `src/sim/materialization.ts` was NOT touched.
+- Drift → draw → fold still round-trips the running sums exactly, and
+  `transferCohortSouls` leaves `drawCount` alone (it is the materialization id
+  anchor; a migration mints no entity).
+
+### Determinism, conservation, skip
+
+- No rng anywhere in the new code; sorted folds over every Map; largest-remainder
+  `apportion` for the integer split; a fractional accumulator instead of a draw.
+  Two identical rigs land byte-identical over 40 game-hours of drift + migration.
+- Conservation: **0 violations** across every measured run (30-day and 120-day),
+  world soul total invariant, `cohortMigrations` matching the ledgered events
+  one-for-one.
+- **Time skip:** `applySkip` is a closed-form jump that ticks nothing and already
+  leaves the NAMED tier's belief frozen ("Survivors are untouched (frozen
+  belief)"). The statistical tier freezing across the same jump is therefore tier
+  PARITY, not a gap, and no `projectRoadClassesOverSkip`-style projection is owed
+  until the named tier gets one. What IS pinned is rate-independence: 3 × 1 hour
+  and 1 × 3 hours of drift produce byte-identical state.
+- `CohortDynamicsSystem` is deliberately NOT a `SerializableSystem`: the drift's
+  memory is the cohorts and the migration's is `SettlementCohorts.migrationFrac`,
+  both of which ride the Snapshot with `state.cohorts`. There is no baseline a
+  scrubbed timeline could inherit from a discarded future.
+
+### Non-results, listed as non-results
+
+- **Population spread: NOT ACHIEVED.** 4.000 → 4.000 over 30 game-days. See the
+  three measured causes above.
+- **Cross-settlement flux from migration: zero pairs** on the shipped world (the
+  meter works — `noteMigrant` is pinned by test and the counterfactual moved a
+  soul through it — there is simply nothing to meter).
+- **P4's contract stays silent, and this phase does not change that.** The x-lever
+  it was waiting for did not arrive.
+- **No exponent is claimed by this phase.** Drift changes belief mass, not
+  interaction counts, and migration moved one soul in a counterfactual — neither
+  is a fit. Nothing here was measured against settlement size at all, so any
+  scaling slope quoted from Phase 3 would be fabricated.
