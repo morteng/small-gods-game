@@ -30,6 +30,11 @@ export type CommandVerb =
   // player's god cannot build castles (tenet 9: mortals act first); the verb is
   // how Fate/dev coaching triggers the lord's act. See castle-verbs.ts.
   | 'found_castle'
+  // authoring tier — mortal power (Manning the Walls W3): the settlement's resident soldiers
+  // muster onto its walls, or stand back down, on the seated lord's order — a standing order
+  // riding `GarrisonOrders` (`state.garrisonOrders`) alongside the auto-muster `GarrisonSystem`
+  // already derives from the contention ladder. Same tier reasoning as `found_castle`.
+  | 'muster_garrison' | 'stand_down_garrison'
   // editor tier — god-mode world authoring (the Create panel; cost 0, no spirit)
   | 'author_spawn_npc' | 'author_remove_entity' | 'author_modify_npc'
   | 'author_place_object' | 'author_move_entity' | 'author_set_climate'

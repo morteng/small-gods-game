@@ -16,6 +16,7 @@ import { AdoptionLedger, reconcileAdoptions, type AdoptionLedgerSnapshot } from 
 import { ContentionLedger, type ContentionLedgerSnapshot } from '@/sim/rival-contention';
 import { SettlementAggregateStore, type SettlementAggregateStoreSnapshot } from '@/sim/settlement-aggregates';
 import { SettlementFluxTally, type SettlementFluxSnapshot } from '@/sim/settlement-flux';
+import { GarrisonOrders, type GarrisonOrdersSnapshot } from '@/sim/garrison';
 import type { SettlementCohorts } from '@/sim/cohorts';
 import type { LordState } from '@/sim/lord';
 import { fromState } from '@/core/rng';
@@ -111,6 +112,11 @@ export interface Snapshot {
    *  split, exactly. Optional so pre-P1 saves + partial test states restore to
    *  an empty tally. */
   settlementFlux?: SettlementFluxSnapshot;
+  /** Manning the Walls (W3): the garrison order store — standing muster orders + the muster
+   *  hysteresis side, keyed by settlement poiId. Snapshot-authoritative like the contention
+   *  ledger — a scrub restores the exact standing order + muster state; optional so pre-garrison
+   *  saves + partial test states restore to an empty store (no `SAVE_VERSION` bump). */
+  garrisonOrders?: GarrisonOrdersSnapshot;
   /** WP-D scrub-ghost pattern: internal tick-system state keyed by system name
    *  (`SettlementEventSystem` cooldowns, `NpcSimSystem` edge sides,
    *  `AbandonmentSystem` believed/lapsed history). Optional — an absent field
@@ -192,6 +198,7 @@ function buildSnapshot(state: GameState, deep: boolean): Snapshot {
     contention: state.contention?.serialize(),
     settlementAggregates: state.settlementAggregates?.serialize(),
     settlementFlux: state.settlementFlux?.serialize(),
+    garrisonOrders: state.garrisonOrders?.serialize(),
     systems: state.systemState?.serialize(),
     waterLevelM: state.waterLevelM,
     statCohorts: state.cohorts
@@ -275,6 +282,11 @@ export function restoreSnapshot(state: GameState, snap: Snapshot): void {
   state.settlementFlux = snap.settlementFlux
     ? SettlementFluxTally.fromSnapshot(snap.settlementFlux)
     : new SettlementFluxTally();
+  // Manning the Walls (W3): the garrison order store — pure settlement-keyed orders/hysteresis,
+  // no world entity to reconcile, so restore is a straight rebuild (or reset to empty for a
+  // pre-garrison snapshot so a scrub can't inherit a future muster).
+  state.garrisonOrders = snap.garrisonOrders
+    ? GarrisonOrders.fromSnapshot(snap.garrisonOrders) : new GarrisonOrders();
 
   // `?? []` tolerates pre-substrate snapshots (older saves) with no threads field;
   // optional chaining tolerates partial test states that omit the substrate stores.

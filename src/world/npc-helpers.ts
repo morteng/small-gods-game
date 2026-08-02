@@ -80,6 +80,11 @@ export function toRenderNpc(e: Entity): NpcInstance {
     homeBuildingId: p.homeBuildingId,
     homePoiId: p.homePoiId,
     moveCooldown: p.moveCooldown,
+    // Manning the walls (W2): the garrison phase machine's height above grade, spread in only
+    // when it is actually set. A bare `wallZ: p.wallZ` would stamp an OWN `wallZ: undefined` key
+    // on every ordinary townsfolk — same render result, but no longer the same object shape, and
+    // "grounded NPCs are untouched" is the regression bar this half of the seam is held to.
+    ...(p.wallZ === undefined ? {} : { wallZ: p.wallZ }),
   };
 }
 

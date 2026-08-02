@@ -448,6 +448,14 @@ export interface NpcInstance {
   // Random-walk movement scaffolding (placeholder until proper schedules land).
   // moveCooldown counts down in ms; on reach 0 the NPC picks a new step.
   moveCooldown?: number;
+  /** Manning the walls (W2): height (TILES above grade) of this NPC's feet, copied straight from
+   *  the sim's `NpcProperties.wallZ` — the garrison phase machine writes it while a soldier is on
+   *  (or on his way up/down) a wall-walk, and it is ABSENT whenever he stands on the ground.
+   *  `npcItems` turns it into a vertical screen offset applied ON TOP of the terrain lift; absent
+   *  ⇒ byte-identical output to an ordinary townsfolk. NOTE: this interface is a hand-picked
+   *  shape, NOT a passthrough of the entity's properties — a field must be added HERE and in
+   *  `toRenderNpc` (src/world/npc-helpers.ts) together or it never reaches the renderer. */
+  wallZ?: number;
 }
 
 export interface Relationship {
@@ -721,6 +729,43 @@ export interface NpcProperties {
    *  (ring eviction never strips it; a later, different argmax renames). Rendered
    *  as "Tola the Twice-Answered". Optional → old saves read as un-named. */
   epithet?: string;
+  /** Manning the walls (W1): the TRANSIENT phase-machine state of a soldier the
+   *  GarrisonSystem has posted to a wall-walk. Membership and orders are NOT here —
+   *  they live in the system's one settlement-keyed roster (a proto-Group); this is
+   *  only "where is this man in the act of reaching, holding, or leaving his post".
+   *  Plain data ⇒ rides the world snapshot untouched. Optional ⇒ no SAVE_VERSION bump. */
+  garrison?: NpcGarrisonState;
+  /** Height (tiles) ABOVE GRADE of this NPC's feet — written by the garrison phase
+   *  machine while it is on (or on its way up/down) a wall-walk, and ABSENT whenever
+   *  the NPC is standing on the ground. The renderer's vertical lift reads it; sim
+   *  truth, never a cosmetic flag. Optional ⇒ no SAVE_VERSION bump. */
+  wallZ?: number;
+}
+
+/** The phases of the wall-garrison movement machine (W1), in the order of a full posting:
+ *   • `to_stair`  — ordinary ground pathfinding to the mural stair's bottom step.
+ *   • `climb`     — parametric slide UP the flight (`t` 0→1, height grade→walkZ).
+ *   • `walk`      — parametric travel ALONG the run polyline (`t` = path distance) to the
+ *                   assigned station. Wall tiles are NOT walkable and must stay that way, so
+ *                   nothing on the allure ever touches tile pathfinding.
+ *   • `stationed` — held at the post, facing outward over the field.
+ *   • `descend`   — parametric slide DOWN the flight (`t` 1→0); at the bottom the garrison
+ *                   state and `wallZ` are dropped and the man is an ordinary NPC again. */
+export type GarrisonPhase = 'to_stair' | 'climb' | 'walk' | 'stationed' | 'descend';
+
+/** One garrisoning soldier's transient posting state. ONE object, never loose fields — phase 2's
+ *  first-class `Group` retrofits the ROSTER, and this stays the per-member scratch it drives. */
+export interface NpcGarrisonState {
+  /** `PlacedBarrier.id` of the ring being manned — the movement tick resolves the run (and hence
+   *  the stair + the stations) straight from `map.barrierRuns`, with no roster lookup. */
+  barrierId: string;
+  phase: GarrisonPhase;
+  /** Index into `wallStations(run)`. `-1` is the STAND-DOWN target: head for the stair head and
+   *  leave (a `walk` with `stationIdx === -1` ends in `descend`, not `stationed`). */
+  stationIdx: number;
+  /** Phase-local progress: 0→1 up/down the flight in `climb`/`descend`; the CURRENT PATH DISTANCE
+   *  along `run.path` during `walk`; unused otherwise. */
+  t: number;
 }
 
 /** NPC activity state */

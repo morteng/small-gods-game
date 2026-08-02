@@ -1,51 +1,14 @@
-import type { GameMap, Direction, NpcProperties } from '@/core/types';
+import type { GameMap, NpcProperties } from '@/core/types';
 import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import type { World } from '@/world/world';
 import type { Rng } from '@/core/rng';
 import { findPath, pickRandomDestination } from '@/sim/pathfinding';
-import { LPC_ANIMATIONS, ACTION_FRAME_MS, nextFrame, type NpcAnimation } from '@/core/npc-animation';
+import { LPC_ANIMATIONS, ACTION_FRAME_MS } from '@/core/npc-animation';
+import { animateStationary, animateWalking, directionFromDelta } from '@/sim/npc-pose';
+import { stepGarrisonMovement } from '@/sim/garrison';
 
 /** NPC walk speed in tiles per second. At 60 Hz ≈ 43 ticks per tile. */
 export const NPC_WALK_SPEED = 1.4;
-
-/** Combat poses a soldier cycles through (seeded per-NPC so the crowd varies). */
-const COMBAT_POSES: NpcAnimation[] = ['slash', 'thrust', 'shoot'];
-
-/**
- * Which action animation a *stationary* NPC should play, or 'walk' (idle stand)
- * when it has no action right now. Drives the prototype's visible behaviours:
- * worshippers cast, soldiers-at-work drill with a seeded melee/ranged pose.
- */
-function stationaryAnimation(p: NpcProperties): NpcAnimation {
-  // Upstream child bodies ship only walk/slash/hurt — casting/drilling would
-  // render an empty row, so children fall back to the idle stand.
-  if (p.role === 'child') return 'walk';
-  if (p.activity === 'worship') return 'spellcast';
-  if (p.role === 'soldier' && p.activity === 'work') {
-    return COMBAT_POSES[p.seed % COMBAT_POSES.length];
-  }
-  return 'walk';
-}
-
-/** Set `p.animation` and advance its frame for an NPC that is standing still. */
-function animateStationary(p: NpcProperties, dtMs: number): void {
-  const anim = stationaryAnimation(p);
-  if (anim === 'walk') {
-    p.animation = 'walk';
-    p.frame = 0; // idle stand
-    return;
-  }
-  if (p.animation !== anim) {
-    p.animation = anim;
-    p.frame = LPC_ANIMATIONS[anim].firstCol;
-    p.frameTimer = 0;
-  }
-  p.frameTimer += dtMs;
-  if (p.frameTimer >= ACTION_FRAME_MS) {
-    p.frameTimer -= ACTION_FRAME_MS;
-    p.frame = nextFrame(anim, p.frame);
-  }
-}
 
 /**
  * Dev override (`__debug.playAnim`): pin the NPC to a forced animation, looping
@@ -77,14 +40,6 @@ const IDLE_ROAM_RADIUS = 5;
  * Using ≤1 tick-worth prevents overshoot snapping. */
 const WAYPOINT_ARRIVAL = NPC_WALK_SPEED / 60 + 0.01;
 
-/** Derive cardinal direction from a movement delta. */
-function directionFromDelta(dx: number, dy: number): Direction {
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return dx >= 0 ? 'right' : 'left';
-  }
-  return dy >= 0 ? 'down' : 'up';
-}
-
 /**
  * Advance one NPC along its current path (or pick a new path if idle).
  *
@@ -105,6 +60,12 @@ export function tickNpcMovementEntities(
 
     // ── Dev override pins the pose and freezes movement. ──
     if (tickForcedAnimation(p, dtMs)) return;
+
+    // ── Manning the walls: a posted soldier moves under the garrison phase machine. ──
+    // It handles everything ABOVE grade parametrically (wall tiles are not walkable and stay
+    // that way) and returns false only for the `to_stair` approach, which is ordinary ground
+    // pathfinding to the flight's bottom step — that falls through to the code below.
+    if (p.garrison && stepGarrisonMovement(world, map, e, p, dtMs)) return;
 
     // ── Move cooldown ticks down; gates standing still. ──
     p.moveCooldown = (p.moveCooldown ?? 0) - dtMs;
@@ -194,14 +155,7 @@ export function tickNpcMovementEntities(
       // Face the direction we're moving
       p.direction = directionFromDelta(dx, dy);
 
-      // Animate walk cycle (columns 1..8; column 0 is the idle stand).
-      if (p.animation !== 'walk') { p.animation = 'walk'; p.frame = 0; }
-      if (p.frame === 0) p.frame = 1;
-      p.frameTimer += dtMs;
-      if (p.frameTimer >= 150) {
-        p.frameTimer -= 150;
-        p.frame = p.frame >= 8 ? 1 : p.frame + 1;
-      }
+      animateWalking(p, dtMs);
     }
   });
 }

@@ -23,6 +23,7 @@ import { AdoptionLedger } from '@/world/desire-line-adoption';
 import { ContentionLedger } from '@/sim/rival-contention';
 import { SettlementAggregateStore } from '@/sim/settlement-aggregates';
 import { SettlementFluxTally } from '@/sim/settlement-flux';
+import { GarrisonOrders } from '@/sim/garrison';
 
 export interface GameState {
   map: GameMap | null;
@@ -165,6 +166,13 @@ export interface GameState {
    *  scrubs with the timeline; the folded rate rides the store). The `roadUse`
    *  split, exactly. See `@/sim/settlement-flux`. */
   settlementFlux: SettlementFluxTally;
+  /** Manning the Walls (W3): the command-reachable half of the garrison — standing muster orders
+   *  + the muster hysteresis side, keyed by settlement poiId. `GarrisonSystem` reads/writes it
+   *  through an injected getter (mirrors `contention` exactly); `muster_garrison`/
+   *  `stand_down_garrison` reach it via `ctx.state.garrisonOrders` since a command never holds a
+   *  live system instance. Rides the Snapshot as `garrisonOrders?`, hydrating to empty for old
+   *  saves (no `SAVE_VERSION` bump). See `@/sim/garrison`. */
+  garrisonOrders: GarrisonOrders;
 }
 
 export function createState(): GameState {
@@ -228,6 +236,7 @@ export function createState(): GameState {
     contention: new ContentionLedger(),
     settlementAggregates: new SettlementAggregateStore(),
     settlementFlux: new SettlementFluxTally(),
+    garrisonOrders: new GarrisonOrders(),
   };
 }
 
@@ -258,7 +267,7 @@ const IDENTITY_STABLE = new Set<keyof GameState>([
  * rather than letting a new field silently survive a quit-to-title as stale
  * world data. Bump it in the same commit as the new field.
  */
-export const GAME_STATE_FIELD_COUNT = 43;
+export const GAME_STATE_FIELD_COUNT = 44;
 
 /**
  * Return `state` to exactly the shape `createState()` would produce, MUTATING IT

@@ -32,6 +32,10 @@ import { mToTiles } from '@/render/scale-contract';
 import type { Mat } from '@/assetgen/types';
 import type { BarrierKind } from '@/world/barrier';
 import type { SpritePack, BarrierPiece } from '@/render/iso/sprite-canvas';
+import {
+  CANONICAL_DIRS, CARDINAL_CUT, DIAG_CUT, CARDINAL_SLOT, DIAG_SLOT,
+  classifyEdge, isRealGate, gateSwallowedByGap, gateFrameOf, stairPlacementOf,
+} from '@/world/tactical-positions';
 
 /** Chunk length along the path, in tiles — short enough that each piece y-sorts + foot-z lifts
  *  at roughly one ground contact, long enough to keep the compose count low. */
@@ -40,8 +44,12 @@ const CHUNK_TILES = 4;
  *  midpoint sort key, so a chunk running along the depth axis puts its whole length at one
  *  depth — a building whose sort key falls inside that span draws wholly in front of or
  *  behind the entire chunk ("buildings poke through walls"). Capping the depth span keeps
- *  the ambiguity window under a building footprint; cross-depth walls keep full length. */
-const CHUNK_DEPTH_SPAN_MAX = 2;
+ *  the ambiguity window under a building footprint; cross-depth walls keep full length.
+ *  EXPORTED because it also bounds how far a chunk's midpoint sort key can sit AHEAD of a point
+ *  that is genuinely ON that chunk — which is exactly the bias an on-wall NPC needs to out-sort
+ *  the wall he stands on (`WALL_NPC_DEPTH_BIAS`, entity-draw-list.ts). Pinned against it by
+ *  tests/unit/npc-wall-lift.test.ts, so the two can never drift apart. */
+export const CHUNK_DEPTH_SPAN_MAX = 2;
 
 const r3 = (n: number): number => Math.round(n * 1000) / 1000;
 type Pt = [number, number];
@@ -68,10 +76,6 @@ function masonryMat(run: BarrierRun): Mat {
   return run.material === 'brick' ? 'brick' : 'stone';
 }
 
-/** A real GATE (road crossing) gets a gatehouse + timber leaf + a stair beside it; a GAP (the line
- *  meeting water / a building / an open waterfront) is just an opening. Missing kind ⇒ gate (legacy). */
-const isRealGate = (g: BarrierGate): boolean => g.kind !== 'gap';
-
 /** Crenellated stone/brick rings get flanking towers; field walls / palisades / hedges don't. */
 function towersEnabled(run: BarrierRun): boolean {
   return !!run.crenellated && (run.material === 'stone' || run.material === 'brick');
@@ -81,6 +85,24 @@ const unit = (a: Pt, b: Pt): Pt => {
   const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1;
   return [dx / m, dy / m];
 };
+
+/** The wall's tangent direction at the path leg NEAREST (x,y) — the allure's own axis at a
+ *  tower's position. Manning the Walls W4: a drum's flank doorway faces ALONG this axis (the
+ *  wall-walk runs into the tower) instead of straight into the ring interior. Falls back to
+ *  [1,0] for a degenerate (<2-vertex) path — never hit by a real ring. */
+function alongWallDirAt(path: Pt[], x: number, y: number): Pt {
+  let bestD2 = Infinity, bestDir: Pt = [1, 0];
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i];
+    const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
+    if (len2 < 1e-9) continue;
+    const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len2));
+    const px = a[0] + t * dx, py = a[1] + t * dy;
+    const d2 = (px - x) ** 2 + (py - y) ** 2;
+    if (d2 < bestD2) { bestD2 = d2; bestDir = unit(a, b); }
+  }
+  return bestDir;
+}
 
 /** Vertices where the polyline TURNS (closed rings: every corner; open paths: interior bends). */
 function cornerVertices(path: Pt[]): Pt[] {
@@ -101,57 +123,6 @@ function cornerVertices(path: Pt[]): Pt[] {
   return out;
 }
 
-/**
- * The opening the curtain cutter ACTUALLY cuts for a real gate: centre `t` (global path distance)
- * + width, snapped to the carrying edge's piece grid — the same math `chunkBarrierRun` applies.
- * Gate furniture (leaf, jamb frame, flanker towers, stair) must place against THIS opening:
- * anchored at the raw `g.t` it drifts up to a full piece off the cut passage, and the leaf hangs
- * beside its own arch (the floating-door bug — reproduced in `place-gate-towers`, whose t=6 w=2.5
- * gate cuts an opening [6,8] while the leaf drew centred on 6). Non-canonical edges cut
- * continuously, so the raw gate comes back unchanged.
- */
-export function snappedGateOpening(run: BarrierRun, g: BarrierGate): { t: number; width: number } {
-  const path = run.path;
-  let cum = 0;
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1], b = path[i];
-    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (L <= 1e-6) continue;
-    // Same HALF-OPEN ownership as chunkBarrierRun: a vertex-centred gate belongs to the edge
-    // starting there (except the final edge, which keeps its end so an open-path gate resolves).
-    const carries = g.t >= cum - 1e-6 && (g.t < cum + L - 1e-6 || i === path.length - 1);
-    if (carries) {
-      const ec = classifyEdge(b[0] - a[0], b[1] - a[1]);
-      if (!ec.canonical) return { t: g.t, width: g.width };
-      const tc = g.t - cum;
-      const gw = Math.max(1, Math.min(2, Math.round((g.width || ec.slotLen) / ec.slotLen)));
-      const W = gw * ec.slotLen;
-      if (W <= L + 1e-6) {
-        const nPO = Math.max(1, Math.round(W / ec.cutLen));
-        const nPiecesEdge = Math.max(1, Math.round(L / ec.cutLen));
-        const startIdx = Math.max(0, Math.min(nPiecesEdge - nPO, Math.round((tc - W / 2) / ec.cutLen)));
-        return { t: cum + startIdx * ec.cutLen + W / 2, width: W };
-      }
-      return { t: g.t, width: W };
-    }
-    cum += L;
-  }
-  return { t: g.t, width: g.width };
-}
-
-/** World point + along-unit direction at path distance `t`. */
-function frameAt(path: Pt[], t: number): { p: Pt; dir: Pt } {
-  let acc = 0;
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1], b = path[i];
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (t <= acc + len) { const u = (t - acc) / (len || 1); return { p: [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u], dir: unit(a, b) }; }
-    acc += len;
-  }
-  const a = path[path.length - 2] ?? path[0], b = path[path.length - 1];
-  return { p: b, dir: unit(a, b) };
-}
-
 /** A localised curtain chunk: a short BarrierRun in its OWN frame (origin at the chunk start,
  *  running in the segment's true world direction) + the world placement of origin/midpoint. */
 export interface BarrierChunk {
@@ -169,43 +140,8 @@ export interface BarrierChunk {
 // piece = ONE (±1,±1) step = √2. Both respect CHUNK_DEPTH_SPAN_MAX = 2. A non-canonical (free-
 // angle) edge — only legacy hand-built runs — falls back to the old continuous cutter (`free:` key).
 
-/** The 8 canonical unit deltas, indexed by 45° octant from +x (matches wall-connections.ts). */
-const CANONICAL_DIRS: Pt[] = [
-  [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
-];
-/** Cardinal render piece: 2 along-axis tiles. */
-const CARDINAL_CUT = 2;
-/** Diagonal render piece: ONE (±1,±1) step = √2 tiles. */
-const DIAG_CUT = Math.SQRT2;
-/** A GATE slot is a full WP-W1 gate piece: 2 tiles cardinal / 2 diagonal steps (2√2). */
-const CARDINAL_SLOT = 2;
-const DIAG_SLOT = 2 * Math.SQRT2;
-/** cos(0.5°): edges whose bearing is within 0.5° of a canonical direction are cut on the grid;
- *  anything more off-axis falls to the legacy free-angle chunker. */
-const CANON_DOT = Math.cos(0.5 * Math.PI / 180);
 /** Normalized-bearing integer step deltas (E, NE, N, NW) — cardinal steps are unit, diagonal one (±1,±1). */
 const BEARING_STEP: Pt[] = [[1, 0], [1, 1], [0, 1], [-1, 1]];
-
-interface EdgeClass {
-  oct: number; canonical: boolean; cls: 'card' | 'diag'; reversed: boolean;
-  bearing: 0 | 1 | 2 | 3; worldUnit: Pt; cutLen: number; slotLen: number;
-}
-
-/** Classify an edge delta: octant, whether it is (near-)canonical, cardinal/diagonal, and — for
- *  the OUTPUT normalization that halves the sprite set — whether it points into the back half
- *  {W,SW,S,SE} (⇒ emit reversed from the far endpoint at bearing oct%4 ∈ {E,NE,N,NW}). */
-function classifyEdge(dx: number, dy: number): EdgeClass {
-  const L = Math.hypot(dx, dy) || 1;
-  const oct = ((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8;
-  const cu = CANONICAL_DIRS[oct]; const cl = Math.hypot(cu[0], cu[1]) || 1;
-  const canonical = (dx / L) * (cu[0] / cl) + (dy / L) * (cu[1] / cl) >= CANON_DOT;
-  const cls = oct % 2 === 1 ? 'diag' : 'card';
-  return {
-    oct, canonical, cls, reversed: oct >= 4, bearing: (oct % 4) as 0 | 1 | 2 | 3,
-    worldUnit: [cu[0] / cl, cu[1] / cl], cutLen: cls === 'diag' ? DIAG_CUT : CARDINAL_CUT,
-    slotLen: cls === 'diag' ? DIAG_SLOT : CARDINAL_SLOT,
-  };
-}
 
 /** Deterministic 0|1|2 from a world tile position — the living (hedge) piece variant seed. No RNG. */
 const posHash3 = (x: number, y: number): 0 | 1 | 2 => {
@@ -459,27 +395,6 @@ function chunkElements(run: BarrierRun): Element[] {
   }));
 }
 
-/** The gate assembly's shared placement: snapped opening centre/width + frame + the opening-start
- *  foot vertex every element of the assembly lifts from. */
-function gateFrameOf(run: BarrierRun, g: BarrierGate): { p: Pt; dir: Pt; width: number; foot: Pt } {
-  const o = snappedGateOpening(run, g);
-  const { p, dir } = frameAt(run.path, o.t);
-  // Half a tile INSIDE the opening — the same shared foot the gate fragments carry
-  // (chunkBarrierRun's `footS`), clear of the bench-boundary ramp-tuck tile.
-  const { p: foot } = frameAt(run.path, o.t - o.width / 2 + 0.55);
-  return { p, dir, width: o.width, foot };
-}
-
-/** A real gate whose opening is swallowed by a GAP span has no curtain to hang furniture on —
- *  the pieces there were dropped (water/building opening overlapping the committed gate), so a
- *  leaf/frame/tower placed anyway floats in the void (the door-over-the-river bug). Skip it. */
-function gateSwallowedByGap(run: BarrierRun, g: BarrierGate): boolean {
-  const o = snappedGateOpening(run, g);
-  return run.gates.some((other) =>
-    other !== g && other.kind === 'gap'
-    && o.t > other.t - other.width / 2 - 1e-6 && o.t < other.t + other.width / 2 + 1e-6);
-}
-
 /** Tower elements: a ROUND drum at each ring corner + twin SQUARE gatehouse towers at each gate
  *  (the authentic medieval pairing). Each kind shares one cached compose (same geometry); only
  *  the placement differs per element. */
@@ -522,8 +437,15 @@ function towerElements(run: BarrierRun): Element[] {
   };
   const drumAt = (x: number, y: number): Element => {
     const inward = inwardAt(x, y);
-    const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined });
-    return mk(`tower:round:${tag}:${q(inward)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y, drum.side);
+    // Manning the Walls W4: a drum (salient/fill — the flank towers) enters from the allure, so
+    // its doorway faces ALONG the wall rather than inward — octant-snapped like `inward`, so the
+    // cache key vocabulary stays finite (8 values) rather than continuous.
+    const alongWall = octUnit(alongWallDirAt(run.path, x, y));
+    const drum = towerSpec({ ...base, round: true, inward: inward ? octUnit(inward) : undefined, alongWall });
+    // CACHE-KEY GOTCHA: `alongWall` is new geometry-affecting input (it moves + reorients the
+    // door and offsets the vice turret), so it MUST be in the key — two drums with the same
+    // inward but different wall axes would otherwise collide on one cached sprite.
+    return mk(`tower:round:${tag}:${q(inward)}:aw${octOf(alongWall)}`, () => ({ parts: drum.parts, mountAnchors: drum.mountAnchors }), x, y, drum.side);
   };
 
   const out: Element[] = [];
@@ -646,32 +568,21 @@ function gateElements(run: BarrierRun): Element[] {
   return out;
 }
 
-/** Only real defensive rings (a crenellated masonry curtain that knows its inside) get stairs. */
-function stairsEnabled(run: BarrierRun): boolean {
-  return !!run.crenellated && !!run.centroid && (run.material === 'stone' || run.material === 'brick');
-}
-
 /** Mural-stair elements: ONE clean coursed flight up to the wall-walk on the INNER face, beside the
  *  main gate. (The old per-long-segment + per-gate flights placed ~8–14 tiny inward stubs per ring
  *  that read as rubble cairns / detached columns at game zoom — clean walls beat rubble, so we keep
- *  a single readable flight at the gate the player enters by.) */
+ *  a single readable flight at the gate the player enters by.) Placement comes from
+ *  `stairPlacementOf` (`@/world/tactical-positions`) — the SAME derivation the sim's garrison
+ *  circulation reads, so the render stair and a soldier's climb point can never drift apart. */
 function stairElements(run: BarrierRun): Element[] {
-  if (!stairsEnabled(run)) return [];
-  const gate = run.gates.find((g) => isRealGate(g) && !gateSwallowedByGap(run, g));   // the main (first real) gate
-  if (!gate) return [];
-  const c = run.centroid!;
+  const placement = stairPlacementOf(run);
+  if (!placement) return [];
+  const { foot: sp, dir, inward, walkZ } = placement;
   const H = run.height;
-  const parapetH = run.crenellated ? Math.min(mToTiles(1.6), H * 0.4) : 0;
-  const walkZ = H - parapetH;                               // the wall-walk the flight climbs to
   const mat = masonryMat(run);
   const work = masonryWork(run);                            // course to MATCH the curtain
   const tag = `${r3(H)}:${r3(run.thickness)}:${mat}:${work}`;
 
-  const { p, dir, width } = gateFrameOf(run, gate);
-  const off = width / 2 + mToTiles(2.4);                    // sit clear of the passage + gatehouse
-  const sp: Pt = [p[0] - dir[0] * off, p[1] - dir[1] * off];
-  const inx = c[0] - sp[0], iny = c[1] - sp[1], m = Math.hypot(inx, iny) || 1;
-  const inward: Pt = [inx / m, iny / m];
   const stair = stairSpec({ walkZ, dir, inward, thickness: run.thickness, material: mat, work });
   return [{
     key: `stair:${tag}:${r3(dir[0])},${r3(dir[1])}`,

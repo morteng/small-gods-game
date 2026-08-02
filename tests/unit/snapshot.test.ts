@@ -200,4 +200,33 @@ describe('snapshot', () => {
     expect(s.contention.all()).toEqual([]);
     expect(s.contention.stateOf('poi1')).toBe('calm');
   });
+
+  it('the garrison order store scrubs with the timeline (a standing order reverts)', () => {
+    const s = createState();
+    attachWorld(s);
+    s.garrisonOrders.setStandingOrder('poi1', true);
+    s.garrisonOrders.setMustered('poi1', true);
+    const snap = captureSnapshot(s);
+    // The "future" a scrub must undo: the order is released and the garrison stands down.
+    s.garrisonOrders.setStandingOrder('poi1', false);
+    s.garrisonOrders.setMustered('poi1', false);
+    s.garrisonOrders.setStandingOrder('poi2', true);          // a second order raised post-capture
+    expect(s.garrisonOrders.hasStandingOrder('poi1')).toBe(false);
+    restoreSnapshot(s, snap);
+    expect(s.garrisonOrders.hasStandingOrder('poi1')).toBe(true);   // reverted to capture time
+    expect(s.garrisonOrders.isMustered('poi1')).toBe(true);
+    expect(s.garrisonOrders.hasStandingOrder('poi2')).toBe(false);  // the post-capture order un-happens
+  });
+
+  it('a pre-garrison snapshot (no garrisonOrders field) restores to an empty store', () => {
+    const s = createState();
+    attachWorld(s);
+    s.garrisonOrders.setStandingOrder('poi1', true);
+    s.garrisonOrders.setMustered('poi1', true);
+    const snap = captureSnapshot(s);
+    delete (snap as { garrisonOrders?: unknown }).garrisonOrders;   // simulate an older save
+    restoreSnapshot(s, snap);
+    expect(s.garrisonOrders.hasStandingOrder('poi1')).toBe(false);
+    expect(s.garrisonOrders.isMustered('poi1')).toBe(false);
+  });
 });

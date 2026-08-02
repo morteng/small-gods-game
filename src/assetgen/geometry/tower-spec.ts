@@ -13,6 +13,7 @@
 import type { Part } from '@/assetgen/compose';
 import type { Mat } from '@/assetgen/types';
 import type { ApertureBox } from '@/assetgen/geometry/solids';
+import { merlonsAroundRect, merlonsAroundRing, ringCourse, parapetHeight, PARAPET_BASE_COURSE_FRAC } from '@/assetgen/geometry/battlement';
 import { mToTiles } from '@/render/scale-contract';
 import type { Anchor } from '@/world/anchors';
 
@@ -28,8 +29,17 @@ export interface TowerOpts {
   round?: boolean;
   /** Unit vector toward the town INTERIOR (from the ring centroid). The tower's entrance doorway
    *  faces this way (you enter from inside); arrow-loops face the opposite (field) way. Absent →
-   *  a solid tower with no openings (legacy). */
+   *  a solid tower with no openings (legacy). Superseded on a ROUND tower by `alongWall`, when
+   *  present — a drum's entrance is reached from the wall-walk, not from a grade approach. */
   inward?: [number, number];
+  /** Octant-snapped unit vector running ALONG the curtain at this tower's position (the allure's
+   *  tangent). ROUND towers only (Manning the Walls W4): when set, the entrance moves off grade
+   *  and onto the allure — the drum's doorway is cut at wall-walk height, facing along this axis,
+   *  so the mural stair's wall-walk runs straight into the tower instead of arriving at a
+   *  ground-floor door it can't reach. Absent → legacy grade door facing `inward` (or a solid
+   *  drum, if `inward` is also absent). Gate towers (square, `tall`) ignore this — they keep
+   *  their street-level door regardless. */
+  alongWall?: [number, number];
   /** Masonry coursing (`ashlar`/`coursed_rubble`/…) the tower paints with — match it to the curtain
    *  it flanks so a wall and its towers read as ONE build (not crazy-paving beside coursed ashlar).
    *  Absent → bare stone (legacy). */
@@ -45,31 +55,35 @@ function withWork(parts: Part[], work?: string): Part[] {
 
 const EPS = mToTiles(0.05);
 
-/** Merlon + crenel pitch (tiles), SHARED by the curtain (`linear.ts`), the mural towers here and
- *  building parapets (`blueprint/parts/`), so battlements read as ONE construction across a wall,
- *  its towers and a keep. 1.0 tile = 2 m; chosen to divide the curtain's chunk length so merlons
- *  tile seamlessly across chunk seams (see `masonrySeg`). */
-export const MERLON_PERIOD_TILES = mToTiles(2.0);
-/** Merlon tooth width as a fraction of the pitch (a touch wider than the crenel gap). */
-export const MERLON_WIDTH_FRAC = 0.56;
+/** A drum tower must read as a TOWER, not a fat corner bulge: its height is sized from the
+ *  curtain it flanks, then floored so it is at least this much taller than it is wide. Real
+ *  drum towers run 2–3; below ~1.5 the silhouette reads as a barrel half-buried in the wall. */
+const MIN_TOWER_ASPECT = 1.8;
 
-/** An arched DOORWAY niche recessed into the face the `inward` vector points at — the tower's
+/** Size/level overrides for {@link doorwayAperture} — absent fields keep the big grade
+ *  gate-tower door (the original, still what square/gate towers use). */
+interface DoorwayOverrides { z0?: number; width?: number; height?: number; depth?: number }
+
+/** An arched DOORWAY niche recessed into the face the `facing` vector points at — the tower's
  *  entrance. `half` is the distance from centre to that face. A deep dark recess reads as a way
- *  in even though the massing behind stays solid (a true hollow interior needs the cutaway path). */
-function doorwayAperture(cx: number, cy: number, half: number, inward: [number, number]): ApertureBox {
-  const [ix, iy] = inward;
+ *  in even though the massing behind stays solid (a true hollow interior needs the cutaway path).
+ *  Defaults to a grade-level big arched gate-tower door; `overrides` lets a ROUND tower cut a
+ *  smaller doorway higher up (the allure-level flank door), sharing the same face-picking math. */
+function doorwayAperture(cx: number, cy: number, half: number, facing: [number, number], overrides?: DoorwayOverrides): ApertureBox {
+  const [ix, iy] = facing;
   const useX = Math.abs(ix) >= Math.abs(iy);
   const sgn = useX ? (ix >= 0 ? 1 : -1) : (iy >= 0 ? 1 : -1);
-  const dW = mToTiles(2.2), dH = mToTiles(3.2), depth = mToTiles(2.2);   // a big arched gate-tower door
+  const dW = overrides?.width ?? mToTiles(2.2), dH = overrides?.height ?? mToTiles(3.2), depth = overrides?.depth ?? mToTiles(2.2);
+  const z0 = overrides?.z0 ?? -EPS;
   const rise = mToTiles(0.7);
   if (useX) {
     const faceX = cx + sgn * half;
     const atX = sgn > 0 ? faceX - depth : faceX - EPS;
-    return { at: [atX, cy - dW / 2, -EPS], size: [depth + EPS, dW, dH], arch: { axis: 'y', style: 'round', rise } };
+    return { at: [atX, cy - dW / 2, z0], size: [depth + EPS, dW, dH], arch: { axis: 'y', style: 'round', rise } };
   }
   const faceY = cy + sgn * half;
   const atY = sgn > 0 ? faceY - depth : faceY - EPS;
-  return { at: [cx - dW / 2, atY, -EPS], size: [dW, depth + EPS, dH], arch: { axis: 'x', style: 'round', rise } };
+  return { at: [cx - dW / 2, atY, z0], size: [dW, depth + EPS, dH], arch: { axis: 'x', style: 'round', rise } };
 }
 
 
@@ -83,46 +97,16 @@ export interface TowerSpec {
   side: number;
 }
 
-/** Place merlon boxes along one top edge of the square (axis + fixed cross-offset).
- *  Exported: building parapets (blueprint trim) reuse the same battlement teeth. */
-export function merlonsAlongEdge(
-  axis: 'x' | 'y', fixedCross: number, from: number, to: number,
-  z: number, mh: number, mt: number, mat: Mat,
-): Part[] {
-  const out: Part[] = [];
-  const period = MERLON_PERIOD_TILES, mw = period * MERLON_WIDTH_FRAC;
-  for (let d = from; d + mw <= to + 1e-6; d += period) {
-    out.push(axis === 'x'
-      ? { prim: 'box', at: [d, fixedCross, z], size: [mw, mt, mh], material: mat }
-      : { prim: 'box', at: [fixedCross, d, z], size: [mt, mw, mh], material: mat });
-  }
-  return out;
-}
-
-/** Merlon teeth wrapped around a parapet RING of radius `rp`, each box yawed to face radially
- *  (yaw rotates a box about its own centre, so radial thickness `pt` × tangential width `mw`).
- *  Exported: round blueprint towers reuse the same ring battlements. */
-export function merlonsAroundRing(cx: number, cy: number, rp: number, z: number, mh: number, pt: number, mat: Mat): Part[] {
-  const out: Part[] = [];
-  const period = MERLON_PERIOD_TILES;
-  const n = Math.max(6, Math.round((2 * Math.PI * rp) / period));
-  const mw = ((2 * Math.PI * rp) / n) * 0.56;          // tangential chord, a touch under the pitch
-  const ringR = rp - pt / 2;                            // box centre sits on the ring mid-thickness
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * 2 * Math.PI;
-    const ccx = cx + ringR * Math.cos(a), ccy = cy + ringR * Math.sin(a);
-    out.push({ prim: 'box', at: [ccx - pt / 2, ccy - mw / 2, z], size: [pt, mw, mh], material: mat, yaw: a * 180 / Math.PI });
-  }
-  return out;
-}
-
 /** Square mural tower centred at world (cx,cy), base at z=0. */
 function squareTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const mat = opts.material;
   const side = Math.max(mToTiles(2.4), opts.curtainThickness + mToTiles(opts.tall ? 1.4 : 2.0));
-  const rise = mToTiles(opts.tall ? 4.0 : 2.4);
-  const towerH = opts.curtainHeight + rise;
-  const parapetH = mToTiles(1.5);
+  // Same rule as the drum: the rise scales with the curtain, then the whole tower is floored by
+  // MIN_TOWER_ASPECT. A flat rise left a gate tower on a thick wall 6 m wide and 8.4 m tall
+  // (aspect 1.40) — a block astride the wall rather than a tower flanking it.
+  const rise = Math.max(mToTiles(opts.tall ? 4.0 : 2.4), opts.curtainHeight * (opts.tall ? 0.75 : 0.5));
+  const towerH = Math.max(opts.curtainHeight + rise, side * MIN_TOWER_ASPECT);
+  const parapetH = parapetHeight(opts.curtainHeight);
   const baseH = mToTiles(1.2);
   const flare = mToTiles(0.7);
   const corbel = mToTiles(0.35);              // machicolation overhang
@@ -144,13 +128,21 @@ function squareTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   // Corbelled machicolation band — overhangs the shaft just below the parapet.
   const cs = side + 2 * corbel, ch = h + corbel;
   parts.push({ prim: 'box', at: [...at(-ch, -ch), walkZ - corbelH], size: [cs, cs, corbelH], material: mat });
-  // Crenellated parapet around all four edges (on the corbel-widened footprint).
+  // Crenellated parapet around all four edges (on the corbel-widened footprint): a low continuous
+  // base course (the crenel sill) with corner-anchored, self-tiled teeth standing on it — the same
+  // construction the curtain uses, so a wall and its towers read as one build.
   const pt = mToTiles(0.4);
-  const lo = -ch, hi = ch - pt;
-  parts.push(...merlonsAlongEdge('x', cy + lo, cx - ch, cx + ch, walkZ, parapetH, pt, mat));   // south edge
-  parts.push(...merlonsAlongEdge('x', cy + hi, cx - ch, cx + ch, walkZ, parapetH, pt, mat));   // north edge
-  parts.push(...merlonsAlongEdge('y', cx + lo, cy - ch, cy + ch, walkZ, parapetH, pt, mat));   // west edge
-  parts.push(...merlonsAlongEdge('y', cx + hi, cy - ch, cy + ch, walkZ, parapetH, pt, mat));   // east edge
+  const x0 = cx - ch, x1 = cx + ch, y0 = cy - ch, y1 = cy + ch;
+  const sillH = parapetH * PARAPET_BASE_COURSE_FRAC;
+  parts.push(
+    { prim: 'box', at: [x0, y0, walkZ], size: [x1 - x0, pt, sillH], material: mat },
+    { prim: 'box', at: [x0, y1 - pt, walkZ], size: [x1 - x0, pt, sillH], material: mat },
+    { prim: 'box', at: [x0, y0 + pt, walkZ], size: [pt, y1 - y0 - 2 * pt, sillH], material: mat },
+    { prim: 'box', at: [x1 - pt, y0 + pt, walkZ], size: [pt, y1 - y0 - 2 * pt, sillH], material: mat },
+  );
+  // Teeth rise the FULL parapet height from the walk (the sill overlaps behind them) — exactly as
+  // the curtain builds it, so tower and wall battlements stand at one height.
+  parts.push(...merlonsAroundRect(x0, y0, x1, y1, pt, walkZ, parapetH, mat));
 
   return { parts: withWork(parts, opts.work), mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side };
 }
@@ -163,9 +155,13 @@ function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   // sized generously past the curtain thickness and visibly projects beyond the wall line.
   const dia = Math.max(mToTiles(3.0), opts.curtainThickness + mToTiles(opts.tall ? 1.4 : 3.2));
   const r = dia / 2;
-  const rise = mToTiles(opts.tall ? 3.6 : 2.2);
-  const towerH = opts.curtainHeight + rise;
-  const parapetH = mToTiles(1.5);
+  // Rise SCALES with the curtain, then the whole tower is floored by MIN_TOWER_ASPECT. A flat
+  // constant rise made a thick-walled ring's drums as wide as they were tall (7.2 m across vs
+  // 8.2 m tall on a 6 m curtain 4 m thick — aspect 1.14), so the corners read as rounded fillets
+  // on the wall rather than towers standing clear of it.
+  const rise = Math.max(mToTiles(opts.tall ? 3.6 : 2.2), opts.curtainHeight * (opts.tall ? 0.75 : 0.5));
+  const towerH = Math.max(opts.curtainHeight + rise, dia * MIN_TOWER_ASPECT);
+  const parapetH = parapetHeight(opts.curtainHeight);
   const baseH = mToTiles(1.2);
   const flare = mToTiles(0.6);
   const corbel = mToTiles(0.32);
@@ -176,13 +172,46 @@ function roundTower(opts: TowerOpts, cx: number, cy: number): TowerSpec {
   const parts: Part[] = [];
   // Battered frustum foot (a tapered drum — wide at grade, narrowing to the shaft).
   parts.push({ prim: 'column', center, baseZ: 0, radius: r + flare, topRadius: r, height: baseH, material: mat });
-  // Cylindrical shaft — an entrance doorway on the inner side (if oriented).
-  const door = opts.inward ? doorwayAperture(cx, cy, r, opts.inward) : undefined;
+  // Cylindrical shaft — the entrance doorway, if oriented. A FLANK tower (Manning the Walls W4,
+  // `alongWall` set) is reached from the wall-walk, not from grade: its door moves up to the
+  // ALLURE — `curtainHeight − parapetHeight(curtainHeight)`, the ONE shared circulation height
+  // (`walkZOf` in `world/tactical-positions.ts` derives the same number for the sim/stair) — and
+  // faces along the curtain's tangent so the walk runs straight into it. A tower that never
+  // learned its wall axis (legacy corner-tower derivation, or a caller with only `inward`) keeps
+  // the old grade door facing inward; with neither, it stays a solid drum.
+  const allureZ = opts.curtainHeight - parapetHeight(opts.curtainHeight);
+  const door = opts.alongWall
+    ? doorwayAperture(cx, cy, r, opts.alongWall, { z0: allureZ, width: mToTiles(1.6), height: mToTiles(2.4), depth: mToTiles(1.6) })
+    : opts.inward ? doorwayAperture(cx, cy, r, opts.inward) : undefined;
   parts.push({ prim: 'cylinder', center, baseZ: baseH * 0.7, radius: r, height: walkZ - baseH * 0.7, material: mat, ...(door ? { apertures: [door] } : {}) });
   // Corbel ring (machicolation) overhanging just below the parapet.
   parts.push({ prim: 'cylinder', center, baseZ: walkZ - corbelH, radius: r + corbel, height: corbelH, material: mat });
-  // Crenellated parapet wrapped around the corbel-widened ring.
-  parts.push(...merlonsAroundRing(cx, cy, r + corbel, walkZ, parapetH, mToTiles(0.4), mat));
+  // Crenellated parapet wrapped around the corbel-widened ring: a continuous sill ring with the
+  // teeth standing on it (matching the curtain's base course — teeth alone read as loose blocks).
+  const pt = mToTiles(0.4), rp = r + corbel;
+  const sillH = parapetH * PARAPET_BASE_COURSE_FRAC;
+  parts.push(...ringCourse(cx, cy, rp, walkZ, sillH, pt, mat));
+  parts.push(...merlonsAroundRing(cx, cy, rp, walkZ, parapetH, pt, mat));
+  // Vice turret (Manning the Walls W4): the spiral-stair turret every real drum carries, lifting
+  // a defender from where the flank door lets them in (the allure) to the drum's own crown —
+  // a small cylinder + a short corbel cap bulging off the shaft. Kept a small fraction of the
+  // drum's own radius so it reads as a turret riding the tower, never a second tower in its own
+  // right (MIN_TOWER_ASPECT governs the drum's massing, not this detail).
+  //
+  // It rides the INNER face whenever the tower knows where the town is: a vice bulging out over
+  // the field would foul the machicolation band it has to climb past and stand in front of the
+  // loops that cover the wall foot — and an arbitrary perpendicular of the wall axis puts it
+  // outward on half a ring's drums. `inward` is already roughly perpendicular to the wall axis
+  // on a ring, so choosing it also lands the turret BESIDE the flank door rather than across it.
+  // An unoriented drum (no centroid) falls back to a perpendicular — some side beats no turret.
+  const axis = opts.alongWall ?? [1, 0];
+  const turretDir: [number, number] = opts.inward ?? [-axis[1], axis[0]];
+  const turretR = Math.max(mToTiles(0.4), r * 0.3);
+  const turretCorbel = mToTiles(0.12);
+  const turretCorbelH = mToTiles(0.3);
+  const turretCenter: [number, number] = [cx + turretDir[0] * (r + turretR * 0.8), cy + turretDir[1] * (r + turretR * 0.8)];
+  parts.push({ prim: 'cylinder', center: turretCenter, baseZ: allureZ, radius: turretR, height: towerH - turretCorbelH - allureZ, material: mat });
+  parts.push({ prim: 'cylinder', center: turretCenter, baseZ: towerH - turretCorbelH, radius: turretR + turretCorbel, height: turretCorbelH, material: mat });
 
   return { parts: withWork(parts, opts.work), mountAnchors: [{ kind: 'lintel', x: cx, y: cy, facing: [0, 0], z: 0 }], side: dia };
 }

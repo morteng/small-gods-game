@@ -137,6 +137,13 @@ export type SimEvent =
   // source of truth; these events feed the chronicle + the LLM-narration seam.
   | { type: 'contention_escalated'; poiId: string; from: ContentionState; to: ContentionState; rivals: [SpiritId, SpiritId] }
   | { type: 'contention_eased';     poiId: string; from: ContentionState; to: ContentionState; rivals: [SpiritId, SpiritId] }
+  // Manning the Walls (W3): a settlement's garrison mustered onto the wall-walk or stood back
+  // down. Logged by `GarrisonSystem.tick` on the muster/stand-down EDGE only (never every tick),
+  // whether the trigger was the contention ladder crossing `schism`/`calm` OR a standing
+  // `muster_garrison`/`stand_down_garrison` order — one emit site for both paths. Consumed by the
+  // divine inbox as a coalesced per-settlement tiding ("the walls of X are manned").
+  | { type: 'garrison_mustered';    poiId: string }
+  | { type: 'garrison_stood_down';  poiId: string }
   | { type: 'system_error';       system: string; message: string };
 
 export interface AppendedEvent {

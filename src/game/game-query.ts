@@ -1285,6 +1285,40 @@ export function createGameQuery(deps: GameQueryDeps): GameQuery {
         }
       }
 
+      // ── Manning the Walls (W3): garrison muster/stand-down tidings ──
+      // `GarrisonSystem.tick` logs `garrison_mustered`/`garrison_stood_down` on the EDGE only
+      // (never every tick), whether a standing order or the contention ladder triggered it. Same
+      // event-log-windowed, coalesced-per-settlement pattern as the lifecycle tidings above; only
+      // the LATEST edge per settlement within the window decides the wording, so a muster-then-
+      // stand-down flap in one window reads as the settlement's CURRENT state, never two
+      // contradictory lines.
+      {
+        const garrisonEvents = state.eventLog.range(now - LIFECYCLE_TIDING_HORIZON_TICKS, now + 1)
+          .flatMap(a => (a.event.type === 'garrison_mustered' || a.event.type === 'garrison_stood_down') ? [a.event] : []);
+        if (garrisonEvents.length > 0) {
+          const musteredByPoi = new Map<string, boolean>();
+          for (const ev of garrisonEvents) musteredByPoi.set(ev.poiId, ev.type === 'garrison_mustered');
+          for (const [poiId, mustered] of [...musteredByPoi].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+            const poi = state.worldSeed?.pois.find(pp => pp.id === poiId);
+            const poiName = poi?.name ?? poiId;
+            const id = `garrison:${poiId}`;
+            const surfaced = surfacedSet.has(id);
+            items.push({
+              id,
+              kind: 'tiding',
+              title: mustered ? `The walls of ${poiName} are manned` : `The walls of ${poiName} stand down`,
+              detail: mustered
+                ? 'Soldiers have taken their posts along the wall-walk.'
+                : 'The watch has come down from the wall.',
+              salience: scoreAffordance({ kind: 'lifecycle_tiding', count: 1, surfaced }),
+              surfaced,
+              target: { kind: 'settlement', poiId },
+              ...(poi?.position ? { anchor: { x: poi.position.x, y: poi.position.y } } : {}),
+            });
+          }
+        }
+      }
+
       // ── tidings: faith/mood turning points (belief_cross / mood_cross), WP-C ──
       // These fire in the sim on every threshold crossing but used to surface only
       // in the ?legacyui glyph strip — the shipped chrome never showed them. Derived

@@ -50,6 +50,25 @@ const KIND_PRIORITY: Record<string, number> = {
 };
 
 /**
+ * Iso-DEPTH ((x+y) tiles) an ON-WALL NPC's sort key is pushed forward by, so a garrisoned soldier
+ * always draws AFTER the wall chunk carrying him (manning the walls, W2).
+ *
+ * A barrier chunk y-sorts at ONE midpoint key covering a depth span of at most
+ * `CHUNK_DEPTH_SPAN_MAX` (parametric-barrier-source.ts), so a soldier standing on the chunk's far
+ * half is honestly up to HALF that span behind its midpoint — and a chunk is a single flat sprite
+ * (no per-pixel depth), so losing that comparison hides him entirely rather than partially.
+ * Biasing by exactly the half-span makes the worst case an exact tie, which `buildYSortBucket`
+ * then breaks on kindPriority (npc > barrier) in his favour. Deliberately NOT larger: every extra
+ * tile of bias is another tile further along the rampart he would start drawing over.
+ *
+ * KNOWN LIMITATION (accepted this round): the merlons are baked into that same one chunk sprite,
+ * so a soldier can only be wholly in front of his wall or wholly behind it — he stands proud of
+ * the parapet rather than peering between the teeth. Splitting the merlon band into its own
+ * trailing draw item is the fix, and is a slice of its own.
+ */
+export const WALL_NPC_DEPTH_BIAS = 1;   // = CHUNK_DEPTH_SPAN_MAX / 2, pinned by npc-wall-lift.test.ts
+
+/**
  * The Pixi stage transform that mirrors the Canvas2D world transform
  * (`ctx.scale(z); ctx.translate(round(-cam·z)/z)` under an outer
  * devicePixelRatio scale): with the renderer at `resolution = dpr`, the stage
@@ -197,9 +216,18 @@ export function buildEntityDrawList(
       case 'npc': {
         const n = node.ref as NpcInstance;
         npcById.set(n.id, n);
+        // Manning the walls (W2): a soldier ON the allure stands at a point on the wall's own
+        // centreline, so his honest iso depth can be up to half a chunk BEHIND the midpoint sort
+        // key of the very chunk he is standing on — and the chunk (one flat sprite, no per-pixel
+        // depth) would then paint over him completely. Bias his depth forward by the chunker's
+        // own guarantee so he can never lose that comparison; the residual exact tie resolves in
+        // his favour anyway (npc 6 > barrier 5). Absent `wallZ` ⇒ no sortTx/sortTy at all ⇒ the
+        // ordinary townsfolk path is untouched.
+        const wallBias = (n.wallZ ?? 0) > 0 ? WALL_NPC_DEPTH_BIAS / 2 : 0;
         entries.push({
           id: n.id, kind: 'npc',
           tx: n.tileX, ty: n.tileY, z: 0,
+          ...(wallBias > 0 ? { sortTx: n.tileX + wallBias, sortTy: n.tileY + wallBias } : {}),
           kindPriority: KIND_PRIORITY.npc,
         });
         break;

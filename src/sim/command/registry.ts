@@ -39,6 +39,9 @@ import { placeBuildingPrecondition, placeBuildingApply } from './building-verbs'
 import { foundCastlePrecondition, foundCastleApply } from './castle-verbs';
 import { growSettlementPrecondition, growSettlementApply } from './settlement-verbs';
 import {
+  musterGarrisonPrecondition, musterGarrisonApply, standDownGarrisonPrecondition, standDownGarrisonApply,
+} from './garrison-verbs';
+import {
   renameWardPrecondition, renameWardApply, retypeWardPrecondition, retypeWardApply,
 } from './ward-verbs';
 
@@ -363,6 +366,21 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     precondition: foundCastlePrecondition,
     apply: foundCastleApply,
     describe: (cmd) => `the lord of ${targetLabel(cmd)} founds a castle`,
+  },
+  muster_garrison: {
+    // Manning the Walls (W3): MORTAL power — the settlement's lord musters his own resident
+    // soldiers onto the wall-walk. Authoring tier for the same reason as `found_castle`; effect
+    // is a thin call onto `state.garrisonOrders` (`garrison-verbs.ts`).
+    verb: 'muster_garrison', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: musterGarrisonPrecondition,
+    apply: musterGarrisonApply,
+    describe: (cmd) => `muster the garrison of ${targetLabel(cmd)}`,
+  },
+  stand_down_garrison: {
+    verb: 'stand_down_garrison', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,
+    precondition: standDownGarrisonPrecondition,
+    apply: standDownGarrisonApply,
+    describe: (cmd) => `stand down the garrison of ${targetLabel(cmd)}`,
   },
   place_building: {
     verb: 'place_building', tier: 'authoring', cost: 0, targetKind: 'settlement', implemented: true,

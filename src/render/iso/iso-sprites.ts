@@ -4,7 +4,7 @@ import type { NpcInstance, Entity, GameMap } from '@/core/types';
 import { tryGetEntityKindDef, isRockKind, natureSizeM } from '@/world/entity-kinds';
 import { groundContactColor, contactBlendFor } from '@/render/ground-contact';
 import { getSpriteCoords } from '@/render/npc-animator';
-import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx } from '@/render/scale-contract';
+import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx, HEIGHT_UNIT_PX } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
 import { type DrawItem } from './draw-list';
 import { packAlbedoSource, mapSize } from './sprite-canvas';
@@ -48,8 +48,32 @@ export const BILLBOARD_H_PX = (DEFAULT_BB.bottom - DEFAULT_BB.top) * DEFAULT_BB.
 
 const LPC_FRAME = 64;
 
+/**
+ * Screen-px the NPC's feet stand ABOVE the ground under them (manning the walls, W2).
+ *
+ * `wallZ` is in TILES of real height above grade — the same cube-unit the wall's own geometry is
+ * authored in — so it converts with the ONE height contract, `HEIGHT_UNIT_PX` px per cube-unit
+ * (`scale-contract.ts`). That is exactly what the drawn wall uses: `fixedFit` projects geometry at
+ * `y = (x+y)·(ISO_TILE_W/4) − z·(ISO_TILE_W/2)`, i.e. `HEIGHT_UNIT_PX` px per unit of z, and the
+ * curtain's allure floor is emitted at `z = walkZ` (`geometry/linear.ts`) — the very number
+ * `walkZOf` hands the garrison. Feet at `−walkZ·HEIGHT_UNIT_PX` therefore land ON the wall-walk
+ * the sprite draws, by construction rather than by tuning.
+ *
+ * DELIBERATELY NOT `liftPxFromElev`: that converts a NORMALISED TERRAIN elevation sample through
+ * the world's `mountainRelief`/vertical exaggeration. `wallZ` is an absolute height above the
+ * ground the man is standing on, so routing it through the relief curve would make the same wall
+ * seat a soldier at different heights in different worlds. This is a separate ADDITIVE offset that
+ * COMPOSES with the terrain lift: the item still carries an explicit ground-contact `foot` (the
+ * un-lifted tile point), so `liftDrawList` samples the heightfield under the wall's footing and
+ * lifts on top of this — a rampart on a slope carries its garrison up with it.
+ */
+function wallLiftPx(wallZ: number | undefined): number {
+  return wallZ !== undefined && Number.isFinite(wallZ) && wallZ > 0 ? wallZ * HEIGHT_UNIT_PX : 0;
+}
+
 export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
   const { sx, sy } = worldToScreen(npc.tileX, npc.tileY, 0, ic.originX, ic.originY);
+  const wallPx = wallLiftPx(npc.wallZ);
 
   // 1. Iso character atlas (future PR 4) — not available yet
   const isoSprite = ic.atlas.getCharacter(npc.role);
@@ -72,15 +96,25 @@ export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
     return [{
       t: 'image', src: sheet,
       frame: { sx: sheetSx, sy: sheetSy, sw: LPC_FRAME, sh: LPC_FRAME },
-      dx: Math.round(sx - drawW / 2), dy: Math.round(sy - bb.bottom * s),
+      // 1:1 rule: the wall lift folds into the SAME rounding that already snapped the foot
+      // anchor, so `dy` stays a whole pixel however high up the rampart he is standing.
+      dx: Math.round(sx - drawW / 2), dy: Math.round(sy - bb.bottom * s - wallPx),
       dw: drawW, dh: drawH,
       shadow: { footLift: (LPC_FRAME - bb.bottom) * s },
+      // An on-wall soldier's sprite has been pushed up-screen off its own ground-contact point, so
+      // hand the terrain-lift pre-pass the TRUE grade anchor (the tile he is over). Without it the
+      // derived foot `(dy + dh − footLift)` would inverse-project a tile up-and-right of the wall
+      // and sample a stranger's hillside. Omitted when grounded ⇒ byte-identical to today.
+      ...(wallPx > 0 ? { foot: { sx, sy } } : {}),
     }];
   }
 
-  // 3. Fallback colored circle (no art available)
+  // 3. Fallback colored circle (no art available). Lifted too, so a garrisoned soldier reads as on
+  //    the wall even without a composed sheet. A circle carries no explicit `foot`, so the terrain
+  //    pre-pass samples this shape's own (lifted) bottom — an acceptable drift on the no-art
+  //    fallback, and zero when grounded.
   return [{
-    t: 'circle', cx: sx, cy: sy - 16, r: 12,
+    t: 'circle', cx: sx, cy: sy - 16 - wallPx, r: 12,
     color: NPC_COLOR_BY_ROLE[npc.role] ?? NPC_COLOR_BY_ROLE.default,
   }];
 }

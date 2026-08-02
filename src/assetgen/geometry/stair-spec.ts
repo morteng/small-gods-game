@@ -32,6 +32,34 @@ export interface StairOpts {
   work?: string;
 }
 
+/** Step rise (~0.72 m) — a readable mural step. */
+export const STAIR_RISE = mToTiles(0.36);
+/** Step going (~0.96 m inward depth per step). */
+export const STAIR_TREAD = mToTiles(0.48);
+
+/**
+ * The flight's CLIMB ENVELOPE in tiles — the ONE derivation of how high the stair climbs, how many
+ * treads it takes, and how far INWARD of the wall centreline its top and bottom steps sit.
+ * `stairSpec` emits its prims from these numbers, and `stairClimbOf`
+ * (`@/world/tactical-positions`) turns the same numbers into the parametric track a garrisoning
+ * soldier climbs — so the sim's climb and the drawn flight are the same flight by construction.
+ * An inline copy of this arithmetic is how a soldier ends up walking through the risers, or
+ * surfacing a step short of the allure.
+ *
+ *   • `target`   — the height actually climbed (a stub wall still gets a readable flight).
+ *   • `steps`    — tread count.
+ *   • `topInset` — inward distance of the TOP step's centre: it meets the inner wall face.
+ *   • `runIn`    — inward distance of the BOTTOM step's centre: the flight's ground foot.
+ */
+export function stairFlightExtent(walkZ: number, thickness: number): {
+  target: number; steps: number; topInset: number; runIn: number;
+} {
+  const target = Math.max(mToTiles(1.0), walkZ);
+  const steps = Math.max(3, Math.ceil(target / STAIR_RISE));
+  const topInset = thickness / 2;                       // top step meets the inner wall face
+  return { target, steps, topInset, runIn: topInset + (steps - 1) * STAIR_TREAD };
+}
+
 /** Build a straight stone flight climbing to `walkZ`, its foot at world (cx,cy). Reads as a built
  *  coursed stair: every tread is exposed (each a full-height block to grade), a proud nosing lip
  *  beads each step's leading edge (highlight over a shaded riser, so the rhythm reads at game
@@ -44,15 +72,13 @@ export function stairSpec(opts: StairOpts, cx = 0, cy = 0): StairSpec {
   const [dx, dy] = opts.dir;
   const [ix, iy] = opts.inward;
   const yaw = (Math.atan2(dy, dx) * 180) / Math.PI;    // box yaw is about its own centre
-  const target = Math.max(mToTiles(1.0), opts.walkZ);
-  const rise = mToTiles(0.36);                          // step rise (~0.72 m) — a readable mural step
-  const tread = mToTiles(0.48);                         // step going (~0.96 m inward depth per step)
+  // Shared with the sim's climb track — never re-derive these inline (see stairFlightExtent).
+  const { target, steps: n, topInset } = stairFlightExtent(opts.walkZ, opts.thickness);
+  const tread = STAIR_TREAD;
   const width = mToTiles(1.7);                          // flight width along the wall
   const cheekW = mToTiles(0.32);                        // flanking stringer width
   const stringerFree = mToTiles(0.16);                 // cheek stands this far proud of each tread
   const noseProj = mToTiles(0.08), noseDrop = mToTiles(0.08), noseRaise = mToTiles(0.02);
-  const n = Math.max(3, Math.ceil(target / rise));
-  const topInset = opts.thickness / 2;                 // top step meets the inner wall face
 
   // A box centred at world (cx+dir·u+inward·v), sized `wDir` along the wall × `dInward` inward ×
   // `h` tall from `z0`, yawed with the wall. u/v are the along-wall + inward offsets in tiles.
