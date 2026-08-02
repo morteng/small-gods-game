@@ -33,6 +33,7 @@ import { BirthSystem } from '@/sim/systems/birth-system';
 import { LordSystem } from '@/sim/systems/lord-system';
 import { CohortSystem } from '@/sim/systems/cohort-system';
 import { SettlementAggregateSystem } from '@/sim/systems/settlement-aggregate-system';
+import { CohortDynamicsSystem } from '@/sim/systems/cohort-dynamics-system';
 import { MaterializationSystem } from '@/sim/systems/materialization-system';
 import { WeatherSystem } from '@/sim/systems/weather-system';
 import type { ZoomBand } from '@/game/affordance/zoom-band';
@@ -164,6 +165,16 @@ export function registerSimSystems(deps: SimSystemsDeps): void {
     () => state.settlementAggregates, getCohorts, () => state.settlementFlux);
   scheduler.register(aggregates);
   state.systemState.register(aggregates);
+  // Interaction scaling (P3): the statistical tier's LAWS — mean-field belief
+  // drift (S3.1) then prospect-driven migration (S3.2), both per GAME_HOUR.
+  // Registered AFTER the aggregate sweep because it reads THIS hour's numbers
+  // (the named congregation it drifts against, and the prospects it migrates
+  // along). Stateless: the drift's memory is the cohorts and the migration's is
+  // `SettlementCohorts.migrationFrac`, both of which ride the Snapshot with
+  // `state.cohorts` — so no systemState registration (nothing to scrub-ghost).
+  scheduler.register(new CohortDynamicsSystem(
+    getCohorts, () => state.settlementAggregates, () => state.map,
+    () => state.settlementFlux));
   // Social gravity (roads round 8): live growth reads the trample grid so new
   // housing prefers lots along the desire lines believers actually walk.
   // P1: growth also counts statistical souls — towns house their fiction pop.

@@ -95,6 +95,14 @@ export interface SettlementCohorts {
   drawCount: number;
   /** Settlement-level plea ledger per spirit (spec §5.3). Inert in P0. */
   pleas: Record<SpiritId, { count: number; oldestSince: number }>;
+  /**
+   * Fractional emigrants owed by this settlement, carried between drift fires
+   * (interaction scaling P3, S3.2). Souls are integers and the migration rate is
+   * a fraction of a small band per game hour, so without an accumulator a "small
+   * rate" floors to exactly zero forever. Same device as `CohortBand.agingFrac`.
+   * Absent on a pre-P3 snapshot → read as 0 (`?? 0` at every use site).
+   */
+  migrationFrac: number;
 }
 
 /** One observed soul — the unit `addSoul`/`removeSoul` transfer. */
@@ -129,7 +137,7 @@ export function emptySettlementCohorts(poiId: string): SettlementCohorts {
       needs: { safety: 0, prosperity: 0, community: 0, meaning: 0 },
     });
   }
-  return { poiId, bands, drawCount: 0, pleas: {} };
+  return { poiId, bands, drawCount: 0, pleas: {}, migrationFrac: 0 };
 }
 
 /** The exact power contribution SpiritSystem accumulates per believer. */
@@ -566,6 +574,55 @@ export function drawCohortSouls(
     }
   }
   return out;
+}
+
+/**
+ * The YOUNG-ADULT band — the one that migrates (interaction scaling P3, S3.2).
+ * DERIVED from `COHORT_BAND_EDGES` (the 18–45 band, i.e. `FERTILE_MIN_AGE` to
+ * `FERTILE_MAX_AGE`) rather than written as an index, so a band-edge change
+ * moves it instead of silently migrating pensioners.
+ */
+export const YOUNG_ADULT_BAND_INDEX = COHORT_BAND_EDGES.findIndex(
+  (edge, i) => edge === FERTILE_MIN_AGE && COHORT_BAND_EDGES[i + 1] === FERTILE_MAX_AGE,
+);
+
+/**
+ * Move `n` souls from one settlement's band to the SAME band of another —
+ * the S3.2 migration primitive, and the third (after materialize and fold)
+ * ledgered flow the conservation audit knows about.
+ *
+ * Souls travel as band-MEAN observations (`bandMeanObservation`), the same
+ * representative `drawCohortSouls` uses, so the running sums stay exact on both
+ * ends: the source's mean is unchanged by removing its own mean, and the
+ * destination gains exactly what the source lost. **Belief travels with the
+ * migrants** — that is the whole point: a believer who moves carries their god.
+ *
+ * Deliberately does NOT touch `drawCount`: that counter is the MATERIALIZATION
+ * determinism anchor (it mints entity ids), and a migration mints no entity.
+ * The band midpoint age means a migrant lands in the band it left.
+ *
+ * Returns the number actually moved (bounded by the source band's population).
+ */
+export function transferCohortSouls(
+  from: SettlementCohorts, to: SettlementCohorts, bandIndex: number, n: number,
+  spiritIds: readonly SpiritId[],
+): number {
+  const band = from.bands[bandIndex];
+  if (!band || n <= 0) return 0;
+  const moved = Math.min(n, band.count);
+  if (moved <= 0) return 0;
+  const mean = bandMeanObservation(band, spiritIds);
+  if (!mean) return 0;
+  for (let k = 0; k < moved; k++) {
+    const obs: SoulObservation = {
+      age: mean.age,
+      beliefs: structuredClone(mean.beliefs),
+      needs: { ...mean.needs },
+    };
+    removeSoul(from, obs);
+    addSoul(to, obs);
+  }
+  return moved;
 }
 
 export function censusCohorts(world: World, now: number): CohortCensus {
