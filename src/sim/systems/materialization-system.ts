@@ -209,8 +209,8 @@ export class MaterializationSystem implements System, SerializableSystem {
 
     const start = this.liveCount(poi);
     const total = start + n;
-    const slots = residentSlots(map, poi, total);       // ordered home slots [0..total)
-    const jobs = workplaceSlots(map, poi, total);        // ordered job slots [0..total) (slice 2)
+    const slots = residentSlots(map, poi, total, ctx.world);       // ordered home slots [0..total)
+    const jobs = workplaceSlots(map, poi, total, ctx.world);        // ordered job slots [0..total) (slice 2)
     let made = 0;
     while (made < n && budget > 0) {
       const drawIndex = sc.drawCount;                    // id anchor (pre-bump)
@@ -221,7 +221,7 @@ export class MaterializationSystem implements System, SerializableSystem {
       const idx = start + made;                          // stable materialization index
       const slot = slots[idx] ?? slots[slots.length - 1];
       const home = slot
-        ? homeTileFor(slot, map)
+        ? homeTileFor(slot, map, ctx.world)
         : this.poiFallbackTile(ctx, poi, map, seed);
 
       const role = roleForAge(obs.age, seed);
@@ -238,7 +238,7 @@ export class MaterializationSystem implements System, SerializableSystem {
       // past the job count (or in a workless hamlet) work from home.
       if (isWorkingRole(role)) {
         const job = jobs[idx];
-        if (job) { const t = workTileFor(job, map); props.workX = t.x; props.workY = t.y; }
+        if (job) { const t = workTileFor(job, map, ctx.world); props.workX = t.x; props.workY = t.y; }
       }
       props.materializedTemp = true;
       props.lineageId = id;
@@ -300,8 +300,8 @@ export class MaterializationSystem implements System, SerializableSystem {
     // Desired visitors PER SOURCE cohort for this host, this hour.
     const targets = new Map<string, number>();
     const hour = solarHourForTick(ctx.now);
-    if (isMarketHour(hour) && marketAnchorTile(map, host)) {
-      const hostDraws = settlementDraws(map, host);
+    if (isMarketHour(hour) && marketAnchorTile(map, host, ctx.world)) {
+      const hostDraws = settlementDraws(map, host, ctx.world);
       const scHost = cohorts.get(host);
       // The host's CONSERVED soul total (un-materialized + residents + its own
       // visitors) — stable no matter how many are currently drawn out, so the
@@ -343,7 +343,7 @@ export class MaterializationSystem implements System, SerializableSystem {
     const map = this.getMap();
     const sc = this.getCohorts()?.get(src);
     if (!map || !sc) return budget;
-    const anchor = marketAnchorTile(map, host);
+    const anchor = marketAnchorTile(map, host, ctx.world);
     if (!anchor) return budget;
 
     let made = 0;

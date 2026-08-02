@@ -270,11 +270,13 @@ export class NpcActivitySystem implements System {
   }
 
   /** The gathering tile a socializing mortal of this POI walks to (memoized per
-   *  tick). null when no map is wired or the POI has no resolvable centre. */
-  private venueTile(poiId: string): { x: number; y: number } | null {
+   *  tick). null when no map is wired or the POI has no resolvable centre.
+   *  `world` (when available) lets `marketAnchorTile` snap off the well's own
+   *  solid footprint onto a tile a mortal can actually stand on. */
+  private venueTile(poiId: string, world: World): { x: number; y: number } | null {
     if (this.venueCache.has(poiId)) return this.venueCache.get(poiId)!;
     const map = this.mapGetter?.();
-    const tile = map ? marketAnchorTile(map, poiId) : null;
+    const tile = map ? marketAnchorTile(map, poiId, world) : null;
     this.venueCache.set(poiId, tile);
     return tile;
   }
@@ -287,16 +289,16 @@ export class NpcActivitySystem implements System {
    *  there to pray or to pass the time would march the market crowd out of the
    *  market. A visitor gathers where it stands: its `homeX/homeY` IS the square
    *  (`MaterializationSystem.spawnVisitors` seats it there deliberately). */
-  private gatheringTileFor(props: NpcProperties): { x: number; y: number } | null {
+  private gatheringTileFor(props: NpcProperties, world: World): { x: number; y: number } | null {
     if (props.visitorTemp === true) return { x: props.homeX, y: props.homeY };
-    return props.homePoiId ? this.venueTile(props.homePoiId) : null;
+    return props.homePoiId ? this.venueTile(props.homePoiId, world) : null;
   }
 
   /** True when this mortal is standing at (or beside) its gathering tile right
    *  now. A mortal with no resolvable venue is trivially "there" — it socializes
    *  on its own doorstep, which is where it already is. */
-  private atVenue(e: Entity, props: NpcProperties): boolean {
-    const venue = this.gatheringTileFor(props);
+  private atVenue(e: Entity, props: NpcProperties, world: World): boolean {
+    const venue = this.gatheringTileFor(props, world);
     if (!venue) return true;
     return Math.abs(e.x - (venue.x + 0.5)) <= VENUE_ARRIVAL_RADIUS
         && Math.abs(e.y - (venue.y + 0.5)) <= VENUE_ARRIVAL_RADIUS;
@@ -367,7 +369,7 @@ export class NpcActivitySystem implements System {
     // claimed from a doorstep halfway across town. Hard-capped at
     // `MORTAL_MEANING_CEILING`: mortals cope, gods console.
     if (props.activity === 'worship' && props.needs.meaning < MORTAL_MEANING_CEILING
-        && this.atVenue(e, props)) {
+        && this.atVenue(e, props, world)) {
       props.needs.meaning = Math.min(MORTAL_MEANING_CEILING, props.needs.meaning + RITE_MEANING_RESTORE);
     }
 
@@ -408,7 +410,7 @@ export class NpcActivitySystem implements System {
         // fired ZERO encounters over six measured game-hours. Now the walk is
         // budgeted (see below) AND the restore requires having got there, so a
         // failed errand leaves community low and the mortal sets out again.
-        if (this.atVenue(e, props)) {
+        if (this.atVenue(e, props, world)) {
           props.needs.community = clamp01(props.needs.community + SELF_AGENCY_RESTORE);
         }
         break;
@@ -465,7 +467,7 @@ export class NpcActivitySystem implements System {
       // other NPC's deterministic stream shifts by branch.
       activity = 'worship';
       props.prayerNeed = plea;
-      const shrine = this.gatheringTileFor(props);
+      const shrine = this.gatheringTileFor(props, world);
       const at = shrine ?? { x: props.homeX, y: props.homeY };
       gathering = shrine !== null;
       targetX = at.x + (Math.floor(this.rng.next() * 3) - 1);
@@ -478,7 +480,7 @@ export class NpcActivitySystem implements System {
       // map-less test fall back to socializing at home — the two rng draws are the
       // same either way, so no other NPC's deterministic stream shifts by branch.
       activity = 'socialize';
-      const venue = this.gatheringTileFor(props);
+      const venue = this.gatheringTileFor(props, world);
       const base = venue ?? { x: props.homeX, y: props.homeY };
       gathering = venue !== null;
       targetX = base.x + (Math.floor(this.rng.next() * 3) - 1);

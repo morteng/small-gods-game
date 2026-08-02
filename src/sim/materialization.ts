@@ -9,10 +9,12 @@
  */
 
 import type { Entity, EntityId, GameMap } from '@/core/types';
+import type { World } from '@/world/world';
 import type { SoulObservation } from '@/sim/cohorts';
 import { npcProps } from '@/world/npc-helpers';
 import { ageInYears } from '@/sim/mortality';
 import { snapToLand } from '@/world/land-snap';
+import { nearestWalkableTile } from '@/sim/pathfinding';
 import {
   settlementDraws, planResidents, residentCapacity, type OccupancyPlan,
 } from '@/sim/population/settlement-demand';
@@ -62,15 +64,22 @@ export function occupancySlots(draws: BuildingDraw[], plan: OccupancyPlan): Buil
   return slots;
 }
 
-/** The land-snapped home tile for a resident slot (byte-identical to the
- *  spawner's door → snapToLand step). */
-export function homeTileFor(draw: BuildingDraw, map: GameMap): { x: number; y: number } {
-  return snapToLand(map, draw.doorX, draw.doorY);
+/**
+ * The land-snapped home tile for a resident slot (byte-identical to the
+ * spawner's door → snapToLand step), with a walkability backstop: `resolveBuildingDraw`
+ * now resolves the real door from the stored blueprint when `world` is available, so this
+ * should already be open ground, but a preset with no stored blueprint (bare-map test
+ * harnesses, an unrealized headless-probe tile) can still hand back a solid or void tile —
+ * snap to the nearest walkable cell rather than spawning a soul inside a wall.
+ */
+export function homeTileFor(draw: BuildingDraw, map: GameMap, world?: World): { x: number; y: number } {
+  const land = snapToLand(map, draw.doorX, draw.doorY);
+  return nearestWalkableTile(map, land.x, land.y, world) ?? land;
 }
 
 /** Convenience: the ordered resident slots for a settlement at a given budget. */
-export function residentSlots(map: GameMap, poiId: string, budget: number): BuildingDraw[] {
-  const draws = settlementDraws(map, poiId);
+export function residentSlots(map: GameMap, poiId: string, budget: number, world?: World): BuildingDraw[] {
+  const draws = settlementDraws(map, poiId, world);
   return occupancySlots(draws, planResidents(draws, budget));
 }
 
@@ -83,8 +92,8 @@ export function residentSlots(map: GameMap, poiId: string, budget: number): Buil
  * materialized extra commutes (index-driven → fold-stable, no rng). A settlement
  * with no worker buildings returns [] → its extras all work from home.
  */
-export function workplaceSlots(map: GameMap, poiId: string, cap: number): BuildingDraw[] {
-  const jobs = settlementDraws(map, poiId).filter(d => Math.round(d.workers) > 0);
+export function workplaceSlots(map: GameMap, poiId: string, cap: number, world?: World): BuildingDraw[] {
+  const jobs = settlementDraws(map, poiId, world).filter(d => Math.round(d.workers) > 0);
   if (jobs.length === 0 || cap <= 0) return [];
   const maxW = jobs.reduce((m, d) => Math.max(m, Math.round(d.workers)), 0);
   const slots: BuildingDraw[] = [];
@@ -98,6 +107,6 @@ export function workplaceSlots(map: GameMap, poiId: string, cap: number): Buildi
 
 /** The land-snapped workplace tile for a job slot — the commute target. Byte-
  *  identical to a resident's door → snapToLand step (reuses homeTileFor). */
-export function workTileFor(draw: BuildingDraw, map: GameMap): { x: number; y: number } {
-  return homeTileFor(draw, map);
+export function workTileFor(draw: BuildingDraw, map: GameMap, world?: World): { x: number; y: number } {
+  return homeTileFor(draw, map, world);
 }

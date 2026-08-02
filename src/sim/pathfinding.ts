@@ -100,6 +100,37 @@ export function isWalkable(
 }
 
 /**
+ * Expanding-ring search for the tile nearest (x,y) that `isWalkable` accepts,
+ * bounded by `maxR`. Returns null when nothing in range qualifies (caller keeps
+ * whatever tile it already had — this is a defensive backstop, not a guarantee).
+ *
+ * The shared home for the "spawn/anchor landed on solid ground" fix: a resolved
+ * door or gathering tile can be wrong (a missing blueprint, a stale legacy
+ * template guess) or simply unrealized in a headless probe, and this is the one
+ * place that recovers from it rather than each caller re-deriving a search.
+ */
+export function nearestWalkableTile(
+  map: GameMap,
+  x: number,
+  y: number,
+  world?: World,
+  maxR = 6,
+): { x: number; y: number } | null {
+  const cx = Math.round(x), cy = Math.round(y);
+  if (isWalkable(map, cx, cy, world)) return { x: cx, y: cy };
+  for (let r = 1; r <= maxR; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dy = -r; dy <= r; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // ring only
+        const tx = cx + dx, ty = cy + dy;
+        if (isWalkable(map, tx, ty, world)) return { x: tx, y: ty };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * True if a non-building obstacle (tag 'obstacle', e.g. a boulder) occupies the
  * tile. Building footprints are handled separately by tileBlockedByBuilding.
  */

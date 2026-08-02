@@ -11,9 +11,11 @@
  */
 
 import type { GameMap } from '@/core/types';
+import type { World } from '@/world/world';
 import { apportion } from '@/sim/cohorts';
 import { resolveBuildingDraw, type BuildingDraw } from '@/sim/population/building-capacity';
 import { snapToLand } from '@/world/land-snap';
+import { nearestWalkableTile } from '@/sim/pathfinding';
 
 /** Which capacity dimension an occupancy pass fills. */
 export type OccupancyDim = 'residents' | 'workers';
@@ -86,11 +88,17 @@ export function neighbourVisitorTarget(neighbourPop: number): number {
   return Math.min(Math.round(MARKET_PULL_FRAC * Math.max(0, neighbourPop)), NEIGHBOUR_VISITOR_MAX);
 }
 
-/** The market gathering tile of a settlement: the well at the green's heart when
- *  one exists, else the mid tile of the widened market street, else the founding
- *  node, else the POI centre. Land-snapped so a spawn lands on walkable ground.
- *  null when the poi is unknown to the map. */
-export function marketAnchorTile(map: GameMap, poiId: string): { x: number; y: number } | null {
+/**
+ * The market gathering tile of a settlement: the well at the green's heart when
+ * one exists, else the mid tile of the widened market street, else the founding
+ * node, else the POI centre. Land-snapped so a spawn lands on real ground, then
+ * (when `world` is given) snapped again onto the nearest tile `isWalkable`
+ * actually accepts — the well itself is a footprinted civic building (its
+ * centre is the SOLID interior `resolveBuildingDraw`'s door fix is for), so
+ * without this a socializing/worshipping mortal was routinely sent to stand
+ * where it could never arrive. null when the poi is unknown to the map.
+ */
+export function marketAnchorTile(map: GameMap, poiId: string, world?: World): { x: number; y: number } | null {
   let tile: { x: number; y: number } | null = null;
   const plan = map.settlementPlans?.find(p => p.poiId === poiId);
   if (plan) {
@@ -104,21 +112,24 @@ export function marketAnchorTile(map: GameMap, poiId: string): { x: number; y: n
     if (pos) tile = { x: pos.x, y: pos.y };
   }
   if (!tile) return null;
-  return snapToLand(map,
+  const land = snapToLand(map,
     Math.max(0, Math.min(map.width - 1, Math.round(tile.x))),
     Math.max(0, Math.min(map.height - 1, Math.round(tile.y))));
+  return nearestWalkableTile(map, land.x, land.y, world) ?? land;
 }
 
 /**
  * A settlement's building capacity draws, sorted by building id (deterministic
  * apportionment order). Reads `map.buildings` filtered by `poiId` — the exact
- * seam spawner.ts uses for resident placement.
+ * seam spawner.ts uses for resident placement. `world`, when given, lets
+ * `resolveBuildingDraw` read each building's real door tile off its stored
+ * blueprint rather than guessing (see that function's doc for why this matters).
  */
-export function settlementDraws(map: GameMap, poiId: string): BuildingDraw[] {
+export function settlementDraws(map: GameMap, poiId: string, world?: World): BuildingDraw[] {
   const out: BuildingDraw[] = [];
   for (const b of map.buildings ?? []) {
     if (b.poiId !== poiId) continue;
-    const d = resolveBuildingDraw(b);
+    const d = resolveBuildingDraw(b, world);
     if (d) out.push(d);
   }
   return out.sort((a, b) => (a.buildingId < b.buildingId ? -1 : a.buildingId > b.buildingId ? 1 : 0));

@@ -20,8 +20,10 @@
 
 import type { BuildingInstance } from '@/core/types';
 import type { BuildingTypeFields } from '@/catalogue/types';
+import type { World } from '@/world/world';
 import { catalogue } from '@/catalogue/pack';
 import { getBuildingTemplate } from '@/map/building-templates';
+import { blueprintOf } from '@/blueprint/entity';
 
 export type CapacityClass =
   | 'dwelling' | 'farmstead' | 'workshop' | 'market'
@@ -144,17 +146,43 @@ export function capacityProfileFor(
   };
 }
 
-/** Resolve a placed building instance to its capacity draw (profile + door),
- *  or null if it houses/draws nobody. Door matches the proven spawner: the
- *  legacy template's doorCell when known, else a stable interior proxy. */
-export function resolveBuildingDraw(b: BuildingInstance): BuildingDraw | null {
+/**
+ * Resolve a placed building instance to its capacity draw (profile + door), or
+ * null if it houses/draws nobody.
+ *
+ * Door tile priority: (1) the STORED blueprint's own compiled
+ * `collision.doorCells[0]` — the exact tile `building-placer.ts`'s `commit()`
+ * marks walkable at placement (see `stampFootprint` in
+ * settlement-growth-system.ts for the identical precedent) — read via `world`
+ * when the caller has one; (2) the legacy `getBuildingTemplate` doorCell, for
+ * the 8 presets that still carry one; (3) a footprint-local (1,1) proxy as a
+ * last resort. (1) covers every parametric preset — `yurt`/`townhouse`/
+ * `manor`/`longhouse`/`shrine`/`granary`/`dovecote`/etc. — none of which have a
+ * legacy template, so before this they all fell through to (3): the SOLID
+ * centre of a typical 3×3 footprint. `homeTileFor` (materialization.ts) still
+ * snaps to the nearest walkable tile as a defensive backstop when no `world`
+ * is available (bare-map test harnesses) or a preset's blueprint is missing.
+ */
+export function resolveBuildingDraw(b: BuildingInstance, world?: World): BuildingDraw | null {
   if (!b.poiId) return null;
   const fields = buildingFields(b.templateId);
   const prof = capacityProfileFor(b.templateId, fields);
   if (!prof) return null;
-  const tmpl = getBuildingTemplate(b.templateId);
-  const doorX = b.tileX + (tmpl ? tmpl.doorCell.x : 1);
-  const doorY = b.tileY + (tmpl ? tmpl.doorCell.y : 1);
+
+  const entity = world?.registry.get(b.id);
+  const doorCell = entity ? blueprintOf(entity)?.collision.doorCells[0] : undefined;
+  let doorX: number;
+  let doorY: number;
+  if (doorCell) {
+    const [dx, dy] = doorCell.split(',').map(Number);
+    doorX = b.tileX + dx;
+    doorY = b.tileY + dy;
+  } else {
+    const tmpl = getBuildingTemplate(b.templateId);
+    doorX = b.tileX + (tmpl ? tmpl.doorCell.x : 1);
+    doorY = b.tileY + (tmpl ? tmpl.doorCell.y : 1);
+  }
+
   return {
     buildingId: b.id, poiId: b.poiId, kind: b.templateId, klass: prof.klass,
     residents: prof.residents, workers: prof.workers, visitorDraw: prof.visitorDraw,
