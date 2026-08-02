@@ -23,18 +23,17 @@ import { npcProps, forEachNpc } from '@/world/npc-helpers';
 import { trustWeightedBeliefConnections } from '@/sim/social-graph';
 import { Random } from '@/core/noise';
 import type { System, SystemContext } from '@/core/scheduler';
+// The communion coefficients + the congregation curve moved to the pure leaf
+// `@/sim/belief-forces` so the mean-field cohort tier (scaling P3 / S3.1) can
+// DERIVE from them. This module is REPOINTED at the leaf — a re-export from here
+// would not cut the import edge (`@/sim/divine-costs` is the precedent).
+import {
+  COMMUNION_RATE, UNDERSTANDING_FRAC, DEVOTION_FRAC, INFLUENCE_THRESHOLD,
+  congregationCurve,
+} from '@/sim/belief-forces';
 
 /** Base faith transfer per socialization event */
 const PROPAGATION_RATE = 0.015;
-
-/** Fraction of faith transferred to understanding */
-const UNDERSTANDING_FRAC = 0.3;
-
-/** Fraction of faith transferred to devotion */
-const DEVOTION_FRAC = 0.15;
-
-/** Faith threshold for a neighbor to be influential */
-const INFLUENCE_THRESHOLD = 0.3;
 
 /** Minimum sociability to socialize at all */
 const MIN_SOCIABILITY = 0.1;
@@ -88,20 +87,8 @@ const SEED_FAITH = 0.05;
 //     (deterministic channel alone; the stochastic socialization bonus adds on
 //     top and lifts all three, preserving the ordering.)
 // Generative: the same formula scales with any congregation size/trust — no
-// per-world hand-tuning.
-const COMMUNION_RATE = 0.0092;
-
-/**
- * Congregation strength from the trust-weighted believing neighbourhood S.
- * The positive root of `g(1 + g) = S`, i.e. `g(S) = (√(1+4S) − 1) / 2` — the
- * simplest curve that is LINEAR as S → 0 (g ≈ S: a lone pair's arithmetic is
- * the pre-2026-08-01 arithmetic) and √-ASYMPTOTIC as S → ∞ (g ≈ √S: a city
- * congregation keeps paying, with diminishing returns per head). Concave and
- * unbounded — never saturating, which was the defect this replaced.
- */
-function congregationCurve(s: number): number {
-  return (Math.sqrt(1 + 4 * s) - 1) / 2;
-}
+// per-world hand-tuning. COMMUNION_RATE and `congregationCurve` (the positive
+// root of g(1+g) = S) live in `@/sim/belief-forces`, imported above.
 
 export class BeliefPropagationSystem implements System {
   readonly name = 'belief_propagation';

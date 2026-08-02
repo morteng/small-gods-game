@@ -17,6 +17,16 @@ export interface CohortLedgerCounters {
   /** Souls that left the registry entirely (authored_remove) — a sink outside
    *  the fiction, ledgered separately from deaths (which leave remains). */
   removals: number;
+  /**
+   * STATISTICAL-tier souls moved between two settlements' cohorts by the P3
+   * mean-field migration (`souls_migrated`). Counted separately from
+   * `migrations` (which is a NAMED soul changing `homePoiId`) because the two
+   * are different flows across different tiers, and collapsing them would make
+   * the ledger unable to say which tier moved. Belief drift is deliberately NOT
+   * counted here: drift moves belief MASS and no souls at all, so it is not a
+   * flow this ledger can or should audit.
+   */
+  cohortMigrations: number;
   /** Conservation violations detected (each also appends a system_error). */
   violations: number;
 }
@@ -63,7 +73,7 @@ export class CohortSystem implements System, SerializableSystem {
   /** Event-log watermark for the flow-explanation cross-check. */
   private cursor = 0;
   private counters: CohortLedgerCounters = {
-    births: 0, deaths: 0, migrations: 0, removals: 0, violations: 0,
+    births: 0, deaths: 0, migrations: 0, removals: 0, cohortMigrations: 0, violations: 0,
   };
 
   /** WP-D scrub-ghost pattern: the ledger is HISTORY (baseline census, flow
@@ -90,7 +100,9 @@ export class CohortSystem implements System, SerializableSystem {
     this.known = new Map();
     this.statBaseline = null;
     this.cursor = 0;
-    this.counters = { births: 0, deaths: 0, migrations: 0, removals: 0, violations: 0 };
+    this.counters = {
+      births: 0, deaths: 0, migrations: 0, removals: 0, cohortMigrations: 0, violations: 0,
+    };
     const s = state as {
       cohorts?: unknown; known?: unknown; statBaseline?: unknown;
       cursor?: unknown; counters?: unknown;
@@ -124,7 +136,8 @@ export class CohortSystem implements System, SerializableSystem {
     if (c) {
       this.counters = {
         births: c.births ?? 0, deaths: c.deaths ?? 0, migrations: c.migrations ?? 0,
-        removals: c.removals ?? 0, violations: c.violations ?? 0,
+        removals: c.removals ?? 0, cohortMigrations: c.cohortMigrations ?? 0,
+        violations: c.violations ?? 0,
       };
     }
   }
@@ -151,11 +164,23 @@ export class CohortSystem implements System, SerializableSystem {
     // Σ folded.count − Σ materialized.count (a materialize removeSoul's one stat
     // soul into a named entity; a fold addSoul's one back). The stat-tier audit
     // tolerates exactly this ledgered delta instead of demanding constant counts.
+    //
+    // P3 (S3.2/S3.3) adds a THIRD ledgered statistical flow: `souls_migrated`
+    // moves souls BETWEEN two cohorts, so it debits the source and credits the
+    // destination. Belief DRIFT (S3.1) appears nowhere here on purpose — it
+    // moves belief mass and no souls, and the audit is over counts.
     const matFlow = new Map<string, number>();
+    let cohortMigrations = 0;
     for (const { event } of window) {
       if (event.type === 'souls_materialized') matFlow.set(event.poiId, (matFlow.get(event.poiId) ?? 0) - event.count);
       else if (event.type === 'souls_folded') matFlow.set(event.poiId, (matFlow.get(event.poiId) ?? 0) + event.count);
+      else if (event.type === 'souls_migrated') {
+        matFlow.set(event.srcPoiId, (matFlow.get(event.srcPoiId) ?? 0) - event.count);
+        matFlow.set(event.dstPoiId, (matFlow.get(event.dstPoiId) ?? 0) + event.count);
+        cohortMigrations += event.count;
+      }
     }
+    this.counters.cohortMigrations += cohortMigrations;
 
     if (this.cohorts === null) {
       // Initialize by census (world gen / save load / post-reset baseline).

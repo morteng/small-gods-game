@@ -124,6 +124,13 @@ export type SimEvent =
   // existing consumer must change.
   | { type: 'souls_materialized'; poiId: string; entityIds: EntityId[]; count: number }
   | { type: 'souls_folded';       poiId: string; entityIds: EntityId[]; count: number }
+  // Interaction scaling P3 (S3.2) — statistical young adults moved between two
+  // settlements' cohorts along a road edge. The THIRD ledgered statistical-tier
+  // flow after materialize/fold: CohortSystem's stat audit applies −count to the
+  // source and +count to the destination, so a migration never trips a
+  // conservation system_error. No entity is minted or destroyed (both ends are
+  // the statistical tier), so this is NOT a named-tier birth/removal.
+  | { type: 'souls_migrated';     srcPoiId: string; dstPoiId: string; count: number }
   // Rival-contention ladder (rival economics): a settlement's escalation state
   // climbed (`contention_escalated`) or eased (`contention_eased`) a rung as two
   // gods contest its congregation. The `ContentionLedger` STATE is the inbox's

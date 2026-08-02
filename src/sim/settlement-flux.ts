@@ -98,6 +98,17 @@ export class SettlementFluxTally {
     this.flows.set(k, (this.flows.get(k) ?? 0) + 1);
   }
 
+  /** Record one statistical MIGRANT moving `srcPoiId` → `dstPoiId` (scaling P3,
+   *  S3.2). Flux is flux: the meter measures people crossing between
+   *  settlements, and a migrant crosses exactly as a market visitor does. What
+   *  distinguishes the two is the LEDGER (`CohortLedgerCounters.cohortMigrations`
+   *  vs the materialize/fold counters), not this tally — keeping them in one
+   *  series is what makes `fluxInFor`/`fluxOutFor` a settlement's real
+   *  people-flow rather than one arbitrary half of it. */
+  noteMigrant(srcPoiId: string, dstPoiId: string): void {
+    this.noteVisitor(srcPoiId, dstPoiId);
+  }
+
   /** Raw visitors accrued on one directed pair since the last fold. */
   rawFlow(srcPoiId: string, dstPoiId: string): number {
     return this.flows.get(fluxKey(srcPoiId, dstPoiId)) ?? 0;
