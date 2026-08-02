@@ -221,6 +221,52 @@ Give the statistical tier laws, so out-of-attention settlements evolve instead
 of freezing. All flows must be *explained* to `CohortSystem`'s ledger — extend
 `CohortLedgerCounters` with the new flow kinds rather than weakening the audit.
 
+> **Refreshed 2026-08-02, after Phases 0–2/4/5 shipped.** The slices below were
+> written before any of this was measured; four findings bear on them directly.
+>
+> **(a) S3.2 is not just the LOD layer — it is the unblocker for the whole
+> measurement program.** The "Prerequisites the world does not yet meet" section
+> above records that only 2–3 settlements per seed have any dwelling capacity,
+> spanning **1.6×**. That starves every cross-settlement fit: it is why P4's
+> contract is gated silent, and why the dynamic exponents have no lever.
+> Migration is the first mechanism in the plan that can separate a city from a
+> hamlet. **Treat "does the population distribution actually spread?" as an S3.2
+> acceptance criterion in its own right** — measure the resulting max/min
+> population ratio and say so. If it does not spread, P4 stays silent and Phase 6
+> has nothing to stand on.
+>
+> **(b) Materialization is not a birth** (measured in S2c.1). It makes a soul
+> that has lived somewhere for years *visible*, so it must arrive in the band it
+> has been living in — a materialized extra seeded at a newborn's midpoint
+> asserts something false about that soul. S2c found BOTH spawn seeds stale after
+> a band moved (`initNpcProps`, `seedStatisticalCohorts`), which broke knight
+> patrols in CI. **S3.1 makes cohort belief a moving target, so S3.3 must draw
+> souls consistent with the DRIFTED sums, not a fixed seed** — and any constant
+> S3.1 derives from a named-tier constant must be re-checked if that constant
+> moves. Guard: `tests/unit/npc-spawn-bands.test.ts` is the pattern.
+>
+> **(c) Three located, unfixed defects sit inside S3.3's territory** (full repro
+> detail in the perf pass, `bd34fe38`, and its memory note): materialized extras
+> spawn on tiles `isWalkable` rejects (`resolveBuildingDraw` falls back to
+> footprint-local (1,1) — the solid centre of a 3×3 — for `yurt`/`townhouse`/
+> `watermill`/`well`/`shrine`/`granary`, and `homeTileFor` only `snapToLand`s);
+> `marketAnchorTile` returns the centre of a footprinted well, so 5 of 9 gathering
+> venues are unwalkable; and `npc-movement` has no re-path back-off. These were
+> deliberately left for a phase that re-measures, because each moves sim
+> trajectories. **S3.3 is that phase.** Fix (1) and (2) properly — prefer the
+> stored blueprint's `collision.doorCells[0]` (`building-placer.ts` already does)
+> and snap to nearest-walkable — rather than the back-off, which masks (1).
+> Expect trajectory changes and re-baseline rather than treating them as
+> regressions.
+>
+> **(d) Acceptance is server-CI-sized, not local.** S2c measured that a fresh
+> soul needs **3.6 game-hours** to reach its worship line, so any probe window
+> under ~4 game-hours reads zero prayers and is a non-result (this is exactly how
+> Phase 2's "prayers: all zero" line arose). Steady state wants ~24. At
+> ~1137 s/seed-hour, plan the tier-parity and migration runs as long-window jobs
+> and state the window in every reported number. A short window is not a cheap
+> approximation here — it is a different experiment.
+
 **S3.1 — cohort belief drift.** Per GAME_HOUR, evolve each `CohortBelief`'s
 running sums with mean-field forms of the same forces the named tier feels:
 faith decay (skepticism/comfort from band `needs`), desperation boost, and a
