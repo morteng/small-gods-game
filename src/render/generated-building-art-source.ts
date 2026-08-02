@@ -150,7 +150,12 @@ export class GeneratedBuildingArtSource {
     this.d = {
       prompt: (rb) => buildingImagePrompt(rb, deps.model()),
       produce: async (rb) => {
-        const r = await composeStructure(toGeometry(rb));
+        // `weather: false` is the documented contract for an img2img INIT
+        // (compose.ts ComposeOpts): procedural dirt/streaks/rust muddy exactly the
+        // material-coded colours the prompt legend keys off ("grey #94938f = stone",
+        // …), so the model has to guess which region is which. Weathering belongs
+        // AFTER the repaint, not under it.
+        const r = await composeStructure(toGeometry(rb), undefined, { weather: false });
         // Magenta init background: the model mirrors the reference image's
         // background far more reliably than the text prompt's demand for it.
         const uri = greyToDataUri(compositeOverChroma(r.grey), r.size);

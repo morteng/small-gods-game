@@ -127,7 +127,10 @@ async function seedResolved(preset: string, rb: ResolvedBlueprint, manifest: Man
   const label = variant?.label ?? preset;
   if (!force && manifest.entries[key]) { console.log(`${label}: already seeded (${key})`); return { cost: 0, status: 'skipped' }; }
 
-  const r = await composeStructure(toGeometry(rb));
+  // `weather: false` — same img2img-init contract the runtime source follows; the
+  // author-time seeder must produce byte-comparable inits or a seeded sprite and a
+  // runtime-generated one diverge for the same blueprint.
+  const r = await composeStructure(toGeometry(rb), undefined, { weather: false });
   const bb = {
     x: Math.round(r.bbox.x), y: Math.round(r.bbox.y),
     w: Math.max(1, Math.round(r.bbox.w)), h: Math.max(1, Math.round(r.bbox.h)),
