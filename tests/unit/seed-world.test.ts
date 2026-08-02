@@ -141,6 +141,31 @@ describe('seedWorld', () => {
     const { world } = seedFixture({});
     expect(world.query({ kind: 'npc' }).length).toBe(6);
   });
+
+  it('seeds a noble UNAFFILIATED, so his settlement keeps the god that holds it', () => {
+    // `dominantSpiritForPoi` (cohorts.ts) picks a settlement's statistical lean from its
+    // NAMED believers, falling back to the rival holding the POI only when there are
+    // none. `initNpcProps` gives every NPC a starting belief in `player`, so a believing
+    // noble would hand his settlement's whole congregation to the player — measured, that
+    // drove a rival to beliefMass 0 and faded it on game-day 2 (god-lifecycle.test.ts).
+    const { world } = seedFixture({
+      pois: [
+        { id: 'village-1', type: 'village', position: { x: 10, y: 10 },
+          npcs: [{ name: 'Alice', role: 'farmer' }] },
+        { id: 'keep', type: 'castle', position: { x: 4, y: 4 },
+          npcs: [{ name: 'Lady Vane', role: 'noble' }] },
+      ],
+    });
+
+    const noble = world.query({ kind: 'npc' })
+      .find((e) => (e.properties as { role?: string }).role === 'noble')!;
+    expect(Object.keys((noble.properties as { beliefs: object }).beliefs)).toEqual([]);
+    // The cradle band is untouched — they are still the founding congregation.
+    const founder = world.query({ kind: 'npc' })
+      .find((e) => (e.properties as { role?: string }).role === 'farmer')!;
+    expect((founder.properties as { beliefs: Record<string, unknown> }).beliefs.player)
+      .toBeDefined();
+  });
 });
 
 /** One seeded world, with an optional WorldSeed override — the setup above, factored. */

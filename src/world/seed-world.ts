@@ -201,6 +201,16 @@ function seedAuthoredNobles(
       // the SOLIDITY half of the check is the part that matters, and it still applies.
       const spot = nearestWalkableTile(map, lx, ly, world, 8, true) ?? { x: lx, y: ly };
       const p = initNpcProps(authored.name, 'noble', seed);
+      // A noble seeds UNAFFILIATED. `initNpcProps` hands every NPC a starting belief in
+      // `player`, and `dominantSpiritForPoi` (cohorts.ts) reads the NAMED residents to
+      // decide which spirit a settlement's statistical souls lean toward — with a rival
+      // holding the POI used only as the fallback when there are no named believers. So a
+      // seeded noble would silently re-point his whole settlement's congregation at the
+      // player: measured, that took a rival to beliefMass 0 and faded it on game-day 2
+      // (caught by `god-lifecycle.test.ts`). A lord's faith is something the world has to
+      // win, not something his seat asserts — and this keeps the round's change to the
+      // TITHE economy, not the belief one.
+      p.beliefs = {};
       p.homePoiId = poi.id;
       p.homeX = spot.x;
       p.homeY = spot.y;
