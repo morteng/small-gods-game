@@ -18,6 +18,38 @@ const footprintCells = (p: { at: { x: number; y: number }; size: { w: number; h:
   return cells;
 };
 
+/** How many of the footprint's rows (from y=0) count as the "back" — everything from
+ *  there on is the open front. Shared by `stallBackBlocked`/`stallFrontOpen` so the two
+ *  stay complementary by construction. */
+const stallBackRows = (h: number): number => Math.floor(h / 2) || 1;
+
+/** Only the BACK rows (away from the front counter — see `stallPartType.toPrims`, which
+ *  seats the counter along the south/+y face) are genuinely solid; a customer walks right
+ *  up to the counter, so the front stays open ground. Blocking the whole footprint (the
+ *  old behaviour, shared with `footprintCells`) left NO cell for `toDoorCells` below to
+ *  offer. Matches the legacy hand-authored market-stall template's walkable grid (back
+ *  row solid, front row open). */
+const stallBackBlocked = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
+  const cells: Array<[number, number]> = [];
+  const backRows = stallBackRows(p.size.h);
+  for (let i = 0; i < p.size.w; i++) for (let j = 0; j < backRows; j++) cells.push([p.at.x + i, p.at.y + j]);
+  return cells;
+};
+
+/** The open front row(s) — where a customer stands at the counter — double as this
+ *  open-frame part's door cell(s) (`PartType.toDoorCells`, `to-collision.ts`): an EXPLICIT
+ *  design choice by the part (it has no wall for a `door` FEATURE to carve a threshold
+ *  through), not a generic "any unblocked cell" guess that could also fire on a walled
+ *  `body` that simply has no authored door — see
+ *  `tests/unit/blueprint-to-collision.test.ts`, which pins that a doorless walled body
+ *  stays doorless. */
+const stallFrontOpen = (p: { at: { x: number; y: number }; size: { w: number; h: number } }): Array<[number, number]> => {
+  const cells: Array<[number, number]> = [];
+  const backRows = stallBackRows(p.size.h);
+  for (let i = 0; i < p.size.w; i++) for (let j = backRows; j < p.size.h; j++) cells.push([p.at.x + i, p.at.y + j]);
+  return cells;
+};
+
 /**
  * An open market stall: four timber corner posts carrying a peaked canopy, with a
  * waist-high counter along the front (+y) face. No walls — the produce, not masonry,
@@ -58,7 +90,8 @@ export const stallPartType: PartType = {
     });
     return prims;
   },
-  toCollision: footprintCells,
+  toCollision: stallBackBlocked,
+  toDoorCells: stallFrontOpen,
   toAnchors: () => [],
   toBrief: () => 'an open market stall with a peaked canopy on timber posts',
 };
