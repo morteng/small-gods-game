@@ -50,6 +50,16 @@ the studio (same contract as `rig.ts`):
     from detected stance (low ankle speed + height). Locomotion imports instead bake
     root-motion compensation: per-frame trunk `dx` chosen so the stance ankle's
     projected point holds still (foot-skate control at import time, not runtime).
+    **CORRECTED DURING M0 — this was half wrong.** Full compensation makes the
+    BODY cross the cell by one stride per cycle, and our sprites are already
+    translated by the sim, so the NPC would lurch forward in its own cell and
+    snap back at the loop. The linear component of the compensation is stripped
+    (`rootMotion: 'in-place'`, the default); the per-frame wobble stays, because
+    that is what stops a planted sole shivering. Feet then slide one stride per
+    cycle and read as planted exactly when NPC ground speed matches the clip's
+    stride/duration — so **foot fidelity is a walk-speed tuning knob for M2**,
+    not a property of the bake. `rootMotion: 'advance'` keeps the old behaviour
+    for studio comparison.
 - Bone maps are data: `HUMANOID_BVH_MAP` (CMU joint names → south/north/west chip
   names), later `QUADRUPED_BVH_MAP`. NOTE (from spec): quadruped source data in CMU is
   UNVERIFIED — the quadruped map ships only if usable data exists; otherwise the sheep
