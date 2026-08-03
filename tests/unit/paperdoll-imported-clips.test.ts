@@ -76,12 +76,12 @@ const cases = CLIP_IDS.flatMap((id) => FACINGS.map((facing) => ({ id, facing }))
  * (`?studio=motion`) and look at the clip before pasting a new value here.
  */
 const GOLDEN: Record<string, string> = {
-  'walk/down': 'ebedb07',
-  'walk/up': '55a8ae98',
-  'walk/left': 'fa1b61ec',
-  'walk-brisk/down': '924eae41',
-  'walk-brisk/up': 'a18dda88',
-  'walk-brisk/left': 'b5e13f75',
+  'walk/down': '2574d270',
+  'walk/up': 'f2fe3cd6',
+  'walk/left': '6f6db8b',
+  'walk-brisk/down': '29fc9372',
+  'walk-brisk/up': 'aeadade1',
+  'walk-brisk/left': '896961c8',
   'wave/down': '454e7057',
   'wave/up': '56521bcf',
   'wave/left': '5ee6a39b',

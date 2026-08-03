@@ -167,6 +167,40 @@ describe('motion import — a byte-identical clip can still be a wrong clip', ()
     }
   });
 
+  it.each(imported)('$spec.id stands where the rig stands, on every facing', ({ spec, clips }) => {
+    // The root's `dx` is a rigid translation of the whole figure. Nothing else
+    // in this file has an opinion about ABSOLUTE position, so a capture's own
+    // location in the mocap volume once leaked straight through: the sagittal
+    // (west) facing puts the travel axis on screen x, and the walk came out
+    // sitting at a constant +20px — two thirds of the way out of a 64px cell,
+    // feet clipping the frame. Angles, loop closure, decimation and
+    // byte-identity were all green throughout.
+    //
+    // What is pinned is the ANCHOR, not the amplitude. A gesture may genuinely
+    // sway (the wave's actor shifts 7px of weight and that is the motion); what
+    // it may not do is stand somewhere other than where the rig stands. So the
+    // reference pose — the same one the rotations are measured from — must land
+    // at the rig's own rest position.
+    const refMode = spec.opts.referenceFrame ?? 0;
+    for (const facing of FACINGS) {
+      const clip = clips[facing];
+      const root = TEMPLATES[facing].chips[0].name;
+      const track = clip.tracks[root];
+      if (track === undefined) continue;
+      let anchor: number;
+      if (refMode === 'mean') {
+        let sum = 0;
+        for (let f = 0; f < clip.frames; f++) {
+          sum += sampleClip(TEMPLATES[facing], clip, f / (clip.frames - 1))[0].dx;
+        }
+        anchor = sum / clip.frames;
+      } else {
+        anchor = sampleClip(TEMPLATES[facing], clip, refMode / (clip.frames - 1))[0].dx;
+      }
+      expect(Math.abs(anchor), `${facing} root anchored at ${anchor.toFixed(2)}px`).toBeLessThan(1);
+    }
+  });
+
   it('every locomotion clip records the ground speed its feet need', () => {
     // The bake is in-place, so the feet slide one stride per cycle and only read
     // as planted at this speed. If the number were absent, M2 would have to

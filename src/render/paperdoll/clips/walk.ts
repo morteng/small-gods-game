@@ -60,11 +60,11 @@ export const CLIP_WALK_DOWN: Clip = {
   frames: 9,
   tracks: {
     trunk: [
-      { t: 0, deg: 0, dx: -1, dy: 0.25 },
-      { t: 0.25, deg: 0, dx: 0, dy: -0.25 },
-      { t: 0.625, deg: 0, dx: -0.75, dy: 0.25 },
-      { t: 0.75, deg: 0, dx: -1, dy: -0.5 },
-      { t: 1, deg: 0, dx: -1, dy: 0.25 },
+      { t: 0, deg: 0, dx: -0.25, dy: 0.25 },
+      { t: 0.25, deg: 0, dx: 0.5, dy: -0.25 },
+      { t: 0.625, deg: 0, dx: -0.25, dy: 0.25 },
+      { t: 0.75, deg: 0, dx: -0.5, dy: -0.5 },
+      { t: 1, deg: 0, dx: -0.25, dy: 0.25 },
     ],
     head: [
       { t: 0, deg: 0, dx: 0 },
@@ -141,11 +141,11 @@ export const CLIP_WALK_UP: Clip = {
   frames: 9,
   tracks: {
     trunk: [
-      { t: 0, deg: 0, dx: 1, dy: 0.25 },
-      { t: 0.25, deg: 0, dx: 0, dy: -0.25 },
-      { t: 0.625, deg: 0, dx: 0.75, dy: 0.25 },
-      { t: 0.75, deg: 0, dx: 1, dy: -0.5 },
-      { t: 1, deg: 0, dx: 1, dy: 0.25 },
+      { t: 0, deg: 0, dx: 0.25, dy: 0.25 },
+      { t: 0.25, deg: 0, dx: -0.5, dy: -0.25 },
+      { t: 0.625, deg: 0, dx: 0.25, dy: 0.25 },
+      { t: 0.75, deg: 0, dx: 0.5, dy: -0.5 },
+      { t: 1, deg: 0, dx: 0.25, dy: 0.25 },
     ],
     head: [
       { t: 0, deg: 0, dx: 0 },
@@ -222,14 +222,14 @@ export const CLIP_WALK_LEFT: Clip = {
   frames: 9,
   tracks: {
     trunk: [
-      { t: 0, deg: 0, dx: 20, dy: 0.25 },
-      { t: 0.125, deg: 0, dx: 22, dy: 0.25 },
-      { t: 0.25, deg: 0, dx: 21, dy: -0.25 },
-      { t: 0.5, deg: 0, dx: 22.25, dy: 0.25 },
-      { t: 0.625, deg: 0, dx: 20, dy: 0.25 },
-      { t: 0.75, deg: 0, dx: 19.5, dy: -0.5 },
-      { t: 0.875, deg: 0, dx: 19.25, dy: 0 },
-      { t: 1, deg: 0, dx: 20, dy: 0.25 },
+      { t: 0, deg: 0, dx: -0.5, dy: 0.25 },
+      { t: 0.125, deg: 0, dx: 1.5, dy: 0.25 },
+      { t: 0.25, deg: 0, dx: 0.5, dy: -0.25 },
+      { t: 0.5, deg: 0, dx: 1.5, dy: 0.25 },
+      { t: 0.625, deg: 0, dx: -0.5, dy: 0.25 },
+      { t: 0.75, deg: 0, dx: -1, dy: -0.5 },
+      { t: 0.875, deg: 0, dx: -1.25, dy: 0 },
+      { t: 1, deg: 0, dx: -0.5, dy: 0.25 },
     ],
     head: [
       { t: 0, deg: -0.5, dx: -0.25 },

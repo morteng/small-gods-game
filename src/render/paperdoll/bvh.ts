@@ -762,11 +762,38 @@ function buildFacing(facing: RigFacing, map: BvhBoneMap, ctx: BuildCtx): Clip {
       if ((ctx.opts.rootMotion ?? 'in-place') === 'in-place' && N > 1) {
         // Detrend the root's TOTAL dx, not the compensation alone: the base
         // solve already carries whatever forward travel the capture had, and
-        // it is the sum of the two that decides where the body ends up. Only
-        // the linear term goes — the wobble stays, and so does any constant
-        // postural lean, which is a real fact about the pose.
+        // it is the sum of the two that decides where the body ends up.
         const drift = samples[N - 1][rootChip].dx - samples[0][rootChip].dx;
         for (let f = 0; f < N; f++) samples[f][rootChip].dx -= (drift * f) / (N - 1);
+        // Then anchor it. Detrending removes the ramp and leaves the OFFSET,
+        // and the offset along the travel axis is not a fact about the pose —
+        // it is where the actor happened to be standing in the capture volume.
+        //
+        // Frontal facings hide this: their travel axis points into the screen,
+        // so the leak was ±1px and read as postural lean. The sagittal (west)
+        // facing puts the travel axis ON screen x, where the same leak measured
+        // +20px — two thirds of the way out of a 64px cell, with the figure
+        // clipping the frame edge. Found by rendering it; nothing in the suite
+        // had an opinion about absolute position.
+        //
+        // The anchor is the SAME reference the rotations use, which is the only
+        // choice that stays right for both kinds of clip. A cyclic import
+        // (`referenceFrame: 'mean'`) anchors on the mean, so re-cutting the same
+        // walk at a different phase does not slide the sprite sideways. A
+        // gesture anchored on a standing frame keeps that frame at the rig's
+        // rest position, so an NPC that transitions idle → wave → idle does not
+        // jump: centring the wave instead put its standing pose 3.5px off.
+        //
+        // `dy` is deliberately left alone: vertical offset from the rest pose is
+        // a real postural fact (a crouch is not a camera offset), and it never
+        // exceeded a pixel in any capture we have.
+        const refMode = ctx.opts.referenceFrame ?? 0;
+        let anchorDx = 0;
+        if (refMode === 'mean') {
+          for (let f = 0; f < N; f++) anchorDx += samples[f][rootChip].dx;
+          anchorDx /= N;
+        } else anchorDx = samples[Math.max(0, Math.min(refMode, N - 1))][rootChip].dx;
+        for (let f = 0; f < N; f++) samples[f][rootChip].dx -= anchorDx;
       }
     }
   } else {

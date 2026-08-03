@@ -62,7 +62,7 @@ export const CLIP_WALK_BRISK_DOWN: Clip = {
   tracks: {
     trunk: [
       { t: 0, deg: 0, dx: 0, dy: 1.25 },
-      { t: 0.25, deg: 0, dx: -0.5, dy: -0.25 },
+      { t: 0.25, deg: 0, dx: -0.75, dy: -0.25 },
       { t: 0.5, deg: 0, dx: 0, dy: 0.5 },
       { t: 0.75, deg: 0, dx: 0.75, dy: -1.25 },
       { t: 1, deg: 0, dx: 0, dy: 1.25 },
@@ -144,7 +144,7 @@ export const CLIP_WALK_BRISK_UP: Clip = {
   tracks: {
     trunk: [
       { t: 0, deg: 0, dx: 0, dy: 1.25 },
-      { t: 0.25, deg: 0, dx: 0.5, dy: -0.25 },
+      { t: 0.25, deg: 0, dx: 0.75, dy: -0.25 },
       { t: 0.5, deg: 0, dx: 0, dy: 0.5 },
       { t: 0.75, deg: 0, dx: -0.75, dy: -1.25 },
       { t: 1, deg: 0, dx: 0, dy: 1.25 },
@@ -225,15 +225,15 @@ export const CLIP_WALK_BRISK_LEFT: Clip = {
   frames: 9,
   tracks: {
     trunk: [
-      { t: 0, deg: 0, dx: 26, dy: 1.25 },
-      { t: 0.125, deg: 0, dx: 26.75, dy: 0.25 },
-      { t: 0.25, deg: 0, dx: 26, dy: -0.25 },
-      { t: 0.375, deg: 0, dx: 26.25, dy: 0 },
-      { t: 0.5, deg: 0, dx: 28.5, dy: 0.5 },
-      { t: 0.625, deg: 0, dx: 26, dy: -0.25 },
-      { t: 0.75, deg: 0, dx: 25.25, dy: -1.25 },
-      { t: 0.875, deg: 0, dx: 24.5, dy: -0.25 },
-      { t: 1, deg: 0, dx: 26, dy: 1.25 },
+      { t: 0, deg: 0, dx: 0, dy: 1.25 },
+      { t: 0.125, deg: 0, dx: 0.5, dy: 0.25 },
+      { t: 0.25, deg: 0, dx: -0.25, dy: -0.25 },
+      { t: 0.375, deg: 0, dx: 0.25, dy: 0 },
+      { t: 0.5, deg: 0, dx: 2.5, dy: 0.5 },
+      { t: 0.625, deg: 0, dx: -0.25, dy: -0.25 },
+      { t: 0.75, deg: 0, dx: -1, dy: -1.25 },
+      { t: 0.875, deg: 0, dx: -1.75, dy: -0.25 },
+      { t: 1, deg: 0, dx: 0, dy: 1.25 },
     ],
     head: [
       { t: 0, deg: 0, dx: 0 },
