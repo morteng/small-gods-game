@@ -153,8 +153,13 @@ export function applyAffine(m: Affine, x: number, y: number): [number, number] {
   return [m[0] * x + m[1] * y + m[2], m[3] * x + m[4] * y + m[5]];
 }
 
-/** Rotation by `deg` about pivot (px, py), y-down screen space. */
-function rotAbout(px: number, py: number, deg: number): Affine {
+/**
+ * Rotation by `deg` about pivot (px, py), y-down screen space. Exported
+ * because it IS the angle convention — the BVH importer has to read screen
+ * angles in exactly this sense, and a second copy of the sign rules is a
+ * second place for them to drift.
+ */
+export function rotAbout(px: number, py: number, deg: number): Affine {
   const a = (deg * Math.PI) / 180;
   const c = Math.cos(a);
   const s = Math.sin(a);
