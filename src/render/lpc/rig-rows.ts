@@ -23,12 +23,17 @@
  *    the published sheet; it lives on a companion canvas whose identity appears
  *    only once it is complete. The ROW SPACE is still unified — strip row 0 IS
  *    sheet row `STANDARD_SHEET_ROWS` — so the animation table reads as one sheet.
- * 2. Only SOUTH and NORTH are baked. The rule "author west, mirror for east" is
- *    real (`facing.ts`), but there is nothing to mirror: west is a separate
- *    profile chip vocabulary (near/far limbs) and not one devotional clip is
- *    authored against it. Baking south's tracks on the west template would just
- *    produce a rest stand. West/east rows stay empty and the animation table
- *    routes those facings to the fallback (`LpcAnimSpec.facings`).
+ * 2. Which facings a row bakes is PER ROW, not a module-wide constant. The
+ *    stationary clips (`pray-raise`, `idle-shift`) bake SOUTH and NORTH: west
+ *    is a separate profile chip vocabulary (near/far limbs) and neither clip
+ *    is authored against it — baking south's tracks on the west template
+ *    would just produce a rest stand. `march` inverts this: it IS authored
+ *    against west (a marching leg swings in the sagittal plane, which the
+ *    profile view shows and the frontal view all but erases — ~24° projected
+ *    onto the coronal plane against 61–68° in profile), so it bakes WEST and
+ *    mirrors to EAST, leaving south/north to the vendored walk-row fallback.
+ *    Whichever pair a row does not bake, the animation table routes to the
+ *    fallback (`LpcAnimSpec.facings`).
  * 3. The strip is PING-PONGED. Both clips end somewhere other than they start,
  *    so laying the frames out forward-then-back closes the loop without a pop —
  *    a property of the strip, not an edit to the authored clip.
@@ -45,6 +50,8 @@ import {
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
 import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
+import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST, mirrorFrame } from '@/render/paperdoll/lpc-humanoid-west';
+import { CLIP_MARCH_LEFT } from '@/render/paperdoll/clips/march';
 import { sliceSourceCell } from '@/render/paperdoll/humanoid-loader';
 
 /** Cell size of every rig row (the LPC frame size). */
@@ -59,27 +66,57 @@ export const RIG_CELL = LPC_HUMANOID_SOUTH.cell;
  */
 export const RIG_BAKE_SUPERSAMPLE = 2;
 
-/** The clips the live game bakes, paired with the animation row each one feeds. */
-export const RIG_ROW_CLIPS: readonly { readonly anim: NpcAnimation; readonly clip: Clip }[] = [
-  { anim: 'pray-raise', clip: CLIP_PRAY_RAISE },
-  { anim: 'idle-shift', clip: CLIP_IDLE_SHIFT },
+/** An authored viewing angle a rig row can bake. East is never authored — a
+ *  row that bakes `left` gets `right` for free by mirroring (see `RIG_MIRRORS`
+ *  and `bakeRigStripRows`). */
+type RigBakeDir = 'down' | 'up' | 'left';
+
+/** The clips the live game bakes, paired with the animation row each one feeds
+ *  and the facings THAT ROW bakes (the rest fall back — `LpcAnimSpec.facings`
+ *  is this same list plus each baked `left`'s mirrored `right`). */
+export const RIG_ROW_CLIPS: readonly {
+  readonly anim: NpcAnimation;
+  readonly clip: Clip;
+  readonly facings: readonly RigBakeDir[];
+}[] = [
+  { anim: 'pray-raise', clip: CLIP_PRAY_RAISE, facings: ['down', 'up'] },
+  { anim: 'idle-shift', clip: CLIP_IDLE_SHIFT, facings: ['down', 'up'] },
+  { anim: 'march', clip: CLIP_MARCH_LEFT, facings: ['left'] },
 ];
 
-/** Facing → (template, source sheet row, whether stamps survive). */
-const RIG_FACING_BAKES: readonly {
-  readonly dir: Direction;
+/**
+ * Facing → (template, source sheet row, whether stamps survive). One recipe
+ * per AUTHORED angle; a row picks which of these it uses via its own
+ * `facings` list above.
+ */
+const RIG_FACING_BAKES: Readonly<Record<RigBakeDir, {
   readonly template: AnimTemplate;
   readonly sheetRow: number;
   /**
-   * North bakes carry NO stamps: south's are face pixel-clones (there is no face
-   * from behind) or palms harvested from the spellcast sheet's SOUTH row — wrong
-   * donor coordinates for a back-facing hand. See `lpc-humanoid-north.ts`.
+   * North bakes carry NO stamps: south's are face pixel-clones (there is no
+   * face from behind) or palms harvested from the spellcast sheet's SOUTH
+   * row — wrong donor coordinates for a back-facing hand. See
+   * `lpc-humanoid-north.ts`.
+   *
+   * West bakes ALSO carry no stamps, concluded rather than assumed: the one
+   * clip baked against west (`march`) authors none (`clips/march.ts` sets no
+   * `stamps` field), and even if a future west clip did, every donor sheet
+   * `loadHumanoidCharacter` harvests is cropped from a SOUTH-row cell (the
+   * spellcast palms, the face self-clones) — the same wrong-anatomy problem
+   * north has, on a profile instead of a back view. There is no west-row
+   * donor harvesting anywhere in this codebase to make a west stamp correct.
    */
   readonly stamps: boolean;
-}[] = [
-  { dir: 'down', template: LPC_HUMANOID_SOUTH, sheetRow: HUMANOID_SOURCE.row, stamps: true },
-  { dir: 'up', template: LPC_HUMANOID_NORTH, sheetRow: HUMANOID_SOURCE_NORTH.row, stamps: false },
-];
+}>> = {
+  down: { template: LPC_HUMANOID_SOUTH, sheetRow: HUMANOID_SOURCE.row, stamps: true },
+  up: { template: LPC_HUMANOID_NORTH, sheetRow: HUMANOID_SOURCE_NORTH.row, stamps: false },
+  left: { template: LPC_HUMANOID_WEST, sheetRow: HUMANOID_WEST_SOURCE.row, stamps: false },
+};
+
+/** A baked facing whose opposite is produced by MIRRORING the finished frames
+ *  rather than a second pose-and-render pass — pixel-perfect and free, the
+ *  same rule the studio's `facing.ts` states for west/east. */
+const RIG_MIRRORS: Readonly<Partial<Record<RigBakeDir, Direction>>> = { left: 'right' };
 
 /**
  * Frame indices laid out forward then back, endpoints unrepeated: 7 frames →
@@ -92,7 +129,9 @@ export function pingPongOrder(frames: number): number[] {
   return order;
 }
 
-/** Rows the strip occupies (four per clip — west/east stay empty, see head comment). */
+/** Rows the strip occupies (four per clip — the two facings a row does NOT
+ *  bake stay empty rather than shifting the direction offsets into a second
+ *  arithmetic; see head comment #2). */
 export const RIG_STRIP_ROWS = RIG_ROW_CLIPS.length * 4;
 
 /** Widest ping-ponged clip — the strip is as wide as its longest row. */
@@ -151,10 +190,11 @@ export async function bakeRigStripRows(
   onYield: YieldFn = idle,
 ): Promise<RigStripRow[]> {
   const out: RigStripRow[] = [];
-  for (const { anim, clip } of RIG_ROW_CLIPS) {
+  for (const { anim, clip, facings } of RIG_ROW_CLIPS) {
     const rowBase = LPC_ANIMATIONS[anim].rowBase - STANDARD_SHEET_ROWS;
     const order = pingPongOrder(clip.frames);
-    for (const facing of RIG_FACING_BAKES) {
+    for (const dir of facings) {
+      const facing = RIG_FACING_BAKES[dir];
       const posed = sheets.map((sheet, i): PoseLayer => ({
         raster: sliceSourceCell(sheet, facing.sheetRow, HUMANOID_SOURCE.col, RIG_CELL),
         assign: layers[i]?.assign,
@@ -170,10 +210,14 @@ export async function bakeRigStripRows(
         baked.push(frame);
         await onYield();
       }
-      out.push({
-        row: rowBase + LPC_DIR_OFFSET[facing.dir],
-        frames: order.map((f) => baked[f]),
-      });
+      const frames = order.map((f) => baked[f]);
+      out.push({ row: rowBase + LPC_DIR_OFFSET[dir], frames });
+
+      // Free mirror: `left`'s baked frames flipped, never a second pose pass.
+      const mirrorDir = RIG_MIRRORS[dir];
+      if (mirrorDir) {
+        out.push({ row: rowBase + LPC_DIR_OFFSET[mirrorDir], frames: frames.map(mirrorFrame) });
+      }
     }
   }
   return out;
@@ -182,7 +226,7 @@ export async function bakeRigStripRows(
 /**
  * Paint baked rows onto a strip canvas. Straight-alpha `putImageData` (the
  * frames are un-premultiplied RGBA straight out of `renderPose`); untouched
- * rows — the unauthored west/east facings — stay transparent.
+ * rows — whichever facing pair a row did not bake — stay transparent.
  */
 export function paintRigStrip(rows: readonly RigStripRow[]): HTMLCanvasElement {
   const canvas = document.createElement('canvas');

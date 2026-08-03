@@ -29,7 +29,7 @@ import type { Direction } from './types';
 export type NpcAnimation =
   | 'walk' | 'spellcast' | 'thrust' | 'slash' | 'shoot' | 'hurt'
   // Rig rows — baked, not vendored (see STANDARD_SHEET_ROWS).
-  | 'pray-raise' | 'idle-shift';
+  | 'pray-raise' | 'idle-shift' | 'march';
 
 /**
  * Rows the vendored universal sheet itself occupies (`SHEET_HEIGHT` 3456 ÷ 64 in
@@ -48,7 +48,17 @@ export function isRigRow(spec: LpcAnimSpec): boolean {
 export interface AnimFallback {
   /** A STANDARD-block animation — the fallback must always be renderable. */
   readonly anim: NpcAnimation;
-  /** Pin this column instead of carrying the live frame (walk col 0 = idle stand). */
+  /**
+   * Pin this column instead of carrying the live frame (walk col 0 = idle
+   * stand). Omit it to carry the live frame — but "carry" means the fallback
+   * plays at the SAME fractional position in ITS OWN cycle, not literally
+   * `npc.frame` unchanged: a rig row's ping-ponged strip and the vendored
+   * row it falls back to rarely share a column count (march's 32-column
+   * strip against walk's 8), so passing the raw index through would just
+   * clamp to the narrower spec's `lastCol` for most of the wider cycle —
+   * frozen, not moving. `resolveNpcFrame` (`render/npc-animator.ts`) does the
+   * proportional remap; this field only says whether to do it.
+   */
   readonly col?: number;
 }
 
@@ -65,9 +75,11 @@ export interface LpcAnimSpec {
   readonly loop: boolean;
   /**
    * Facings whose rows actually carry pixels. Absent → all four (the vendored
-   * rows are complete). The rig authors SOUTH and NORTH only — west is its own
-   * profile chip vocabulary with no devotional clips authored against it yet
-   * (`facing.ts`), and east is west mirrored, so both stay empty and fall back.
+   * rows are complete). A rig row bakes EITHER the front pair (south stationary
+   * poses, sharing one chip vocabulary with north) OR the profile pair (march,
+   * authored against west's own vocabulary and mirrored to east) — never all
+   * four, since the unbaked facings fall back instead (`RIG_FACINGS` vs
+   * `MARCH_FACINGS`, `facing.ts`).
    */
   readonly facings?: readonly Direction[];
   /** Set on rig rows: what to play until the bake lands. */
@@ -85,6 +97,27 @@ const RIG_FALLBACK: AnimFallback = { anim: 'walk', col: 0 };
 /** Facings the rig bakes (south + north share one chip vocabulary). */
 const RIG_FACINGS: readonly Direction[] = ['down', 'up'];
 
+/**
+ * `march`'s fallback for the facings it does NOT bake — the inverse of
+ * `RIG_FALLBACK`. `pray-raise`/`idle-shift` are STATIONARY, so standing still
+ * while unbaked is the honest picture; march's whole point is an NPC in
+ * motion, so its fallback is the vendored WALK ROW carrying the live cycle
+ * position (no `col` pin) rather than the idle stand — a marching soldier
+ * seen head-on reads as walking, not as frozen mid-stride or standing still.
+ */
+const MARCH_FALLBACK: AnimFallback = { anim: 'walk' };
+
+/**
+ * Facings march bakes. Unlike `RIG_FACINGS`, this is PROFILE only: march is
+ * authored against the west chip vocabulary (`lpc-humanoid-west.ts`) and reads
+ * as a march only there — projected onto the coronal (frontal) plane the
+ * marching leg swing all but vanishes (~24° against 61–68° in profile), so
+ * the south/north bake is structurally clean but visually reads as standing
+ * with a bob, not marching. East is never authored — `left` bakes WEST and
+ * `right` is the mirrored result (`facing.ts`).
+ */
+const MARCH_FACINGS: readonly Direction[] = ['left', 'right'];
+
 export const LPC_ANIMATIONS: Record<NpcAnimation, LpcAnimSpec> = {
   spellcast: { rowBase: 0,  firstCol: 0, lastCol: 6,  directional: true,  loop: true },
   thrust:    { rowBase: 4,  firstCol: 0, lastCol: 7,  directional: true,  loop: true },
@@ -98,6 +131,10 @@ export const LPC_ANIMATIONS: Record<NpcAnimation, LpcAnimSpec> = {
   // closes without a pop. pray-raise is 7 frames → 12 cols; idle-shift 8 → 14.
   'pray-raise': { rowBase: 54, firstCol: 0, lastCol: 11, directional: true, loop: true, facings: RIG_FACINGS, fallback: RIG_FALLBACK },
   'idle-shift': { rowBase: 58, firstCol: 0, lastCol: 13, directional: true, loop: true, facings: RIG_FACINGS, fallback: RIG_FALLBACK },
+  // march is 17 frames (the importer's own aliasing sweep: 9 sat at 8.0° RMS /
+  // 26.6° worst step, 17 clears it at 2.7° / 6.3°) → 2×17−2 = 32 ping-ponged
+  // columns, lastCol 31 — by far the widest row the shared strip carries.
+  'march': { rowBase: 62, firstCol: 0, lastCol: 31, directional: true, loop: true, facings: MARCH_FACINGS, fallback: MARCH_FALLBACK },
 };
 
 /** Direction → row offset from an animation's `rowBase` (LPC order: n,w,s,e). */

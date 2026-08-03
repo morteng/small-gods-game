@@ -52,18 +52,33 @@ export function stationaryAnimation(p: NpcProperties): NpcAnimation {
   return 'idle-shift';
 }
 
-/** Milliseconds per frame of the walk cycle (columns 1..8; column 0 is the idle stand). */
+/** Milliseconds per frame of the walk/march cycle (walk columns 1..8; column 0 is the idle stand). */
 const WALK_FRAME_MS = 150;
 
-/** Advance the walk cycle for an NPC that is MOVING — ground path, mural stair or wall-walk alike.
- *  (Facing is the caller's business: it knows what it is moving toward.) */
+/**
+ * Which animation a MOVING NPC should play. `march` is a RIG row exactly like
+ * `pray-raise`/`idle-shift` — the sim names it unconditionally and the
+ * renderer falls back to the vendored walk row for as long as that NPC's
+ * wardrobe/facing has not been baked (`core/npc-animation.ts`).
+ */
+function movingAnimation(p: NpcProperties): NpcAnimation {
+  return p.role === 'soldier' ? 'march' : 'walk';
+}
+
+/** Advance the walk/march cycle for an NPC that is MOVING — ground path, mural stair or wall-walk
+ *  alike. (Facing is the caller's business: it knows what it is moving toward.) */
 export function animateWalking(p: NpcProperties, dtMs: number): void {
-  if (p.animation !== 'walk') { p.animation = 'walk'; p.frame = 0; }
-  if (p.frame === 0) p.frame = 1;
+  const anim = movingAnimation(p);
+  const spec = LPC_ANIMATIONS[anim];
+  if (p.animation !== anim) { p.animation = anim; p.frame = 0; }
+  // Walk reserves column 0 as the idle stand, outside its 1..8 cycle — moving
+  // must never land there. march has no such reserved column (frame 0 IS a
+  // marching pose), so this correction is walk-only.
+  if (anim === 'walk' && p.frame === 0) p.frame = spec.firstCol;
   p.frameTimer += dtMs;
   if (p.frameTimer >= WALK_FRAME_MS) {
     p.frameTimer -= WALK_FRAME_MS;
-    p.frame = p.frame >= 8 ? 1 : p.frame + 1;
+    p.frame = p.frame >= spec.lastCol ? spec.firstCol : p.frame + 1;
   }
 }
 

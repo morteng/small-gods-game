@@ -6,8 +6,11 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import { bakeClip, type PoseLayer } from '@/render/paperdoll/rig';
 import { CLIP_PRAY_RAISE, HUMANOID_SOURCE, LPC_HUMANOID_SOUTH } from '@/render/paperdoll/lpc-humanoid';
 import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
+import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST, mirrorFrame } from '@/render/paperdoll/lpc-humanoid-west';
+import { CLIP_MARCH_LEFT } from '@/render/paperdoll/clips/march';
 import { sliceSourceCell } from '@/render/paperdoll/humanoid-loader';
 import type { Raster } from '@/render/sprite-postprocess';
+import type { Direction } from '@/core/types';
 import { LPC_ANIMATIONS, LPC_DIR_OFFSET, STANDARD_SHEET_ROWS } from '@/core/npc-animation';
 import {
   bakeRigStripRows,
@@ -95,15 +98,40 @@ describe('runtime rig-row bake', { timeout: 60_000 }, () => {
     expect(north.frames.map(bytes)).toEqual(order.map((f) => bytes(expected[f])));
   });
 
-  it('bakes south + north for every clip and leaves the profile facings empty', () => {
-    expect(rows.length).toBe(RIG_ROW_CLIPS.length * 2);
-    for (const { anim } of RIG_ROW_CLIPS) {
+  it('bakes each row exactly the facings it declares, mirrored left→right, and leaves the rest empty', () => {
+    for (const { anim, facings } of RIG_ROW_CLIPS) {
       const base = LPC_ANIMATIONS[anim].rowBase - STANDARD_SHEET_ROWS;
-      const got = rows.filter((r) => r.row >= base && r.row < base + 4).map((r) => r.row).sort();
-      // West is authored against a different chip vocabulary and east mirrors
-      // west, so neither has a devotional clip to bake — they fall back instead.
-      expect(got).toEqual([base + LPC_DIR_OFFSET.up, base + LPC_DIR_OFFSET.down].sort());
+      const expectedDirs = new Set<Direction>(facings);
+      if (facings.includes('left')) expectedDirs.add('right');
+      const got = rows.filter((r) => r.row >= base && r.row < base + 4).map((r) => r.row).sort((a, b) => a - b);
+      const expected = [...expectedDirs].map((d) => base + LPC_DIR_OFFSET[d]).sort((a, b) => a - b);
+      expect(got, anim).toEqual(expected);
     }
+  });
+
+  it('bakes march against WEST and mirrors it to east — no south/north rows', () => {
+    const spec = LPC_ANIMATIONS['march'];
+    const base = spec.rowBase - STANDARD_SHEET_ROWS;
+    const west = rows.find((r) => r.row === base + LPC_DIR_OFFSET.left);
+    const east = rows.find((r) => r.row === base + LPC_DIR_OFFSET.right);
+    expect(west, 'west row').toBeDefined();
+    expect(east, 'east row').toBeDefined();
+
+    const westLayers: PoseLayer[] = sheets.map((s, i) => ({
+      raster: sliceSourceCell(s, HUMANOID_WEST_SOURCE.row, HUMANOID_WEST_SOURCE.col, RIG_CELL),
+      assign: layers[i].assign,
+    }));
+    const expected = bakeClip(LPC_HUMANOID_WEST, westLayers, CLIP_MARCH_LEFT, {
+      supersample: RIG_BAKE_SUPERSAMPLE,
+    });
+    const order = pingPongOrder(CLIP_MARCH_LEFT.frames);
+    expect(west!.frames.map(bytes)).toEqual(order.map((f) => bytes(expected[f])));
+
+    // East is west mirrored frame-for-frame, not a second bake.
+    expect(east!.frames.map(bytes)).toEqual(west!.frames.map((f) => bytes(mirrorFrame(f))));
+
+    expect(rows.find((r) => r.row === base + LPC_DIR_OFFSET.down)).toBeUndefined();
+    expect(rows.find((r) => r.row === base + LPC_DIR_OFFSET.up)).toBeUndefined();
   });
 
   it('is deterministic — a second bake of the same wardrobe is byte-identical', async () => {
@@ -111,10 +139,10 @@ describe('runtime rig-row bake', { timeout: 60_000 }, () => {
     expect(again.map((r) => r.frames.map(bytes))).toEqual(rows.map((r) => r.frames.map(bytes)));
   });
 
-  it('yields after every frame, not once per clip — a chunk is one frame', async () => {
+  it('yields once per BAKED frame — mirroring is free and yields nothing extra', async () => {
     let yields = 0;
     await bakeRigStripRows(sheets, layers, () => { yields++; return Promise.resolve(); });
-    const frames = RIG_ROW_CLIPS.reduce((n, { clip }) => n + clip.frames, 0);
-    expect(yields).toBe(frames * 2); // × south + north
+    const frames = RIG_ROW_CLIPS.reduce((n, { clip, facings }) => n + clip.frames * facings.length, 0);
+    expect(yields).toBe(frames);
   });
 });

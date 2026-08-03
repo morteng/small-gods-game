@@ -1,6 +1,6 @@
 import type { NpcInstance, NpcProperties } from '@/core/types';
 import type { World } from '@/world/world';
-import { isRigRow, LPC_ANIMATIONS, LPC_DIR_OFFSET, STANDARD_SHEET_ROWS } from '@/core/npc-animation';
+import { isRigRow, LPC_ANIMATIONS, LPC_DIR_OFFSET, STANDARD_SHEET_ROWS, type LpcAnimSpec } from '@/core/npc-animation';
 
 /** Walk cycle frame duration in ms (~6.7 FPS) */
 export const FRAME_MS = 150;
@@ -30,6 +30,20 @@ export interface NpcFrameRef {
 }
 
 /**
+ * Map a frame from one animation's cycle onto another's by FRACTIONAL cycle
+ * position, not raw index. A rig row's ping-ponged strip and the vendored row
+ * it falls back to rarely share a column count (march's 32-column strip vs
+ * walk's 8-column cycle) — passing `npc.frame` through unchanged would clamp
+ * to the narrower spec's `lastCol` for most of the wider cycle, i.e. a soldier
+ * frozen mid-stride rather than walking. See `AnimFallback.col`'s doc.
+ */
+function mapCyclePosition(from: LpcAnimSpec, frame: number, to: LpcAnimSpec): number {
+  const span = from.lastCol - from.firstCol;
+  const t = span > 0 ? (frame - from.firstCol) / span : 0;
+  return to.firstCol + Math.round(t * (to.lastCol - to.firstCol));
+}
+
+/**
  * Resolve an NPC's current frame to source coordinates.
  * Spritesheet frame size: 64×64px.
  *
@@ -41,9 +55,10 @@ export interface NpcFrameRef {
  * Rig rows (`rowBase >= STANDARD_SHEET_ROWS`) are addressed in the same row
  * space but live on the companion strip canvas, so their row is rebased onto it.
  * When the strip has not been baked yet — or the sim picked a facing the rig
- * never authored (west/east) — the animation's `fallback` takes over, which is
- * why the sim can name a rig state unconditionally and the renderer degrades
- * gracefully instead of drawing a hole.
+ * never authored (west/east for the stationary rows; down/up for march) — the
+ * animation's `fallback` takes over, which is why the sim can name a rig state
+ * unconditionally and the renderer degrades gracefully instead of drawing a
+ * hole.
  */
 export function resolveNpcFrame(npc: NpcInstance, rigReady: boolean): NpcFrameRef {
   const anim = npc.animation ?? 'walk';
@@ -54,8 +69,9 @@ export function resolveNpcFrame(npc: NpcInstance, rigReady: boolean): NpcFrameRe
     rig = rigReady && (spec.facings?.includes(npc.direction) ?? true);
     if (!rig) {
       const fb = spec.fallback ?? { anim: 'walk' as const, col: 0 };
-      spec = LPC_ANIMATIONS[fb.anim];
-      frame = fb.col ?? frame;
+      const fbSpec = LPC_ANIMATIONS[fb.anim];
+      frame = fb.col ?? mapCyclePosition(spec, frame, fbSpec);
+      spec = fbSpec;
     }
   }
   const dirOff = spec.directional ? (LPC_DIR_OFFSET[npc.direction] ?? 2) : 0;

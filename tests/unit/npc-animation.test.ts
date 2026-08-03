@@ -128,3 +128,43 @@ describe('rig rows', () => {
     expect(profile).toEqual({ sx: 0, sy: (8 + LPC_DIR_OFFSET.left) * 64, rig: false });
   });
 });
+
+describe('march (profile rig row)', () => {
+  it('is authored for left + right only — the inverse of pray-raise/idle-shift', () => {
+    expect([...LPC_ANIMATIONS['march'].facings!].sort()).toEqual(['left', 'right']);
+  });
+
+  it('reads off the STRIP on its authored (profile) facings when baked', () => {
+    const spec = LPC_ANIMATIONS['march'];
+    const west = resolveNpcFrame(npc({ animation: 'march', direction: 'left', frame: 10 }), true);
+    expect(west.rig).toBe(true);
+    expect(west.sx).toBe(10 * 64);
+    expect(west.sy).toBe((spec.rowBase - STANDARD_SHEET_ROWS + LPC_DIR_OFFSET.left) * 64);
+
+    const east = resolveNpcFrame(npc({ animation: 'march', direction: 'right', frame: 10 }), true);
+    expect(east.rig).toBe(true);
+    expect(east.sy).toBe((spec.rowBase - STANDARD_SHEET_ROWS + LPC_DIR_OFFSET.right) * 64);
+  });
+
+  it('falls back to the vendored WALK row for south/north, carrying cycle POSITION not raw frame', () => {
+    // march frame 0 of its 0..31 cycle = cycle start -> walk's cycle start (col 1).
+    const start = resolveNpcFrame(npc({ animation: 'march', direction: 'down', frame: 0 }), true);
+    expect(start).toEqual({ sx: 1 * 64, sy: 10 * 64, rig: false });
+
+    // march's LAST frame (31) = cycle end -> walk's LAST column (8).
+    const end = resolveNpcFrame(npc({ animation: 'march', direction: 'up', frame: 31 }), true);
+    expect(end).toEqual({ sx: 8 * 64, sy: 8 * 64, rig: false });
+
+    // A literal frame carry-through would clamp anything past column 8 to 8 —
+    // prove the MIDPOINT of the march cycle does not read as walk's last
+    // frame (frozen), which is exactly the bug the proportional remap avoids.
+    const mid = resolveNpcFrame(npc({ animation: 'march', direction: 'down', frame: 16 }), true);
+    expect(mid.sx).not.toBe(8 * 64);
+    expect(mid.sx).toBe(5 * 64); // 1 + round((16/31)*7) = 5
+  });
+
+  it('also falls back — same walk row — when the strip is simply unbaked', () => {
+    const unbaked = resolveNpcFrame(npc({ animation: 'march', direction: 'left', frame: 0 }), false);
+    expect(unbaked).toEqual({ sx: 1 * 64, sy: (8 + LPC_DIR_OFFSET.left) * 64, rig: false });
+  });
+});
