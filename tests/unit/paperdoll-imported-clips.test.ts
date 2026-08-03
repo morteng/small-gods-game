@@ -107,9 +107,6 @@ const GOLDEN: Record<string, string> = {
   'march/down': 'cf6add2c',
   'march/up': '242a2218',
   'march/left': '5c2b00c1',
-  'dig/down': '12a79a43',
-  'dig/up': 'e4ed8cd5',
-  'dig/left': '6831d2f8',
 };
 
 describe('imported clips — the bake, not just the keyframes', () => {
@@ -163,10 +160,11 @@ describe('imported clips — a looping clip must not pop at the wrap', () => {
     } else {
       // `IMPORTED_CLIP_META[id].loop` is the importer's own `FACINGS.every(...)`
       // (`runImport`'s `metrics.loops`), so it reads false the moment ONE facing
-      // fails to close — not because none of them do. `dig` is exactly that:
-      // `down`/`up` close at 0° gap but `left` measures 11.5° on `armFar_up`, a
-      // real capture asymmetry (see the importer's capture table), so the
-      // honest assertion is "at least one facing disagrees", not "all of them".
+      // fails to close — not because none of them do, which is why the honest
+      // assertion here is "at least one facing disagrees" rather than "all of
+      // them". The declined `dig` capture was the clean example: `down`/`up`
+      // closed at 0° while `left` measured 11.5° on `armFar_up`, a real capture
+      // asymmetry rather than a fitting artifact.
       expect(agree.some((a) => !a)).toBe(true);
     }
   });
@@ -233,14 +231,6 @@ describe('imported clips — the profile leg must not come apart', () => {
     // march: 0 stray / 90 hole over 17 frames — clean, comparable to the wave's
     // west budget at roughly the same frame count.
     march: { stray: 5, hole: 100 },
-    // dig: 0 stray / 963 hole over 65 frames — no severed pieces (`parts` stays
-    // 1 every frame), but the per-frame hole count is real and this clip is
-    // 65 frames against the walks' 9-17, so the SUM is not comparable to theirs
-    // without accounting for length. See `tmp/motion/dig-worst-9x.png`: the
-    // gap this is measuring is a bent-over dig pose's hip/thigh crease, not a
-    // torn limb — worth the human's own look, not smoothed into a bigger walk
-    // budget.
-    dig: { stray: 5, hole: 1000 },
   };
 
   it.each(CLIP_IDS.map((id) => ({ id })))('$id west stays in one piece', ({ id }) => {
@@ -291,15 +281,20 @@ describe('imported clips — the profile leg must not come apart', () => {
  * that gap generically, for every imported clip, the same way the west block
  * already does for `left`.
  *
- * Budgets are RAW bake, whole clip, summed — read them beside the clip's
- * frame count (`dig` is 65 frames against the walks' 9-17, so its sum is not
- * comparable to theirs without accounting for length):
+ * Budgets are RAW bake, whole clip, summed — so read them BESIDE the clip's
+ * frame count, never against each other: `wave` runs 33 frames to the walks'
+ * 9, and a sum is not a rate.
  *
  *   walk        down   0 stray /  14 hole   up   0 /   9
  *   walk-brisk  down   0        /  15        up   0 /  13
  *   wave        down   0        / 116        up   0 /  24   (Clip.skinBand: 1)
- *   march       down   0        /  25        up   0 /  19   (Clip.skinBand: 1, M5c)
- *   dig         down   0        / 323        up   0 / 286
+ *   march       down   0        /  25        up   0 /  19   (Clip.skinBand: 1)
+ *
+ * The declined `dig` capture is why these are bounds and not a rubber stamp:
+ * it measured 323 / 286 here, and landing that as a budget would have written
+ * "323 holes is fine" into the one file a later reader consults to learn what
+ * good looks like. It was removed rather than accommodated — see the importer's
+ * declined-captures register.
  *
  * `wave`'s numbers here are the COMBINED effect of M5a (translate forearms)
  * and M5b (`Clip.skinBand: 1`) — a few px different from M5b's own measurement
@@ -353,8 +348,6 @@ describe('imported clips — down/up must not come apart either', () => {
     'wave/up': { stray: 5, hole: 45 },
     'march/down': { stray: 5, hole: 40 },
     'march/up': { stray: 5, hole: 35 },
-    'dig/down': { stray: 5, hole: 360 },
-    'dig/up': { stray: 5, hole: 320 },
   };
 
   const cases = CLIP_IDS.flatMap((id) => (['down', 'up'] as const).map((facing) => ({ id, facing })));

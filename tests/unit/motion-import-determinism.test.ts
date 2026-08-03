@@ -117,11 +117,13 @@ describe('motion import — a byte-identical clip can still be a wrong clip', ()
     // would be the wrong kind of helpful. But whether a facing closes is a
     // PER-FACING decision inside `closeLoop` (bvh.ts): a facing whose own
     // residual exceeds tolerance is left open even when the other two close.
-    // That used to be a distinction without a difference — every capture
-    // imported so far closed uniformly across all three facings — until
-    // `dig`: its `left` measures an 11.5° gap on `armFar_up` (a real capture
-    // asymmetry, not a fitting artifact — see the importer's capture table)
-    // while `down`/`up` close at 0°. So the right check is against
+    // That looked like a distinction without a difference — every capture
+    // imported so far closed uniformly across all three facings — until the
+    // `dig` capture, whose `left` measured an 11.5° gap on `armFar_up` while
+    // `down`/`up` closed at 0°. That capture was declined for unrelated
+    // reasons (see the importer's declined register) and is no longer in the
+    // tree, but the asymmetry it exposed is a property of real mocap, not of
+    // that one file, so the check stays per-facing. The right check is against
     // `metrics.facings[].loopDeg`, the same per-facing measurement `runImport`
     // itself derived, not a single clip-wide "was this imported as cyclic"
     // flag that assumes every facing agrees.

@@ -62,7 +62,7 @@ describe('RIGS — every offered clip is actually playable on its facing', () =>
 describe('the humanoid facings', () => {
   it('offers every imported clip on all three facings', () => {
     const imported = Object.keys(IMPORTED_CLIPS);
-    expect(imported).toHaveLength(5); // walk, walk-brisk, wave, march, dig (M5a)
+    expect(imported).toHaveLength(4); // walk, walk-brisk, wave, march
     expect(humanoid.facings.map((f) => f.id)).toEqual(['down', 'up', 'left']);
     for (const f of humanoid.facings) {
       const names = f.clips.map((c) => c.name);

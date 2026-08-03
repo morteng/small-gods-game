@@ -242,34 +242,6 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
     opts: { range: [361, 509], frames: 17, referenceFrame: 'mean' },
     skinBand: { down: 1, up: 1 },
   },
-  {
-    id: 'dig',
-    source: '79_04.bvh',
-    note:
-      'digging, in place. No footfall cycle to find here — the stance foot never leaves ' +
-      'the ground for the whole capture (`--contacts` shows LeftFoot in stance 1-909), ' +
-      'so the cycle comes from the swing of the dig itself: `--periods --from 540` finds ' +
-      'P=148 minimizes the first/last pose distance (0.756px) at 0.4px of travel, which ' +
-      'is the in-place confirmation `--contacts` cannot give. Range [540, 688]. ' +
-      '`--sweep` shows the SAME two-knob story the wave was imported under, independently ' +
-      'reproduced: at the default 12 keys, MORE frames makes the fit WORSE, not better ' +
-      '(33 frames: 4.1deg RMS; 65 frames: 4.9deg RMS) because 65 baked poses are being ' +
-      'asked to fit through the same 12-key budget that 33 already strained. Frames alone ' +
-      'cannot fix that — 33 frames plateaus at 2.9deg RMS / 18.8deg peak past maxKeys 20, ' +
-      'no matter how high maxKeys goes. Raising BOTH — frames to 65, maxKeys to 24 — reaches ' +
-      '1.6deg RMS / 6.3deg peak, better than the walk at 9 frames (5.6 / 19.4) and the wave ' +
-      'at 33/24 (4.8 / 13.8). Frontal forearms ride `mode: \'translate\'` here too: this ' +
-      'capture is the ±107deg flail case the bone-map fix exists for, and profile (`left`) ' +
-      'keeps its rotation (0.61-0.95 in-plane across the dig, against 0.22-0.34 frontal). ' +
-      'HONEST ASTERISK: `left` does not loop-close (`loop: \'auto\'` measures an 11.5deg gap ' +
-      'on `armFar_up`, over the 8deg tolerance) while `down`/`up` close at 0deg — a real ' +
-      'shoulder-angle mismatch between this range\'s endpoints, not a fitting artifact ' +
-      '(constant across maxKeys 24..48, and shifting the start frame ±5 only gets it to ' +
-      '10.5deg). So `IMPORTED_CLIP_META.loop` reads false for the whole clip even though ' +
-      'the capture visibly repeats; the west view is the one that will show a small pop at ' +
-      'the wrap. Left for the studio (M2) to judge against the render, not smoothed over here.',
-    opts: { range: [540, 688], frames: 65, maxKeys: 24, referenceFrame: 'mean' },
-  },
 ];
 
 /*
@@ -289,10 +261,13 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
  * faked with translation"). That moved both captures from declined to
  * imported; what stays declined below could not be fixed the same way.
  *
- * - `79_04.bvh` digging — STILL IMPORTED as `dig` (checked in, listed in
- *   `MOTION_IMPORTS` above) pending a call this file cannot make by itself,
- *   but the numbers argue for declining it, on grounds that have nothing to
- *   do with the bone-map fix above. Three problems, each independent:
+ * - `79_04.bvh` digging — IMPORTED, LOOKED AT, THEN DECLINED. It is the only
+ *   capture here that got as far as checked-in clip files before being cut, so
+ *   the options it was measured under are recorded for whoever revisits it:
+ *   `{ range: [540, 688], frames: 65, maxKeys: 24, referenceFrame: 'mean' }`,
+ *   which fits at 1.6deg RMS / 6.3deg peak — better than the walk (5.6 / 19.4)
+ *   or the wave (4.8 / 13.8). The FIT was never the problem. Three others were,
+ *   each independent, and none of them touched by the bone-map fix above:
  *
  *   1. IT DOES NOT READ AS DIGGING. At 64px a dig is a SHOVEL, and there is
  *      no held-tool attachment authored on this clip (`attachment.ts` supports
@@ -320,10 +295,20 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
  *
  *   None of these three is fatal alone — (2) is a budget that could be raised
  *   if the clip earned it, (3) is one facing out of three. Together, on a clip
- *   whose whole point is to read as its own name and currently does not, they
- *   are the case for declining it. Left IMPORTED rather than deleted here —
- *   this bullet is a recommendation for the human looking at the renders, not
- *   a removal.
+ *   whose whole point is to read as its own name and does not, they are the
+ *   case that carried: the clip files, their goldens and their fragmentation
+ *   budgets are gone, and this note is what remains.
+ *
+ *   The budgets are why the removal was not merely tidiness. `dig` baked 323
+ *   and 286 hole px on down/up, and landing those as entries in the frontal
+ *   fragmentation gate would have written "323 holes is acceptable" into the
+ *   one place a later reader goes to learn what good looks like. A gate that
+ *   defends a bad number teaches the bad number.
+ *
+ *   RE-IMPORT WHEN, NOT IF: (1) is the blocker and it is a CONTENT problem, so
+ *   it is fixed by a held-tool attachment (`attachment.ts` already pins a prop
+ *   to a chip), not by anything in this file. Give the clip a shovel and the
+ *   other two become ordinary budget questions.
  *
  * - `62_07.bvh` "hammering a nail". There is no hammering in it to import. Peak
  *   hand motion over any half-second window is 0.20 figure heights of total path
