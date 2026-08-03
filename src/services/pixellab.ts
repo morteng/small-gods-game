@@ -1,7 +1,14 @@
+/**
+ * The PixelLab backend: everything provider-SPECIFIC about talking to
+ * api.pixellab.ai — request shape, style enums, its own cache-key recipe, key
+ * and balance management.
+ *
+ * The asset store it used to contain now lives in `sprite-library.ts`, which is
+ * provider-neutral; this file depends on it, never the reverse. Nothing here
+ * may leak into the library (spec contract 3: no provider-specific field
+ * escapes its backend).
+ */
 import type {
-  AssetKind,
-  AssetQuery,
-  AssetSummary,
   LibraryAsset,
   PixelLabBalance,
   PixelLabGenerateOpts,
@@ -9,16 +16,11 @@ import type {
 } from '@/core/types';
 
 import { assetUrl } from '@/core/asset-url';
-import { matchesAsset } from './asset-match';
-import { withIdbTimeout } from './idb-guard';
 import { getPixellabApiKey, setPixellabApiKey, clearPixellabApiKey } from './settings-store';
+import { cacheGet, cachePut, normalizeTags } from './sprite-library';
 
 const API_BASE = 'https://api.pixellab.ai/v2';
 const PALETTE_URL = assetUrl('sprites/palette/lpc-anchor.png');
-
-const DB_NAME = 'smallgods.pixellab';
-const DB_STORE = 'assets';
-const DB_VERSION = 3;
 
 /**
  * Project-wide style recipe baked into every call. The palette swatch
@@ -48,22 +50,6 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(bin);
 }
 
-/** Normalize tags: lowercase, trim, dedupe (preserve first-occurrence order),
- *  drop empties. Called at write time so reads can be dumb. */
-export function normalizeTags(tags: string[] | undefined): string[] {
-  if (!tags || tags.length === 0) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of tags) {
-    const t = raw.trim().toLowerCase();
-    if (!t) continue;
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
-  }
-  return out;
-}
-
 function base64ToBlob(b64: string, mime = 'image/png'): Blob {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -77,132 +63,6 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(hash))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-}
-
-// ─── IndexedDB cache ──────────────────────────────────────────────────────────
-
-/** Cached connection — reused across calls; closed by `_resetDbForTesting`. */
-let _db: IDBDatabase | null = null;
-
-/**
- * Test-only: close the cached DB connection so that tests can call
- * `indexedDB.deleteDatabase` without hitting a blocked state.
- * Not needed in production (the browser closes the connection on unload).
- */
-export function _resetDbForTesting(): void {
-  if (_db) { _db.close(); _db = null; }
-}
-
-function openDb(): Promise<IDBDatabase> {
-  if (_db) return Promise.resolve(_db);
-  // Guarded: a wedged backing store leaves open() pending forever, and boot
-  // awaits the asset library (see idb-guard.ts). Transactions on a healthy,
-  // already-open connection are left unguarded.
-  return withIdbTimeout(new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (event) => {
-      const db = req.result;
-      const tx = req.transaction!;
-      const oldVersion = event.oldVersion;
-
-      let store: IDBObjectStore;
-      if (!db.objectStoreNames.contains(DB_STORE)) {
-        store = db.createObjectStore(DB_STORE, { keyPath: 'key' });
-      } else {
-        store = tx.objectStore(DB_STORE);
-      }
-
-      // v1 → v2: backfill metadata fields and add indexes
-      if (oldVersion < 2) {
-        // Backfill every existing record
-        const cursorReq = store.openCursor();
-        cursorReq.onsuccess = () => {
-          const cursor = cursorReq.result;
-          if (!cursor) return;
-          const v = cursor.value as Record<string, unknown>;
-          // Only touch records that don't already have schemaVersion
-          if (v.schemaVersion !== 2) {
-            cursor.update({
-              ...v,
-              schemaVersion: 2,
-              curated: 'pending',
-              origin: 'sandbox',
-              kind: 'unknown',
-              tags: [],
-            });
-          }
-          cursor.continue();
-        };
-
-        // Create new indexes
-        if (!store.indexNames.contains('kind')) store.createIndex('kind', 'kind');
-        if (!store.indexNames.contains('curated')) store.createIndex('curated', 'curated');
-        if (!store.indexNames.contains('tags')) {
-          store.createIndex('tags', 'tags', { multiEntry: true });
-        }
-      }
-
-      // v2 → v3: backfill generation metadata
-      if (oldVersion < 3) {
-        const cur3 = store.openCursor();
-        cur3.onsuccess = () => {
-          const cursor = cur3.result;
-          if (!cursor) return;
-          const v = cursor.value as Record<string, unknown>;
-          if (v.schemaVersion !== 3) {
-            cursor.update({
-              ...v,
-              // v1 → v2 defaults (safe no-ops for records already at v2)
-              curated: v.curated ?? 'pending',
-              origin: v.origin ?? 'sandbox',
-              kind: v.kind ?? 'unknown',
-              tags: v.tags ?? [],
-              // v2 → v3 fields
-              schemaVersion: 3,
-              provider: v.provider ?? 'pixellab',
-              model: v.model ?? 'pixflux',
-              style: v.style ?? 'pixel-art',
-              recipeVersion: v.recipeVersion ?? RECIPE_V,
-            });
-          }
-          cursor.continue();
-        };
-        if (!store.indexNames.contains('style')) store.createIndex('style', 'style');
-      }
-    };
-    req.onsuccess = () => { _db = req.result; resolve(_db); };
-    req.onerror = () => reject(req.error);
-  }), 'open');
-}
-
-async function cacheGet(key: string): Promise<LibraryAsset | null> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readonly');
-    const req = tx.objectStore(DB_STORE).get(key);
-    req.onsuccess = () => resolve(req.result ?? null);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function cachePut(asset: LibraryAsset): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).put(asset);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function cacheClear(): Promise<void> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DB_STORE, 'readwrite');
-    tx.objectStore(DB_STORE).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
 }
 
 // ─── Key storage ──────────────────────────────────────────────────────────────
@@ -226,7 +86,8 @@ export function clearApiKey(): void {
  *
  * Why a frozen recipe version: bumping `RECIPE_V` invalidates every cache
  * entry without needing to nuke IndexedDB by hand. Useful if we change the
- * palette swatch or style enums project-wide.
+ * palette swatch or style enums project-wide. Scoped to THIS backend — other
+ * backends key their own way; the library only stores the string.
  */
 export const RECIPE_V = 'v1';
 
@@ -311,7 +172,7 @@ export async function buildRequestBody(opts: PixelLabGenerateOpts) {
 
 /**
  * Generate a sprite via PixelLab Pixflux, with the project style recipe and
- * IndexedDB cache applied. Returns a PNG Blob.
+ * the sprite-library cache applied. Returns a PNG Blob.
  *
  * Returned object includes `cached: true` when the call hit IndexedDB and
  * never touched the network — useful for the UI to show a "cached" indicator.
@@ -328,6 +189,9 @@ export async function generate(
 ): Promise<GenerateResult> {
   const key = await sha256Hex(buildCacheKeyInput(opts));
   const origin = opts.origin ?? 'sandbox';
+  // Every pixflux call ships the LPC palette anchor as `color_image`, so LPC
+  // pixels are in the request unless a caller states otherwise (spec contract 7).
+  const lineage = opts.lineage ?? 'lpc-derived';
   const hit = await cacheGet(key);
 
   if (hit) {
@@ -343,6 +207,9 @@ export async function generate(
         description: opts.description ?? hit.description,
         style: opts.style ?? hit.style ?? 'pixel-art',
         affinity: opts.affinity ?? hit.affinity,
+        // Lineage describes how the stored pixels were made — the cached ones,
+        // not this call's. A promotion never rewrites it.
+        lineage: hit.lineage ?? lineage,
       };
       await cachePut(promoted);
     }
@@ -369,7 +236,7 @@ export async function generate(
   const blob = base64ToBlob(b64);
   const asset: LibraryAsset = {
     key,
-    schemaVersion: 3,
+    schemaVersion: 4,
     blob,
     prompt: opts.prompt,
     width: opts.width,
@@ -385,160 +252,8 @@ export async function generate(
     style: opts.style ?? 'pixel-art',
     recipeVersion: RECIPE_V,
     affinity: opts.affinity,
+    lineage,
   };
   await cachePut(asset);
   return { blob, cached: false, key };
 }
-
-/**
- * Library query. Returns only assets with `curated === 'kept'`, narrowed by
- * `kind` (required) and optional tag/size filters. Results are ordered
- * newest-first by `generatedAt`. Default limit 16.
- */
-export async function findAssets(q: AssetQuery): Promise<AssetSummary[]> {
-  const db = await openDb();
-  const tx = db.transaction(DB_STORE, 'readonly');
-  const store = tx.objectStore(DB_STORE);
-  const index = store.index('kind');
-
-  return new Promise<AssetSummary[]>((resolve, reject) => {
-    const matches: LibraryAsset[] = [];
-    const limit = q.limit ?? 16;
-    const req = index.openCursor(IDBKeyRange.only(q.kind));
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (!cursor) {
-        // Sort newest-first, then slice to limit, then project to summary
-        matches.sort((a, b) => b.generatedAt - a.generatedAt);
-        resolve(matches.slice(0, limit).map(toSummary));
-        return;
-      }
-      const a = cursor.value as LibraryAsset;
-      if (passesFilters(a, q)) matches.push(a);
-      cursor.continue();
-    };
-    req.onerror = () => reject(req.error);
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-/** All kept assets of a kind, newest-first, with full v3 metadata. Unlike
- *  findAssets() this applies no tag/size filtering — callers (AssetLibrary)
- *  filter via asset-match. */
-export async function listKeptSummaries(kind: AssetKind): Promise<AssetSummary[]> {
-  const db = await openDb();
-  const tx = db.transaction(DB_STORE, 'readonly');
-  const index = tx.objectStore(DB_STORE).index('kind');
-  return new Promise<AssetSummary[]>((resolve, reject) => {
-    const matches: LibraryAsset[] = [];
-    const req = index.openCursor(IDBKeyRange.only(kind));
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (!cursor) {
-        matches.sort((a, b) => b.generatedAt - a.generatedAt);
-        resolve(matches.map(toSummary));
-        return;
-      }
-      const a = cursor.value as LibraryAsset;
-      if (a.curated === 'kept') matches.push(a);
-      cursor.continue();
-    };
-    req.onerror = () => reject(req.error);
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-function passesFilters(a: LibraryAsset, q: AssetQuery): boolean {
-  if (a.curated !== 'kept') return false;
-  if (!matchesAsset(
-    { kind: a.kind, style: a.style ?? 'pixel-art', model: a.model ?? 'pixflux',
-      provider: a.provider ?? 'pixellab', tags: a.tags, affinity: a.affinity,
-      width: a.width, height: a.height },
-    { kind: q.kind, style: q.style ?? (a.style ?? 'pixel-art'),
-      model: q.model, provider: q.provider, size: q.size },
-  )) return false;
-  if (q.tagsAll && !q.tagsAll.every(t => a.tags.includes(t))) return false;
-  if (q.tagsAny && !q.tagsAny.some(t => a.tags.includes(t))) return false;
-  return true;
-}
-
-function toSummary(a: LibraryAsset): AssetSummary {
-  return {
-    id: a.key,
-    kind: a.kind,
-    tags: a.tags,
-    prompt: a.prompt,
-    description: a.description,
-    width: a.width,
-    height: a.height,
-    addedAt: a.generatedAt,
-    style: a.style ?? 'pixel-art',
-    model: a.model ?? 'pixflux',
-    provider: a.provider ?? 'pixellab',
-    affinity: a.affinity,
-  };
-}
-
-/** Resolve an asset id (= LibraryAsset.key) to its blob, or null if missing. */
-export async function getAssetBlob(id: string): Promise<Blob | null> {
-  const entry = await cacheGet(id);
-  return entry?.blob ?? null;
-}
-
-// ─── Curation actions ─────────────────────────────────────────────────────────
-
-/** Read-modify-write a single asset. No-op if id is unknown. */
-async function patchAsset(id: string, patch: Partial<LibraryAsset>): Promise<void> {
-  const existing = await cacheGet(id);
-  if (!existing) return;
-  await cachePut({ ...existing, ...patch });
-}
-
-/** Mark an asset as kept (queryable by `findAssets`). No-op if id unknown. */
-export async function markAssetKept(id: string): Promise<void> {
-  await patchAsset(id, { curated: 'kept' });
-}
-
-/** Mark an asset as rejected (excluded from `findAssets`). No-op if id unknown. */
-export async function markAssetRejected(id: string): Promise<void> {
-  await patchAsset(id, { curated: 'rejected' });
-}
-
-/**
- * Patch caller-facing metadata. Any provided field is overwritten; omitted
- * fields are unchanged. Tags are re-normalized.
- */
-export async function updateAssetMetadata(
-  id: string,
-  patch: Partial<Pick<LibraryAsset, 'kind' | 'tags' | 'description'>>,
-): Promise<void> {
-  const normalized: Partial<LibraryAsset> = { ...patch };
-  if (patch.tags !== undefined) normalized.tags = normalizeTags(patch.tags);
-  await patchAsset(id, normalized);
-}
-
-/** Diagnostic / dev-tool helper: list every asset (any curation status),
- *  ordered newest-first. Returns full LibraryAsset records (including blob). */
-export async function listRecentAssets(limit = 20): Promise<LibraryAsset[]> {
-  const db = await openDb();
-  const tx = db.transaction(DB_STORE, 'readonly');
-  const store = tx.objectStore(DB_STORE);
-  return new Promise<LibraryAsset[]>((resolve, reject) => {
-    const out: LibraryAsset[] = [];
-    const req = store.openCursor();
-    req.onsuccess = () => {
-      const cursor = req.result;
-      if (!cursor) {
-        out.sort((a, b) => b.generatedAt - a.generatedAt);
-        resolve(out.slice(0, limit));
-        return;
-      }
-      out.push(cursor.value as LibraryAsset);
-      cursor.continue();
-    };
-    req.onerror = () => reject(req.error);
-  });
-}
-
-// Re-export so the UI / tests can poke at the cache directly.
-export { cacheGet, cachePut, cacheClear };

@@ -4,14 +4,14 @@ import {
   cacheClear,
   cachePut,
   _resetDbForTesting,
-} from '@/services/pixellab';
+} from '@/services/sprite-library';
 import type { LibraryAsset } from '@/core/types';
 import { DecorationImageCache } from '@/render/decoration-image-cache';
 
 async function seed(key: string): Promise<void> {
   const full: LibraryAsset = {
     key,
-    schemaVersion: 3,
+    schemaVersion: 4,
     blob: new Blob([new Uint8Array([0])]),
     prompt: 'p',
     width: 32,
@@ -25,6 +25,7 @@ async function seed(key: string): Promise<void> {
     model: 'pixflux',
     style: 'pixel-art',
     recipeVersion: 'v1',
+    lineage: 'lpc-derived',
   };
   await cachePut(full);
 }
