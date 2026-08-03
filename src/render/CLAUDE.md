@@ -13,6 +13,7 @@
 
 - **Post-gen in-place `tile.type` writes MUST call `bumpTilesRev(map)`** (`src/core/tile-rev.ts`) — the terrain color memo (`packColorFieldMemo`) keys on `map.tilesRev`; without it the GPU paints the old ground until reload.
 - **Sprites paint OVER terrain** — below-grade geometry is NOT buried, it hangs over the ground. Ground fit is the terraced footing's job (`barrier-deformation.ts`).
+- **`GpuScene.uploadTexture` memoizes by CANVAS IDENTITY** (a `WeakMap` keyed on the canvas object). Pixels painted into an already-uploaded canvas NEVER reach the GPU — they just don't draw, with no error. Anything baked lazily must land on a **companion canvas whose identity first appears when it is complete** (`render/lpc/rig-rows.ts`), never appended to a published sheet.
 - **WGSL comment backticks BREAK the build.**
 - Zoom-LOD gates key on CAMERA zoom (`camZoom`), never `xform.sx`.
 - `__renderProfile` OVERSTATES water cost (it runs camera-less) — use `__renderTrace`. Headless runs have no WebGPU at all.
