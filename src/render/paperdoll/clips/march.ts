@@ -21,6 +21,27 @@
  * `HUMANOID_BVH_MAP`), so the ±94deg out-of-plane flail this capture used to
  * windmill stays off the rotation channel entirely and rides dx/dy instead —
  * the profile (`left`) facing is untouched and keeps genuine forearm rotation.
+ * FRONTAL LEGS TORE ON FIRST IMPORT (M5b follow-up): the ~24deg frontal leg
+ * swing — small next to the 61deg the west leg survives, but this is a
+ * DIFFERENT rig (the south/north leg chips, rected for the shipped
+ * `pray-raise`/`idle-shift`, not for a swing this size) — carried the
+ * shin/foot chip clean off the thigh: RAW bake, whole clip, 1104 stray px on
+ * down / 919 on up, the worst tearing measured on this rig (against 37 on the
+ * pre-M4 west walk). Same mechanism as the west leg and the wave arms, same
+ * fix, same discipline: swept `skinBand` 0..10 (RAW bake, `fragmentation`) and
+ * read the worst frames at 9x rather than trusting the count (M5b's own trap:
+ * a wide band can merge a hole with the outer silhouette instead of filling
+ * it). Band 1 alone drops BOTH facings to 0 stray px (down 25 hole, up 19) and
+ * the 9x crop shows genuinely REPAIRED legs, not a reclassified gap — band 2+
+ * buys nothing (hole count is flat-to-worse: down climbs to
+ * 22/26/29/31/36/50/41 at bands 2/3/4/5/6/8/10, up similarly noisy), so 1 is
+ * both the smallest and the best-measured. Unlike the wave, this is not the
+ * whole story: at `in-plane >= 0.04` (legR_up), the frontal leg swing is
+ * mostly a coronal-projection artifact of a capture that travels mostly toward
+ * the camera, so even a structurally sound bake reads as a NEAR-STATIONARY
+ * march head-on — band 1 fixes the tear, not the flatness. Left for the studio
+ * to judge against the render (`tmp/motion/march-sheet.png`), not decided
+ * here.
  *
  * Options: range [361, 509] · frames 17 ·
  *   referenceFrame 'mean' ·
@@ -167,6 +188,7 @@ export const CLIP_MARCH_DOWN: Clip = {
       { t: 1, deg: -7.5, dx: 0.5, dy: 2.5 },
     ],
   },
+  skinBand: 1,
 };
 
 export const CLIP_MARCH_UP: Clip = {
@@ -269,6 +291,7 @@ export const CLIP_MARCH_UP: Clip = {
       { t: 1, deg: 2, dx: 0.25, dy: 3 },
     ],
   },
+  skinBand: 1,
 };
 
 export const CLIP_MARCH_LEFT: Clip = {

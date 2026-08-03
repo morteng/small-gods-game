@@ -89,20 +89,23 @@ const GOLDEN: Record<string, string> = {
   // became `mode: 'translate'` in `HUMANOID_BVH_MAP` (see `bvh.ts`), so their
   // rotation now cancels the parent instead of carrying the elbow bend — a
   // projection change, not a capture change. `left` is untouched.
-  'walk/down': 'REGEN',
-  'walk/up': 'REGEN',
+  'walk/down': '8dff9ce0',
+  'walk/up': '80cf63e8',
   'walk/left': '1a75c1d5',
-  'walk-brisk/down': 'REGEN',
-  'walk-brisk/up': 'REGEN',
+  'walk-brisk/down': 'aa2dc35',
+  'walk-brisk/up': '98a839c3',
   'walk-brisk/left': '2a106379',
   // wave/down and wave/up carry BOTH M5a (translate forearms) and M5b
   // (`Clip.skinBand: 1` on CLIP_WAVE_DOWN/_UP, closing the arm tear at the
   // wave's 150°+ swing) — see `clips/wave.ts`.
-  'wave/down': 'REGEN',
-  'wave/up': 'REGEN',
+  'wave/down': '6ff4ff6a',
+  'wave/up': '2e3e386a',
   'wave/left': '687e7abb',
-  'march/down': 'REGEN',
-  'march/up': 'REGEN',
+  // march/down and march/up carry `Clip.skinBand: 1` (M5c, matching M5b's
+  // fix for the wave arms) — closes the 1104/919 stray-px leg tear at the
+  // ~24° frontal swing. `left` (no band) is untouched.
+  'march/down': 'cf6add2c',
+  'march/up': '242a2218',
   'march/left': '5c2b00c1',
   'dig/down': '12a79a43',
   'dig/up': 'e4ed8cd5',
@@ -276,6 +279,102 @@ describe('imported clips — the profile leg must not come apart', () => {
     const landed = strayOf(LPC_HUMANOID_WEST);
     expect(strayOf(tight)).toBeGreaterThan(landed);
     expect(strayOf({ ...LPC_HUMANOID_WEST, skinBand: undefined })).toBeGreaterThan(landed);
+  });
+});
+
+/**
+ * M5c — the block above only ever checked `left`. That is exactly why
+ * `march`'s frontal (`down`/`up`) tearing — 1,104 stray px on `down`, 919 on
+ * `up`, the worst measured on this rig — could land green: nothing summed
+ * fragmentation on the OTHER two facings for anything but `wave` (the
+ * dedicated block below, added for the arm tear M5b fixed). This block closes
+ * that gap generically, for every imported clip, the same way the west block
+ * already does for `left`.
+ *
+ * Budgets are RAW bake, whole clip, summed — read them beside the clip's
+ * frame count (`dig` is 65 frames against the walks' 9-17, so its sum is not
+ * comparable to theirs without accounting for length):
+ *
+ *   walk        down   0 stray /  14 hole   up   0 /   9
+ *   walk-brisk  down   0        /  15        up   0 /  13
+ *   wave        down   0        / 116        up   0 /  24   (Clip.skinBand: 1)
+ *   march       down   0        /  25        up   0 /  19   (Clip.skinBand: 1, M5c)
+ *   dig         down   0        / 323        up   0 / 286
+ *
+ * `wave`'s numbers here are the COMBINED effect of M5a (translate forearms)
+ * and M5b (`Clip.skinBand: 1`) — a few px different from M5b's own measurement
+ * taken before M5a landed; the dedicated block below still pins wave on its
+ * own terms. `march` needed the identical fix M5b already proved out for
+ * wave: swept `skinBand` 0..10 on `CLIP_MARCH_DOWN`/`_UP`, read the worst
+ * frames at 9x (not just the count, per M5b's own trap about a wide band
+ * merging a hole with the outer silhouette instead of filling it), and landed
+ * on band 1 — the smallest band that closed the tear, same as wave. See the
+ * importer's `march` entry for the full sweep table.
+ */
+describe('imported clips — down/up must not come apart either', () => {
+  const CELL = LPC_HUMANOID_SOUTH.cell;
+
+  const cellAt = (sheet: Raster, col: number, row: number): Raster => {
+    const data = new Uint8ClampedArray(CELL * CELL * 4);
+    for (let y = 0; y < CELL; y++) {
+      const si = ((row * CELL + y) * sheet.w + col * CELL) * 4;
+      data.set(sheet.data.subarray(si, si + CELL * 4), y * CELL * 4);
+    }
+    return { data, w: CELL, h: CELL };
+  };
+
+  const frontalLayers = (row: number): PoseLayer[] =>
+    DEFAULT_HUMANOID_LAYERS.map((spec) => {
+      const png = PNG.sync.read(readFileSync(`public/${spec.path}`));
+      const sheet: Raster = { data: new Uint8ClampedArray(png.data), w: png.width, h: png.height };
+      return { raster: cellAt(sheet, HUMANOID_SOURCE.col, row), assign: spec.assign };
+    });
+
+  const LAYERS: Record<'down' | 'up', PoseLayer[]> = {
+    down: frontalLayers(HUMANOID_SOURCE.row),
+    up: frontalLayers(HUMANOID_SOURCE_NORTH.row),
+  };
+  const FRONTAL_TEMPLATES: Record<'down' | 'up', AnimTemplate> = {
+    down: LPC_HUMANOID_SOUTH,
+    up: LPC_HUMANOID_NORTH,
+  };
+
+  // Bounds that catch a real regression (roughly 1.5-2x the measured value),
+  // not a rubber stamp. When one fires, LOOK at the clip
+  // (`scripts/motion-contact-sheet.ts`, or the studio's reference lane)
+  // before touching the number — a budget raised to match a regression is
+  // worse than no budget at all.
+  const BUDGET: Record<string, { stray: number; hole: number }> = {
+    'walk/down': { stray: 5, hole: 25 },
+    'walk/up': { stray: 5, hole: 20 },
+    'walk-brisk/down': { stray: 5, hole: 25 },
+    'walk-brisk/up': { stray: 5, hole: 25 },
+    'wave/down': { stray: 5, hole: 140 },
+    'wave/up': { stray: 5, hole: 45 },
+    'march/down': { stray: 5, hole: 40 },
+    'march/up': { stray: 5, hole: 35 },
+    'dig/down': { stray: 5, hole: 360 },
+    'dig/up': { stray: 5, hole: 320 },
+  };
+
+  const cases = CLIP_IDS.flatMap((id) => (['down', 'up'] as const).map((facing) => ({ id, facing })));
+
+  it.each(cases)('$id/$facing stays in one piece', ({ id, facing }) => {
+    const frames = bakeClip(FRONTAL_TEMPLATES[facing], LAYERS[facing], IMPORTED_CLIPS[id][facing]);
+    let stray = 0;
+    let hole = 0;
+    for (const f of frames) {
+      const g = fragmentation(f);
+      stray += g.strayPx;
+      hole += g.holePx;
+    }
+    const budget = BUDGET[`${id}/${facing}`];
+    expect({ id, facing, stray: stray <= budget.stray, hole: hole <= budget.hole }).toEqual({
+      id,
+      facing,
+      stray: true,
+      hole: true,
+    });
   });
 });
 

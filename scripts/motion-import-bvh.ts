@@ -220,8 +220,27 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
       'in the frontal facings at all: their forearm bones are `mode: \'translate\'` (see ' +
       '`HUMANOID_BVH_MAP`), so the ±94deg out-of-plane flail this capture used to windmill ' +
       'stays off the rotation channel entirely and rides dx/dy instead — the profile ' +
-      '(`left`) facing is untouched and keeps genuine forearm rotation.',
+      '(`left`) facing is untouched and keeps genuine forearm rotation. ' +
+      'FRONTAL LEGS TORE ON FIRST IMPORT (M5b follow-up): the ~24deg frontal leg swing — ' +
+      'small next to the 61deg the west leg survives, but this is a DIFFERENT rig (the ' +
+      'south/north leg chips, rected for the shipped `pray-raise`/`idle-shift`, not for a ' +
+      'swing this size) — carried the shin/foot chip clean off the thigh: RAW bake, whole ' +
+      'clip, 1104 stray px on down / 919 on up, the worst tearing measured on this rig ' +
+      '(against 37 on the pre-M4 west walk). Same mechanism as the west leg and the wave ' +
+      'arms, same fix, same discipline: swept `skinBand` 0..10 (RAW bake, `fragmentation`) ' +
+      'and read the worst frames at 9x rather than trusting the count (M5b\'s own trap: a ' +
+      'wide band can merge a hole with the outer silhouette instead of filling it). Band 1 ' +
+      'alone drops BOTH facings to 0 stray px (down 25 hole, up 19) and the 9x crop shows ' +
+      'genuinely REPAIRED legs, not a reclassified gap — band 2+ buys nothing (hole count ' +
+      'is flat-to-worse: down climbs to 22/26/29/31/36/50/41 at bands 2/3/4/5/6/8/10, up ' +
+      'similarly noisy), so 1 is both the smallest and the best-measured. Unlike the wave, ' +
+      'this is not the whole story: at `in-plane >= 0.04` (legR_up), the frontal leg swing ' +
+      'is mostly a coronal-projection artifact of a capture that travels mostly toward the ' +
+      'camera, so even a structurally sound bake reads as a NEAR-STATIONARY march head-on — ' +
+      'band 1 fixes the tear, not the flatness. Left for the studio to judge against the ' +
+      'render (`tmp/motion/march-sheet.png`), not decided here.',
     opts: { range: [361, 509], frames: 17, referenceFrame: 'mean' },
+    skinBand: { down: 1, up: 1 },
   },
   {
     id: 'dig',
@@ -269,6 +288,42 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
  * ("an in-plane head rotation reads as a sideways tilt, so a frontal nod is
  * faked with translation"). That moved both captures from declined to
  * imported; what stays declined below could not be fixed the same way.
+ *
+ * - `79_04.bvh` digging — STILL IMPORTED as `dig` (checked in, listed in
+ *   `MOTION_IMPORTS` above) pending a call this file cannot make by itself,
+ *   but the numbers argue for declining it, on grounds that have nothing to
+ *   do with the bone-map fix above. Three problems, each independent:
+ *
+ *   1. IT DOES NOT READ AS DIGGING. At 64px a dig is a SHOVEL, and there is
+ *      no held-tool attachment authored on this clip (`attachment.ts` supports
+ *      pinning a prop to a chip; nothing here uses it). With no tool, the only
+ *      signal is the body, and the body reads as bending and shifting weight —
+ *      not shoveling — across the whole cycle, not just a bad frame
+ *      (`tmp/motion/dig-left-cycle-a-9x.png` / `-b-9x.png`, not committed).
+ *      This is a content problem; `mode: 'translate'` and `skinBand` fix
+ *      PROJECTION and TEARING, and neither touches what the capture itself is.
+ *
+ *   2. IT COSTS 9× THE SHARED RUNTIME STRIP, IF WIRED IN THE SAME WAY. Nothing
+ *      here plugs `dig` into `rig-rows.ts` yet, but that is the only shipped
+ *      consumer a rig clip has: `RIG_ROW_CLIPS` currently ping-pongs two clips
+ *      (`pray-raise` 7 frames, `idle-shift` 8) onto ONE shared canvas sized
+ *      `RIG_STRIP_COLS` — 14 columns, set by idle-shift's own ping-pong
+ *      (`pingPongOrder(8).length` = 8 + 6). `dig`'s 65 frames ping-pong to 128
+ *      columns (`pingPongOrder(65).length` = 65 + 63) — adding it the same way
+ *      widens a canvas every live NPC bakes onto by 9×, to serve one clip.
+ *
+ *   3. ITS PROFILE FACING DOES NOT LOOP-CLOSE. Already the honest asterisk on
+ *      the `dig` entry above: `left` measures an 11.5° gap on `armFar_up`
+ *      between the range's first and last baked pose — over the 8° tolerance,
+ *      and not a fitting artifact (constant across `maxKeys` 24 through 48).
+ *      `down`/`up` close at 0°; only the one facing pops at the wrap.
+ *
+ *   None of these three is fatal alone — (2) is a budget that could be raised
+ *   if the clip earned it, (3) is one facing out of three. Together, on a clip
+ *   whose whole point is to read as its own name and currently does not, they
+ *   are the case for declining it. Left IMPORTED rather than deleted here —
+ *   this bullet is a recommendation for the human looking at the renders, not
+ *   a removal.
  *
  * - `62_07.bvh` "hammering a nail". There is no hammering in it to import. Peak
  *   hand motion over any half-second window is 0.20 figure heights of total path
