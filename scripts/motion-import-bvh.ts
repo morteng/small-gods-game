@@ -115,6 +115,16 @@ export interface ImportSpec {
   note: string;
   /** Everything `projectToRig` is told, minus `name`/`pxPerUnit` (derived here). */
   opts: BvhImportOptions & { range: [number, number]; frames: number };
+  /**
+   * Per-facing `Clip.skinBand` override, `down`/`up` only. West already carries
+   * its own band on `LPC_HUMANOID_WEST` (every clip it bakes needs it — see
+   * that template's doc comment); the frontal templates are deliberately RIGID
+   * because they hinge fine for the shipped `pray-raise`/`idle-shift` and only
+   * this clip's forearm swing goes far enough to tear. See `Clip.skinBand`'s
+   * doc comment in `rig.ts` for why the override lives on the CLIP here rather
+   * than the template.
+   */
+  skinBand?: Partial<Record<'down' | 'up', number>>;
 }
 
 /**
@@ -175,6 +185,23 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
       '`--sweep`; a bake at 9 frames still winds the forearm to -359 deg, which is ' +
       'why neither is a free dial.',
     opts: { range: [1, 250], frames: 33, maxKeys: 24, referenceFrame: 0, loop: 'none' },
+    // The frontal `armL_fore`/`armR_fore` swing past 150° here (vs. `pray-raise`'s
+    // clean 112°), well beyond what LPC_HUMANOID_SOUTH/_NORTH's rigid arm chips
+    // hinge cleanly at — the outer lateral column tears loose past ~1px of
+    // rotation-carried travel, same mechanism as the west leg (`lpc-humanoid-
+    // west.ts`), different chip. Swept bands 1–10 (RAW bake, whole clip,
+    // `fragmentation`): band 1 alone already closes both literal (alpha=0)
+    // tears this clip has at the shoulder/elbow (south armR_up's rest-pose hole,
+    // north armL_up's) and cuts total hole count roughly in half (south 235→127,
+    // north 132→41→35); bands 2–3 buy a further few px at the noise floor.
+    // Bands ≥4 look better on the aggregate count but get there by widening the
+    // gap between the legs until it merges with the outer silhouette — a
+    // DIFFERENT defect (thinned material reclassified as "not a hole" rather
+    // than actually filled), not a bigger fix, and exactly the failure mode a
+    // margin risked on the west leg. 1 is the smallest band that closes the
+    // named tear without smearing the sleeve; the residual hip-adjacent hole is
+    // real but unrelated to the arm chips this clip's defect report was about.
+    skinBand: { down: 1, up: 1 },
   },
 ];
 
@@ -747,8 +774,9 @@ const keyframe = (k: Keyframe): string => {
 
 /**
  * Fixed shape: `name`, `frames`, `tracks` in the template's chip order (which
- * is the order `projectToRig` inserts them), then `plant`. No sorting, no
- * conditionals beyond presence — the output shape must not depend on chance.
+ * is the order `projectToRig` inserts them), then `plant`, then `skinBand`. No
+ * sorting, no conditionals beyond presence — the output shape must not depend
+ * on chance.
  */
 function serializeClip(constName: string, clip: Clip): string {
   const out: string[] = [`export const ${constName}: Clip = {`];
@@ -766,6 +794,7 @@ function serializeClip(constName: string, clip: Clip): string {
     for (const p of clip.plant) out.push(`    { chip: '${p.chip}', point: [${num(p.point[0])}, ${num(p.point[1])}] },`);
     out.push('  ],');
   }
+  if (clip.skinBand !== undefined) out.push(`  skinBand: ${clip.skinBand},`);
   out.push('};');
   return out.join('\n');
 }
@@ -859,6 +888,13 @@ export function renderModule(spec: ImportSpec, clips: Record<RigFacing, Clip>, m
   );
 
   const base = constBase(spec.id);
+  // `skinBand` is a per-facing override authored on the SPEC, not derived from
+  // the capture — see `ImportSpec.skinBand`'s doc comment. Applied here, right
+  // before serialization, so `clips.down`/`clips.up` (what every OTHER reader
+  // of this function — metrics, decimation, the facing table above — sees)
+  // stay exactly what the importer produced.
+  const down: Clip = spec.skinBand?.down !== undefined ? { ...clips.down, skinBand: spec.skinBand.down } : clips.down;
+  const up: Clip = spec.skinBand?.up !== undefined ? { ...clips.up, skinBand: spec.skinBand.up } : clips.up;
   const body = [
     "import type { Clip } from '../rig';",
     "import type { ImportedClipMeta } from '../clip-meta';",
@@ -876,9 +912,9 @@ export function renderModule(spec: ImportSpec, clips: Record<RigFacing, Clip>, m
     `  loop: ${m.loops},`,
     '};',
     '',
-    serializeClip(`${base}_DOWN`, clips.down),
+    serializeClip(`${base}_DOWN`, down),
     '',
-    serializeClip(`${base}_UP`, clips.up),
+    serializeClip(`${base}_UP`, up),
     '',
     serializeClip(`${base}_LEFT`, clips.left),
     '',

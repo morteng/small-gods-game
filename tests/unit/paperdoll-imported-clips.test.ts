@@ -26,11 +26,13 @@ import { PNG } from 'pngjs';
 import { bakeClip, type AnimTemplate, type Clip, type PoseLayer } from '@/render/paperdoll/rig';
 import { fragmentation } from '@/render/paperdoll/clip-measure';
 import {
+  CLIP_IDLE_SHIFT,
+  CLIP_PRAY_RAISE,
   DEFAULT_HUMANOID_LAYERS,
   HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from '@/render/paperdoll/lpc-humanoid';
-import { LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
+import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
 import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST } from '@/render/paperdoll/lpc-humanoid-west';
 import { IMPORTED_CLIPS, IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 import type { Raster } from '@/render/sprite-postprocess';
@@ -83,14 +85,18 @@ const cases = CLIP_IDS.flatMap((id) => FACINGS.map((facing) => ({ id, facing }))
  * (`?studio=motion`) and look at the clip before pasting a new value here.
  */
 const GOLDEN: Record<string, string> = {
+  // M5b: only wave/down and wave/up move. LPC_HUMANOID_SOUTH/NORTH stayed
+  // RIGID (no template skinBand) — `Clip.skinBand: 1` lives on CLIP_WAVE_DOWN/
+  // _UP alone (`clips/wave.ts`), so walk/walk-brisk on every facing, and wave
+  // on west (left), are byte-identical to before this fix.
   'walk/down': '2574d270',
   'walk/up': 'f2fe3cd6',
   'walk/left': '1a75c1d5',
   'walk-brisk/down': '29fc9372',
   'walk-brisk/up': 'aeadade1',
   'walk-brisk/left': '2a106379',
-  'wave/down': '454e7057',
-  'wave/up': '56521bcf',
+  'wave/down': '34282c7d',
+  'wave/up': 'd33d5d06',
   'wave/left': '687e7abb',
 };
 
@@ -239,5 +245,153 @@ describe('imported clips — the profile leg must not come apart', () => {
     const landed = strayOf(LPC_HUMANOID_WEST);
     expect(strayOf(tight)).toBeGreaterThan(landed);
     expect(strayOf({ ...LPC_HUMANOID_WEST, skinBand: undefined })).toBeGreaterThan(landed);
+  });
+});
+
+/**
+ * M5b — the frontal arms must not come apart either.
+ *
+ * Same failure as the west leg, different limb: the imported `wave` clip
+ * swings `armL_fore`/`armR_fore` past 150° on the south/north templates
+ * (`lpc-humanoid.ts`, `lpc-humanoid-north.ts`), and the arm chips are rected
+ * just as tight as the profile leg was. RAW bake, whole clip, before this fix:
+ * south wave 1 stray / 235 hole px, north wave 0 / 132.
+ *
+ * UNLIKE the west leg, the fix here is NOT a template-level `skinBand`. A
+ * first attempt put `skinBand: 6` on `LPC_HUMANOID_SOUTH`/`_NORTH` directly —
+ * it closed the wave tear, but it also re-rendered `pray-raise`/`idle-shift`,
+ * the two clips `rig-rows.ts` bakes onto every live NPC: 3.19% of pray-raise's
+ * pixels moved (242 of them silhouette), and the runtime bake cost 1.4–1.7× at
+ * the supersample `rig-rows.ts` actually uses. Wrong trade — a studio-only
+ * clip should not cost shipped art or shipped bake time.
+ *
+ * The landed fix is `Clip.skinBand: 1` on `CLIP_WAVE_DOWN`/`_UP` alone
+ * (`clips/wave.ts`), resolved in `bakeClipFrames` ahead of the template's own
+ * band (see `Clip.skinBand`'s doc comment in `rig.ts`). The templates stay
+ * RIGID — no template-level change at all — so this block's job is now split
+ * in two: a budget on the ONE clip that changed, and a byte-identity pin on
+ * the two that must not have.
+ */
+describe('imported clips — the frontal arms must not come apart', () => {
+  const CELL = LPC_HUMANOID_SOUTH.cell;
+
+  const cellAt = (sheet: Raster, col: number, row: number): Raster => {
+    const data = new Uint8ClampedArray(CELL * CELL * 4);
+    for (let y = 0; y < CELL; y++) {
+      const si = ((row * CELL + y) * sheet.w + col * CELL) * 4;
+      data.set(sheet.data.subarray(si, si + CELL * 4), y * CELL * 4);
+    }
+    return { data, w: CELL, h: CELL };
+  };
+
+  const frontalLayers = (row: number): PoseLayer[] =>
+    DEFAULT_HUMANOID_LAYERS.map((spec) => {
+      const png = PNG.sync.read(readFileSync(`public/${spec.path}`));
+      const sheet: Raster = { data: new Uint8ClampedArray(png.data), w: png.width, h: png.height };
+      return { raster: cellAt(sheet, HUMANOID_SOURCE.col, row), assign: spec.assign };
+    });
+
+  const southLayers = (): PoseLayer[] => frontalLayers(HUMANOID_SOURCE.row);
+  const northLayers = (): PoseLayer[] => frontalLayers(HUMANOID_SOURCE_NORTH.row);
+
+  const sumFrag = (frames: readonly Raster[]): { stray: number; hole: number } =>
+    frames.reduce(
+      (a, f) => {
+        const g = fragmentation(f);
+        return { stray: a.stray + g.strayPx, hole: a.hole + g.holePx };
+      },
+      { stray: 0, hole: 0 },
+    );
+
+  /**
+   * Budgets, not exact counts — RAW bake, whole clip, `Clip.skinBand: 1` vs.
+   * the pre-M5b rigid rects:
+   *
+   *   south  wave  1 stray / 127 hole   was  1 / 235
+   *   north  wave  0        /  35        was  0 / 132
+   *
+   * 1 is the SMALLEST band that closes the literal (alpha=0) tears at the
+   * shoulder/elbow — swept 1..10 against `scripts/motion-contact-sheet.ts`'s
+   * `fragmentation` output and read at 9× (`tmp/motion/wave-*-band*.png`, not
+   * committed): band 1 already erases both rest-pose arm holes this clip had
+   * (south `armR_up`, north `armL_up`) without visibly thinning the sleeve.
+   * Bands 2–3 buy only noise-level further reduction; bands ≥4 look better on
+   * this COUNT but only by widening the gap between the legs until it merges
+   * with the outer silhouette — reclassified, not filled, and the same failure
+   * mode margin risked on the west leg. The residual hole here is real and it
+   * is NOT the arm: it is a smaller, separate hip-adjacent tear (`legR_up`/
+   * `legL_up`, small-angle rotation, same small-chip story as the west leg)
+   * that this fix does not target and that raising the band cannot close
+   * cleanly. `walk`/`walk-brisk` need no budget here — they carry no
+   * `skinBand` and are pinned byte-identical by the golden hashes above.
+   */
+  const BUDGET: Record<'down' | 'up', { stray: number; hole: number }> = {
+    down: { stray: 4, hole: 140 },
+    up: { stray: 4, hole: 45 },
+  };
+
+  it.each(['down', 'up'] as const)('wave %s stays in one piece', (facing) => {
+    const layers = facing === 'down' ? southLayers() : northLayers();
+    const template = facing === 'down' ? LPC_HUMANOID_SOUTH : LPC_HUMANOID_NORTH;
+    const { stray, hole } = sumFrag(bakeClip(template, layers, IMPORTED_CLIPS.wave[facing]));
+    const budget = BUDGET[facing];
+    expect({ facing, stray: stray <= budget.stray, hole: hole <= budget.hole }).toEqual({
+      facing,
+      stray: true,
+      hole: true,
+    });
+  });
+
+  /**
+   * The hard gate, made structural rather than numeric: `pray-raise` and
+   * `idle-shift` are what `rig-rows.ts` bakes onto every live NPC, and neither
+   * clip carries a `skinBand` of its own, so their bake on `LPC_HUMANOID_SOUTH`/
+   * `_NORTH` (both templates ALSO band-free) must be the exact bytes `main`
+   * produces — not "close", not "no worse by some measure", identical. A hash
+   * pin catches ANY future drift here, including a well-meaning `skinBand` on
+   * the template or the clip that this file's other tests would not.
+   */
+  const SHIPPED_GOLDEN: Record<'down' | 'up', Record<'pray-raise' | 'idle-shift', string>> = {
+    down: { 'pray-raise': '3c97ec1', 'idle-shift': '7fd524e3' },
+    up: { 'pray-raise': '301b4d87', 'idle-shift': 'e9abc20c' },
+  };
+
+  it.each(
+    (['down', 'up'] as const).flatMap((facing) =>
+      (['pray-raise', 'idle-shift'] as const).map((id) => ({ id, facing })),
+    ),
+  )('shipped $id $facing bakes byte-identical to main', ({ id, facing }) => {
+    expect(CLIP_PRAY_RAISE.skinBand).toBeUndefined();
+    expect(CLIP_IDLE_SHIFT.skinBand).toBeUndefined();
+    const layers = facing === 'down' ? southLayers() : northLayers();
+    const template = facing === 'down' ? LPC_HUMANOID_SOUTH : LPC_HUMANOID_NORTH;
+    const clip = id === 'pray-raise' ? CLIP_PRAY_RAISE : CLIP_IDLE_SHIFT;
+    // North bakes strip stamps (see rig-rows.ts's RIG_FACING_BAKES) — the
+    // south-donor palm/blink stamps would paste onto the wrong side of a
+    // back-facing figure.
+    const useClip = facing === 'up' ? { ...clip, stamps: undefined } : clip;
+    const frames = bakeClip(template, layers, useClip);
+    const joined = new Uint8ClampedArray(frames.reduce((n, f) => n + f.data.length, 0));
+    let at = 0;
+    for (const f of frames) {
+      joined.set(f.data, at);
+      at += f.data.length;
+    }
+    expect(`${id}/${facing} = ${djb2hex(joined)}`).toBe(`${id}/${facing} = ${SHIPPED_GOLDEN[facing][id]}`);
+  });
+
+  it('skinBand is load-bearing on the CLIP — dropping it reopens the wave tear', () => {
+    const layers = southLayers();
+    const holeOf = (clip: Clip): number => sumFrag(bakeClip(LPC_HUMANOID_SOUTH, layers, clip)).hole;
+    expect(holeOf({ ...IMPORTED_CLIPS.wave.down, skinBand: undefined })).toBeGreaterThan(
+      holeOf(IMPORTED_CLIPS.wave.down),
+    );
+  });
+
+  it("the frontal templates carry no band of their own — the clip's is what fixes it", () => {
+    expect(LPC_HUMANOID_SOUTH.skinBand).toBeUndefined();
+    expect(LPC_HUMANOID_NORTH.skinBand).toBeUndefined();
+    expect(IMPORTED_CLIPS.wave.down.skinBand).toBe(1);
+    expect(IMPORTED_CLIPS.wave.up.skinBand).toBe(1);
   });
 });

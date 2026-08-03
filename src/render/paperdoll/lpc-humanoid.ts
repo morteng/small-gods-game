@@ -43,6 +43,19 @@ const KNEE_R: [number, number] = [39, 56];
  * South-facing humanoid template. Root (index 0) is the whole cell; every
  * other chip's rect is cleared from it at render time, so limbs lift cleanly.
  * "L"/"R" are SCREEN left/right (the character's right/left arm respectively).
+ *
+ * DELIBERATELY RIGID (no `skinBand`) — unlike `lpc-humanoid-west.ts`, these
+ * chips are big enough to hinge cleanly for everything shipped. `pray-raise`
+ * hinges the arm 112° and stays clean; `idle-shift` never rotates an arm at
+ * all. They only tear on the imported `wave` clip, which swings a forearm past
+ * 150° — well outside what any shipped clip asks of this template. That is
+ * `Clip.skinBand`'s case exactly (see its doc comment in `rig.ts`): `CLIP_WAVE`
+ * carries its own band so the fix is scoped to the one clip that needs it,
+ * instead of skinning `pray-raise`/`idle-shift` — the two clips `rig-rows.ts`
+ * bakes onto every live NPC — to fix a defect neither one has. Skinning THIS
+ * template was tried and measured off: 3.19% of pray-raise's pixels moved
+ * (242 of them silhouette, i.e. visible against the background) and the
+ * runtime bake cost 1.4–1.7× at the supersample `rig-rows.ts` actually uses.
  */
 export const LPC_HUMANOID_SOUTH: AnimTemplate = {
   name: 'lpc-humanoid-south',

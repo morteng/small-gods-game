@@ -197,6 +197,7 @@ export const CLIP_WAVE_DOWN: Clip = {
       { t: 1, deg: -3.5, dx: -0.25, dy: 0 },
     ],
   },
+  skinBand: 1,
 };
 
 export const CLIP_WAVE_UP: Clip = {
@@ -325,6 +326,7 @@ export const CLIP_WAVE_UP: Clip = {
       { t: 1, deg: 0, dx: -0.25, dy: 0 },
     ],
   },
+  skinBand: 1,
 };
 
 export const CLIP_WAVE_LEFT: Clip = {

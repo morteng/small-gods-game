@@ -53,13 +53,22 @@ export interface AnimTemplate {
   chips: ChipDef[];
   /**
    * Default joint-skinning band for this template, in px — set when its chips
-   * are too small to hinge rigidly.
+   * are too small to hinge rigidly for ANY clip.
    *
    * A property of the TEMPLATE, not of the clip, because it is the chip geometry
    * that decides: the profile leg has about ten pixels of material split across
    * four ~5px chips, so a swing that a generously-rected template shrugs off
    * tears this one apart. Angle is a bad predictor — the shipped `pray-raise`
    * hinges 112° on the south template and stays clean.
+   *
+   * That "angle is a bad predictor" cuts both ways, though — see `Clip.skinBand`
+   * for the OTHER fork: a template whose chips are big enough to hinge fine for
+   * everything shipped can still tear on one clip that swings far past what
+   * anything else asks of it. Skinning the whole template there would cost
+   * every OTHER clip it bakes (rendering behaviour, a few % of pixels, and bake
+   * time — measured 1.4–1.7× on `LPC_HUMANOID_SOUTH`/`_NORTH` at the runtime
+   * supersample) to fix a defect only one clip has. `Clip.skinBand` exists so
+   * that trade is opt-in per clip instead of forced on the template.
    *
    * `RenderPoseOptions.skin` still wins where it is passed, so the studio can
    * toggle the comparison.
@@ -139,6 +148,23 @@ export interface Clip {
    * a foot simply doesn't plant it.
    */
   plant?: readonly { chip: string; point: [number, number] }[];
+  /**
+   * Per-clip joint-skinning band, in px — see `AnimTemplate.skinBand` for the
+   * mechanism. That field and this one answer DIFFERENT questions and both are
+   * real: a template states the band it needs for EVERY clip, because its
+   * chips are too small to hinge rigidly at all (the west profile leg — ~5px
+   * of material across four chips, torn by a plain 61° walk). A clip states a
+   * band on top for a template that hinges FINE for everything shipped and
+   * tears only at the extreme end of its own range: the frontal `wave` swings
+   * a forearm past 150° (vs. `pray-raise`'s clean 112°) on `LPC_HUMANOID_SOUTH`
+   * /`_NORTH`, chips that are otherwise rigid-safe. Putting the band on the
+   * TEMPLATE there would skin every clip those templates bake — including
+   * `pray-raise`/`idle-shift`, the two `rig-rows.ts` bakes onto every live NPC
+   * — to fix a defect only one, studio-only clip has. Resolved in
+   * `bakeClipFrames`/`bakeClip`: `opts.skin` (explicit) wins, then this field,
+   * then (inside `renderPose`) the template's own band.
+   */
+  skinBand?: number;
 }
 
 /** Row-major 2×3 affine: [a, b, c, d, e, f] maps (x,y) → (ax+by+c, dx+ey+f). */
@@ -810,6 +836,14 @@ export function* bakeClipFrames(
 ): Generator<Raster, void, undefined> {
   const denom = Math.max(1, clip.frames - 1);
   const L = layers.map(toPoseLayer);
+  // The clip's own band applies unless the caller states one — same rule as
+  // `renderPose`'s template fallback, one level up. An explicit `opts.skin`
+  // still wins over both; leaving it unset here for a clip with no band of its
+  // own lets `renderPose` fall through to the TEMPLATE's band, so a west-style
+  // "every clip needs this" template stays skinned without every clip having
+  // to say so (see `Clip.skinBand`'s doc comment for the two-field split).
+  const skin = opts.skin ?? (clip.skinBand !== undefined ? { band: clip.skinBand } : undefined);
+  const poseOpts: RenderPoseOptions = skin ? { ...opts, skin } : opts;
   // Stamps are step-switched, so all frames sharing a stamp key share the same
   // stamped layer set — build each variant once. Anchored refs skip this path
   // (their dest is pose-dependent) and apply after the render, per frame.
@@ -831,7 +865,7 @@ export function* bakeClipFrames(
       use = v;
     }
     const poses = sampleClip(template, clip, t);
-    const frame = renderPose(template, use, poses, opts);
+    const frame = renderPose(template, use, poses, poseOpts);
     if (anchored.length > 0) applyAnchoredStamps(frame, template, L, anchored, poses);
     yield frame;
   }

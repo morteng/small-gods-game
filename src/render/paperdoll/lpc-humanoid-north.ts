@@ -61,6 +61,13 @@ const KNEE_R: [number, number] = [39, 56];
  * LPC_HUMANOID_SOUTH exactly — that identity is what lets every south clip
  * play here unchanged. Only `legL_up`/`legR_up`'s rects differ (widened
  * 2px toward the outside hip edge — see file-top doc comment).
+ *
+ * DELIBERATELY RIGID (no `skinBand`) — same reasoning as `LPC_HUMANOID_SOUTH`:
+ * these chips hinge fine for the shipped clips (`pray-raise`, `idle-shift`)
+ * and only tear on the imported `wave` clip's 150°+ forearm swing. `CLIP_WAVE`
+ * carries its own `skinBand` (`clips/wave.ts`) rather than this template
+ * skinning every clip it bakes — see `LPC_HUMANOID_SOUTH`'s doc comment for
+ * the measured cost of the alternative.
  */
 export const LPC_HUMANOID_NORTH: AnimTemplate = {
   name: 'lpc-humanoid-north',
