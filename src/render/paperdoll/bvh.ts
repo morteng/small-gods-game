@@ -324,6 +324,13 @@ export interface BvhImportOptions {
   pxPerUnit?: number;
   /** Foot policy. 'auto' picks locomotion once the root travels far enough. */
   motion?: 'auto' | 'stationary' | 'locomotion';
+  /**
+   * What locomotion does with the net travel it compensates out of the feet.
+   * 'in-place' (default) returns the body to where it started; 'advance' lets
+   * it cross the cell by one stride. See the locomotion branch for why the
+   * runtime wants the former.
+   */
+  rootMotion?: 'in-place' | 'advance';
   /** Loop policy. 'auto' closes a clip only if it already reads as cyclic. */
   loop?: 'auto' | 'wrap' | 'none';
   /** Keyframe fit tolerances and cap. */
@@ -721,13 +728,20 @@ function buildFacing(facing: RigFacing, map: BvhBoneMap, ctx: BuildCtx): Clip {
     // shift for every descendant). So: measure where the stance sole actually
     // landed, then slide the figure back so it holds still. Foot-skate control
     // at import time, and it nails the RIG's sole, not just the capture's.
-    // KNOWN CONSEQUENCE, not a bug: nailing the foot means the BODY advances
+    // That compensation has TWO components and they want opposite things. The
+    // per-frame wobble is pure win: it cancels the jitter that makes a planted
+    // sole shiver. The net drift is not — nailing the foot advances the BODY
     // across the cell by one stride per cycle (measured: trunk dx reaches
-    // +16px on one CMU walk cycle, and ±63px if the range is not a cycle at
-    // all). That is what the plan asks for and it is the opposite of the LPC
-    // convention, whose walk row keeps the body centred and lets the feet
-    // slide. Which one reads better at 32px is an M2 studio call.
+    // +16px on one CMU walk cycle), and a sprite the sim ALREADY translates
+    // would lurch forward inside its own cell and snap back at the loop.
+    //
+    // So 'in-place' (the default, and what the runtime wants) strips the
+    // LINEAR component and keeps the residual. The feet then slide by exactly
+    // one stride per cycle — which reads as planted precisely when the NPC's
+    // ground speed matches the clip's stride/duration. Foot fidelity is a
+    // walk-speed tuning knob (M2), not a property of the bake.
     const soleX = feet.map((x) => worlds.map((w) => applyAffine(w[x.ci], x.ft.point[0], x.ft.point[1])[0]));
+    const shifts: number[] = [];
     let shift = 0;
     let cur = -1;
     let base = 0;
@@ -741,7 +755,19 @@ function buildFacing(facing: RigFacing, map: BvhBoneMap, ctx: BuildCtx): Clip {
         anchor = soleX[s][f];
       }
       if (cur >= 0) shift = base - (soleX[cur][f] - anchor);
-      if (rootChip !== undefined) samples[f][rootChip].dx += shift;
+      shifts.push(shift);
+    }
+    if (rootChip !== undefined) {
+      for (let f = 0; f < N; f++) samples[f][rootChip].dx += shifts[f];
+      if ((ctx.opts.rootMotion ?? 'in-place') === 'in-place' && N > 1) {
+        // Detrend the root's TOTAL dx, not the compensation alone: the base
+        // solve already carries whatever forward travel the capture had, and
+        // it is the sum of the two that decides where the body ends up. Only
+        // the linear term goes — the wobble stays, and so does any constant
+        // postural lean, which is a real fact about the pose.
+        const drift = samples[N - 1][rootChip].dx - samples[0][rootChip].dx;
+        for (let f = 0; f < N; f++) samples[f][rootChip].dx -= (drift * f) / (N - 1);
+      }
     }
   } else {
     // Stationary: the rig's own plant nails a point for the WHOLE clip, so a

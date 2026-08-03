@@ -212,33 +212,58 @@ describe('projectToRig — feet', () => {
     expect(projectToRig(legSwing, HUMANOID_BVH_MAP).left.plant).toBeUndefined();
   });
 
-  it('locomotion bakes root-motion compensation so the stance sole holds still', () => {
-    const sole: [number, number] = [27.5, 60];
-    const travelOf = (clip: Clip): number => {
-      const xs = Array.from({ length: clip.frames }, (_, f) =>
-        chipPoint(LPC_HUMANOID_WEST, clip, 'legNear_fore', sole, f)[0],
-      );
-      return Math.max(...xs) - Math.min(...xs);
-    };
-    // The capture's own stance ankle is already world-still; what drifts is the
-    // RIG's sole, because a 5px LPC shin cannot cover a 12px projected one.
-    // The control is the same import with the foot map emptied — no plant to
-    // nail the sole, no stance to compensate against.
-    const noFeet: BvhBoneMap = {
-      ...HUMANOID_BVH_MAP,
-      facings: {
-        ...HUMANOID_BVH_MAP.facings,
-        left: { ...HUMANOID_BVH_MAP.facings.left, feet: [] },
-      },
-    };
+  // The capture's own stance ankle is already world-still; what drifts is the
+  // RIG's sole, because a 5px LPC shin cannot cover a 12px projected one. The
+  // control throughout is the same import with the foot map emptied — no
+  // plant to nail the sole, no stance to compensate against.
+  const noFeet: BvhBoneMap = {
+    ...HUMANOID_BVH_MAP,
+    facings: {
+      ...HUMANOID_BVH_MAP.facings,
+      left: { ...HUMANOID_BVH_MAP.facings.left, feet: [] },
+    },
+  };
+  const SOLE: [number, number] = [27.5, 60];
+  const soleXs = (clip: Clip): number[] =>
+    Array.from({ length: clip.frames }, (_, f) => chipPoint(LPC_HUMANOID_WEST, clip, 'legNear_fore', SOLE, f)[0]);
+  const spread = (xs: readonly number[]): number => Math.max(...xs) - Math.min(...xs);
+  /** Spread left over once a constant slide is removed — i.e. the jitter. */
+  const jitter = (xs: readonly number[]): number =>
+    spread(xs.map((x, f) => x - ((xs[xs.length - 1] - xs[0]) * f) / (xs.length - 1)));
+
+  it('locomotion nails the stance sole when the body may advance', () => {
     const uncompensated = projectToRig(walk, noFeet, { motion: 'locomotion' }).left;
-    const compensated = projectToRig(walk, HUMANOID_BVH_MAP, { motion: 'locomotion' }).left;
-    expect(compensated.plant).toBeUndefined(); // locomotion nails nothing
-    expect(travelOf(uncompensated)).toBeGreaterThan(2);
-    expect(travelOf(compensated)).toBeLessThan(0.75);
+    const advance = projectToRig(walk, HUMANOID_BVH_MAP, {
+      motion: 'locomotion',
+      rootMotion: 'advance',
+    }).left;
+    expect(advance.plant).toBeUndefined(); // locomotion nails nothing
+    expect(spread(soleXs(uncompensated))).toBeGreaterThan(2);
+    expect(spread(soleXs(advance))).toBeLessThan(0.75);
     // Compensation is a trunk translation, not a re-pose: the legs are untouched.
-    expect(compensated.tracks.legNear_up).toEqual(uncompensated.tracks.legNear_up);
-    expect(compensated.tracks.trunk).not.toEqual(uncompensated.tracks.trunk);
+    expect(advance.tracks.legNear_up).toEqual(uncompensated.tracks.legNear_up);
+    expect(advance.tracks.trunk).not.toEqual(uncompensated.tracks.trunk);
+  });
+
+  it('in-place (the default) returns the body to its start, keeping the anti-jitter', () => {
+    const trunkX = (clip: Clip, f: number): number => chipPoint(LPC_HUMANOID_WEST, clip, 'trunk', [32, 32], f)[0];
+    const uncompensated = projectToRig(walk, noFeet, { motion: 'locomotion' }).left;
+    const inPlace = projectToRig(walk, HUMANOID_BVH_MAP, { motion: 'locomotion' }).left;
+    const advance = projectToRig(walk, HUMANOID_BVH_MAP, {
+      motion: 'locomotion',
+      rootMotion: 'advance',
+    }).left;
+
+    // The body crosses the cell when told to, and comes home when not — which
+    // is what stops a sim-translated sprite lurching and snapping at the loop.
+    expect(Math.abs(trunkX(advance, advance.frames - 1) - trunkX(advance, 0))).toBeGreaterThan(2);
+    expect(Math.abs(trunkX(inPlace, inPlace.frames - 1) - trunkX(inPlace, 0))).toBeLessThan(0.75);
+
+    // The sole now slides one stride per cycle by design — but the WOBBLE on
+    // top of that slide is still compensated away. That is the whole point of
+    // keeping the residual rather than dropping compensation entirely.
+    expect(spread(soleXs(inPlace))).toBeGreaterThan(spread(soleXs(advance)));
+    expect(jitter(soleXs(inPlace))).toBeLessThan(jitter(soleXs(uncompensated)));
   });
 
   it('auto picks locomotion from root travel and stationary without it', () => {
