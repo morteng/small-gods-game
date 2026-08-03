@@ -24,10 +24,17 @@ import {
   LPC_HUMANOID_SOUTH,
 } from './lpc-humanoid';
 
-// NOTE: the dev server's SPA fallback answers missing files with 200 +
-// index.html, so "does this variant exist" must survive decode, not just
-// resp.ok — hence fallback on any failure, not only HTTP errors.
-async function fetchRaster(path: string): Promise<Raster | null> {
+/**
+ * Fetch + decode one vendored sheet, or null if it isn't there.
+ *
+ * NOTE: the dev server's SPA fallback answers missing files with 200 +
+ * index.html, so "does this variant exist" must survive decode, not just
+ * resp.ok — hence fallback on any failure, not only HTTP errors. Exported so
+ * callers that need a sheet this loader doesn't harvest (the motion studio's
+ * reference lane picks any LPC row, not just the stamp donors) inherit that
+ * rule instead of writing a second, more trusting copy of it.
+ */
+export async function fetchRaster(path: string): Promise<Raster | null> {
   const resp = await fetch(assetUrl(path));
   if (!resp.ok) return null;
   const type = resp.headers.get('content-type') ?? '';

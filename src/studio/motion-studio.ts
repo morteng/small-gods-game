@@ -14,14 +14,22 @@
 //   • GAIT lane (humanoid only): the untouched walk cycle played through a
 //     Tier-0 gait style (retiming + whole-sprite offsets, gait.ts) beside a
 //     normal-cadence control. No rebake — this simulates runtime playback.
+//   • REFERENCE lane (humanoid only): LPC's own hand-pixeled row beside the
+//     bake, phase-locked, with a silhouette-IoU / colour-delta readout. The
+//     free ground truth for "does the imported motion read right".
+//   • MOTION metrics: what capture an imported clip came from, the ground
+//     speed its stride implies, and the foot skate left after the designed
+//     in-place slide is removed.
 //
 // Template-agnostic: every rig (humanoid, and future non-humanoid templates)
 // registers in `render/paperdoll/rig-catalog.ts`. A button row at the top of
-// the left panel picks the active RigEntry; switching never reloads the page
-// — it re-runs the rig's `loadLayers()` and rebuilds every piece of UI that
-// depends on chip count / clip list / bone-overlay colors. The "Character"
-// (role wardrobe) and "Gait" panels are LPC-humanoid-specific — they show
-// only while the humanoid rig is selected.
+// the left panel picks the active RigEntry, and a second row picks the FACING
+// among that rig's authored views; switching either never reloads the page —
+// it rebuilds every piece of UI that depends on chip count / clip list /
+// bone-overlay colors. A rig switch re-runs `loadLayers()`; a facing switch
+// does not (same wardrobe, different sheet row), it only re-slices what is
+// already decoded. The "Character" (role wardrobe), "Gait" and "Reference"
+// panels are LPC-humanoid-specific — they show only for the humanoid rig.
 
 import {
   bakeClip,
@@ -32,12 +40,23 @@ import {
   type Clip,
   type PoseLayer,
 } from '@/render/paperdoll/rig';
-import { RIGS, type RigEntry } from '@/render/paperdoll/rig-catalog';
-import { loadHumanoidCharacter } from '@/render/paperdoll/humanoid-loader';
+import { importedMetaFor, RIGS, type RigEntry, type RigFacingEntry } from '@/render/paperdoll/rig-catalog';
+import { fetchRaster, loadHumanoidCharacter, sliceSourceCell } from '@/render/paperdoll/humanoid-loader';
 import { humanoidLayerSpecs } from '@/render/lpc/humanoid-layers';
-import { DEFAULT_HUMANOID_LAYERS, HUMANOID_SOURCE } from '@/render/paperdoll/lpc-humanoid';
+import { DEFAULT_HUMANOID_LAYERS, donorSheetCandidates, HUMANOID_SOURCE } from '@/render/paperdoll/lpc-humanoid';
 import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
-import { LPC_ANIMATIONS } from '@/core/npc-animation';
+import {
+  chipPointTrack,
+  cycleFrameAtPhase,
+  cycleLength,
+  frameCompare,
+  skate,
+  trackRangeDeg,
+  type FrameCompare,
+} from '@/render/paperdoll/clip-measure';
+import { LPC_ANIMATIONS, type NpcAnimation } from '@/core/npc-animation';
+import { NPC_WALK_SPEED } from '@/sim/npc-movement';
+import { TILE_SIZE } from '@/core/constants';
 import { FRAME_MS } from '@/render/npc-animator';
 import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import { buildCharacterSpec, type CharacterSpec } from '@/render/lpc/character-builder';
@@ -153,12 +172,18 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     snap: true,
   };
 
-  // ── active rig ───────────────────────────────────────────────────────────
+  // ── active rig + facing ──────────────────────────────────────────────────
   let rig: RigEntry = RIGS[0];
-  let workClip = cloneClip(rig.clips[0]);
+  let facing: RigFacingEntry = rig.facings[0];
+  // `workClip` is a mutable CLONE (the end-pose sliders rewrite its keyframes),
+  // so anything asking "which registered clip is this" must hold the source too
+  // — identity is what tells the sheep's hand-authored `walk` apart from the
+  // imported human one of the same name.
+  let sourceClip: Clip = facing.clips[0];
+  let workClip = cloneClip(sourceClip);
   // Mutable template copy: joint pin mode edits pivots live (rest-space coords).
-  let workTemplate: AnimTemplate = cloneTemplate(rig.template);
-  const pin = { on: false, chip: defaultPinChip(rig.template), mirror: true };
+  let workTemplate: AnimTemplate = cloneTemplate(facing.template);
+  const pin = { on: false, chip: defaultPinChip(facing.template), mirror: true };
   const hiddenLayers = new Set<number>(); // indices into the loaded layer stack
   const hiddenChips = new Set<string>(); // chip names skipped at paint time
 
@@ -176,15 +201,39 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   }
 
   // ── bake state ──────────────────────────────────────────────────────────────
+  // `baseLayers` is what the loader decoded (south rest cells + stamp donors);
+  // `layers` is that stack re-sliced for the ACTIVE facing. A facing switch
+  // touches only the slice — the sheets are already in memory and the wardrobe
+  // has not changed, so refetching them would be pure latency.
+  let baseLayers: PoseLayer[] | null = null;
   let layers: PoseLayer[] | null = null;
   let frames: Raster[] = []; // raw baked cell frames (pre-quantize)
+  let displayFrames: Raster[] = []; // post quantize/snap — what the lanes measure
   let shownFrames: SpriteCanvas[] = []; // big-view canvases (quantized if toggled)
   let gameFrames: SpriteCanvas[] = []; // 32px downscales for the in-game loop
+
+  /** Re-slice the decoded wardrobe for the active facing's sheet row. */
+  function applyFacingToLayers(): void {
+    if (!baseLayers) return;
+    const row = facing.sheetRow;
+    if (!loadedSheets || row === undefined) {
+      layers = baseLayers;
+      return;
+    }
+    layers = baseLayers.map((l, i) => ({
+      raster: sliceSourceCell(loadedSheets![i], row, HUMANOID_SOURCE.col, facing.template.cell),
+      assign: l.assign,
+      // Stamp donors are south-row crops (faces, spellcast palms). A facing
+      // that cannot use them gets none, so a stamped clip simply bakes without
+      // its pixel swaps instead of pasting a face onto the back of a head.
+      donors: facing.stamps ? l.donors : undefined,
+    }));
+  }
 
   function rebake(): void {
     if (!layers) return;
     const visible = layers.filter((_, i) => !hiddenLayers.has(i));
-    frames = bakeClip(workTemplate, visible, workClip, {
+    frames = bakeClip(workTemplate, visible, facing.stamps ? workClip : { ...workClip, stamps: undefined }, {
       hide: hiddenChips,
       skin: state.skin ? { band: 3 } : undefined,
     });
@@ -197,12 +246,15 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       const outline = collectOutlinePalette(rasters);
       display = display.map((f) => reinkOutline(snapToSourcePalette(f, palette), outline));
     }
+    displayFrames = display;
     shownFrames = display.map((f) => rgbaToCanvas(f.data, f.w, f.h)).filter((c): c is SpriteCanvas => c !== null);
     gameFrames = display
       .map((f) => downscale(f, GAME_PX))
       .map((f) => rgbaToCanvas(f.data, f.w, f.h))
       .filter((c): c is SpriteCanvas => c !== null);
     state.frame = Math.min(state.frame, frames.length - 1);
+    measureReference();
+    updateMotionMetrics();
     drawStrip();
     drawBig();
   }
@@ -274,17 +326,22 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const GAIT_ZOOM = 4;
   const walkBig: SpriteCanvas[] = []; // composited walk frames, cell size
   const walkSmall: SpriteCanvas[] = []; // 32px downscales
-  let loadedSheets: Raster[] | null = null; // full LPC sheets, for lane recomposites
+  let loadedSheets: Raster[] | null = null; // full LPC walk sheets, for lane recomposites
+  let loadedSpecs: CharLayer[] | null = null; // the stack that resolved — sibling anim paths derive from it
   const walkColCount = LPC_ANIMATIONS.walk.lastCol - LPC_ANIMATIONS.walk.firstCol + 1;
 
-  /** (Re)composite the gait lane's walk frames, honoring layer visibility. */
+  /**
+   * (Re)composite the gait lane's walk frames, honoring layer visibility.
+   * The row is the ACTIVE facing's — `HUMANOID_SOURCE.row` is south's, and
+   * compositing it under a north bake would put a front view next to a back one.
+   */
   function rebuildWalkLane(): void {
     if (!loadedSheets) return;
     walkBig.length = 0;
     walkSmall.length = 0;
     const use = loadedSheets.filter((_, i) => !hiddenLayers.has(i));
     for (let col = LPC_ANIMATIONS.walk.firstCol; col <= LPC_ANIMATIONS.walk.lastCol; col++) {
-      const cellR = compositeCell(use, col, HUMANOID_SOURCE.row, workTemplate.cell);
+      const cellR = compositeCell(use, col, facing.sheetRow ?? HUMANOID_SOURCE.row, workTemplate.cell);
       const big = rgbaToCanvas(cellR.data, cellR.w, cellR.h);
       const small = downscale(cellR, GAME_PX);
       const smallCv = rgbaToCanvas(small.data, small.w, small.h);
@@ -343,6 +400,325 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     drawGaitInto(gaitStyledView, styledPlan);
   }
 
+  // ── reference lane (humanoid only): LPC's own row beside the bake ───────────
+  //
+  // The free ground truth. LPC ships hand-pixeled cycles for the very character
+  // the rig is re-posing, at the very facing being baked, already on disk and
+  // already licensed — so an imported capture can be held against a human's
+  // answer to the same question without anyone drawing anything.
+  //
+  // Locked by PHASE, never by index: LPC's walk row is 8 cells and the imported
+  // walk bakes 9 frames (the ninth repeating the first, because it loops), so
+  // pairing frame i with frame i would slide the comparison a whole pose out by
+  // the end of the cycle. Both sides map t ∈ [0,1) onto their own cycle length.
+  // GOTCHA the lane was first written wrong on: `LPC_ANIMATIONS.rowBase`
+  // addresses the COMPOSED universal sheet the character-builder assembles.
+  // The vendored PART sheets loaded here are PER ANIMATION — `walk.png`,
+  // `slash.png`, … — each just four direction rows tall, so a reference row is
+  // a different FILE, not a lower row of the same one. Adding `rowBase` reads
+  // past the end and scores the bake against pure transparency (IoU 0.000,
+  // which looks like a catastrophic bake rather than a bad lookup).
+  const REF_ROWS: readonly NpcAnimation[] = ['walk', 'thrust', 'slash', 'spellcast', 'shoot'];
+  let refRow: NpcAnimation = 'walk';
+  /** Per-anim sheets aligned with the loaded layer stack; null where unvendored. */
+  let refSheets: (Raster | null)[] | null = null;
+  const refSheetCache = new Map<NpcAnimation, (Raster | null)[]>();
+  const refRasters: Raster[] = []; // composited reference cells, cell size
+  const refBig: SpriteCanvas[] = [];
+  const refSmall: SpriteCanvas[] = [];
+  /** Bake frame → its comparison against the phase-matched reference cell. */
+  let refPerFrame: (FrameCompare | null)[] = [];
+  let refMean: FrameCompare | null = null;
+  // The two cycles start at unrelated moments — LPC's artist and a CMU actor
+  // agreed on nothing — so the lane also carries a whole-cell alignment.
+  // Auto-picked by best mean IoU, but SAY SO WEAKLY: a walking figure's
+  // silhouette is mostly torso and head, so the score barely moves across
+  // shifts (~0.01) and the winner is close to arbitrary. `refShiftScores` is
+  // shown for exactly that reason — the spread is the honesty.
+  let refShift = 0;
+  let refShiftAuto = true;
+  let refShiftScores: number[] = [];
+
+  /** (Re)composite the picked LPC row at the active facing, honoring layer visibility. */
+  function rebuildReferenceLane(): void {
+    refRasters.length = 0;
+    refBig.length = 0;
+    refSmall.length = 0;
+    const row = facing.sheetRow;
+    if (!refSheets || row === undefined) return;
+    const spec = LPC_ANIMATIONS[refRow];
+    const cell = workTemplate.cell;
+    const use = refSheets.filter((s, i) => s !== null && !hiddenLayers.has(i)) as Raster[];
+    if (use.length === 0) return;
+    for (let col = spec.firstCol; col <= spec.lastCol; col++) {
+      // A layer whose sheet is narrower than the row claims contributes
+      // nothing rather than reading past its own right edge.
+      const within = use.filter((s) => (col + 1) * cell <= s.w && (row + 1) * cell <= s.h);
+      if (within.length === 0) continue;
+      const cellR = compositeCell(within, col, row, cell);
+      const big = rgbaToCanvas(cellR.data, cellR.w, cellR.h);
+      const small = downscale(cellR, GAME_PX);
+      const smallCv = rgbaToCanvas(small.data, small.w, small.h);
+      if (big && smallCv) {
+        refRasters.push(cellR);
+        refBig.push(big);
+        refSmall.push(smallCv);
+      }
+    }
+  }
+
+  /**
+   * Resolve the picked row's sheets for the CURRENT wardrobe, then rebuild the
+   * lane. `walk` is already in memory (it is the stack the rig bakes from);
+   * every other row is a sibling file, fetched once per wardrobe and cached.
+   * `loadGen` guards it exactly as the wardrobe loads do — a role switch
+   * mid-fetch must not repaint the lane with the previous costume's row.
+   */
+  async function loadReferenceSheets(): Promise<void> {
+    const gen = loadGen;
+    const anim = refRow;
+    const finish = (sheets: (Raster | null)[] | null): void => {
+      refSheets = sheets;
+      rebuildReferenceLane();
+      measureReference();
+      drawReference();
+    };
+    if (!loadedSpecs || !loadedSheets) return finish(null);
+    if (anim === HUMANOID_SOURCE.anim) return finish(loadedSheets);
+    const cached = refSheetCache.get(anim);
+    if (cached) return finish(cached);
+    const fetched = await Promise.all(
+      loadedSpecs.map(async (spec) => {
+        for (const base of [spec.path, spec.fallback]) {
+          if (base === undefined) continue;
+          for (const cand of donorSheetCandidates(base, anim)) {
+            const r = await fetchRaster(cand);
+            if (r) return r;
+          }
+        }
+        return null;
+      }),
+    );
+    if (disposed || gen !== loadGen) return;
+    refSheetCache.set(anim, fetched);
+    finish(fetched);
+  }
+
+  /** Reference cell index for a bake frame, both expressed as a phase. */
+  function refIndexForFrame(f: number, shift = refShift): number {
+    const n = refRasters.length;
+    if (n === 0) return 0;
+    const t = frames.length <= 1 ? 0 : f / (frames.length - 1);
+    return ((cycleFrameAtPhase(n, t) - shift) % n + n) % n;
+  }
+
+  /** Bake frames that make up ONE cycle — a looping bake repeats its first pose. */
+  function bakeCycleLength(): number {
+    return Math.min(
+      cycleLength(displayFrames.length, importedMetaFor(facing, sourceClip)?.loop ?? false),
+      displayFrames.length,
+    );
+  }
+
+  const meanOf = (cs: readonly FrameCompare[]): FrameCompare | null =>
+    cs.length === 0
+      ? null
+      : {
+        iou: cs.reduce((s, c) => s + c.iou, 0) / cs.length,
+        colorDelta: cs.reduce((s, c) => s + c.colorDelta, 0) / cs.length,
+        overlapPx: cs.reduce((s, c) => s + c.overlapPx, 0) / cs.length,
+      };
+
+  /**
+   * Score every bake frame against its phase-matched reference cell, plus the
+   * clip-wide mean, plus every candidate alignment. A looping bake's last frame
+   * repeats its first, so the means run over the DISTINCT cycle only —
+   * otherwise one pose votes twice and the shift search compares uneven cycles.
+   */
+  function measureReference(): void {
+    refPerFrame = [];
+    refMean = null;
+    refShiftScores = [];
+    if (refRasters.length === 0 || displayFrames.length === 0) return;
+    const n = bakeCycleLength();
+    const at = (shift: number): FrameCompare[] => {
+      const out: FrameCompare[] = [];
+      for (let i = 0; i < n; i++) {
+        const f = displayFrames[i];
+        const ref = refRasters[refIndexForFrame(i, shift)];
+        if (ref && ref.w === f.w && ref.h === f.h) out.push(frameCompare(f, ref));
+      }
+      return out;
+    };
+    refShiftScores = refRasters.map((_, s) => meanOf(at(s))?.iou ?? 0);
+    // A shorter row (slash is 6 cells, shoot 13) can leave a hand-picked shift
+    // out of range; fold it rather than silently reading a different cell.
+    refShift %= refRasters.length;
+    if (refShiftAuto) refShift = refShiftScores.indexOf(Math.max(...refShiftScores));
+    refMean = meanOf(at(refShift));
+    refPerFrame = displayFrames.map((f, i) => {
+      const ref = refRasters[refIndexForFrame(i)];
+      return ref && ref.w === f.w && ref.h === f.h ? frameCompare(f, ref) : null;
+    });
+  }
+
+  function refView(): { col: HTMLElement; big: HTMLCanvasElement; small: HTMLCanvasElement; lbl: HTMLElement } {
+    const big = document.createElement('canvas');
+    big.style.cssText = 'display:block;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+    const small = document.createElement('canvas');
+    small.width = GAME_PX * 2;
+    small.height = GAME_PX * 2;
+    small.style.cssText = 'display:block;width:64px;height:64px;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px';
+    const lbl = h('span', { class: 'sg-muted', style: 'font-size:10px', text: '' });
+    const col = h('div', { style: 'display:flex;flex-direction:column;gap:5px;align-items:center' });
+    col.append(big, small, lbl);
+    return { col, big, small, lbl };
+  }
+  const refLpcView = refView();
+  const refBakeView = refView();
+  const refEyebrow = h('div', { class: 'sg-eyebrow', style: 'margin-top:6px', text: 'Reference — LPC’s own row vs the bake, phase-locked' });
+  const refWrap = h('div', { style: 'display:flex;gap:18px;align-items:flex-start' });
+  refWrap.append(refLpcView.col, refBakeView.col);
+  const refReadout = h('div', { class: 'sg-accent', style: 'font-size:11px;line-height:1.6;white-space:pre' });
+  const refCaption = h('div', {
+    class: 'sg-muted',
+    style: 'font-size:10px;line-height:1.5;max-width:560px',
+    text:
+      'A different artist’s cycle, scored for instrumentation only — NOT a gate. '
+      + 'IoU and Δcolour say whether a change moved the bake toward or away from a hand-drawn answer; '
+      + 'the bar is still whether it reads right at 32px.',
+  });
+  main.append(refEyebrow, refWrap, refReadout, refCaption);
+
+  /** Paint one reference-lane column at the shared zoom. */
+  function drawRefInto(
+    view: { big: HTMLCanvasElement; small: HTMLCanvasElement },
+    big: SpriteCanvas | undefined,
+    small: SpriteCanvas | undefined,
+  ): void {
+    const z = state.zoom;
+    const size = workTemplate.cell * z;
+    if (view.big.width !== size) {
+      view.big.width = size;
+      view.big.height = size;
+    }
+    const g = view.big.getContext('2d');
+    if (g) {
+      g.imageSmoothingEnabled = false;
+      checker(g, size, size, 8 * z);
+      if (big) g.drawImage(big as CanvasImageSource, 0, 0, size, size);
+    }
+    const gs = view.small.getContext('2d');
+    if (gs) {
+      gs.imageSmoothingEnabled = false;
+      checker(gs, view.small.width, view.small.height, 8);
+      if (small) gs.drawImage(small as CanvasImageSource, 0, 0, GAME_PX * 2, GAME_PX * 2);
+    }
+  }
+
+  function drawReference(): void {
+    const ri = refIndexForFrame(state.frame);
+    drawRefInto(refLpcView, refBig[ri], refSmall[ri]);
+    drawRefInto(refBakeView, shownFrames[state.frame], gameFrames[state.frame]);
+    refLpcView.lbl.textContent = refRasters.length === 0
+      ? `${refRow} — not vendored for this stack`
+      : `LPC ${refRow} · cell ${ri + 1}/${refRasters.length}`;
+    refBakeView.lbl.textContent = `bake ${workClip.name} · frame ${state.frame + 1}/${frames.length}`;
+    const c = refPerFrame[state.frame];
+    if (c === null || c === undefined) {
+      refReadout.textContent = 'no reference cell to score against';
+      return;
+    }
+    const span = refShiftScores.length > 1 ? Math.max(...refShiftScores) - Math.min(...refShiftScores) : 0;
+    refReadout.textContent =
+      `frame  IoU ${c.iou.toFixed(3)} · Δcolour ${c.colorDelta.toFixed(1)} over ${c.overlapPx}px\n`
+      + (refMean ? `clip   IoU ${refMean.iou.toFixed(3)} · Δcolour ${refMean.colorDelta.toFixed(1)} (mean over ${bakeCycleLength()} poses)\n` : 'clip   —\n')
+      + `align  +${refShift}${refShiftAuto ? ' (auto)' : ''} of ${refShiftScores.length}`
+      + ` · IoU spans only ${span.toFixed(3)} across all shifts — the alignment is barely determined`;
+  }
+
+  // ── motion metrics: what the capture says, and what the feet actually do ────
+  //
+  // Two numbers the bench exists to surface, neither of which it resolves:
+  //
+  // 1. GROUND SPEED. An in-place bake's stance sole slides one stride per cycle
+  //    by design, and reads as planted only when the NPC travels at the clip's
+  //    own speed. So the clip's stride/duration is compared against the shipped
+  //    NPC_WALK_SPEED at the runtime cadence the rig rows actually play at
+  //    (FRAME_MS), not at the capture's. A gap here is a real open question —
+  //    retime the clip, or move the NPC — and a human picks.
+  // 2. FOOT SKATE. The designed slide is removed first (`skate` detrends), so
+  //    what is left is the shiver no playback rate can fix.
+  const SOLE_POINTS: Record<string, readonly [number, number]> = {
+    // South/north boots: the plant points the authored clips already nail.
+    legL_fore: [24.5, 62],
+    legR_fore: [39.5, 62],
+    // West profile soles, read off the same recon the template was.
+    legNear_fore: [27.5, 60],
+    legFar_fore: [35.5, 60],
+  };
+
+  const metricsBox = h('div', {
+    class: 'sg-muted',
+    style: 'font-size:10px;line-height:1.6;white-space:pre;max-width:560px',
+  });
+  main.append(h('div', { class: 'sg-eyebrow', style: 'margin-top:6px', text: 'Motion metrics' }), metricsBox);
+
+  function updateMotionMetrics(): void {
+    const lines: string[] = [];
+    const meta = importedMetaFor(facing, sourceClip);
+    if (meta) {
+      // The rig rows play at FRAME_MS per column, so the cycle the PLAYER sees
+      // is (frames-1) intervals of FRAME_MS — not the capture's own duration.
+      const runtimeCycleSec = ((workClip.frames - 1) * FRAME_MS) / 1000;
+      const runtimeSpeed = runtimeCycleSec > 0 ? meta.stridePx / runtimeCycleSec : 0;
+      const npcSpeed = NPC_WALK_SPEED * TILE_SIZE;
+      lines.push(
+        `${workClip.name} ← ${meta.source} · ${meta.loop ? 'loops' : 'one-shot'}`,
+        `capture  ${meta.cycleSeconds.toFixed(3)}s cycle · ${meta.frameMs.toFixed(1)} ms/frame · stride ${meta.stridePx.toFixed(1)}px`
+          + ` → ${meta.groundSpeedPxPerSec.toFixed(1)} px/s`,
+        `runtime  ${runtimeCycleSec.toFixed(3)}s cycle at FRAME_MS ${FRAME_MS} → ${runtimeSpeed.toFixed(1)} px/s`,
+      );
+      if (runtimeSpeed > 0) {
+        const ratio = npcSpeed / runtimeSpeed;
+        lines.push(
+          `NPC      NPC_WALK_SPEED ${NPC_WALK_SPEED} tiles/s × TILE_SIZE ${TILE_SIZE} = ${npcSpeed.toFixed(1)} px/s`,
+          `         → the ground moves ${ratio.toFixed(2)}× the feet (${((ratio - 1) * 100).toFixed(0)}% skate)`,
+        );
+      } else {
+        lines.push('NPC      clip does not travel — play it standing still');
+      }
+    } else {
+      lines.push(`${workClip.name} — hand-authored; no capture metadata`);
+    }
+
+    // Foot skate, worst sole first. Reported for every sole the facing owns:
+    // in an in-place walk each foot takes a turn as the stance one.
+    const owned = new Set(workTemplate.chips.map((c) => c.name));
+    const soles = Object.entries(SOLE_POINTS).filter(([chip]) => owned.has(chip));
+    const reports = soles.map(([chip, point]) => ({ chip, r: skate(chipPointTrack(workTemplate, workClip, chip, point)) }));
+    reports.sort((a, b) => b.r.worst - a.r.worst);
+    for (const { chip, r } of reports) {
+      lines.push(
+        `skate    ${chip.padEnd(13)} ${r.worst.toFixed(2)}px worst @ frame ${r.worstFrame + 1}`
+          + ` · jitter ${r.jitter.toFixed(2)}px · raw spread ${r.rawSpread.toFixed(2)}px`,
+      );
+    }
+    if (reports.length > 0) {
+      lines.push('         (raw spread includes the designed one-stride-per-cycle slide; jitter does not)');
+    }
+
+    // In-plane leg travel. A capture walked TOWARD the camera puts nearly all
+    // of its leg swing out of plane, so the frontal facings key single-digit
+    // degrees where the profile keys tens — which is why a frontal walk reads
+    // closer to standing. The projection being honest, not a bad import.
+    const thighs = workTemplate.chips.map((c) => c.name).filter((n) => n.startsWith('leg') && n.endsWith('_up'));
+    const swings = thighs.map((n) => `${n} ${trackRangeDeg(workClip, n).toFixed(1)}°`);
+    if (swings.length > 0) lines.push(`swing    ${swings.join(' · ')} peak-to-peak in plane`);
+
+    metricsBox.textContent = lines.join('\n');
+  }
+
   function checker(g: CanvasRenderingContext2D, w: number, hgt: number, sq: number): void {
     for (let y = 0; y < hgt; y += sq) {
       for (let x = 0; x < w; x += sq) {
@@ -378,6 +754,9 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }
     frameLbl.textContent = `frame ${state.frame + 1}/${workClip.frames}`;
     frameSlider.value = String(state.frame);
+    // The reference lane is scrub-locked to the big view — one clock, so a
+    // frame you are looking at is always the frame the numbers describe.
+    drawReference();
   }
 
   function drawBones(g: CanvasRenderingContext2D, z: number): void {
@@ -490,16 +869,37 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   });
   panel.appendChild(rigRow);
 
+  // Facing picker — one button per authored view, hidden for a rig that has
+  // only one (the code-drawn quadrupeds). Switching swaps template AND clip
+  // list, so it rebuilds the same controls a rig switch does; it does NOT
+  // reload layers, because the wardrobe is unchanged.
+  const facingRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:8px' });
+  // Rebuilt rather than re-flagged: the button SET changes with the rig (three
+  // humanoid views, one quadruped), so there is no stable list to toggle.
+  function buildFacingRow(): void {
+    facingRow.replaceChildren();
+    facingRow.style.display = rig.facings.length > 1 ? 'flex' : 'none';
+    for (const f of rig.facings) {
+      const b = h('button', { class: 'sg-btn', style: 'flex:1', text: f.label });
+      b.classList.toggle('is-on', f === facing);
+      b.onclick = () => switchFacing(f);
+      facingRow.appendChild(b);
+    }
+  }
+  buildFacingRow();
+  panel.appendChild(facingRow);
+
   const clipSel = h('select', { class: 'sg-select', style: 'width:100%;margin-bottom:8px' }) as HTMLSelectElement;
   function buildClipOptions(): void {
     clipSel.replaceChildren();
-    rig.clips.forEach((c, i) => clipSel.appendChild(h('option', { text: c.name, attrs: { value: String(i) } })));
+    facing.clips.forEach((c, i) => clipSel.appendChild(h('option', { text: c.name, attrs: { value: String(i) } })));
     clipSel.value = '0';
   }
   buildClipOptions();
   clipSel.onchange = () => {
     state.clipIdx = +clipSel.value;
-    workClip = cloneClip(rig.clips[state.clipIdx]);
+    sourceClip = facing.clips[state.clipIdx];
+    workClip = cloneClip(sourceClip);
     state.frame = 0;
     buildPoseSliders();
     rebake();
@@ -650,7 +1050,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }
     const reset = h('button', { class: 'sg-btn', style: 'width:100%;margin-top:3px', text: '↺ Reset pose' });
     reset.onclick = () => {
-      workClip = cloneClip(rig.clips[state.clipIdx]);
+      sourceClip = facing.clips[state.clipIdx];
+      workClip = cloneClip(sourceClip);
       buildPoseSliders();
       rebake();
     };
@@ -714,7 +1115,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const pinReset = h('button', { class: 'sg-btn', style: 'width:100%;margin-bottom:5px', text: '↺ Reset joints' });
   pinReset.onclick = () => {
     workTemplate.chips.forEach((ch, i) => {
-      ch.pivot = [rig.template.chips[i].pivot[0], rig.template.chips[i].pivot[1]];
+      ch.pivot = [facing.template.chips[i].pivot[0], facing.template.chips[i].pivot[1]];
     });
     updateJointReadout();
     rebake();
@@ -813,8 +1214,11 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
         if (hiddenLayers.has(i)) hiddenLayers.delete(i);
         else hiddenLayers.add(i);
         b.classList.toggle('is-on', !hiddenLayers.has(i));
-        rebake();
         rebuildWalkLane();
+        // Both vendored lanes composite from the same visible-layer set as the
+        // bake — hiding the shirt on one side only would score a costume change.
+        rebuildReferenceLane();
+        rebake();
         drawGait();
       };
       layerRow.appendChild(b);
@@ -873,28 +1277,92 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     }),
   );
 
-  /** Show/hide the humanoid-only Character + Gait panels together. */
+  // ── reference-row picker (humanoid only) ────────────────────────────────────
+  // Which LPC row the bake is held against is STATED, not guessed: a walk bake
+  // scored against the slash row would read as a catastrophe that isn't one.
+  const refPanelSection = h('div', {});
+  panel.appendChild(refPanelSection);
+  refPanelSection.appendChild(h('div', { class: 'sg-eyebrow', style: 'margin:12px 0 6px', text: 'Reference row' }));
+  const refBtnRow = h('div', { class: 'sg-group', style: 'display:flex;flex-wrap:wrap;margin-bottom:4px' });
+  const refBtns = REF_ROWS.map((name) => {
+    const b = h('button', { class: 'sg-btn', style: 'flex:1 1 30%;font-size:10px', text: name });
+    b.classList.toggle('is-on', name === refRow);
+    b.onclick = () => {
+      refRow = name;
+      refBtns.forEach((bb, i) => bb.classList.toggle('is-on', REF_ROWS[i] === refRow));
+      void loadReferenceSheets();
+    };
+    refBtnRow.appendChild(b);
+    return b;
+  });
+  refPanelSection.appendChild(refBtnRow);
+
+  // Phase alignment. Auto by best mean IoU so the readout matches the offline
+  // contact sheet (`scripts/motion-contact-sheet.ts`), steppable because that
+  // "best" wins by ~0.01 and a human eye is the better discriminator.
+  const alignRow = h('div', { class: 'sg-group', style: 'display:flex;margin-bottom:4px' });
+  const autoAlignBtn = h('button', { class: 'sg-btn is-on', style: 'flex:1', text: 'auto' });
+  const stepAlign = (d: number): void => {
+    const n = refShiftScores.length;
+    if (n === 0) return;
+    refShiftAuto = false;
+    autoAlignBtn.classList.remove('is-on');
+    refShift = ((refShift + d) % n + n) % n;
+    measureReference();
+    drawReference();
+  };
+  autoAlignBtn.onclick = () => {
+    refShiftAuto = !refShiftAuto;
+    autoAlignBtn.classList.toggle('is-on', refShiftAuto);
+    measureReference();
+    drawReference();
+  };
+  const alignPrev = h('button', { class: 'sg-btn', style: 'flex:1', text: '◀ phase' });
+  alignPrev.onclick = () => stepAlign(-1);
+  const alignNext = h('button', { class: 'sg-btn', style: 'flex:1', text: 'phase ▶' });
+  alignNext.onclick = () => stepAlign(1);
+  alignRow.append(alignPrev, autoAlignBtn, alignNext);
+  refPanelSection.appendChild(alignRow);
+
+  /**
+   * Show/hide the humanoid-only Character + Gait + Reference panels together.
+   *
+   * GOTCHA: `style.display = ''` REMOVES the property rather than restoring it,
+   * so an element whose cssText declared `display:flex` reverts to `block` and
+   * its row silently stacks into a column. The gait lane's two views had been
+   * doing exactly that since it was written. Each element's authored display is
+   * captured here, once, and put back verbatim.
+   */
+  const humanoidExtras = [
+    characterSection, gaitPanelSection, gaitEyebrow, gaitWrap,
+    refPanelSection, refEyebrow, refWrap, refReadout, refCaption,
+  ].map((el) => [el, el.style.display] as const);
   function setHumanoidExtrasVisible(show: boolean): void {
-    characterSection.style.display = show ? '' : 'none';
-    gaitPanelSection.style.display = show ? '' : 'none';
-    gaitEyebrow.style.display = show ? '' : 'none';
-    gaitWrap.style.display = show ? '' : 'none';
+    for (const [el, display] of humanoidExtras) el.style.display = show ? display : 'none';
   }
 
   const metaLbl = h('div', {
     class: 'sg-muted',
     style: 'margin-top:10px;font-size:10px;line-height:1.5',
-    text: `template ${rig.template.name} · ${rig.template.chips.length} chips`,
+    text: `template ${facing.template.name} · ${facing.template.chips.length} chips`,
   });
   panel.appendChild(metaLbl);
+
+  function updateMetaLabel(layerCount?: number): void {
+    metaLbl.textContent =
+      `template ${facing.template.name} · ${facing.template.chips.length} chips · ${facing.label.toLowerCase()} facing`
+      + (layerCount === undefined ? '' : ` · layers ×${layerCount}`);
+  }
 
   // ── load: a generation counter shared by both load paths below, so a rig
   // switch mid-flight (either kind) supersedes a stale in-flight load. ────────
   const loading = h('div', { class: 'sg-muted', style: 'font-size:11px', text: 'loading rig layers…' });
   let loadGen = 0;
+  let loadedLayerCount: number | undefined;
 
   /** Humanoid path: fetch/decode a wardrobe stack (default or role-picked) via
-   *  the shared rig-catalog loader, keeping the raw sheets for the gait lane. */
+   *  the shared rig-catalog loader, keeping the raw sheets for the gait and
+   *  reference lanes (both composite vendored cells straight off them). */
   async function loadCharacter(charLayers: CharLayer[]): Promise<void> {
     const gen = ++loadGen;
     loading.textContent = 'loading LPC layers…';
@@ -904,15 +1372,20 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
       // (the child face) is dropped, and the row labels must follow the stack.
       const { layers: loaded, sheets, resolved } = await loadHumanoidCharacter(charLayers);
       if (disposed || gen !== loadGen) return;
-      layers = loaded;
+      baseLayers = loaded;
       loadedSheets = sheets;
+      loadedSpecs = resolved;
+      loadedLayerCount = resolved.length;
+      refSheetCache.clear(); // sibling anim sheets belong to THIS wardrobe
       hiddenLayers.clear();
+      applyFacingToLayers();
       rebuildLayerRow(resolved.map((c) => c.label));
       rebuildWalkLane();
-      metaLbl.textContent = `template ${rig.template.name} · ${rig.template.chips.length} chips · south facing · layers ×${resolved.length}`;
+      updateMetaLabel(loadedLayerCount);
       loading.remove();
       rebake();
       drawGait();
+      void loadReferenceSheets();
     } catch (err) {
       if (gen !== loadGen) return;
       loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -920,7 +1393,7 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   }
 
   /** Non-humanoid path: whatever the rig's own loadLayers() resolves — no
-   *  wardrobe roles, no gait lane, labels derived generically per layer. */
+   *  wardrobe roles, no gait/reference lane, labels derived per layer. */
   async function loadGenericRig(r: RigEntry): Promise<void> {
     const gen = ++loadGen;
     loading.textContent = `loading ${r.label} layers…`;
@@ -928,17 +1401,47 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     try {
       const loaded = await r.loadLayers();
       if (disposed || gen !== loadGen) return;
-      layers = loaded;
+      baseLayers = loaded;
       loadedSheets = null;
+      loadedSpecs = null;
+      loadedLayerCount = undefined;
+      refSheetCache.clear();
+      refSheets = null;
       hiddenLayers.clear();
+      applyFacingToLayers();
       rebuildLayerRow(loaded.map((l, i) => l.assign ?? `layer ${i}`));
-      metaLbl.textContent = `template ${r.template.name} · ${r.template.chips.length} chips`;
+      rebuildReferenceLane();
+      updateMetaLabel();
       loading.remove();
       rebake();
     } catch (err) {
       if (gen !== loadGen) return;
       loading.textContent = `✕ layer load failed: ${err instanceof Error ? err.message : String(err)}`;
     }
+  }
+
+  /** Rebuild every control whose shape follows the active template + clip list.
+   *  Shared by the rig and facing switches: both change chip count, chip names
+   *  and the offered clips, and the two used to drift apart when only one of
+   *  them remembered a control. */
+  function rebuildFacingDerivedControls(): void {
+    workTemplate = cloneTemplate(facing.template);
+    sourceClip = facing.clips[0];
+    workClip = cloneClip(sourceClip);
+    state.clipIdx = 0;
+    state.frame = 0;
+    pin.on = false;
+    pin.chip = defaultPinChip(facing.template);
+    pinBtn.classList.remove('is-on');
+    pinChipRow.style.display = 'none';
+    hiddenChips.clear();
+
+    buildFacingRow();
+    buildClipOptions();
+    buildPoseSliders();
+    buildPinChipButtons();
+    buildChipVisRow();
+    updateJointReadout();
   }
 
   /** Switch the active rig: reset clip/frame/pin/hidden state, rebuild every
@@ -948,26 +1451,14 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   async function switchRig(next: RigEntry): Promise<void> {
     if (disposed || next === rig) return;
     rig = next;
-    workTemplate = cloneTemplate(rig.template);
-    workClip = cloneClip(rig.clips[0]);
-    state.clipIdx = 0;
-    state.frame = 0;
-    pin.on = false;
-    pin.chip = defaultPinChip(rig.template);
-    pinBtn.classList.remove('is-on');
-    pinChipRow.style.display = 'none';
+    facing = rig.facings[0];
     hiddenLayers.clear();
-    hiddenChips.clear();
     walkBig.length = 0;
     walkSmall.length = 0;
     loadedSheets = null;
+    rebuildFacingDerivedControls();
 
     rigBtns.forEach((b, i) => b.classList.toggle('is-on', RIGS[i] === rig));
-    buildClipOptions();
-    buildPoseSliders();
-    buildPinChipButtons();
-    buildChipVisRow();
-    updateJointReadout();
 
     const isHumanoid = rig.id === 'humanoid';
     setHumanoidExtrasVisible(isHumanoid);
@@ -980,6 +1471,23 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     } else {
       await loadGenericRig(rig);
     }
+  }
+
+  /** Switch the active facing WITHOUT touching the network: same wardrobe, a
+   *  different row of the same already-decoded sheets. Layer visibility is kept
+   *  (the stack is unchanged); everything template-shaped is rebuilt.
+   *  Deliberately does NOT bump `loadGen`: an in-flight wardrobe load is still
+   *  wanted, and it re-slices against whatever facing is current when it lands. */
+  function switchFacing(next: RigFacingEntry): void {
+    if (disposed || next === facing) return;
+    facing = next;
+    rebuildFacingDerivedControls();
+    applyFacingToLayers();
+    rebuildWalkLane();
+    rebuildReferenceLane();
+    updateMetaLabel(loadedLayerCount);
+    rebake();
+    drawGait();
   }
 
   // ── boot: load the default (first) rig's default character/layers ──────────
