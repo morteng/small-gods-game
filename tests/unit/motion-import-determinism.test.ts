@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   MOTION_IMPORTS,
+  importClips,
   indexFile,
   moduleFileFor,
   renderIndex,
@@ -56,11 +57,12 @@ describe('motion import — the checked-in modules ARE the artifact', () => {
   it('is stable run to run, not merely stable on disk', () => {
     // Byte-equality with the file could also be satisfied by an importer that
     // is stable ONLY on this machine's first run. Import twice and compare.
+    // `importClips` rather than `runImport`: the clips ARE the serialized
+    // artifact, so they are the whole determinism surface, while the metrics
+    // beside them cost an undecimated reference bake each — six of those made
+    // this test a load-dependent timeout rather than a stronger assertion.
     for (const spec of MOTION_IMPORTS) {
-      const a = runImport(spec);
-      const b = runImport(spec);
-      expect(JSON.stringify(b.clips)).toBe(JSON.stringify(a.clips));
-      expect(b.metrics).toEqual(a.metrics);
+      expect(JSON.stringify(importClips(spec))).toBe(JSON.stringify(importClips(spec)));
     }
   });
 

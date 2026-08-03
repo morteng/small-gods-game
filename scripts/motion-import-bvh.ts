@@ -593,6 +593,23 @@ export function periodCandidates(source: string, from: number, min: number, max:
 }
 
 /**
+ * The emitted artifact and nothing else: the three facing clips.
+ *
+ * Separate from `runImport` because this is the whole determinism surface — the
+ * only thing that gets serialized — while the metrics beside it are diagnostics
+ * that cost an undecimated reference bake to compute. A caller checking that the
+ * importer is reproducible wants this; a caller writing a module wants both.
+ */
+export function importClips(spec: ImportSpec): Record<RigFacing, Clip> {
+  const bvh = readCapture(spec.source);
+  return projectToRig(bvh, HUMANOID_BVH_MAP, {
+    ...spec.opts,
+    name: spec.id,
+    pxPerUnit: FIGURE_HEIGHT_PX / verticalExtent(bvh, 0),
+  });
+}
+
+/**
  * Run one spec. Returns the three facing clips plus the numbers that justify
  * them — the same call the determinism test makes, so what the test compares is
  * what the script wrote, not a re-implementation of it.
@@ -603,11 +620,7 @@ export function runImport(spec: ImportSpec): { clips: Record<RigFacing, Clip>; m
   const tposeUnits = verticalExtent(bvh, 0);
   const pxPerUnit = FIGURE_HEIGHT_PX / tposeUnits;
 
-  const clips = projectToRig(bvh, HUMANOID_BVH_MAP, {
-    ...spec.opts,
-    name: spec.id,
-    pxPerUnit,
-  });
+  const clips = importClips(spec);
 
   // Ground truth for M2: how far the ROOT actually travelled over the cycle.
   // Measured on the capture, not on the bake — the bake deliberately throws
