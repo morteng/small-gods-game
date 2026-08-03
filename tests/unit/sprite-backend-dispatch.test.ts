@@ -97,7 +97,7 @@ describe('createSpriteBackend', () => {
 
   it('builds the img2img backend for a configured replicate model', async () => {
     const { dispatch, cfg } = img2imgDeps();
-    const be = createSpriteBackend('replicate', { replicate: cfg });
+    const be = createSpriteBackend('replicate', { img2img: cfg });
     expect(be.provider).toBe('replicate');
     expect(be.model).toBe('qwen/qwen-image-edit-2511');
     const res = await be.generate({ prompt: 'repaint', init: { pngDataUri: PNG_URI } });
@@ -116,7 +116,7 @@ describe('createSpriteBackend', () => {
     expect(availableProviders({})).toEqual([]);
     expect(availableProviders({ pixellab: { apiKey: '' } })).toEqual([]);
     const { cfg } = img2imgDeps();
-    expect(availableProviders({ pixellab: { apiKey: 'k' }, replicate: cfg, mock: {} }))
+    expect(availableProviders({ pixellab: { apiKey: 'k' }, img2img: cfg, mock: {} }))
       .toEqual(['pixellab', 'replicate', 'mock']);
   });
 });
@@ -160,15 +160,20 @@ describe('img2img backend', () => {
     expect(dispatch.calls[0].opts.signal).toBe(ctl.signal);
   });
 
-  it('refuses an OpenRouter-routed model: AssetProvider cannot name its host', () => {
-    expect(() => createImg2ImgBackend({
-      model: 'google/gemini-2.5-flash-image',
-      providers: PROVIDERS,
-    })).toThrow(SpriteBackendUnavailableError);
-    expect(() => createImg2ImgBackend({
-      model: 'black-forest-labs/flux.2-klein-4b',
-      providers: PROVIDERS,
-    })).toThrow(/widen AssetProvider deliberately/);
+  it('tags provenance with the host the model actually runs on', () => {
+    // Provenance outlives everyone who could correct it, so an OpenRouter-routed
+    // model is tagged 'openrouter' — not served under Replicate's name.
+    for (const model of ['google/gemini-2.5-flash-image', 'black-forest-labs/flux.2-klein-4b']) {
+      expect(createImg2ImgBackend({ model, providers: PROVIDERS }).provider).toBe('openrouter');
+    }
+    expect(createImg2ImgBackend({ model: 'qwen/qwen-image-edit-2511', providers: PROVIDERS }).provider)
+      .toBe('replicate');
+  });
+
+  it('refuses a provider that contradicts the configured model', () => {
+    const cfg = { model: 'google/gemini-2.5-flash-image', providers: PROVIDERS };
+    expect(() => createSpriteBackend('replicate', { img2img: cfg })).toThrow(/hosted on 'openrouter'/);
+    expect(createSpriteBackend('openrouter', { img2img: cfg }).provider).toBe('openrouter');
   });
 });
 

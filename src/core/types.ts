@@ -898,7 +898,16 @@ export type CurationStatus = 'pending' | 'kept' | 'rejected';
 export type AssetOrigin = 'sandbox' | 'official' | 'imported';
 
 export type AssetStyle = 'pixel-art' | 'painterly' | 'unknown';
-export type AssetProvider = 'pixellab' | 'replicate' | 'fal' | 'mock';
+/**
+ * Who generated an asset — persisted provenance, and (since C1) the dispatch
+ * key for `createSpriteBackend`. `'openrouter'` is a host in its own right:
+ * `image-dispatch` routes non-Replicate image models there, and tagging one of
+ * those `'replicate'` would write a lie into IndexedDB and the vendored
+ * manifest, where it would outlive anyone able to correct it. Adding a member
+ * is additive — no stored record changes and no existing value stops being
+ * valid — which is why naming the host beats refusing to serve it.
+ */
+export type AssetProvider = 'pixellab' | 'replicate' | 'openrouter' | 'fal' | 'mock';
 
 /**
  * Licence lineage of a library asset — metadata, never memory.

@@ -13,6 +13,7 @@
  * confusing failure deep in a pipeline instead of a sentence at the seam.
  */
 import type { AssetProvider } from '@/core/types';
+import { isReplicateImageModel } from '@/llm/image-dispatch';
 import { SpriteBackendUnavailableError, type SpriteBackend } from './backend';
 import { createImg2ImgBackend, type Img2ImgBackendConfig } from './img2img-backend';
 import { createMockBackend, type MockBackendConfig } from './mock-backend';
@@ -23,7 +24,10 @@ import { createPixelLabBackend, type PixelLabBackendConfig } from './pixellab-ba
  *  than "undefined is not a function". */
 export interface SpriteBackendDeps {
   pixellab?: PixelLabBackendConfig;
-  replicate?: Img2ImgBackendConfig;
+  /** ONE img2img config serves both hosts: the model id decides which, by the
+   *  same rule `image-dispatch` routes on. Keying it per-host would let the two
+   *  disagree about where a model lives. */
+  img2img?: Img2ImgBackendConfig;
   mock?: MockBackendConfig;
 }
 
@@ -32,7 +36,9 @@ export interface SpriteBackendDeps {
 export function availableProviders(deps: SpriteBackendDeps): AssetProvider[] {
   const out: AssetProvider[] = [];
   if (deps.pixellab?.apiKey) out.push('pixellab');
-  if (deps.replicate) out.push('replicate');
+  // The configured model names its own host — offering the other one would
+  // promise a backend that immediately refuses.
+  if (deps.img2img) out.push(isReplicateImageModel(deps.img2img.model) ? 'replicate' : 'openrouter');
   if (deps.mock) out.push('mock');
   return out;
 }
@@ -49,12 +55,20 @@ export function createSpriteBackend(
       }
       return createPixelLabBackend(cfg);
     }
-    case 'replicate': {
-      const cfg = deps.replicate;
+    case 'replicate':
+    case 'openrouter': {
+      const cfg = deps.img2img;
       if (!cfg) {
         throw new SpriteBackendUnavailableError(provider, 'no img2img model/providers configured');
       }
-      return createImg2ImgBackend(cfg);
+      const backend = createImg2ImgBackend(cfg);
+      if (backend.provider !== provider) {
+        throw new SpriteBackendUnavailableError(
+          provider,
+          `'${cfg.model}' is hosted on '${backend.provider}', not '${provider}'`,
+        );
+      }
+      return backend;
     }
     case 'mock':
       return createMockBackend(deps.mock ?? {});

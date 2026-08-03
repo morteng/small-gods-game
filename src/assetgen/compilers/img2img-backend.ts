@@ -20,7 +20,6 @@ import {
 } from '@/llm/image-dispatch';
 import {
   acceptJob,
-  SpriteBackendUnavailableError,
   type SpriteBackend,
   type SpriteBackendCapabilities,
   type SpriteJob,
@@ -50,24 +49,13 @@ export interface Img2ImgBackendConfig {
 /**
  * Build a backend for `cfg.model`.
  *
- * THROWS for an OpenRouter-routed model, and the reason is worth stating: an
- * asset's `provider` is persisted provenance, and `AssetProvider` has no
- * `'openrouter'` member. Tagging a FLUX-via-OpenRouter generation `'replicate'`
- * would be a lie written into IndexedDB and the vendored manifest, where it
- * would outlive everyone who could correct it. Widening the union is a
- * deliberate change to stored data and belongs in its own commit; until then
- * this seam serves the Replicate-hosted models and the studio's A/B harness
- * keeps calling the dispatcher directly.
+ * The provider is READ FROM THE MODEL ID, by the same rule `image-dispatch`
+ * routes on, so an asset's persisted provenance names the host that actually
+ * generated it. That matters more than it looks: `provider` outlives everyone
+ * who could correct it, in IndexedDB and in the vendored manifest.
  */
 export function createImg2ImgBackend(cfg: Img2ImgBackendConfig): SpriteBackend {
-  const provider: AssetProvider = 'replicate';
-  if (!isReplicateImageModel(cfg.model)) {
-    throw new SpriteBackendUnavailableError(
-      provider,
-      `no AssetProvider names the host of '${cfg.model}' (OpenRouter-routed); ` +
-        'widen AssetProvider deliberately before persisting art from it',
-    );
-  }
+  const provider: AssetProvider = isReplicateImageModel(cfg.model) ? 'replicate' : 'openrouter';
   const call = cfg.generateFn ?? generateImageAuto;
   const model = cfg.model;
   return {
