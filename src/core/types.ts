@@ -332,6 +332,9 @@ export interface RenderContext {
   canvasHeight: number;
   npcs: NpcInstance[];
   npcSheets: Map<string, HTMLCanvasElement>;
+  /** Baked paper-doll rig strips keyed by NPC id — a lazy companion to the
+   *  sheet above, empty until a bake lands (`src/render/lpc/rig-rows.ts`). */
+  npcRigSheets?: Map<string, HTMLCanvasElement>;
   visualMap: string[][] | null;
   blobMap: BlobTile[][] | null;
   tileAtlas: HTMLImageElement | null;

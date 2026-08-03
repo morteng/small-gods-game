@@ -19,6 +19,8 @@ export interface RenderContextDeps {
   state: GameState;
   viewport: Viewport;
   sheets: Map<string, HTMLCanvasElement>;
+  /** Baked rig strips keyed by NPC id (lazy; see `src/render/lpc/rig-rows.ts`). */
+  rigSheets?: Map<string, HTMLCanvasElement>;
   assets: AssetManager;
   decorationImages: DecorationImageCache;
   artResolver: ArtResolver;
@@ -88,6 +90,7 @@ export function buildRenderContext(deps: RenderContextDeps): RenderContext {
     canvasHeight: viewport.height,
     npcs: state.world ? (deps.npcEntities ?? state.world.query({ kind: 'npc' })).map(toRenderNpc) : [],
     npcSheets: sheets,
+    npcRigSheets: deps.rigSheets,
     visualMap: state.visualMap,
     blobMap: state.blobMap ?? null,
     tileAtlas: assets.getTileAtlas(),

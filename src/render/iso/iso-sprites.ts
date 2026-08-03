@@ -3,7 +3,7 @@ import type { IsoAtlas } from './iso-atlas';
 import type { NpcInstance, Entity, GameMap } from '@/core/types';
 import { tryGetEntityKindDef, isRockKind, natureSizeM } from '@/world/entity-kinds';
 import { groundContactColor, contactBlendFor } from '@/render/ground-contact';
-import { getSpriteCoords } from '@/render/npc-animator';
+import { resolveNpcFrame } from '@/render/npc-animator';
 import { NATURE_HEIGHT_M, DEFAULT_NATURE_HEIGHT_M, mToPx, HEIGHT_UNIT_PX } from '@/render/scale-contract';
 import { npcBillboard } from './npc-billboard';
 import { type DrawItem } from './draw-list';
@@ -16,6 +16,9 @@ export interface IsoDrawCtx {
   originY: number;
   /** LPC spritesheets keyed by NPC id (shared with top-down renderer). */
   npcSheets?: Map<string, HTMLCanvasElement>;
+  /** Baked paper-doll rig strips keyed by NPC id — absent until the bake lands
+   *  (see `src/render/lpc/rig-rows.ts`); an NPC without one stands instead. */
+  npcRigSheets?: Map<string, HTMLCanvasElement>;
 }
 
 /** The emitters need everything the draw ctx carries except the 2D context. */
@@ -84,7 +87,11 @@ export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
   // 2. Billboard from LPC spritesheet (reuse top-down art)
   const sheet = ic.npcSheets?.get(npc.id);
   if (sheet) {
-    const { sx: sheetSx, sy: sheetSy } = getSpriteCoords(npc);
+    const rigStrip = ic.npcRigSheets?.get(npc.id);
+    const { sx: sheetSx, sy: sheetSy, rig } = resolveNpcFrame(npc, rigStrip !== undefined);
+    // Billboard metrics stay measured on the STANDARD sheet even when the frame
+    // comes off the rig strip: the rig re-poses that very cell, so the body's
+    // opaque span (and therefore the foot anchor) is the same character.
     const bb = npcBillboard(sheet);
     const s = bb.scale;
     const drawW = LPC_FRAME * s, drawH = LPC_FRAME * s;
@@ -94,7 +101,7 @@ export function npcItems(ic: IsoItemCtx, npc: NpcInstance): DrawItem[] {
     // has transparent padding below the feet (`bb.bottom` < LPC_FRAME), so without a
     // footLift the shadow detaches a few px below the sprite.
     return [{
-      t: 'image', src: sheet,
+      t: 'image', src: rig && rigStrip ? rigStrip : sheet,
       frame: { sx: sheetSx, sy: sheetSy, sw: LPC_FRAME, sh: LPC_FRAME },
       // 1:1 rule: the wall lift folds into the SAME rounding that already snapped the foot
       // anchor, so `dy` stays a whole pixel however high up the rampart he is standing.

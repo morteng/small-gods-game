@@ -25,23 +25,31 @@ export function directionFromDelta(dx: number, dy: number): Direction {
 }
 
 /**
- * Which action animation a *stationary* NPC should play, or 'walk' (idle stand)
- * when it has no action right now. Drives the prototype's visible behaviours:
- * worshippers cast, soldiers-at-work drill with a seeded melee/ranged pose, and
- * a soldier STATIONED on a wall-walk keeps watch with a presented weapon.
+ * Which animation a *stationary* NPC should play. Drives the visible
+ * behaviours: worshippers pray, soldiers-at-work drill with a seeded
+ * melee/ranged pose, a soldier STATIONED on a wall-walk keeps watch with a
+ * presented weapon, and everyone else shifts their weight.
+ *
+ * `pray-raise` and `idle-shift` are RIG rows (`core/npc-animation.ts`): the sim
+ * names the state unconditionally and the renderer falls back to the idle stand
+ * for as long as that NPC's wardrobe has not been baked. Naming a state the
+ * renderer may not be able to draw yet is deliberate — the sim is truth.
  */
 export function stationaryAnimation(p: NpcProperties): NpcAnimation {
-  // Upstream child bodies ship only walk/slash/hurt — casting/drilling would
-  // render an empty row, so children fall back to the idle stand.
-  if (p.role === 'child') return 'walk';
-  if (p.activity === 'worship') return 'spellcast';
+  // Rig rows are baked from the NPC's OWN cell, so — unlike the vendored action
+  // rows below — worship reads right on every body, children included.
+  // (This retires the old blanket child guard: it existed because upstream child
+  // bodies ship only walk/slash/hurt, so a child worshipper drew an EMPTY
+  // spellcast row. The remaining vendored poses below are soldier-only, and no
+  // soldier is a child, so nothing else needs guarding.)
+  if (p.activity === 'worship') return 'pray-raise';
   if (p.role === 'soldier') {
     // Manning the walls: a posted man watches the field; only when he is off the
     // wall does the ordinary work-drill pose apply.
     if (p.garrison?.phase === 'stationed') return WATCH_POSES[p.seed % WATCH_POSES.length];
     if (p.activity === 'work') return COMBAT_POSES[p.seed % COMBAT_POSES.length];
   }
-  return 'walk';
+  return 'idle-shift';
 }
 
 /** Milliseconds per frame of the walk cycle (columns 1..8; column 0 is the idle stand). */
@@ -59,14 +67,15 @@ export function animateWalking(p: NpcProperties, dtMs: number): void {
   }
 }
 
-/** Set `p.animation` and advance its frame for an NPC that is standing still. */
+/**
+ * Set `p.animation` and advance its frame for an NPC that is standing still.
+ *
+ * There is no longer a "frozen on walk column 0" case: standing still is its own
+ * animation (`idle-shift`) with its own cycle. Holding the idle stand is what the
+ * RENDERER does for an unbaked rig row, which is where that decision belongs.
+ */
 export function animateStationary(p: NpcProperties, dtMs: number): void {
   const anim = stationaryAnimation(p);
-  if (anim === 'walk') {
-    p.animation = 'walk';
-    p.frame = 0; // idle stand
-    return;
-  }
   if (p.animation !== anim) {
     p.animation = anim;
     p.frame = LPC_ANIMATIONS[anim].firstCol;

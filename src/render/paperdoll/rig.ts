@@ -775,14 +775,21 @@ export function renderClipLayers(
   return frame;
 }
 
-/** Bake every frame of a clip. Frame i samples t = i/(frames-1) (frames ≥ 2). */
-export function bakeClip(
+/**
+ * Bake a clip one frame at a time. Frame i samples t = i/(frames-1) (frames ≥ 2).
+ *
+ * A GENERATOR because a bake is expensive enough that a caller running on a live
+ * frame loop needs somewhere to breathe: the runtime rig-row bake
+ * (`src/render/lpc/rig-rows.ts`) yields to the browser between frames, and only
+ * a suspendable producer can do that WITHOUT losing the stamped-layer memo built
+ * across the clip. `bakeClip` is this drained — same bytes, by construction.
+ */
+export function* bakeClipFrames(
   template: AnimTemplate,
   layers: readonly PoseLayerInput[],
   clip: Clip,
   opts: RenderPoseOptions = {},
-): Raster[] {
-  const frames: Raster[] = [];
+): Generator<Raster, void, undefined> {
   const denom = Math.max(1, clip.frames - 1);
   const L = layers.map(toPoseLayer);
   // Stamps are step-switched, so all frames sharing a stamp key share the same
@@ -808,7 +815,16 @@ export function bakeClip(
     const poses = sampleClip(template, clip, t);
     const frame = renderPose(template, use, poses, opts);
     if (anchored.length > 0) applyAnchoredStamps(frame, template, L, anchored, poses);
-    frames.push(frame);
+    yield frame;
   }
-  return frames;
+}
+
+/** Bake every frame of a clip at once — {@link bakeClipFrames} drained. */
+export function bakeClip(
+  template: AnimTemplate,
+  layers: readonly PoseLayerInput[],
+  clip: Clip,
+  opts: RenderPoseOptions = {},
+): Raster[] {
+  return [...bakeClipFrames(template, layers, clip, opts)];
 }

@@ -13,17 +13,11 @@
  * A future code-drawn rig (no vendored sheets to fetch) would simply resolve
  * `loadLayers()` synchronously-fast with no network/decode step at all.
  */
-import { assetUrl } from '@/core/asset-url';
-import { decodePngToRaster } from '@/render/sprite-codec';
-import type { Raster } from '../sprite-postprocess';
 import type { AnimTemplate, Clip, PoseLayer } from './rig';
-import type { DonorSheets } from './stamp';
-import { stampAnims } from './stamp';
+import { loadHumanoidCharacter } from './humanoid-loader';
 import {
   DEFAULT_HUMANOID_LAYERS,
-  donorSheetCandidates,
   HUMANOID_CLIPS,
-  HUMANOID_SOURCE,
   LPC_HUMANOID_SOUTH,
 } from './lpc-humanoid';
 import {
@@ -71,80 +65,6 @@ const HUMANOID_CHIP_COLORS: readonly string[] = [
 // L/R chip pairs mirror about the sprite's vertical axis.
 const humanoidMirrorName = (n: string): string | null =>
   n.includes('L_') ? n.replace('L_', 'R_') : n.includes('R_') ? n.replace('R_', 'L_') : null;
-
-// NOTE: the dev server's SPA fallback answers missing files with 200 +
-// index.html, so "does this variant exist" must survive decode, not just
-// resp.ok — hence fallback on any failure, not only HTTP errors.
-async function fetchRaster(path: string): Promise<Raster | null> {
-  const resp = await fetch(assetUrl(path));
-  if (!resp.ok) return null;
-  const type = resp.headers.get('content-type') ?? '';
-  if (!type.includes('image/png')) return null;
-  return decodePngToRaster(await resp.blob());
-}
-
-/** One layer to resolve + fetch for a humanoid bake — path plus optional fallback/chip assignment. */
-export interface HumanoidCharLayerSpec {
-  path: string;
-  fallback?: string;
-  assign?: string;
-}
-
-export interface HumanoidCharacterLoad {
-  layers: PoseLayer[];
-  /** Raw full vendored sheets, aligned with `layers` — the gait lane composites frames from these. */
-  sheets: Raster[];
-}
-
-/**
- * Fetch + decode a humanoid wardrobe stack (default or role-picked), harvest
- * each layer's donor sheets for the authored clips' stamps, and slice every
- * sheet down to the authored source cell (`HUMANOID_SOURCE`). Shared by the
- * registry's default `loadLayers()` and the motion studio's "Character" panel
- * (role/seed wardrobe swap), which also wants the raw sheets for its gait lane.
- */
-export async function loadHumanoidCharacter(
-  specs: readonly HumanoidCharLayerSpec[],
-): Promise<HumanoidCharacterLoad> {
-  const anims = stampAnims(HUMANOID_CLIPS.map((c) => c.stamps));
-  const loaded = await Promise.all(
-    specs.map(async (spec) => {
-      let path = spec.path;
-      let sheet = await fetchRaster(path);
-      if (!sheet && spec.fallback) {
-        path = spec.fallback;
-        sheet = await fetchRaster(path);
-      }
-      if (!sheet) throw new Error(`${spec.path}: not found`);
-      // Donor anim sheets for clip stamps (open palms…), derived from the
-      // path that actually loaded. A layer without the donor anim simply
-      // keeps its rest pixels (e.g. the child wardrobe has no spellcast).
-      const donors: Record<string, Raster> = {};
-      for (const anim of anims) {
-        for (const cand of donorSheetCandidates(path, anim)) {
-          const d = await fetchRaster(cand);
-          if (d) {
-            donors[anim] = d;
-            break;
-          }
-        }
-      }
-      return { sheet, donors };
-    }),
-  );
-  const cell = LPC_HUMANOID_SOUTH.cell;
-  const sx = HUMANOID_SOURCE.col * cell;
-  const sy = HUMANOID_SOURCE.row * cell;
-  const layers: PoseLayer[] = loaded.map(({ sheet, donors }, li) => {
-    const data = new Uint8ClampedArray(cell * cell * 4);
-    for (let y = 0; y < cell; y++) {
-      const src = (sy + y) * sheet.w + sx;
-      data.set(sheet.data.subarray(src * 4, (src + cell) * 4), y * cell * 4);
-    }
-    return { raster: { data, w: cell, h: cell }, assign: specs[li].assign, donors: donors as DonorSheets };
-  });
-  return { layers, sheets: loaded.map((l) => l.sheet) };
-}
 
 const humanoidRig: RigEntry = {
   id: 'humanoid',
