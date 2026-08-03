@@ -364,8 +364,17 @@ export class Shell implements LoadingSurface {
 
   /**
    * The shell's readable state — the external-agent navigation surface
-   * (spec §3.7). Pure read: calling it never draws, never mutates, and never
-   * advances the chronicle rotation, so an agent can poll it freely.
+   * (spec §3.7). Pure read: calling it never draws, never advances the chronicle
+   * rotation, and never changes what any later call — to this or anything else —
+   * will answer. An agent can poll it freely.
+   *
+   * "Never mutates" is the guarantee about OBSERVABLE state, and the distinction
+   * has already been load-bearing once: the `hall` arm reaches `Game.hudSim()`
+   * through `hallView`, which used to flip and PERSIST `firstRunSeen` on its way
+   * past. Polling the shell retired the player's tutorial. That write now lives on
+   * the frame loop (`Game.retireFirstRunTidings`), where the clock passing a
+   * horizon belongs. What this path may still touch is the HUD's TTL memo — a
+   * cache that changes how fast an answer arrives and never what it is.
    *
    * `choices` is derived from the SAME functions the draw path uses
    * (`titleRows`), so what an agent is told it can do and what a click can

@@ -2033,25 +2033,44 @@ export class Game {
     // P5b: first-run tutorial toasts — appended here (not in `game-query.ts`'s
     // `divineInbox`) so the golden/inbox tests there stay untouched; this is
     // pure Game-side composition over an otherwise-unmodified query result.
-    // `firstRunSeen` flips PERMANENTLY once the horizon has passed, whether or
-    // not the player actually opened the inbox tray — "delivered" means "made
-    // available for the window", the same honest best-effort every other
-    // auto-expiring tiding already settles for.
     const simNow = this.state.clock.now();
-    if (!settingsStore.getFirstRunSeen() && simNow >= FIRST_RUN_TIDING_HORIZON_TICKS) {
-      settingsStore.setFirstRunSeen(true);
-    }
     const fresh = {
       t: now,
       belief: this.query.beliefState(),
       powers: this.query.beliefPowers(),
       inbox: [
         ...this.query.divineInbox(),
-        ...(settingsStore.getFirstRunSeen() ? [] : firstRunTidings(simNow)),
+        ...(this.firstRunTidingsOver(simNow) ? [] : firstRunTidings(simNow)),
       ],
     };
     this.hudSimCache = fresh;
     return fresh;
+  }
+
+  /** Has the first-run tiding window closed? `firstRunSeen` flips PERMANENTLY once the
+   *  horizon has passed, whether or not the player actually opened the inbox tray —
+   *  "delivered" means "made available for the window", the same honest best-effort
+   *  every other auto-expiring tiding already settles for.
+   *
+   *  READ-ONLY, deliberately. It used to do the flip inline, which made `hudSim` — and
+   *  therefore `Shell.describe()`, which reaches it through `hallView` — write a
+   *  PERSISTED setting from what is documented as a pure read ("never mutates", so an
+   *  agent can poll it freely). An agent polling the shell must not be able to retire
+   *  the player's tutorial. The flip itself lives in `retireFirstRunTidings`, driven off
+   *  the frame loop, where the clock passing a horizon actually belongs. */
+  private firstRunTidingsOver(simNow: number): boolean {
+    return settingsStore.getFirstRunSeen() || simNow >= FIRST_RUN_TIDING_HORIZON_TICKS;
+  }
+
+  /** Persist the first-run flip once the horizon has passed. Called from the frame
+   *  loop: this is a consequence of TIME passing, not of anyone reading the inbox, so
+   *  it belongs on the clock's path rather than a query's. Cheap and idempotent — one
+   *  settings read per frame, and the store write happens exactly once per save. */
+  private retireFirstRunTidings(): void {
+    if (settingsStore.getFirstRunSeen()) return;
+    if (this.state.clock.now() < FIRST_RUN_TIDING_HORIZON_TICKS) return;
+    settingsStore.setFirstRunSeen(true);
+    this.invalidateHudSim();
   }
   /** Drop the HUD memo so the next read recomputes — called when a divine action
    *  shifts belief, so the orb/powers/inbox reflect the change on the very next frame. */
@@ -3279,6 +3298,10 @@ export class Game {
     // while hard-paused (audio is muted and the loop is about to idle).
     if (!paused) this.presentation.update(deltaMs, { live: !!live, scrubbed: this.timeline.isScrubbed });
     if (live) {
+      // The first-run tiding window closes with the CLOCK, so retire it here rather
+      // than inside the HUD memo — a read must not be able to spend it (see
+      // `retireFirstRunTidings`).
+      this.retireFirstRunTidings();
       advanceNpcFrames(this.state.world!, deltaMs);  // presentation animation - not a scheduled system
       // M1: the chronicler's voice — cheap per-frame day-boundary check; only
       // generates (async, off the sim tick, read-only over the log) once a full
