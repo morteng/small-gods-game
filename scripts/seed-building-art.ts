@@ -39,7 +39,8 @@ import {
   MIN_BORDER_KEYED, MIN_SILHOUETTE_IOU, QUANT_COLORS,
 } from '../src/render/generated-building-art-source';
 import { BuildingImageError } from '../src/llm/openrouter-image-client';
-import { generateBuildingImageAuto, isReplicateImageModel, BUILDING_IMAGE_MODEL } from '../src/llm/building-image';
+import { generateBuildingImageAuto, BUILDING_IMAGE_MODEL } from '../src/llm/building-image';
+import { isReplicateImageModel } from '../src/llm/image-dispatch';
 import { ART_RECIPE_VERSION } from '../src/core/content-version';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');

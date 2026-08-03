@@ -43,7 +43,8 @@ import { initManifoldWasm } from '@/assetgen/geometry/manifold-wasm-browser';
 import { buildingImagePrompt, ttiReferencePrompt } from '@/assetgen/building-image-prompt';
 import { compositeOverChroma, chromaKeyMagenta } from '@/render/chroma-key';
 import { BuildingImageError, defaultModalitiesFor } from '@/llm/openrouter-image-client';
-import { generateBuildingImageAuto, isReplicateImageModel, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
+import { generateBuildingImageAuto, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
+import { isReplicateImageModel } from '@/llm/image-dispatch';
 import {
   loadProviderConfig, openrouterImageBaseUrl, replicateImageBaseUrl, replicateDeliveryBaseUrl,
 } from '@/llm/provider-factory';
