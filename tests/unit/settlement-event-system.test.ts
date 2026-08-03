@@ -26,7 +26,7 @@ function makeNpc(world: World, id: string, role: 'farmer' | 'priest' = 'farmer',
 
 function createContext(world: World, seed = 42) {
   const clock = { now: () => 0, advance: () => {} } as any;
-  const log = new SilentEventLog(null as any);
+  const log = new SilentEventLog(clock);
   const rng = createRng(seed);
   return { world, spirits: new Map(), log, clock, rng, dt: 1000, now: 0 };
 }

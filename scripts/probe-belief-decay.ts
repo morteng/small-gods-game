@@ -153,9 +153,10 @@ function benchFires(
   world: World, sys: BeliefPropagationSystem, rngSeed: number, fires: number,
   needs: NpcNeeds = HELD_NEEDS,
 ): void {
+  const clock = { now: () => 0, advance: () => {} } as never;
   const ctx = {
-    world, spirits: new Map(), log: new SilentEventLog(null as never),
-    clock: { now: () => 0, advance: () => {} } as never,
+    world, spirits: new Map(), log: new SilentEventLog(clock),
+    clock,
     rng: createRng(rngSeed), dt: 1000, now: 0,
   };
   for (let t = 0; t < fires; t++) {

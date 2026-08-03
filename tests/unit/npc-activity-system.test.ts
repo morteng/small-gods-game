@@ -44,7 +44,7 @@ function makeNpc(world: World, id: string, role: 'farmer' | 'priest' | 'merchant
 
 function createContext(world: World, tick: number, seed = 42) {
   const clock = { now: () => tick, advance: () => {} } as any;
-  const log = new SilentEventLog(null as any);
+  const log = new SilentEventLog(clock);
   const rng = createRng(seed);
   return { world, spirits: new Map(), log, clock, rng, dt: 1000, now: tick };
 }

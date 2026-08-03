@@ -66,9 +66,10 @@ function sysFor(map: GameMap): NpcActivitySystem {
 
 function ctx(world: World, seed = 5) {
   const tick = tickAtSolarHour(12); // midday — never the night branch
+  const clock = { now: () => tick, advance: () => {} } as never;
   return {
-    world, spirits: new Map(), log: new SilentEventLog(null as never),
-    clock: { now: () => tick, advance: () => {} } as never,
+    world, spirits: new Map(), log: new SilentEventLog(clock),
+    clock,
     rng: createRng(seed), dt: 1000, now: tick,
   } as never;
 }

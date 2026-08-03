@@ -85,9 +85,10 @@ function linkAllPairs(npcs: Entity[], trust = 0.5): void {
 /** Run K ticks of decay + propagation with NO divine input. */
 function runTicks(world: World, K: number, seed = 1): void {
   const sys = new BeliefPropagationSystem();
+  const clock = { now: () => 0, advance: () => {} } as never;
   const ctx = {
-    world, spirits: new Map(), log: new SilentEventLog(null as never),
-    clock: { now: () => 0, advance: () => {} } as never,
+    world, spirits: new Map(), log: new SilentEventLog(clock),
+    clock,
     rng: createRng(seed), dt: 1000, now: 0,
   };
   for (let t = 0; t < K; t++) {

@@ -39,7 +39,7 @@ function createContext(world: World, tick = 1000, log?: EventLog) {
   const clock = { now: () => tick, advance: () => {} } as unknown as SimClock;
   return {
     world, spirits: new Map(),
-    log: log ?? new SilentEventLog(null as never),
+    log: log ?? new SilentEventLog(clock),
     clock, rng: createRng(7), dt: 1000, now: tick,
   };
 }

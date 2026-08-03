@@ -123,9 +123,10 @@ function statVillage(faith: number, understanding: number, devotion: number): Se
  *  (`tickAllNpcEntities`) then BeliefPropagationSystem, with needs re-stamped so
  *  the two tiers see the same need vector (control 2). */
 function runNamedHour(world: World, sys: BeliefPropagationSystem): void {
+  const clock = { now: () => 0, advance: () => {} } as never;
   const ctx = {
-    world, spirits: new Map(), log: new SilentEventLog(null as never),
-    clock: { now: () => 0, advance: () => {} } as never,
+    world, spirits: new Map(), log: new SilentEventLog(clock),
+    clock,
     rng: createRng(7), dt: 1000, now: 0,
   };
   for (let t = 0; t < FIRES_PER_GAME_HOUR; t++) {

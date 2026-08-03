@@ -281,6 +281,12 @@ const SILENT_RECENT_CAP = 1024;
  * anything attributing an effect to its cause: `WeatherSystem` recovers which
  * god cast a storm from the `summon_storm` it just re-appended, so a blind
  * silent log would re-credit every replayed flood to nature.
+ *
+ * BECAUSE it buffers, this NEEDS A LIVE CLOCK — `append` stamps `t`, and
+ * `recentSince` is a comparison against it. It was a pure no-op once, so a
+ * dozen call sites handed it `null as never`; that is now a crash, and a
+ * zero-stamping fallback would be worse (every window would read empty).
+ * Pass the same clock the surrounding ctx reports `now` from.
  */
 export class SilentEventLog extends EventLog {
   private recent: AppendedEvent[] = [];

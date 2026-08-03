@@ -79,7 +79,7 @@ function lordCtx(world: World, tick = 1000, l?: EventLog) {
   const clock = { now: () => tick, advance: () => {} } as unknown as SimClock;
   return {
     world, spirits: new Map(),
-    log: l ?? new SilentEventLog(null as never),
+    log: l ?? new SilentEventLog(clock),
     clock, rng: createRng(7), dt: 1000, now: tick,
   };
 }
