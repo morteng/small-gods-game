@@ -13,7 +13,8 @@ import { planWorldLayout } from '@/world/poi-layout';
 import { generateRivalSpirits } from '@/sim/rival-spirit';
 import { rivalToSpirit } from '@/sim/command/rival-adapter';
 import { identityOracle } from '@/world/oracle';
-import { buildCharacterSpec, getOrGenerateSheet } from '@/render/lpc';
+import { buildCharacterSpec, getOrBakeRigRows, getOrGenerateSheet } from '@/render/lpc';
+import { isRigRow, LPC_ANIMATIONS } from '@/core/npc-animation';
 import { npcProps } from '@/world/npc-helpers';
 import { loadDecorations } from '@/services/decoration-store';
 import { WaterDynamics } from '@/render/gpu/water-dynamics';
@@ -285,5 +286,29 @@ export function kickOffSheets(state: GameState, sheets: Map<string, HTMLCanvasEl
       canvas => { if (canvas) sheets.set(e.id, canvas); },
       err => { console.warn('[sheets] generation failed for', e.id, err); },
     );
+  }
+}
+
+/**
+ * Hand out baked rig strips to the NPCs currently PLAYING a rig animation, and
+ * queue the bake for the ones that aren't served yet.
+ *
+ * Demand-driven on purpose: a strip costs a few hundred ms of raster math per
+ * distinct wardrobe (measured — see `rig-rows.ts`), so baking the whole town up
+ * front would be minutes of work for poses most of it is not striking. Riding
+ * the slow sheet re-kick instead means a villager who starts worshipping is
+ * praying within a re-kick interval and standing (not broken) until then.
+ */
+export function kickOffRigStrips(state: GameState, rigSheets: Map<string, HTMLCanvasElement>): void {
+  if (!state.world) return;
+  for (const e of state.world.query({ kind: 'npc' })) {
+    if (rigSheets.has(e.id)) continue;
+    const p = npcProps(e);
+    // `?? undefined` on the lookup, not just on the name: a save written before
+    // an animation was renamed can carry a value this table no longer has.
+    const spec = p.animation ? (LPC_ANIMATIONS[p.animation] as typeof LPC_ANIMATIONS.walk | undefined) : undefined;
+    if (!spec || !isRigRow(spec)) continue;
+    const strip = getOrBakeRigRows(buildCharacterSpec(p.role, p.seed));
+    if (strip) rigSheets.set(e.id, strip);
   }
 }

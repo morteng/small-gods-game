@@ -32,14 +32,15 @@ import {
   type Clip,
   type PoseLayer,
 } from '@/render/paperdoll/rig';
-import { RIGS, loadHumanoidCharacter, type RigEntry } from '@/render/paperdoll/rig-catalog';
+import { RIGS, type RigEntry } from '@/render/paperdoll/rig-catalog';
+import { loadHumanoidCharacter } from '@/render/paperdoll/humanoid-loader';
+import { humanoidLayerSpecs } from '@/render/lpc/humanoid-layers';
 import { DEFAULT_HUMANOID_LAYERS, HUMANOID_SOURCE } from '@/render/paperdoll/lpc-humanoid';
 import { GAIT_NORMAL, GAIT_STYLES, gaitFrameAt, planGait, type GaitPlan } from '@/render/paperdoll/gait';
 import { LPC_ANIMATIONS } from '@/core/npc-animation';
 import { FRAME_MS } from '@/render/npc-animator';
 import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import { buildCharacterSpec, type CharacterSpec } from '@/render/lpc/character-builder';
-import { walkSpriteCandidates } from '@/render/lpc/lpc-walk-path';
 import type { NpcRole } from '@/core/types';
 import { rgbaToCanvas, type SpriteCanvas } from '@/render/iso/sprite-canvas';
 import { quantizePaletteOklab, type Raster } from '@/render/sprite-postprocess';
@@ -746,9 +747,8 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   panel.append(pinBtn, pinMirrorBtn, pinChipRow, jointReadout, pinCopy, pinReset);
 
   // ── character: preview any role's seeded wardrobe on the rig (humanoid only) ─
-  // Layer stacks come from the game's own role recipes (buildCharacterSpec) via
-  // the pure path resolver (walkSpriteCandidates) — same sheets the runtime
-  // compositor loads, so what bakes here is what the game would wear.
+  // Layer stacks come from the game's own role recipes (buildCharacterSpec) —
+  // same sheets the runtime compositor loads, so what bakes here is worn there.
   interface CharLayer {
     path: string;
     fallback?: string;
@@ -758,25 +758,11 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
   const DEFAULT_LABELS = ['body', 'shirt', 'head', 'face', 'hair'];
   const defaultCharacter = (): CharLayer[] =>
     DEFAULT_HUMANOID_LAYERS.map((s, i) => ({ path: s.path, assign: s.assign, label: DEFAULT_LABELS[i] ?? `layer ${i}` }));
-  // Paint order (bottom→top) across every selection key the role recipes use.
-  const KEY_ORDER = ['body', 'legs', 'shoes', 'clothes', 'armour', 'arms', 'head', 'expression', 'hair'] as const;
-  const HEAD_KEYS = new Set(['head', 'expression', 'hair']); // ride the head chip wholesale
-  function characterLayers(spec: CharacterSpec): CharLayer[] {
-    const out: CharLayer[] = [];
-    for (const key of KEY_ORDER) {
-      const sel = spec.items[key];
-      if (!sel) continue;
-      const [primary, fallback] = walkSpriteCandidates(sel.itemId, sel.variant, spec.bodyType);
-      if (!primary) continue;
-      out.push({
-        path: `sprites/lpc/spritesheets/${primary}`,
-        fallback: fallback ? `sprites/lpc/spritesheets/${fallback}` : undefined,
-        assign: HEAD_KEYS.has(key) ? 'head' : undefined,
-        label: key,
-      });
-    }
-    return out;
-  }
+  // Wardrobe stack + paint order come from the shared resolver the RUNTIME rig
+  // bake uses (`humanoidLayerSpecs`), so what bakes in here is what the game
+  // wears; the studio only adds a row label.
+  const characterLayers = (spec: CharacterSpec): CharLayer[] =>
+    humanoidLayerSpecs(spec).map((l) => ({ ...l, label: l.key }));
 
   const characterSection = h('div', {});
   panel.appendChild(characterSection);
@@ -914,14 +900,16 @@ export function mountMotionStudio(container: HTMLElement): StudioHandle {
     loading.textContent = 'loading LPC layers…';
     main.prepend(loading);
     try {
-      const { layers: loaded, sheets } = await loadHumanoidCharacter(charLayers);
+      // `resolved`, not `charLayers`: a layer the vendored set doesn't carry
+      // (the child face) is dropped, and the row labels must follow the stack.
+      const { layers: loaded, sheets, resolved } = await loadHumanoidCharacter(charLayers);
       if (disposed || gen !== loadGen) return;
       layers = loaded;
       loadedSheets = sheets;
       hiddenLayers.clear();
-      rebuildLayerRow(charLayers.map((c) => c.label));
+      rebuildLayerRow(resolved.map((c) => c.label));
       rebuildWalkLane();
-      metaLbl.textContent = `template ${rig.template.name} · ${rig.template.chips.length} chips · south facing · layers ×${charLayers.length}`;
+      metaLbl.textContent = `template ${rig.template.name} · ${rig.template.chips.length} chips · south facing · layers ×${resolved.length}`;
       loading.remove();
       rebake();
       drawGait();

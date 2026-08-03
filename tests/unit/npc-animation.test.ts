@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { LPC_ANIMATIONS, LPC_DIR_OFFSET, nextFrame } from '@/core/npc-animation';
-import { getSpriteCoords } from '@/render/npc-animator';
+import { isRigRow, LPC_ANIMATIONS, LPC_DIR_OFFSET, nextFrame, STANDARD_SHEET_ROWS } from '@/core/npc-animation';
+import { getSpriteCoords, resolveNpcFrame } from '@/render/npc-animator';
 import type { NpcInstance } from '@/core/types';
 
 function npc(partial: Partial<NpcInstance>): NpcInstance {
@@ -76,5 +76,55 @@ describe('getSpriteCoords', () => {
     // shoot lastCol = 12; a stale frame of 99 must not read past it
     const c = getSpriteCoords(npc({ animation: 'shoot', direction: 'down', frame: 99 }));
     expect(c.sx).toBe(12 * 64);
+  });
+
+  it('resolves a rig animation to its fallback on the standard sheet', () => {
+    // No rig strip anywhere near this call — a rig row must never leak a
+    // rowBase past the vendored sheet into a reader that only has that sheet.
+    const c = getSpriteCoords(npc({ animation: 'pray-raise', direction: 'down', frame: 5 }));
+    expect(c).toEqual({ sx: 0, sy: 10 * 64 }); // walk down, column 0 = idle stand
+  });
+});
+
+describe('rig rows', () => {
+  const RIGS = ['pray-raise', 'idle-shift'] as const;
+
+  it('are the entries that sit past the vendored block', () => {
+    for (const a of RIGS) {
+      expect(isRigRow(LPC_ANIMATIONS[a])).toBe(true);
+      expect(LPC_ANIMATIONS[a].rowBase).toBeGreaterThanOrEqual(STANDARD_SHEET_ROWS);
+    }
+    for (const a of ['spellcast', 'thrust', 'walk', 'slash', 'shoot', 'hurt'] as const) {
+      expect(isRigRow(LPC_ANIMATIONS[a])).toBe(false);
+    }
+  });
+
+  it('loop over the ping-ponged strip', () => {
+    expect(LPC_ANIMATIONS['pray-raise'].lastCol).toBe(11);   // 7 authored frames
+    expect(LPC_ANIMATIONS['idle-shift'].lastCol).toBe(13);   // 8 authored frames
+    expect(nextFrame('pray-raise', 11)).toBe(0);
+    expect(nextFrame('idle-shift', 6)).toBe(7);
+  });
+
+  it('are authored for south + north only', () => {
+    for (const a of RIGS) {
+      expect([...LPC_ANIMATIONS[a].facings!].sort()).toEqual(['down', 'up']);
+    }
+  });
+
+  it('read off the STRIP when it is baked, rebased onto it', () => {
+    const spec = LPC_ANIMATIONS['pray-raise'];
+    const f = resolveNpcFrame(npc({ animation: 'pray-raise', direction: 'down', frame: 4 }), true);
+    expect(f.rig).toBe(true);
+    expect(f.sx).toBe(4 * 64);
+    expect(f.sy).toBe((spec.rowBase - STANDARD_SHEET_ROWS + LPC_DIR_OFFSET.down) * 64);
+  });
+
+  it('fall back for an unbaked strip AND for the facings the rig never authored', () => {
+    const unbaked = resolveNpcFrame(npc({ animation: 'pray-raise', direction: 'down', frame: 4 }), false);
+    expect(unbaked).toEqual({ sx: 0, sy: 10 * 64, rig: false });
+    // Strip baked, but west/east carry no pixels — the idle stand, not a hole.
+    const profile = resolveNpcFrame(npc({ animation: 'pray-raise', direction: 'left', frame: 4 }), true);
+    expect(profile).toEqual({ sx: 0, sy: (8 + LPC_DIR_OFFSET.left) * 64, rig: false });
   });
 });

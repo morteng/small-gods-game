@@ -64,7 +64,7 @@ import { registerSimSystems } from '@/game/sim-systems';
 import { applySkip } from '@/sim/time-skip';
 import { settleArcsAcrossSkip } from '@/sim/fate/arc-era';
 import { runBootSequence } from '@/game/boot-sequence';
-import { kickOffSheets } from '@/game/bootstrap-world';
+import { kickOffRigStrips, kickOffSheets } from '@/game/bootstrap-world';
 import { FrameLoop, type FrameAnimating } from '@/game/frame-loop';
 import { PersistenceController } from '@/game/persistence-controller';
 import {
@@ -482,6 +482,9 @@ export class Game {
   private decorationImages = new ArtImageCache((id) => this.assetLibrary.resolveBlob(id));
   /** Resolved spritesheets keyed by NPC id */
   private sheets = new Map<string, HTMLCanvasElement>();
+  /** Baked paper-doll rig strips per NPC id — filled lazily, only for NPCs that
+   *  actually play a rig animation (see `kickOffRigStrips`). */
+  private rigSheets = new Map<string, HTMLCanvasElement>();
   /** Slow re-kick so post-boot births get LPC sheets too (see generateWorld). */
   private sheetRekickTimer: ReturnType<typeof setInterval> | null = null;
   private assets = new AssetManager();
@@ -2782,6 +2785,7 @@ export class Game {
       state: this.state,
       viewport: this.viewport(),
       sheets: this.sheets,
+      rigSheets: this.rigSheets,
       assets: this.assets,
       decorationImages: this.decorationImages,
       artResolver: this.artResolver,
@@ -2970,7 +2974,10 @@ export class Game {
     // events, and kickOffSheets dedupes so a quiet world costs one map scan.
     if (this.sheetRekickTimer === null) {
       this.sheetRekickTimer = setInterval(() => {
-        if (this.state.world) kickOffSheets(this.state, this.sheets);
+        if (!this.state.world) return;
+        kickOffSheets(this.state, this.sheets);
+        // Same beat, same dedupe: hand a baked rig strip to whoever is praying now.
+        kickOffRigStrips(this.state, this.rigSheets);
       }, SHEET_REKICK_MS);
     }
     // Auto-pause when the tab is hidden (the loop + audio fully idle; resumes on return) —
@@ -3164,6 +3171,7 @@ export class Game {
       resetState(this.state);
       this.timeline.reset();
       this.sheets.clear();
+      this.rigSheets.clear();
       this.attentionStore.clearAll();
       this.speechBubbles.clear();
       this.fateTrigger?.reset();

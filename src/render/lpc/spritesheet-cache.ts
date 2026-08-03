@@ -3,6 +3,9 @@ import { renderCharacter } from './canvas/renderer.js';
 import { clearImageCache } from './canvas/load-image.js';
 import type { CharacterSpec } from './character-builder';
 import { createLimiter } from './concurrency';
+import { humanoidLayerSpecs } from './humanoid-layers';
+import { loadHumanoidCharacter } from '@/render/paperdoll/humanoid-loader';
+import { bakeRigStripRows, paintRigStrip } from './rig-rows';
 
 /** Stable hash of a CharacterSpec — used as cache key */
 function specHash(spec: CharacterSpec): string {
@@ -80,4 +83,52 @@ export function pendingSheets(): number {
 export function clearSheetCache(): void {
   cache.clear();
   inflight.clear();
+  rigCache.clear();
+  rigInflight.clear();
 }
+
+// ── rig rows ────────────────────────────────────────────────────────────────
+// The paper-doll clips baked from this wardrobe's own part sheets, on their own
+// canvas (see `rig-rows.ts` for why it is not the composed sheet). Keyed by the
+// same spec hash, so a crowd of identical wardrobes bakes once.
+
+const rigCache = new Map<string, HTMLCanvasElement | null>();
+const rigInflight = new Map<string, Promise<void>>();
+
+// ONE at a time, unlike the sheet composition above. A rig bake is SYNCHRONOUS
+// raster math, not I/O: running three concurrently would not overlap anything,
+// it would only interleave three streams of blocking frames instead of one.
+// Serial + the bake's own per-frame idle yield is what keeps the loop breathing
+// while a town gradually gains its prayers.
+const rigLimiter = createLimiter(1);
+
+/**
+ * This wardrobe's baked rig strip if it is ready, else null — queuing the bake
+ * on the first miss. Deliberately non-blocking and deliberately silent about
+ * why: an NPC whose strip has not landed plays its standing animation (the
+ * animation table's `fallback`), which is honest and never a placeholder frame.
+ * A failed bake caches null so it is attempted once, not every re-kick.
+ */
+export function getOrBakeRigRows(spec: CharacterSpec): HTMLCanvasElement | null {
+  const hash = specHash(spec);
+  const settled = rigCache.get(hash);
+  if (settled !== undefined) return settled;
+  if (rigInflight.has(hash)) return null;
+
+  const promise = rigLimiter(async () => {
+    const { layers, sheets } = await loadHumanoidCharacter(humanoidLayerSpecs(spec));
+    const rows = await bakeRigStripRows(sheets, layers);
+    rigCache.set(hash, paintRigStrip(rows));
+  })
+    .catch((err: unknown) => {
+      // Survivable: this wardrobe simply keeps standing. Never rethrow — this
+      // runs off a repeating re-kick and an unhandled rejection would spray.
+      console.warn('LPC rig-row bake failed:', err);
+      rigCache.set(hash, null);
+    })
+    .finally(() => { rigInflight.delete(hash); });
+
+  rigInflight.set(hash, promise);
+  return null;
+}
+
