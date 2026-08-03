@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  generateBuildingImageAuto, isReplicateImageModel, BUILDING_IMAGE_MODEL,
-} from '@/llm/building-image';
+import { generateBuildingImageAuto, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
+import { isReplicateImageModel } from '@/llm/image-dispatch';
 import { generateBuildingImage } from '@/llm/openrouter-image-client';
 import { generateBuildingImageReplicate } from '@/llm/replicate-image-client';
 
