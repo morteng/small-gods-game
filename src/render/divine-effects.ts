@@ -58,6 +58,30 @@ const RAIN_DROPLETS: ReadonlyArray<readonly [number, number, number]> = [
   [0.67, 0.55, 0.20], [0.75, 0.15, 0.70], [0.83, 0.75, 0.50], [0.91, 0.40, 0.00],
 ];
 
+/**
+ * A stable 0..1 scatter value for particle `i`, channel `ch`, under `seed` — the
+ * render path's stand-in for `Math.random()`, which this module's own header
+ * claims not to use (and which `RAIN_DROPLETS` and `renderSmite`'s zigzag both
+ * honour with fixed tables). A hash rather than a table because particle counts
+ * go up to 25 and a short table would read as a repeating pattern around the ring.
+ *
+ * Why it matters beyond tidiness: with `Math.random` the same divine act drew a
+ * different burst every call, so a grab of a cast could never be reproduced and
+ * two players watching the same replayed timeline saw different sparks. Nothing
+ * here feeds the sim — this is the render layer, outside the `src/sim/` guard
+ * test — but "the picture is a function of the state" is the same discipline.
+ *
+ * xorshift-style avalanche on a 32-bit int, then normalised. Cheap enough to sit
+ * in a spawn loop; `>>> 0` keeps it unsigned so the divide can't go negative.
+ */
+function scatterFrac(seed: number, i: number, ch: number): number {
+  let h = (seed ^ (i * 0x9e37_79b9) ^ (ch * 0x85eb_ca6b)) | 0;
+  h = Math.imul(h ^ (h >>> 16), 0x21f0_aaad);
+  h = Math.imul(h ^ (h >>> 15), 0x735a_2d97);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4_294_967_296;
+}
+
 export class DivineEffects {
   private effects: Effect[] = [];
   private particles: Array<{
@@ -95,10 +119,14 @@ export class DivineEffects {
 
     this.effects.push(effect);
 
-    // Spawn particles
+    // Spawn particles. The per-particle speed/size scatter is HASHED, not drawn
+    // from `Math.random` — see `scatterFrac`. The hash is seeded from the cast's
+    // own tile, so two effects at different places still look different while the
+    // same effect at the same place looks the same every time.
+    const seed = (Math.round(worldX) * 73_856_093) ^ (Math.round(worldY) * 19_349_663);
     for (let i = 0; i < config.particleCount; i++) {
       const angle = (Math.PI * 2 * i) / config.particleCount;
-      const speed = 0.5 + Math.random() * 1.5;
+      const speed = 0.5 + scatterFrac(seed, i, 0) * 1.5;
       this.particles.push({
         x: worldX,
         y: worldY,
@@ -106,7 +134,7 @@ export class DivineEffects {
         vy: Math.sin(angle) * speed,
         life: config.duration,
         maxLife: config.duration,
-        size: 2 + Math.random() * 4,
+        size: 2 + scatterFrac(seed, i, 1) * 4,
         color: config.color,
       });
     }

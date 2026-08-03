@@ -138,6 +138,22 @@ const DIMENSION_LABELS = ['FAITH', 'UNDERSTANDING', 'DEVOTION'] as const;
  *  niches so it reads as "nothing is believed yet", not as a broken screen. */
 const GHOST_PEDESTALS = 2;
 
+/**
+ * The empty niche's paint. It used to be a spine at 0.10 and a plinth at 0.12,
+ * which on the bright sky backdrop came out as two hairline scratches — FAINTER
+ * than a real but fully dormant pedestal (spine 0.18, plinth 0.15), so a hall
+ * with nothing in it read as a rendering failure rather than as an empty hall.
+ *
+ * A ghost must stay QUIETER than the dormant real thing (it is a niche, not a
+ * power) while still reading as architecture, so the weights sit just under the
+ * dormant ones and the presence comes from a `BODY` fill instead — mass rather
+ * than brightness. That keeps the contract in `drawColumn` intact: no glyph, no
+ * label, nothing to click.
+ */
+const GHOST_BODY = 0.05;
+const GHOST_SPINE = 0.15;
+const GHOST_PLINTH = 0.14;
+
 // ── rows (the single source of enable/reason) ────────────────────────────────
 
 /**
@@ -471,12 +487,19 @@ export function drawHallScreen(
     // An empty hall still STANDS: a hazy, hitless niche (no glyph, no label,
     // nothing to click) rather than a blank band.
     if (p === undefined) {
+      // The niche BODY first, so the spine and plinth read as parts of a recess
+      // rather than as two loose scratches on the sky (see GHOST_BODY). It stops
+      // at the plinth's underside — `columnH` also spans the name row a real
+      // pedestal writes below its plinth, and a ghost has no name, so filling the
+      // whole column would hang the recess below its own floor.
+      const ladderH = 3 * (nodeH + spineH);
+      c.rect(colX + inset, colY, colW - inset * 2, ladderH + plinthH, withAlpha(COLOR.parchment, GHOST_BODY));
       let gy = colY;
       for (let k = 0; k < 3; k++) {
-        c.rect(spineX - Math.round(spineW / 2), gy + nodeH, spineW, spineH, withAlpha(COLOR.parchment, 0.1));
+        c.rect(spineX - Math.round(spineW / 2), gy + nodeH, spineW, spineH, withAlpha(COLOR.parchment, GHOST_SPINE));
         gy += nodeH + spineH;
       }
-      c.rect(colX + inset, gy, colW - inset * 2, plinthH, withAlpha(COLOR.parchment, 0.12));
+      c.rect(colX + inset, gy, colW - inset * 2, plinthH, withAlpha(COLOR.parchment, GHOST_PLINTH));
       return;
     }
 
