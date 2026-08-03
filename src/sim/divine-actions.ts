@@ -3,8 +3,9 @@ import {
   WHISPER_COST, OMEN_COST, DREAM_COST, MIRACLE_COST,
   ANSWER_PRAYER_COST, SMITE_COST, SUMMON_STORM_COST, SUMMON_STORM_RADIUS, summonStormCost,
 } from '@/sim/divine-costs';
-import type { Entity } from '@/core/types';
+import type { Entity, NpcProperties } from '@/core/types';
 import type { EventLog } from '@/core/events';
+import { BELIEVER_THRESHOLD } from '@/sim/believers';
 import { npcProps, forEachNpc, queryNpcs, rememberEvent, getNpc } from '@/world/npc-helpers';
 import { clamp01, signResponse } from '@/sim/npc-sim';
 import type { World } from '@/world/world';
@@ -369,10 +370,29 @@ export const BIND_OATH_DEVOTION_COST = 0.15;
  * Total devotion toward `spiritId` among the named believers homed at `poiId` —
  * the "accumulated popular belief" the peace converts. Folded in sorted
  * entity-id order so the float sum is replay-stable regardless of World
- * insertion order (the censusCohorts convention). The STATISTICAL tier is
- * deliberately absent: cohort devotion sums are structurally zero in P1
- * (statistical belief drift is P2 of the two-tier epic; see the M6 reality
- * check) — the pool would gain exactly 0 from folding them in today.
+ * insertion order (the censusCohorts convention).
+ *
+ * The STATISTICAL tier is deliberately absent, and the REASON CHANGED — the old one
+ * ("cohort devotion sums are structurally zero in P1, so folding them in adds exactly
+ * 0") was true when written and is now false. Statistical belief drift went live, and
+ * the bands carry real devotion.
+ *
+ * Measured on the default world, genSeed 12345, at the one settlement that has a named
+ * congregation to drift toward (`khar_ordu`, 7 named souls / 65 statistical), after 5
+ * and after 30 game-days of drift — the figure is stable across that span:
+ *
+ *      named pool 0.900   ·   statistical pool 2.70–2.88   ·   ratio ~3×
+ *
+ * So this is a BALANCE choice, not an accounting shortcut. Folding the bands in would
+ * roughly quadruple the pool, taking `PROCLAIM_PEACE` from about two thirds of what a
+ * settlement has to about one sixth. That is not free, but it is a different game, and
+ * these costs were calibrated against the named pool. The design reading that keeps
+ * them honest: these verbs are a NAMED-tier bargain — a god spends the devotion of the
+ * souls it has names for, and the anonymous many are not its to spend.
+ *
+ * If the statistical tier is ever meant to pay for a peace, the costs have to be
+ * re-derived against the bigger pool IN THE SAME CHANGE, and `spendDevotionAt` needs a
+ * cohort path to match. Do not fold the bands in and leave the numbers alone.
  */
 export function devotionPoolAt(world: World, spiritId: SpiritId, poiId: string): number {
   const believers = queryNpcs(world)
@@ -622,16 +642,44 @@ export function summonStormAt(
  * follow — seeding the `flood` belief domain (the W-H attribution-at-the-act-site). This
  * both unlocks `summon_storm` over time and reinforces it. Called by the WeatherSystem on
  * a `place_flooded` edge. `depthM` scales the conviction a single flood imparts.
+ *
+ * `spiritId` is the god who CAST the storm (`flood-attribution.ts` recovers it from the
+ * logged `summon_storm`), or **null when nobody did**. Those two cases are genuinely
+ * different acts of attribution and this used to conflate them by crediting a hardcoded
+ * `'player'` for both:
+ *
+ *  - A CAST flood is a god's signature. Every resident learns the same lesson about the
+ *    same god, whether or not they already believed in it — that is how a rival wins a
+ *    settlement, and how the player wins one back.
+ *  - A NATURAL flood has no hand behind it, so each soul credits **the god it already
+ *    follows** (strongest faith). That is what the sentence above always claimed and what
+ *    the code never did; the faithless credit no one, because a soul with no god does not
+ *    invent one out of bad weather.
  */
 export function seedFloodBelief(
-  world: World, spiritId: SpiritId, poiId: string, depthM: number,
+  world: World, spiritId: SpiritId | null, poiId: string, depthM: number,
 ): void {
   const gain = FLOOD_WITNESS_SEED * Math.min(1, depthM / SUMMON_STORM_DEPTH_M);
   forEachNpc(world, (e) => {
     const p = npcProps(e);
     if (p.homePoiId !== poiId) return;
-    addDomainBelief(p, spiritId, 'flood', gain);
+    const credited = spiritId ?? mostBelievedSpirit(p);
+    if (credited === null) return;
+    addDomainBelief(p, credited, 'flood', gain);
   });
+}
+
+/** The spirit this soul holds the most faith in, or null if it holds none worth the
+ *  name. Ties break on id order so the choice is replay-stable rather than dependent
+ *  on `beliefs` key insertion order. */
+function mostBelievedSpirit(p: NpcProperties): SpiritId | null {
+  let best: SpiritId | null = null;
+  let bestFaith = BELIEVER_THRESHOLD;
+  for (const sid of Object.keys(p.beliefs).sort()) {
+    const faith = p.beliefs[sid]?.faith ?? 0;
+    if (faith > bestFaith) { best = sid; bestFaith = faith; }
+  }
+  return best;
 }
 
 /**

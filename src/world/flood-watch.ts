@@ -19,6 +19,11 @@ export interface WatchedPlace {
   name: string;
   /** Row-major cell indices the place occupies (its footprint + a little apron). */
   cells: Int32Array;
+  /** Footprint centre in tiles — the disc `cells` was rasterised from. Kept alongside
+   *  the cells because flood ATTRIBUTION has to ask "did an area cast cover this place?"
+   *  and a bag of row-major indices cannot answer that without the map width. */
+  x: number;
+  y: number;
 }
 
 /** What happened to a watched place this poll. */
@@ -62,6 +67,14 @@ export class FloodWatch {
     const out = new Set<number>();
     for (const p of this.places) for (let k = 0; k < p.cells.length; k++) out.add(p.cells[k]);
     return out;
+  }
+
+  /** A watched place's footprint centre in tiles, or null if it isn't watched.
+   *  Flood attribution asks this to decide whether an AREA `summon_storm` covered
+   *  the settlement it just saw flood (`flood-attribution.ts`). */
+  centreOf(placeId: string): { x: number; y: number } | null {
+    const p = this.places.find((q) => q.id === placeId);
+    return p ? { x: p.x, y: p.y } : null;
   }
 
   /** Reset all latched state (a fresh world, or after a drain). */
@@ -170,7 +183,7 @@ export function buildFloodWatch(
         cells.push(ny * width + nx);
       }
     }
-    if (cells.length > 0) places.push({ id: s.id, name: s.name, cells: Int32Array.from(cells) });
+    if (cells.length > 0) places.push({ id: s.id, name: s.name, cells: Int32Array.from(cells), x: cx, y: cy });
   }
   return new FloodWatch(places);
 }

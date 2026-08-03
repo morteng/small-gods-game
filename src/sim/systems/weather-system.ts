@@ -18,9 +18,9 @@ import type { FloodWatch } from '@/world/flood-watch';
 import type { CausalSiteStore } from '@/world/causal-site';
 import { seedFloodBelief, seedSiteBelief } from '@/sim/divine-actions';
 import { forEachNpc, npcProps, rememberEvent } from '@/world/npc-helpers';
-
-/** Whose flood-power gets the credit when waters rise (the protagonist god). */
-const ATTRIBUTION_SPIRIT = 'player';
+import {
+  FLOOD_CREDIT_WINDOW_TICKS, creditForPlaceFlood, creditForSiteFlood, stormCastsIn,
+} from '@/sim/water/flood-attribution';
 
 /** 1 Hz — weather/water is slow; a per-second tick is plenty and keeps cost trivial. */
 const WEATHER_HZ = 1;
@@ -46,6 +46,11 @@ export class WeatherSystem implements System {
     stepper.stepTick(1000 / this.tickHz);
     const floodM = stepper.floodOffsetM();
 
+    // Who has been calling storms lately. Read ONCE per tick and shared by both
+    // attribution paths below; `recentSince` scans backward from the tail, so this
+    // stays O(the last few minutes) on a log that grows all session.
+    const casts = stormCastsIn(ctx.log.recentSince(ctx.now - FLOOD_CREDIT_WINDOW_TICKS));
+
     const watch = this.getWatch();
     if (watch) {
       for (const ev of watch.poll(floodM)) {
@@ -61,7 +66,16 @@ export class WeatherSystem implements System {
           });
           // Attribution at the act site: the waters rising at a settlement seed its
           // believers' `flood` belief domain — which unlocks (and reinforces) summon_storm.
-          seedFloodBelief(ctx.world, ATTRIBUTION_SPIRIT, ev.placeId, ev.depthM);
+          // WHOSE domain is the god that actually cast the storm, recovered from the log;
+          // null means nobody did, and each resident credits its own god instead. (This
+          // used to be a hardcoded `'player'`, so a rival's storm taught a rival's own
+          // followers that the PLAYER commands the deluge.)
+          seedFloodBelief(
+            ctx.world,
+            creditForPlaceFlood(casts, ev.placeId, (id) => watch.centreOf(id)),
+            ev.placeId,
+            ev.depthM,
+          );
         } else {
           ctx.log.append({ type: 'place_receded', poiId: ev.placeId, name: ev.name });
         }
@@ -73,7 +87,13 @@ export class WeatherSystem implements System {
     // Fate (W-I-b) can address them and belief (W-I-c) can be seeded at them.
     const sites = this.getSites();
     if (sites) {
-      const { born, faded } = sites.update(floodM, ctx.now, ATTRIBUTION_SPIRIT);
+      // Per-site attribution: a causal site is born at a centroid, and two gods can be
+      // flooding two different plains in the same tick. A site no cast covers is caused
+      // by `nature` — and `seedSiteBelief` seeds nothing for it, because a drowned plain
+      // with no god behind it has no one to credit.
+      const { born, faded } = sites.update(
+        floodM, ctx.now, (x, y) => creditForSiteFlood(casts, x, y),
+      );
       for (const s of born) {
         ctx.log.append({
           type: 'site_born', siteId: s.id, kind: s.kind, name: s.name,

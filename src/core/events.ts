@@ -162,6 +162,12 @@ export class EventLog {
     this.clock = clock;
   }
 
+  /** The tick an append would be stamped with. Subclasses that override `append`
+   *  (see `SilentEventLog`) need it to stamp their own entries the same way. */
+  protected clockNow(): number {
+    return this.clock.now();
+  }
+
   append(event: SimEvent): AppendedEvent {
     const appended: AppendedEvent = {
       id: this.nextId++,
@@ -190,6 +196,24 @@ export class EventLog {
 
   range(tStart: number, tEnd: number): AppendedEvent[] {
     return this.events.filter(e => e.t >= tStart && e.t < tEnd);
+  }
+
+  /**
+   * Every event at or after `tStart`, chronological — scanned BACKWARD from the
+   * tail and stopped at the cutoff, so the cost is O(window), not O(history).
+   * `range` filters the whole array and is fine for a bounded historical slice;
+   * this is the one to reach for on a HOT path that only ever wants "what just
+   * happened" (the flood-attribution lookup runs on every flood edge, and the
+   * log grows without bound over a long session).
+   *
+   * Appends are monotonic in `t` (`clock.now()` never goes backward within a
+   * timeline, and `truncateAfter` drops a suffix rather than interleaving), so
+   * stopping at the first older entry cannot skip a younger one behind it.
+   */
+  recentSince(tStart: number): AppendedEvent[] {
+    let i = this.events.length;
+    while (i > 0 && this.events[i - 1].t >= tStart) i--;
+    return this.events.slice(i);
   }
 
   /** O(n) lookup of a previously appended event by its numeric id. */
@@ -234,13 +258,40 @@ export class EventLog {
   }
 }
 
+/** How many just-appended events a `SilentEventLog` keeps for `recentSince`. A
+ *  hard cap so a long scrub through a tile-realization storm can't grow it
+ *  without bound; the window `recentSince` is asked for is minutes of sim time,
+ *  which is far fewer events than this on any normal stretch. */
+const SILENT_RECENT_CAP = 1024;
+
 /**
  * No-op replacement for EventLog used during replay. Append/subscribe are
  * no-ops so re-running systems doesn't pollute the canonical log.
+ *
+ * `recentSince` is the ONE reader that still answers, out of a bounded scratch
+ * buffer of what this replay itself just appended. That is not a leak of the
+ * canonical log — it is the difference between the two questions:
+ *
+ *   - `since`/`range`/`size` ask about the world's RECORDED HISTORY, which a
+ *     replay must not see (it is re-deriving it) and must not add to.
+ *   - `recentSince` asks "what just happened, this moment, in this run" — and
+ *     during a replay the answer is exactly the events the replay reproduced.
+ *
+ * Returning [] here instead would silently DIVERGE replay from live play for
+ * anything attributing an effect to its cause: `WeatherSystem` recovers which
+ * god cast a storm from the `summon_storm` it just re-appended, so a blind
+ * silent log would re-credit every replayed flood to nature.
  */
 export class SilentEventLog extends EventLog {
+  private recent: AppendedEvent[] = [];
+
   override append(event: SimEvent): AppendedEvent {
-    return { id: 0, t: 0, event };
+    const appended: AppendedEvent = { id: 0, t: this.clockNow(), event };
+    this.recent.push(appended);
+    if (this.recent.length > SILENT_RECENT_CAP) {
+      this.recent.splice(0, this.recent.length - SILENT_RECENT_CAP);
+    }
+    return appended;
   }
 
   override subscribe(_fn: (e: AppendedEvent) => void): () => void {
@@ -253,6 +304,12 @@ export class SilentEventLog extends EventLog {
 
   override range(): AppendedEvent[] {
     return [];
+  }
+
+  override recentSince(tStart: number): AppendedEvent[] {
+    let i = this.recent.length;
+    while (i > 0 && this.recent[i - 1].t >= tStart) i--;
+    return this.recent.slice(i);
   }
 
   override size(): number {

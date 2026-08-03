@@ -139,7 +139,16 @@ export class CausalSiteStore {
    * persists, ages + kills sites whose flood has drained. Pure function of the field
    * + the prior site set + the tick, so it replays identically.
    */
-  update(floodM: Float32Array, tick: number, cause: string): { born: CausalSite[]; faded: CausalSite[] } {
+  update(
+    floodM: Float32Array,
+    tick: number,
+    cause: string | ((x: number, y: number) => string),
+  ): { born: CausalSite[]; faded: CausalSite[] } {
+    // A cause can be POSITIONAL: two gods can be flooding two different plains in
+    // the same tick, so "who caused this" is resolved per newly-born site from its
+    // own centroid, not once for the whole poll. A plain string still works and
+    // means "everything born this tick has this cause".
+    const causeAt = typeof cause === 'function' ? cause : () => cause;
     const blobs = this.findBlobs(floodM);
 
     // Map every live-site footprint cell → its site id, so a blob can claim the site
@@ -166,7 +175,7 @@ export class CausalSiteStore {
         s.intensity = Math.min(1, b.peak / FULL_DEPTH_M);
         sustained.add(ownerId);
       } else if (b.peak >= BIRTH_DEPTH_M && b.cells.length >= MIN_SITE_CELLS) {
-        born.push(this.birth(b, tick, cause));
+        born.push(this.birth(b, tick, causeAt(b.cx, b.cy)));
       }
     }
 
