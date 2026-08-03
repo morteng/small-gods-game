@@ -123,6 +123,119 @@ export function trackRangeDeg(clip: Clip, chip: string): number {
   return Math.max(...degs) - Math.min(...degs);
 }
 
+export interface Fragmentation {
+  /** 8-connected opaque components. A whole figure is 1. */
+  parts: number;
+  /** Opaque pixels outside the LARGEST component — detached slivers and specks. */
+  strayPx: number;
+  /** Transparent pixels fully enclosed by the figure — wedges opened at a joint. */
+  holePx: number;
+}
+
+/**
+ * How badly a rigid-chip bake came apart.
+ *
+ * The failure this exists to see: chips are hard rects sampled from one source
+ * cell, so a joint that rotates far enough swings the parent's rect edge away
+ * from the child's and opens a wedge with nothing behind it — the root raster
+ * has both rects cleared. Shins detach, feet float, hems tear.
+ *
+ * Silhouette IoU is STRUCTURALLY BLIND to this: the tearing is inside the
+ * outline, so a shredded leg still scores ~0.78 against a clean reference. That
+ * is not a weak signal, it is the wrong instrument, and reporting its number as
+ * reassurance is how a torn walk gets called correct. Hence a measure of the
+ * interior.
+ *
+ * Both halves are needed and they catch different things. `strayPx` sees a limb
+ * that broke OFF; `holePx` sees the gap it left behind, which stays invisible to
+ * connectivity whenever the wedge doesn't fully sever the piece. Neither is a
+ * gate — a couple of stray pixels is a fingertip speck (the shipped `pray-raise`
+ * carries exactly two, and it is fine), while seventeen across four components
+ * is a leg in bits.
+ */
+export function fragmentation(frame: Raster, alphaMin = ALPHA_MIN): Fragmentation {
+  const { w, h, data } = frame;
+  const n = w * h;
+  const opaque = (i: number): boolean => data[i * 4 + 3] >= alphaMin;
+  const seen = new Uint8Array(n);
+  const stack: number[] = [];
+  // 8-connected for the figure: a limb hanging by one diagonal pixel is still
+  // attached to the eye, and calling it severed would cry wolf on every bake.
+  const flood = (start: number, want: boolean, diagonal: boolean): number => {
+    let count = 0;
+    stack.push(start);
+    seen[start] = 1;
+    while (stack.length > 0) {
+      const p = stack.pop()!;
+      count++;
+      const px = p % w;
+      const py = (p / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (!diagonal && dx !== 0 && dy !== 0) continue;
+          const qx = px + dx;
+          const qy = py + dy;
+          if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+          const q = qy * w + qx;
+          if (seen[q] === 1 || opaque(q) !== want) continue;
+          seen[q] = 1;
+          stack.push(q);
+        }
+      }
+    }
+    return count;
+  };
+
+  const sizes: number[] = [];
+  for (let i = 0; i < n; i++) if (seen[i] === 0 && opaque(i)) sizes.push(flood(i, true, true));
+  const total = sizes.reduce((a, b) => a + b, 0);
+  const largest = sizes.length === 0 ? 0 : Math.max(...sizes);
+
+  // Holes: transparent pixels the BORDER cannot reach. 4-connected for the
+  // background, the standard pairing — an 8-connected figure with 8-connected
+  // background would let both sides cross the same diagonal and no enclosed
+  // region would ever be found.
+  seen.fill(0);
+  let reachable = 0;
+  for (let x = 0; x < w; x++) {
+    if (seen[x] === 0 && !opaque(x)) reachable += flood(x, false, false);
+    const b = (h - 1) * w + x;
+    if (seen[b] === 0 && !opaque(b)) reachable += flood(b, false, false);
+  }
+  for (let y = 0; y < h; y++) {
+    const l = y * w;
+    if (seen[l] === 0 && !opaque(l)) reachable += flood(l, false, false);
+    const r = y * w + w - 1;
+    if (seen[r] === 0 && !opaque(r)) reachable += flood(r, false, false);
+  }
+
+  return { parts: sizes.length, strayPx: total - largest, holePx: n - total - reachable };
+}
+
+/**
+ * The frame a viewer would catch, by total broken pixels.
+ *
+ * A clip is judged by its worst frame, not its average: one shattered pose in a
+ * cycle is what the eye locks onto, and averaging it against eight clean ones
+ * reports a walk as healthy precisely when it is not.
+ */
+export function worstFragmentation(
+  frames: readonly Raster[],
+  alphaMin = ALPHA_MIN,
+): Fragmentation & { frame: number } {
+  let worst: Fragmentation = { parts: 0, strayPx: 0, holePx: 0 };
+  let at = 0;
+  frames.forEach((f, i) => {
+    const g = fragmentation(f, alphaMin);
+    if (g.strayPx + g.holePx > worst.strayPx + worst.holePx) {
+      worst = g;
+      at = i;
+    }
+  });
+  return { ...worst, frame: at };
+}
+
 export interface SkateReport {
   /** Per-frame residual distance from the detrended mean, in cell px. */
   perFrame: readonly number[];

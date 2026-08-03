@@ -29,7 +29,7 @@
  * The far LEG needs no such care — it sits in its own x31-38 lane, gapped from
  * both the trunk (above row 50) and the near leg (x30 gutter).
  */
-import type { AnimTemplate, Clip } from './rig';
+import type { AnimTemplate, ChipRect, Clip } from './rig';
 import type { Raster } from '../sprite-postprocess';
 
 /** Source cell the chips are authored against: walk sheet, col 0 (idle), WEST row 1. */
@@ -56,10 +56,42 @@ const HIP_FAR: [number, number] = [33, 51];
 const KNEE_FAR: [number, number] = [35, 55];
 
 /**
+ * Lateral margin on the leg rects, in px, past the limb pixels themselves.
+ *
+ * A tight rect clips its own limb the moment the limb swings: rotation carries
+ * pixels sideways out of the sampling window, so a 61° thigh loses its outer
+ * column and the shin below it detaches. Summed over the imported walk cycle
+ * (`fragmentation`, whole clip, no ink pass): 37 stray px and 119 enclosed hole
+ * px before, 0 and 10 after. Holes fall alongside strays, which is how you know
+ * the margin refills the wedge rather than merely bridging it.
+ *
+ * One px, not more. Two scores slightly better on strays but opens MORE holes,
+ * because the extra column is scooped out of the trunk by the root-clear and
+ * then walks away with the leg. `tests/unit/paperdoll-imported-clips.test.ts`
+ * holds the budgets; `scripts/motion-contact-sheet.ts` prints them per bake.
+ */
+const LEG_MARGIN = 1;
+
+/** A leg rect stated as its LIMB extent, then widened by the margin. */
+const legRect = (x: number, y: number, w: number, h: number): ChipRect => ({
+  x: x - LEG_MARGIN,
+  y,
+  w: w + 2 * LEG_MARGIN,
+  h,
+});
+
+/**
  * West-facing humanoid template. Root (index 0) is the whole cell; every other
  * chip's rect is cleared from it at render time. z (ascending = painted first =
  * behind): far arm/leg negative (occluded), trunk 0, near limbs positive, head
  * last (LPC composites head/face/hair on top).
+ *
+ * `skinBand` is set here and nowhere else in the humanoid family: the profile
+ * leg is ~10px of material across four ~5px chips, which is simply not enough
+ * for a rigid hinge. The south/north templates keep the rigid path — their
+ * chips are big enough, they carry the SHIPPED runtime rows (`rig-rows.ts`
+ * bakes down/up only), and churning that art to fix a west-only defect would be
+ * the wrong trade.
  */
 export const LPC_HUMANOID_WEST: AnimTemplate = {
   name: 'lpc-humanoid-west',
@@ -81,13 +113,15 @@ export const LPC_HUMANOID_WEST: AnimTemplate = {
     { name: 'armFar_fore', rect: { x: 22, y: 43, w: 3, h: 7 }, pivot: ELBOW_FAR, parent: 4, z: -3 },
     // Near (front) leg — thigh x26-30, foot flares forward. hip @ (28,51), knee
     // @ (28,55) per recon. z>0: in front of the far leg during a scissor.
-    { name: 'legNear_up', rect: { x: 26, y: 50, w: 5, h: 6 }, pivot: HIP_NEAR, parent: 0, z: 1 },
-    { name: 'legNear_fore', rect: { x: 24, y: 55, w: 7, h: 5 }, pivot: KNEE_NEAR, parent: 6, z: 2 },
+    // Rects state the LIMB extent; `legRect` adds the lateral margin.
+    { name: 'legNear_up', rect: legRect(26, 50, 5, 6), pivot: HIP_NEAR, parent: 0, z: 1 },
+    { name: 'legNear_fore', rect: legRect(24, 55, 7, 5), pivot: KNEE_NEAR, parent: 6, z: 2 },
     // Far (back) leg — own x31-38 lane, gapped from the near leg at x30. hip @
     // (33,51), knee @ (35,55). z<0: behind the trunk and the near leg.
-    { name: 'legFar_up', rect: { x: 31, y: 50, w: 5, h: 6 }, pivot: HIP_FAR, parent: 0, z: -2 },
-    { name: 'legFar_fore', rect: { x: 33, y: 55, w: 6, h: 6 }, pivot: KNEE_FAR, parent: 8, z: -1 },
+    { name: 'legFar_up', rect: legRect(31, 50, 5, 6), pivot: HIP_FAR, parent: 0, z: -2 },
+    { name: 'legFar_fore', rect: legRect(33, 55, 6, 6), pivot: KNEE_FAR, parent: 8, z: -1 },
   ],
+  skinBand: 3,
 };
 
 /** The exact chip-name set this template exposes (profile vocabulary). */

@@ -51,6 +51,20 @@ export interface AnimTemplate {
    * rect is cleared out of the root's raster so a lifted limb leaves no ghost.
    */
   chips: ChipDef[];
+  /**
+   * Default joint-skinning band for this template, in px — set when its chips
+   * are too small to hinge rigidly.
+   *
+   * A property of the TEMPLATE, not of the clip, because it is the chip geometry
+   * that decides: the profile leg has about ten pixels of material split across
+   * four ~5px chips, so a swing that a generously-rected template shrugs off
+   * tears this one apart. Angle is a bad predictor — the shipped `pray-raise`
+   * hinges 112° on the south template and stays clean.
+   *
+   * `RenderPoseOptions.skin` still wins where it is passed, so the studio can
+   * toggle the comparison.
+   */
+  skinBand?: number;
 }
 
 export interface Keyframe {
@@ -405,7 +419,11 @@ export function renderPose(
   poses: readonly ChipPose[],
   opts: RenderPoseOptions = {},
 ): Raster {
-  if (opts.skin) return renderPoseSkinned(template, layers.map(toPoseLayer), poses, opts);
+  // The template's own band applies unless the caller states one — that is what
+  // makes a template with 5px limbs safe for EVERY bake site (offline script,
+  // studio, runtime strip) without each having to remember.
+  const skin = opts.skin ?? (template.skinBand !== undefined ? { band: template.skinBand } : undefined);
+  if (skin) return renderPoseSkinned(template, layers.map(toPoseLayer), poses, { ...opts, skin });
   const n = template.cell;
   const ss = Math.max(1, Math.round(opts.supersample ?? 4));
   const N = n * ss;

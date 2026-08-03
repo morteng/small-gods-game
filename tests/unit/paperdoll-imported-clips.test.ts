@@ -21,10 +21,17 @@
  * different values, and a chip that does not move cannot hide behind flat fill.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { PNG } from 'pngjs';
 import { bakeClip, type AnimTemplate, type Clip, type PoseLayer } from '@/render/paperdoll/rig';
-import { LPC_HUMANOID_SOUTH } from '@/render/paperdoll/lpc-humanoid';
+import { fragmentation } from '@/render/paperdoll/clip-measure';
+import {
+  DEFAULT_HUMANOID_LAYERS,
+  HUMANOID_SOURCE,
+  LPC_HUMANOID_SOUTH,
+} from '@/render/paperdoll/lpc-humanoid';
 import { LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
-import { LPC_HUMANOID_WEST } from '@/render/paperdoll/lpc-humanoid-west';
+import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST } from '@/render/paperdoll/lpc-humanoid-west';
 import { IMPORTED_CLIPS, IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 import type { Raster } from '@/render/sprite-postprocess';
 
@@ -78,13 +85,13 @@ const cases = CLIP_IDS.flatMap((id) => FACINGS.map((facing) => ({ id, facing }))
 const GOLDEN: Record<string, string> = {
   'walk/down': '2574d270',
   'walk/up': 'f2fe3cd6',
-  'walk/left': '6f6db8b',
+  'walk/left': '1a75c1d5',
   'walk-brisk/down': '29fc9372',
   'walk-brisk/up': 'aeadade1',
-  'walk-brisk/left': '896961c8',
+  'walk-brisk/left': '2a106379',
   'wave/down': '454e7057',
   'wave/up': '56521bcf',
-  'wave/left': '5ee6a39b',
+  'wave/left': '687e7abb',
 };
 
 describe('imported clips — the bake, not just the keyframes', () => {
@@ -133,5 +140,104 @@ describe('imported clips — a looping clip must not pop at the wrap', () => {
       if (looping) expect(`${id}/${facing}: ${last}`).toBe(`${id}/${facing}: ${first}`);
       else expect(last).not.toBe(first);
     }
+  });
+});
+
+/**
+ * The tearing guard, against the REAL wardrobe.
+ *
+ * Everything above bakes a coordinate ramp: a full-cell opaque source, chosen so
+ * a transform is legible in the bytes. That is exactly the wrong source for this
+ * question — with no transparency anywhere, no chip can ever come apart, and
+ * `fragmentation` would read zero forever.
+ *
+ * So this block loads the vendored LPC cells the way `motion-contact-sheet.ts`
+ * does. What it pins is the failure that shipped undetected through M1 and M2:
+ * the profile leg chips were rected tight to the limb, and a 61° swing carried
+ * pixels out of the sampling window until shins detached and feet floated. Every
+ * numeric gate in the suite stayed green — the angles were right, the loop
+ * closed, the decimation was inside tolerance, the bytes were reproducible — and
+ * silhouette IoU scored 0.78 because the damage is INSIDE the outline.
+ */
+describe('imported clips — the profile leg must not come apart', () => {
+  const CELL = LPC_HUMANOID_WEST.cell;
+
+  const cellAt = (sheet: Raster, col: number, row: number): Raster => {
+    const data = new Uint8ClampedArray(CELL * CELL * 4);
+    for (let y = 0; y < CELL; y++) {
+      const si = ((row * CELL + y) * sheet.w + col * CELL) * 4;
+      data.set(sheet.data.subarray(si, si + CELL * 4), y * CELL * 4);
+    }
+    return { data, w: CELL, h: CELL };
+  };
+
+  const westLayers = (): PoseLayer[] =>
+    DEFAULT_HUMANOID_LAYERS.map((spec) => {
+      const png = PNG.sync.read(readFileSync(`public/${spec.path}`));
+      const sheet: Raster = { data: new Uint8ClampedArray(png.data), w: png.width, h: png.height };
+      return { raster: cellAt(sheet, HUMANOID_SOURCE.col, HUMANOID_WEST_SOURCE.row), assign: spec.assign };
+    });
+
+  /**
+   * Budgets, not exact counts — summed over the whole clip, so the frame count
+   * is part of the scale (the wave is 33 frames against the walks' 9).
+   *
+   * Landed (margin 1, band 3) vs the pre-M4 tight rects with no skinning:
+   *
+   *   walk        0 stray /  10 hole   was  37 / 119
+   *   walk-brisk 20        /  20        was  24 /  91
+   *   wave        0        /  71        was 132 /  76
+   *
+   * The wave is the honest asterisk: its strays vanish, but its holes barely
+   * move, because they are not the leg — they are the gesture's own arm chips,
+   * and this change was aimed at the leg. Its budget is set to catch a real
+   * regression, not to imply the wave came out clean.
+   *
+   * When one fires, LOOK at the clip (`scripts/motion-contact-sheet.ts`, or the
+   * studio's reference lane) before touching the number. A budget raised to
+   * match a regression is worse than no budget at all.
+   */
+  const BUDGET: Record<string, { stray: number; hole: number }> = {
+    walk: { stray: 5, hole: 25 },
+    'walk-brisk': { stray: 30, hole: 35 },
+    wave: { stray: 10, hole: 90 },
+  };
+
+  it.each(CLIP_IDS.map((id) => ({ id })))('$id west stays in one piece', ({ id }) => {
+    const frames = bakeClip(LPC_HUMANOID_WEST, westLayers(), IMPORTED_CLIPS[id].left);
+    let stray = 0;
+    let hole = 0;
+    for (const f of frames) {
+      const g = fragmentation(f);
+      stray += g.strayPx;
+      hole += g.holePx;
+    }
+    expect({ id, stray: stray <= BUDGET[id].stray, hole: hole <= BUDGET[id].hole }).toEqual({
+      id,
+      stray: true,
+      hole: true,
+    });
+  });
+
+  it('the margin and the band are both load-bearing', () => {
+    // Removing either one alone is enough to bring the tearing back, so neither
+    // can be quietly dropped as "the other one handles it".
+    const layers = westLayers();
+    const tight = {
+      ...LPC_HUMANOID_WEST,
+      chips: LPC_HUMANOID_WEST.chips.map((c) =>
+        c.name.startsWith('leg')
+          ? { ...c, rect: { ...c.rect, x: c.rect.x + 1, w: c.rect.w - 2 } }
+          : c,
+      ),
+    };
+    const strayOf = (t: typeof LPC_HUMANOID_WEST, opts = {}): number =>
+      bakeClip(t, layers, IMPORTED_CLIPS.walk.left, opts).reduce(
+        (n, f) => n + fragmentation(f).strayPx,
+        0,
+      );
+    const landed = strayOf(LPC_HUMANOID_WEST);
+    expect(strayOf(tight)).toBeGreaterThan(landed);
+    expect(strayOf({ ...LPC_HUMANOID_WEST, skinBand: undefined })).toBeGreaterThan(landed);
   });
 });

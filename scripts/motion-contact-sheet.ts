@@ -30,6 +30,7 @@ import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lp
 import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST } from '@/render/paperdoll/lpc-humanoid-west';
 import { IMPORTED_CLIPS, IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 import { LPC_ANIMATIONS, LPC_DIR_OFFSET } from '@/core/npc-animation';
+import { fragmentation, worstFragmentation } from '@/render/paperdoll/clip-measure';
 import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import type { Raster } from '@/render/sprite-postprocess';
 
@@ -192,11 +193,35 @@ async function main(): Promise<void> {
 
     for (const id of ids) {
       const clip = IMPORTED_CLIPS[id][facing];
-      const baked = bakeClip(template, layers, clip).map(ink);
+      const raw = bakeClip(template, layers, clip);
+      const baked = raw.map(ink);
       await writeFile(`${OUT}/${id}-${facing}-4x.png`, PNG.sync.write(sheetOf([baked], 4)));
       await writeFile(
         `${OUT}/${id}-${facing}-onscreen.png`,
         PNG.sync.write(sheetOf([baked.map((f) => downscale(f, 32))], 4)),
+      );
+
+      // Interior health, beside the silhouette score below. These are different
+      // questions and the IoU cannot answer this one: a leg torn into fragments
+      // still fills roughly the right outline. Printed for EVERY clip, including
+      // the gestures that get no reference row.
+      //
+      // Measured on the RAW bake, before `ink`. `reinkOutline` sprinkles single
+      // outline pixels that read as detached components, and they swamp the
+      // count: the south walk scores 48 stray inked against 0 raw. Those specks
+      // are the ink pass being itself, not a limb coming off, and folding them
+      // in would make the number blind to the thing it exists to catch.
+      const broken = raw.reduce(
+        (a, f) => {
+          const g = fragmentation(f);
+          return { stray: a.stray + g.strayPx, hole: a.hole + g.holePx };
+        },
+        { stray: 0, hole: 0 },
+      );
+      const w = worstFragmentation(raw);
+      console.log(
+        `${id}/${facing}: ${broken.stray} stray px, ${broken.hole} hole px over ${baked.length} frames` +
+          ` (worst f${w.frame}: ${w.parts} parts, ${w.strayPx}+${w.holePx})`,
       );
 
       if (IMPORTED_CLIP_META[id].groundSpeedPxPerSec === 0) continue;

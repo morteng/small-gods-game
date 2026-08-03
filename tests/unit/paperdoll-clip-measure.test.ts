@@ -3,9 +3,11 @@ import {
   chipPointTrack,
   cycleFrameAtPhase,
   cycleLength,
+  fragmentation,
   frameCompare,
   skate,
   trackRangeDeg,
+  worstFragmentation,
 } from '@/render/paperdoll/clip-measure';
 import type { AnimTemplate, Clip } from '@/render/paperdoll/rig';
 import type { Raster } from '@/render/sprite-postprocess';
@@ -166,5 +168,66 @@ describe('skate', () => {
   it('survives an empty track (a chip the template does not own)', () => {
     expect(chipPointTrack(TEMPLATE, { name: 'x', frames: 4, tracks: {} }, 'nope', SOLE)).toEqual([]);
     expect(skate([]).worst).toBe(0);
+  });
+});
+
+describe('fragmentation', () => {
+  it('reports a solid shape as whole', () => {
+    expect(fragmentation(block(8, 2, 2, 4, 4))).toEqual({ parts: 1, strayPx: 0, holePx: 0 });
+  });
+
+  it('counts pixels outside the largest part as stray, not as a second figure', () => {
+    // The failure this models: a shin that rotated out of its chip rect and
+    // came off. What matters downstream is HOW MUCH broke away, so a 1px
+    // fingertip speck and a severed foot are told apart by size, not by
+    // component count alone.
+    const f = block(8, 0, 0, 4, 4);
+    f.data.set([200, 100, 50, 255], (7 * 8 + 7) * 4);
+    expect(fragmentation(f)).toEqual({ parts: 2, strayPx: 1, holePx: 0 });
+  });
+
+  it('treats a diagonal join as attached', () => {
+    // A limb hanging by one corner pixel still reads as attached to the eye.
+    // 4-connectivity here would cry wolf on almost every rotated bake.
+    const f = block(8, 0, 0, 3, 3);
+    for (let y = 3; y < 6; y++) for (let x = 3; x < 6; x++) f.data.set([200, 100, 50, 255], (y * 8 + x) * 4);
+    expect(fragmentation(f).parts).toBe(1);
+  });
+
+  it('finds an enclosed gap but not the background around the figure', () => {
+    // The wedge a rotated joint opens. It is INSIDE the outline, which is
+    // exactly why silhouette IoU cannot see it.
+    const f = block(8, 1, 1, 6, 6);
+    f.data[(3 * 8 + 3) * 4 + 3] = 0;
+    f.data[(3 * 8 + 4) * 4 + 3] = 0;
+    const g = fragmentation(f);
+    expect(g.holePx).toBe(2);
+    expect(g.parts).toBe(1);
+  });
+
+  it('does not call a notch in the outline a hole', () => {
+    // A bite taken out of the edge is reachable from the border; only a fully
+    // enclosed region counts, or every silhouette concavity would score.
+    const f = block(8, 1, 1, 6, 6);
+    f.data[(1 * 8 + 3) * 4 + 3] = 0;
+    expect(fragmentation(f).holePx).toBe(0);
+  });
+
+  it('picks the worst frame by total broken pixels, not the average', () => {
+    // One shattered pose in a cycle is what the eye locks onto; averaging it
+    // against clean neighbours reports a torn walk as healthy.
+    const clean = block(8, 2, 2, 4, 4);
+    const torn = block(8, 2, 2, 4, 4);
+    torn.data.set([200, 100, 50, 255], (7 * 8 + 7) * 4);
+    const w = worstFragmentation([clean, torn, clean]);
+    expect(w.frame).toBe(1);
+    expect(w.strayPx).toBe(1);
+  });
+
+  it('respects the alpha cut', () => {
+    const f = block(8, 2, 2, 4, 4);
+    f.data[(2 * 8 + 2) * 4 + 3] = 4; // below ALPHA_MIN 8 — a ghost, not a pixel
+    expect(fragmentation(f).parts).toBe(1);
+    expect(fragmentation(f, 2).parts).toBe(1);
   });
 });
