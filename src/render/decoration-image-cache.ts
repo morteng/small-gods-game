@@ -1,4 +1,4 @@
-import { getAssetBlob } from '@/services/pixellab';
+import { getAssetBlob } from '@/services/sprite-library';
 
 export type BlobResolver = (id: string) => Promise<Blob | null>;
 

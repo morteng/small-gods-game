@@ -10,7 +10,7 @@ import { withIdbTimeout } from '@/services/idb-guard';
 /** Per-browser game save store: FOUR independent slots (autosave + 3 manual),
  *  each with a blob (`saves`), a small probeable summary (`save-meta`), and an
  *  incremental event history (`event-journal`). Mirrors the IndexedDB pattern
- *  in pixellab.ts. */
+ *  in sprite-library.ts. */
 
 export type SaveSlot = 'autosave' | 'slot1' | 'slot2' | 'slot3';
 

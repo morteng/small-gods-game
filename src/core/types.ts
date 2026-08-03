@@ -900,6 +900,20 @@ export type AssetOrigin = 'sandbox' | 'official' | 'imported';
 export type AssetStyle = 'pixel-art' | 'painterly' | 'unknown';
 export type AssetProvider = 'pixellab' | 'replicate' | 'fal' | 'mock';
 
+/**
+ * Licence lineage of a library asset — metadata, never memory.
+ *
+ * `'lpc-derived'`: LPC pixels went INTO the generation (an init image, or the
+ * LPC palette anchor we ship as `color_image`), so the output is a CC-BY-SA
+ * derivative that must stay share-alike and credited. `'owned'`: every input
+ * was self-owned (code-drawn init, or LPC referenced only as prompt text).
+ *
+ * Recorded per asset because provenance cannot be reconstructed after the
+ * fact; when it is uncertain the conservative value is `'lpc-derived'` — an
+ * over-marked asset costs a credit line, an under-marked one is a breach.
+ */
+export type AssetLineage = 'lpc-derived' | 'owned';
+
 /** Soft selection hints — overlap raises an asset's match score, never required. */
 export interface AssetAffinity {
   biome?: string[];
@@ -948,6 +962,10 @@ export interface PixelLabGenerateOpts {
   style?: AssetStyle;
   /** Soft selection hints stored with the asset. */
   affinity?: AssetAffinity;
+  /** Licence lineage of the result. Defaults to 'lpc-derived' because every
+   *  PixelLab call ships the LPC palette anchor as `color_image`; a caller
+   *  whose inputs are all self-owned says so explicitly. */
+  lineage?: AssetLineage;
 }
 
 export interface PixelLabBalance {
@@ -962,7 +980,7 @@ export interface PixelLabBalance {
 export interface LibraryAsset {
   /** SHA-256 hex of the canonical call shape. Primary key. */
   key: string;
-  schemaVersion: 3;
+  schemaVersion: 4;
 
   blob: Blob;
   prompt: string;
@@ -983,6 +1001,10 @@ export interface LibraryAsset {
   style: AssetStyle;
   recipeVersion: string;
   affinity?: AssetAffinity;
+
+  /** v4 metadata. Required: a library asset with no recorded lineage is a
+   *  licence question nobody can answer later. */
+  lineage: AssetLineage;
 }
 
 /** Structured library query — designed for the future LLM agent's tool call. */
@@ -1025,6 +1047,9 @@ export interface AssetSummary {
   model: string;
   provider: AssetProvider;
   affinity?: AssetAffinity;
+  /** Carried into the summary so curation/seeding surfaces can see the licence
+   *  fact without a second store round-trip. */
+  lineage: AssetLineage;
 }
 
 export type PixelLabKeyStatus = 'missing' | 'unverified' | 'valid' | 'invalid';

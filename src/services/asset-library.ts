@@ -3,7 +3,7 @@ import {
   matchesAsset, scoreAsset, type AssetMeta, type AssetRequest as MatchRequest,
 } from './asset-match';
 import { type BaseLibraryRecord, baseBlobUrl } from './base-library-loader';
-import { listKeptSummaries as defaultListKept, getAssetBlob } from './pixellab';
+import { listKeptSummaries as defaultListKept, getAssetBlob } from './sprite-library';
 
 export interface AssetRequest extends MatchRequest {
   /** Deterministic tie-break among equally-scored candidates. */

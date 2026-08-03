@@ -13,7 +13,7 @@ function summary(over: Partial<AssetSummary>): AssetSummary {
   return {
     id: 'live1', kind: 'decoration', tags: ['bush'], prompt: 'a live bush',
     width: 64, height: 64, addedAt: 2, style: 'pixel-art', model: 'pixflux',
-    provider: 'pixellab', ...over,
+    provider: 'pixellab', lineage: 'lpc-derived', ...over,
   };
 }
 
