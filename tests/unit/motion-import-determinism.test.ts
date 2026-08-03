@@ -111,16 +111,26 @@ describe('motion import — a byte-identical clip can still be a wrong clip', ()
     }
   });
 
-  it.each(imported)('$spec.id closes its loop iff it was imported as cyclic', ({ spec, clips }) => {
+  it.each(imported)('$spec.id closes its loop exactly where its OWN per-facing measurement says so', ({ metrics, clips }) => {
     // A cyclic import must sample identically at t=0 and t=1 or the sprite pops
-    // at the wrap. A one-shot must NOT — silently bending a gesture into a loop
-    // would be the wrong kind of helpful.
-    const cyclic = (spec.opts.loop ?? 'auto') !== 'none';
+    // at the wrap; a one-shot must NOT — silently bending a gesture into a loop
+    // would be the wrong kind of helpful. But whether a facing closes is a
+    // PER-FACING decision inside `closeLoop` (bvh.ts): a facing whose own
+    // residual exceeds tolerance is left open even when the other two close.
+    // That used to be a distinction without a difference — every capture
+    // imported so far closed uniformly across all three facings — until
+    // `dig`: its `left` measures an 11.5° gap on `armFar_up` (a real capture
+    // asymmetry, not a fitting artifact — see the importer's capture table)
+    // while `down`/`up` close at 0°. So the right check is against
+    // `metrics.facings[].loopDeg`, the same per-facing measurement `runImport`
+    // itself derived, not a single clip-wide "was this imported as cyclic"
+    // flag that assumes every facing agrees.
     for (const facing of FACINGS) {
       const clip: Clip = clips[facing];
       const at0 = sampleClip(TEMPLATES[facing], clip, 0);
       const at1 = sampleClip(TEMPLATES[facing], clip, 1);
-      if (cyclic) expect(at1).toEqual(at0);
+      const closes = metrics.facings.find((f) => f.facing === facing)!.loopDeg === 0;
+      if (closes) expect(at1).toEqual(at0);
       else expect(at1).not.toEqual(at0);
     }
   });

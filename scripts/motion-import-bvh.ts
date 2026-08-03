@@ -203,6 +203,54 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
     // real but unrelated to the arm chips this clip's defect report was about.
     skinBand: { down: 1, up: 1 },
   },
+  {
+    id: 'march',
+    source: '138_01.bvh',
+    note:
+      'march, travelling. `--contacts` finds LEFT heel-strike onsets at 208, 361, 508, ' +
+      '654, 796 (gaps 153, 147, 146, 142); `--periods --from 361` confirms it — P=148 ' +
+      'minimizes the first/last pose distance (0.374px), one frame off the contact ' +
+      'gap, so the loop closes on measurement twice over. Range [361, 509], travelling ' +
+      '38.7px (0.76 figure heights) per cycle — this is a walk-like clip, not stationary. ' +
+      '`--sweep` at the default 12 keys: 9 frames sits AT the aliasing edge (8.0deg RMS / ' +
+      '26.6deg peak on legFar_fore, the swing leg outrunning the sample rate); 17 frames ' +
+      'clears it with room (2.7deg RMS / 6.3deg peak) and raising maxKeys past 12 moves ' +
+      'the number by under 0.5deg — this is aliasing converging with a finer `range` ' +
+      'sample, not a keyframe ceiling, so the default cap is left alone. Now importable ' +
+      'in the frontal facings at all: their forearm bones are `mode: \'translate\'` (see ' +
+      '`HUMANOID_BVH_MAP`), so the ±94deg out-of-plane flail this capture used to windmill ' +
+      'stays off the rotation channel entirely and rides dx/dy instead — the profile ' +
+      '(`left`) facing is untouched and keeps genuine forearm rotation.',
+    opts: { range: [361, 509], frames: 17, referenceFrame: 'mean' },
+  },
+  {
+    id: 'dig',
+    source: '79_04.bvh',
+    note:
+      'digging, in place. No footfall cycle to find here — the stance foot never leaves ' +
+      'the ground for the whole capture (`--contacts` shows LeftFoot in stance 1-909), ' +
+      'so the cycle comes from the swing of the dig itself: `--periods --from 540` finds ' +
+      'P=148 minimizes the first/last pose distance (0.756px) at 0.4px of travel, which ' +
+      'is the in-place confirmation `--contacts` cannot give. Range [540, 688]. ' +
+      '`--sweep` shows the SAME two-knob story the wave was imported under, independently ' +
+      'reproduced: at the default 12 keys, MORE frames makes the fit WORSE, not better ' +
+      '(33 frames: 4.1deg RMS; 65 frames: 4.9deg RMS) because 65 baked poses are being ' +
+      'asked to fit through the same 12-key budget that 33 already strained. Frames alone ' +
+      'cannot fix that — 33 frames plateaus at 2.9deg RMS / 18.8deg peak past maxKeys 20, ' +
+      'no matter how high maxKeys goes. Raising BOTH — frames to 65, maxKeys to 24 — reaches ' +
+      '1.6deg RMS / 6.3deg peak, better than the walk at 9 frames (5.6 / 19.4) and the wave ' +
+      'at 33/24 (4.8 / 13.8). Frontal forearms ride `mode: \'translate\'` here too: this ' +
+      'capture is the ±107deg flail case the bone-map fix exists for, and profile (`left`) ' +
+      'keeps its rotation (0.61-0.95 in-plane across the dig, against 0.22-0.34 frontal). ' +
+      'HONEST ASTERISK: `left` does not loop-close (`loop: \'auto\'` measures an 11.5deg gap ' +
+      'on `armFar_up`, over the 8deg tolerance) while `down`/`up` close at 0deg — a real ' +
+      'shoulder-angle mismatch between this range\'s endpoints, not a fitting artifact ' +
+      '(constant across maxKeys 24..48, and shifting the start frame ±5 only gets it to ' +
+      '10.5deg). So `IMPORTED_CLIP_META.loop` reads false for the whole clip even though ' +
+      'the capture visibly repeats; the west view is the one that will show a small pop at ' +
+      'the wrap. Left for the studio (M2) to judge against the render, not smoothed over here.',
+    opts: { range: [540, 688], frames: 65, maxKeys: 24, referenceFrame: 'mean' },
+  },
 ];
 
 /*
@@ -211,25 +259,16 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
  * file: `describeInPlane` prints the foreshortening, and the cycle/energy
  * figures come from the same FK the importer runs.
  *
- * - `138_01.bvh` march and `79_04.bvh` digging — both have a CLEAN SAGITTAL
- *   read and an unusable FRONTAL one, and the rig cannot ship half a clip.
- *   Trimmed (march: 148 frames from 361, travelling 0.76 figure heights per
- *   cycle; dig: 148 frames from 540, in place) both close their loops well.
- *   But their arms leave the coronal plane, so in the down/up facings the
- *   forearm bone projects to a stub whose screen angle is mostly noise:
- *   in-plane length fraction falls to 0.33 (march `armL_fore`, mean 0.64) and
- *   0.22 (dig `armR_fore`, mean 0.72) — against 0.98/0.93 for the same bones
- *   in profile. The importer only HOLDS an angle below 0.15, so what comes out
- *   is a forearm swinging ±94° (march) and ±107° (dig) across the body: a
- *   visible flail, not a march or a dig. The walks stay clean on the same
- *   measure (worst frontal step 14° and 24°) because their arms hang in-plane.
- *   THE FIX IS A BONE-MAP DECISION, NOT A TOLERANCE: give the frontal forearm
- *   bones `mode: 'translate'` in `HUMANOID_BVH_MAP`, exactly the rule the head
- *   already follows there ("an in-plane head rotation reads as a sideways tilt,
- *   so a frontal nod is faked with translation"). That is deliberately NOT done
- *   here — it changes what `bvh-import.test.ts` pins about parent-relative
- *   elbow bend, so it is a change to judge in the motion studio (M2), not to
- *   smuggle in from a script.
+ * `138_01.bvh` march and `79_04.bvh` digging USED TO live here: both have a
+ * clean sagittal read and an unusable frontal one (in-plane length fraction
+ * 0.33 / 0.22 on the forearm, against 0.98 / 0.93 for the same bones in
+ * profile — see the `march`/`dig` entries above), which windmilled the
+ * frontal forearm ±94deg / ±107deg. THE FIX WAS A BONE-MAP DECISION, NOT A
+ * TOLERANCE: the frontal facings' forearm bones now carry `mode: 'translate'`
+ * in `HUMANOID_BVH_MAP`, exactly the rule the head already followed there
+ * ("an in-plane head rotation reads as a sideways tilt, so a frontal nod is
+ * faked with translation"). That moved both captures from declined to
+ * imported; what stays declined below could not be fixed the same way.
  *
  * - `62_07.bvh` "hammering a nail". There is no hammering in it to import. Peak
  *   hand motion over any half-second window is 0.20 figure heights of total path

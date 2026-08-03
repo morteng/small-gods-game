@@ -192,6 +192,14 @@ export interface BvhBone {
    * it. The front-view head rule from `lpc-humanoid.ts`: an in-plane head
    * rotation reads as a sideways ear-to-shoulder tilt, so a frontal nod is
    * faked with translation. In profile a nod IS in-plane, so west rotates.
+   *
+   * `HUMANOID_BVH_MAP` applies the same rule to the frontal facings' FOREARM
+   * bones (see the `down`/`up` entries there): an arm that swings mostly
+   * toward/away from a frontal camera foreshortens to near nothing, and a
+   * fixed-length chip has no way to shrink, so the residual angle is mostly
+   * noise on a capture whose arm leaves the coronal plane (measured on
+   * 138_01/79_04 — see the importer's capture table). Profile (`left`) keeps
+   * rotation: a sagittal capture's forearm swings IN that plane.
    */
   mode?: 'rotate' | 'translate';
 }
@@ -224,15 +232,26 @@ export interface BvhBoneMap {
 // ENDPOINTS, so a skeleton that omits the carriers still maps.
 const HEAD: JointRef = ['Neck1', 'Neck'];
 
+/**
+ * `armForeMode` is the one per-facing knob this factory needs to expose: the
+ * frontal facings hold the forearm in `'translate'` (see `HUMANOID_BVH_MAP`'s
+ * `down`/`up` entries below) while every other bone — including the same
+ * factory's own leg/upper-arm output — stays plain `'rotate'` (`undefined`).
+ * A single optional parameter keeps the four-bones-per-limb shape in ONE
+ * place rather than spelling frontal bones out by hand, which is the
+ * readability trade this map is built around (see `HUMANOID_BVH_MAP`'s doc
+ * comment on why the map is per-facing at all).
+ */
 const HUMANOID_BONES = (
   armUp: string,
   armFore: string,
   legUp: string,
   legFore: string,
   side: 'Left' | 'Right',
+  armForeMode?: 'translate',
 ): BvhBone[] => [
   { from: `${side}Arm`, to: `${side}ForeArm`, chip: armUp },
-  { from: `${side}ForeArm`, to: `${side}Hand`, chip: armFore },
+  { from: `${side}ForeArm`, to: `${side}Hand`, chip: armFore, ...(armForeMode ? { mode: armForeMode } : {}) },
   { from: `${side}UpLeg`, to: `${side}Leg`, chip: legUp },
   { from: `${side}Leg`, to: `${side}Foot`, chip: legFore },
 ];
@@ -255,8 +274,8 @@ export const HUMANOID_BVH_MAP: BvhBoneMap = {
     down: {
       template: LPC_HUMANOID_SOUTH,
       bones: [
-        ...HUMANOID_BONES('armR_up', 'armR_fore', 'legR_up', 'legR_fore', 'Left'),
-        ...HUMANOID_BONES('armL_up', 'armL_fore', 'legL_up', 'legL_fore', 'Right'),
+        ...HUMANOID_BONES('armR_up', 'armR_fore', 'legR_up', 'legR_fore', 'Left', 'translate'),
+        ...HUMANOID_BONES('armL_up', 'armL_fore', 'legL_up', 'legL_fore', 'Right', 'translate'),
         { from: HEAD, to: 'Head', chip: 'head', mode: 'translate' },
       ],
       feet: [
@@ -267,8 +286,8 @@ export const HUMANOID_BVH_MAP: BvhBoneMap = {
     up: {
       template: LPC_HUMANOID_NORTH,
       bones: [
-        ...HUMANOID_BONES('armL_up', 'armL_fore', 'legL_up', 'legL_fore', 'Left'),
-        ...HUMANOID_BONES('armR_up', 'armR_fore', 'legR_up', 'legR_fore', 'Right'),
+        ...HUMANOID_BONES('armL_up', 'armL_fore', 'legL_up', 'legL_fore', 'Left', 'translate'),
+        ...HUMANOID_BONES('armR_up', 'armR_fore', 'legR_up', 'legR_fore', 'Right', 'translate'),
         { from: HEAD, to: 'Head', chip: 'head', mode: 'translate' },
       ],
       feet: [

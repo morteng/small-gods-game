@@ -16,10 +16,14 @@ import type { ImportedClipMeta } from '../clip-meta';
 import { CLIP_WALK, CLIP_WALK_META } from './walk';
 import { CLIP_WALK_BRISK, CLIP_WALK_BRISK_META } from './walk-brisk';
 import { CLIP_WAVE, CLIP_WAVE_META } from './wave';
+import { CLIP_MARCH, CLIP_MARCH_META } from './march';
+import { CLIP_DIG, CLIP_DIG_META } from './dig';
 
 export { CLIP_WALK, CLIP_WALK_META } from './walk';
 export { CLIP_WALK_BRISK, CLIP_WALK_BRISK_META } from './walk-brisk';
 export { CLIP_WAVE, CLIP_WAVE_META } from './wave';
+export { CLIP_MARCH, CLIP_MARCH_META } from './march';
+export { CLIP_DIG, CLIP_DIG_META } from './dig';
 
 export type ImportedClipSet = Readonly<Record<'down' | 'up' | 'left', Clip>>;
 
@@ -27,10 +31,14 @@ export const IMPORTED_CLIPS: Readonly<Record<string, ImportedClipSet>> = {
   'walk': CLIP_WALK,
   'walk-brisk': CLIP_WALK_BRISK,
   'wave': CLIP_WAVE,
+  'march': CLIP_MARCH,
+  'dig': CLIP_DIG,
 };
 
 export const IMPORTED_CLIP_META: Readonly<Record<string, ImportedClipMeta>> = {
   'walk': CLIP_WALK_META,
   'walk-brisk': CLIP_WALK_BRISK_META,
   'wave': CLIP_WAVE_META,
+  'march': CLIP_MARCH_META,
+  'dig': CLIP_DIG_META,
 };

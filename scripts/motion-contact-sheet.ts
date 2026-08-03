@@ -158,6 +158,14 @@ function silhouetteIoU(a: Raster, b: Raster): number {
   return union === 0 ? 1 : inter / union;
 }
 
+/** Per-clip accumulator for the cross-facing sheet and the worst-frame crop below. */
+interface ClipBake {
+  facing: Facing;
+  raw: Raster[];
+  baked: Raster[];
+  broken: number; // strayPx + holePx summed over the clip — picks the worst facing
+}
+
 async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   const only = process.argv.slice(2);
@@ -165,6 +173,7 @@ async function main(): Promise<void> {
 
   const sheets = await Promise.all(DEFAULT_HUMANOID_LAYERS.map((s) => loadSheet(s.path)));
   const walk = LPC_ANIMATIONS.walk;
+  const perClip = new Map<string, ClipBake[]>();
 
   for (const facing of FACINGS) {
     const { template, row } = RIG[facing];
@@ -223,6 +232,9 @@ async function main(): Promise<void> {
         `${id}/${facing}: ${broken.stray} stray px, ${broken.hole} hole px over ${baked.length} frames` +
           ` (worst f${w.frame}: ${w.parts} parts, ${w.strayPx}+${w.holePx})`,
       );
+      const list = perClip.get(id) ?? [];
+      list.push({ facing, raw, baked, broken: broken.stray + broken.hole });
+      perClip.set(id, list);
 
       if (IMPORTED_CLIP_META[id].groundSpeedPxPerSec === 0) continue;
 
@@ -244,6 +256,36 @@ async function main(): Promise<void> {
       );
     }
   }
+  // Cross-facing sheet + a 9x crop of the worst frames — for the HUMAN, not a
+  // gate. `-4x` above is one facing at a time; a limb tearing at a joint is a
+  // few px wide and a 4x strip hides it (measured, not a guess: it fooled a
+  // whole report once). 9x on just the worst frames is what makes it legible
+  // without producing an unreadably huge full-clip sheet.
+  for (const [id, facings] of perClip) {
+    await writeFile(
+      `${OUT}/${id}-sheet.png`,
+      PNG.sync.write(sheetOf(facings.map((f) => f.baked), 4)),
+    );
+
+    // Whichever facing scored worst (stray + hole, summed over the clip) is
+    // the one worth zooming into — the other facings' worst frames are not
+    // interesting if that facing's own worst frame is clean.
+    const worstFacing = facings.reduce((a, b) => (b.broken > a.broken ? b : a));
+    const ranked = worstFacing.raw
+      .map((frame, i) => ({ i, g: fragmentation(frame) }))
+      .sort((a, b) => b.g.strayPx + b.g.holePx - (a.g.strayPx + a.g.holePx))
+      .slice(0, 3)
+      .sort((a, b) => a.i - b.i); // back to clip order once the worst 3 are picked
+    await writeFile(
+      `${OUT}/${id}-worst-9x.png`,
+      PNG.sync.write(sheetOf([ranked.map((r) => worstFacing.raw[r.i])], 9)),
+    );
+    console.log(
+      `${id}: worst facing ${worstFacing.facing} (${worstFacing.broken} broken px) — ` +
+        `9x crop frames ${ranked.map((r) => r.i).join(', ')}`,
+    );
+  }
+
   console.log(`\nwrote ${OUT}/ — top row is LPC's own artist, middle the bake, bottom the bake at 32px.`);
 }
 

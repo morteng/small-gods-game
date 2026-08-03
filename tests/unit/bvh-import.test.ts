@@ -140,10 +140,27 @@ describe('projectToRig — y-down clockwise sign convention', () => {
     expect(clips.down.tracks.armR_up[0].deg).toBe(0); // the reference pose IS rest
   });
 
-  it('elbow bend is emitted PARENT-RELATIVE, not absolute', () => {
-    // The forearm's absolute swing is -120° (shoulder -90 plus elbow -30); the
-    // rig composes parent rotations, so the track must carry only the -30.
-    expect(lastKey(clips.down, 'armR_fore')!.deg).toBe(-30);
+  it('a frontal forearm cancels its parent instead of composing an elbow bend (M5a)', () => {
+    // Pre-M5a this pinned -30°: the forearm's absolute swing is -120° (shoulder
+    // -90 plus elbow -30), and PARENT-RELATIVE composition subtracts the -90.
+    // That number MOVED, not because the capture changed, but because the
+    // PROJECTION did: `HUMANOID_BVH_MAP`'s frontal facings now carry the
+    // forearm bone as `mode: 'translate'` (the same rule the head already
+    // followed — see `bvh.ts`'s `BvhBone.mode` doc), because a march/dig
+    // capture's arm leaves the coronal plane and a rotated frontal forearm
+    // reads that as a ±100° flail (measured on 138_01/79_04; the importer's
+    // capture table has the numbers).
+    //
+    // A translate chip's own `chipDelta` is held at 0, so what reaches `deg`
+    // here is `0 - parentDelta`: exactly enough rotation to CANCEL the
+    // parent's swing, so the chip's screen ORIENTATION never moves on its
+    // own — armR_up ends this clip at -90°, so armR_fore's own contribution
+    // is +90° to net zero. The elbow bend itself has not gone anywhere: it
+    // is still legible, just as a dx/dy translation instead of a rotation.
+    expect(lastKey(clips.down, 'armR_up')!.deg).toBe(-90);
+    expect(lastKey(clips.down, 'armR_fore')!.deg).toBe(90);
+    const fore = lastKey(clips.down, 'armR_fore')!;
+    expect(fore.dx !== 0 || fore.dy !== 0).toBe(true);
   });
 
   it('the back view moves the same arm to the other chip AND flips its sign', () => {

@@ -85,19 +85,28 @@ const cases = CLIP_IDS.flatMap((id) => FACINGS.map((facing) => ({ id, facing }))
  * (`?studio=motion`) and look at the clip before pasting a new value here.
  */
 const GOLDEN: Record<string, string> = {
-  // M5b: only wave/down and wave/up move. LPC_HUMANOID_SOUTH/NORTH stayed
-  // RIGID (no template skinBand) — `Clip.skinBand: 1` lives on CLIP_WAVE_DOWN/
-  // _UP alone (`clips/wave.ts`), so walk/walk-brisk on every facing, and wave
-  // on west (left), are byte-identical to before this fix.
-  'walk/down': '2574d270',
-  'walk/up': 'f2fe3cd6',
+  // down/up MOVED under M5a: the frontal forearm bones (`armL_fore`/`armR_fore`)
+  // became `mode: 'translate'` in `HUMANOID_BVH_MAP` (see `bvh.ts`), so their
+  // rotation now cancels the parent instead of carrying the elbow bend — a
+  // projection change, not a capture change. `left` is untouched.
+  'walk/down': 'REGEN',
+  'walk/up': 'REGEN',
   'walk/left': '1a75c1d5',
-  'walk-brisk/down': '29fc9372',
-  'walk-brisk/up': 'aeadade1',
+  'walk-brisk/down': 'REGEN',
+  'walk-brisk/up': 'REGEN',
   'walk-brisk/left': '2a106379',
-  'wave/down': '34282c7d',
-  'wave/up': 'd33d5d06',
+  // wave/down and wave/up carry BOTH M5a (translate forearms) and M5b
+  // (`Clip.skinBand: 1` on CLIP_WAVE_DOWN/_UP, closing the arm tear at the
+  // wave's 150°+ swing) — see `clips/wave.ts`.
+  'wave/down': 'REGEN',
+  'wave/up': 'REGEN',
   'wave/left': '687e7abb',
+  'march/down': 'REGEN',
+  'march/up': 'REGEN',
+  'march/left': '5c2b00c1',
+  'dig/down': '12a79a43',
+  'dig/up': 'e4ed8cd5',
+  'dig/left': '6831d2f8',
 };
 
 describe('imported clips — the bake, not just the keyframes', () => {
@@ -138,13 +147,24 @@ describe('imported clips — a looping clip must not pop at the wrap', () => {
     // where a player would actually notice it — in the pixels. A one-shot is
     // required to differ, so that "loops" never becomes a label nothing tests.
     const looping = IMPORTED_CLIP_META[id].loop;
-    for (const facing of FACINGS) {
+    const agree = FACINGS.map((facing) => {
       const t = TEMPLATES[facing];
       const frames = bakeClip(t, layersFor(t), IMPORTED_CLIPS[id][facing]);
-      const first = djb2hex(frames[0].data);
-      const last = djb2hex(frames[frames.length - 1].data);
-      if (looping) expect(`${id}/${facing}: ${last}`).toBe(`${id}/${facing}: ${first}`);
-      else expect(last).not.toBe(first);
+      return djb2hex(frames[0].data) === djb2hex(frames[frames.length - 1].data);
+    });
+    if (looping) {
+      // loop:true is a promise EVERY facing closes — one facing popping at the
+      // wrap while the meta claims otherwise is exactly the bug this exists to
+      // catch, so nothing short of unanimous agreement passes.
+      expect(agree).toEqual(FACINGS.map(() => true));
+    } else {
+      // `IMPORTED_CLIP_META[id].loop` is the importer's own `FACINGS.every(...)`
+      // (`runImport`'s `metrics.loops`), so it reads false the moment ONE facing
+      // fails to close — not because none of them do. `dig` is exactly that:
+      // `down`/`up` close at 0° gap but `left` measures 11.5° on `armFar_up`, a
+      // real capture asymmetry (see the importer's capture table), so the
+      // honest assertion is "at least one facing disagrees", not "all of them".
+      expect(agree.some((a) => !a)).toBe(true);
     }
   });
 });
@@ -207,6 +227,17 @@ describe('imported clips — the profile leg must not come apart', () => {
     walk: { stray: 5, hole: 25 },
     'walk-brisk': { stray: 30, hole: 35 },
     wave: { stray: 10, hole: 90 },
+    // march: 0 stray / 90 hole over 17 frames — clean, comparable to the wave's
+    // west budget at roughly the same frame count.
+    march: { stray: 5, hole: 100 },
+    // dig: 0 stray / 963 hole over 65 frames — no severed pieces (`parts` stays
+    // 1 every frame), but the per-frame hole count is real and this clip is
+    // 65 frames against the walks' 9-17, so the SUM is not comparable to theirs
+    // without accounting for length. See `tmp/motion/dig-worst-9x.png`: the
+    // gap this is measuring is a bent-over dig pose's hip/thigh crease, not a
+    // torn limb — worth the human's own look, not smoothed into a bigger walk
+    // budget.
+    dig: { stray: 5, hole: 1000 },
   };
 
   it.each(CLIP_IDS.map((id) => ({ id })))('$id west stays in one piece', ({ id }) => {

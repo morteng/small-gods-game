@@ -32,8 +32,8 @@
  *
  * Per facing — tracks, worst per-frame angle step, t=0..t=1 gap, plants,
  * and the foreshortening floor (least of any rotating bone in-plane length):
- *   down  10 tracks · max   22.5° · step    24° (legR_fore) · loop 0° · 0 plant(s) · in-plane ≥ 0.44 (armR_fore)
- *   up    10 tracks · max   22.5° · step    24° (legL_fore) · loop 0° · 0 plant(s) · in-plane ≥ 0.44 (armL_fore)
+ *   down  10 tracks · max     19° · step    24° (legR_fore) · loop 0° · 0 plant(s) · in-plane ≥ 0.52 (legL_fore)
+ *   up    10 tracks · max     19° · step    24° (legL_fore) · loop 0° · 0 plant(s) · in-plane ≥ 0.52 (legR_fore)
  *   left  10 tracks · max   40.5° · step    54° (legFar_fore) · loop 0° · 0 plant(s) · in-plane ≥ 0.97 (armFar_up)
  *
  * A per-frame step approaching 180° would mean the gesture outran the baked
@@ -78,15 +78,10 @@ export const CLIP_WALK_BRISK_DOWN: Clip = {
       { t: 1, deg: -4.5, dx: 0, dy: 0 },
     ],
     armL_fore: [
-      { t: 0, deg: 11.5, dx: 0.25, dy: -0.75 },
-      { t: 0.125, deg: 14, dx: 0.25, dy: -0.5 },
-      { t: 0.25, deg: 5, dx: 0, dy: 0.25 },
-      { t: 0.375, deg: -12, dx: -0.25, dy: 0.75 },
-      { t: 0.5, deg: -19, dx: -0.25, dy: 0.75 },
-      { t: 0.625, deg: -9, dx: -0.25, dy: 0.5 },
-      { t: 0.75, deg: 0, dx: 0, dy: 0.25 },
-      { t: 0.875, deg: 2, dx: 0, dy: -0.25 },
-      { t: 1, deg: 11.5, dx: 0.25, dy: -0.75 },
+      { t: 0, deg: 4.5, dx: 0.25, dy: -0.75 },
+      { t: 0.5, deg: -7, dx: -0.25, dy: 0.75 },
+      { t: 0.875, deg: 0.5, dx: 0, dy: -0.25 },
+      { t: 1, deg: 4.5, dx: 0.25, dy: -0.75 },
     ],
     armR_up: [
       { t: 0, deg: -2.5, dx: 0, dy: 0 },
@@ -94,13 +89,13 @@ export const CLIP_WALK_BRISK_DOWN: Clip = {
       { t: 1, deg: -2.5, dx: 0, dy: 0 },
     ],
     armR_fore: [
-      { t: 0, deg: 22.5, dx: 0, dy: 0 },
-      { t: 0.125, deg: 10, dx: 0, dy: 0.5 },
-      { t: 0.25, deg: -8.5, dx: 0, dy: 0.5 },
-      { t: 0.375, deg: -16.5, dx: 0, dy: 0 },
-      { t: 0.625, deg: -15.5, dx: -0.25, dy: -0.25 },
-      { t: 0.75, deg: -11.5, dx: 0, dy: 0.5 },
-      { t: 1, deg: 22.5, dx: 0, dy: 0 },
+      { t: 0, deg: 2.5, dx: 0, dy: 0 },
+      { t: 0.25, deg: -1, dx: 0, dy: 0.5 },
+      { t: 0.5, deg: -2.5, dx: -0.25, dy: -0.5 },
+      { t: 0.625, deg: -3, dx: -0.25, dy: -0.25 },
+      { t: 0.75, deg: -1, dx: 0, dy: 0.5 },
+      { t: 0.875, deg: 3, dx: 0.25, dy: 0.25 },
+      { t: 1, deg: 2.5, dx: 0, dy: 0 },
     ],
     legL_up: [
       { t: 0, deg: -1, dx: 0.5, dy: 0.25 },
@@ -159,13 +154,13 @@ export const CLIP_WALK_BRISK_UP: Clip = {
       { t: 1, deg: 2.5, dx: 0, dy: 0 },
     ],
     armL_fore: [
-      { t: 0, deg: -22.5, dx: 0, dy: 0 },
-      { t: 0.125, deg: -10, dx: 0, dy: 0.5 },
-      { t: 0.25, deg: 8.5, dx: 0, dy: 0.5 },
-      { t: 0.375, deg: 16.5, dx: 0, dy: 0 },
-      { t: 0.625, deg: 15.5, dx: 0.25, dy: -0.25 },
-      { t: 0.75, deg: 11.5, dx: 0, dy: 0.5 },
-      { t: 1, deg: -22.5, dx: 0, dy: 0 },
+      { t: 0, deg: -2.5, dx: 0, dy: 0 },
+      { t: 0.25, deg: 1, dx: 0, dy: 0.5 },
+      { t: 0.5, deg: 2.5, dx: 0.25, dy: -0.75 },
+      { t: 0.625, deg: 3, dx: 0.25, dy: -0.25 },
+      { t: 0.75, deg: 1, dx: 0, dy: 0.5 },
+      { t: 0.875, deg: -3, dx: 0, dy: 0.5 },
+      { t: 1, deg: -2.5, dx: 0, dy: 0 },
     ],
     armR_up: [
       { t: 0, deg: 4.5, dx: 0, dy: 0 },
@@ -174,15 +169,10 @@ export const CLIP_WALK_BRISK_UP: Clip = {
       { t: 1, deg: 4.5, dx: 0, dy: 0 },
     ],
     armR_fore: [
-      { t: 0, deg: -11.5, dx: -0.25, dy: -0.75 },
-      { t: 0.125, deg: -14, dx: -0.25, dy: -0.25 },
-      { t: 0.25, deg: -5, dx: 0, dy: 0.25 },
-      { t: 0.375, deg: 12, dx: 0.25, dy: 0.75 },
-      { t: 0.5, deg: 19, dx: 0.25, dy: 0.75 },
-      { t: 0.625, deg: 9, dx: 0.25, dy: 0.5 },
-      { t: 0.75, deg: 0, dx: 0, dy: 0.25 },
-      { t: 0.875, deg: -2, dx: 0, dy: -0.25 },
-      { t: 1, deg: -11.5, dx: -0.25, dy: -0.75 },
+      { t: 0, deg: -4.5, dx: -0.25, dy: -0.75 },
+      { t: 0.5, deg: 7, dx: 0.25, dy: 0.75 },
+      { t: 0.875, deg: -0.5, dx: 0, dy: -0.25 },
+      { t: 1, deg: -4.5, dx: -0.25, dy: -0.75 },
     ],
     legL_up: [
       { t: 0, deg: -2.5, dx: -0.5, dy: -0.25 },
