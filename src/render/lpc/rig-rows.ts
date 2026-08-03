@@ -34,9 +34,20 @@
  *    mirrors to EAST, leaving south/north to the vendored walk-row fallback.
  *    Whichever pair a row does not bake, the animation table routes to the
  *    fallback (`LpcAnimSpec.facings`).
- * 3. The strip is PING-PONGED. Both clips end somewhere other than they start,
- *    so laying the frames out forward-then-back closes the loop without a pop —
- *    a property of the strip, not an edit to the authored clip.
+ * 3. The strip is PING-PONGED — CONDITIONALLY. `pray-raise`/`idle-shift` both
+ *    end somewhere other than they start (arms up; weight on one leg), so
+ *    laying the frames out forward-then-back closes the loop without a pop —
+ *    a property of the strip, not an edit to the authored clip. But `march`
+ *    is a CLOSED gait cycle: its importer measured t=0 and t=1 sampling
+ *    identically on all three facings (`ImportedClipMeta.loop`), so it
+ *    already closes on its own. Ping-ponging it anyway would play the cycle
+ *    forward and then BACKWARD every repeat — a marching soldier who
+ *    moonwalks back to the start pose each cycle, visible as mirror symmetry
+ *    about the strip's middle column. So the choice is driven by the clip's
+ *    OWN measured fact (`stripOrder`), not a per-row flag: a clip with no
+ *    meta entry (every hand-authored devotional clip) still ping-pongs,
+ *    because that is what today's hand-authored clips need and there is no
+ *    measurement to say otherwise for them.
  */
 import type { NpcAnimation } from '@/core/npc-animation';
 import { LPC_ANIMATIONS, LPC_DIR_OFFSET, STANDARD_SHEET_ROWS } from '@/core/npc-animation';
@@ -52,6 +63,7 @@ import {
 import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
 import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST, mirrorFrame } from '@/render/paperdoll/lpc-humanoid-west';
 import { CLIP_MARCH_LEFT } from '@/render/paperdoll/clips/march';
+import { IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 import { sliceSourceCell } from '@/render/paperdoll/humanoid-loader';
 
 /** Cell size of every rig row (the LPC frame size). */
@@ -120,7 +132,8 @@ const RIG_MIRRORS: Readonly<Partial<Record<RigBakeDir, Direction>>> = { left: 'r
 
 /**
  * Frame indices laid out forward then back, endpoints unrepeated: 7 frames →
- * 0..6,5..1 (12 columns). One authored clip, a closed loop.
+ * 0..6,5..1 (12 columns). For a clip that does NOT close on its own, this is
+ * what closes the loop without a pop.
  */
 export function pingPongOrder(frames: number): number[] {
   const order: number[] = [];
@@ -129,12 +142,33 @@ export function pingPongOrder(frames: number): number[] {
   return order;
 }
 
+/** Frame indices played straight through: 0..frames-1. For a clip that
+ *  ALREADY closes (t=1 samples the same pose as t=0), this is the loop —
+ *  ping-ponging it would replay the cycle backward every repeat. */
+function straightOrder(frames: number): number[] {
+  return Array.from({ length: frames }, (_, i) => i);
+}
+
+/**
+ * The strip's playback order for one row's clip. Driven by the clip's OWN
+ * measured loop fact (`ImportedClipMeta.loop`, keyed by `clip.name` — the
+ * importer's own `IMPORTED_CLIP_META`), not a per-row flag someone has to
+ * remember to set correctly the next time an imported clip lands here.
+ * No meta entry (every hand-authored devotional clip — `pray-raise`,
+ * `idle-shift`) → ping-pong, the safe default for a clip nothing has
+ * measured the closure of.
+ */
+export function stripOrder(clip: Clip): number[] {
+  return IMPORTED_CLIP_META[clip.name]?.loop ? straightOrder(clip.frames) : pingPongOrder(clip.frames);
+}
+
 /** Rows the strip occupies (four per clip — the two facings a row does NOT
  *  bake stay empty rather than shifting the direction offsets into a second
  *  arithmetic; see head comment #2). */
 export const RIG_STRIP_ROWS = RIG_ROW_CLIPS.length * 4;
 
-/** Widest ping-ponged clip — the strip is as wide as its longest row. */
+/** Widest row in the strip — ping-ponged for an open clip, straight-through
+ *  for a closed one (`stripOrder`). */
 export const RIG_STRIP_COLS = Math.max(
   ...RIG_ROW_CLIPS.map(({ anim }) => LPC_ANIMATIONS[anim].lastCol + 1),
 );
@@ -192,7 +226,7 @@ export async function bakeRigStripRows(
   const out: RigStripRow[] = [];
   for (const { anim, clip, facings } of RIG_ROW_CLIPS) {
     const rowBase = LPC_ANIMATIONS[anim].rowBase - STANDARD_SHEET_ROWS;
-    const order = pingPongOrder(clip.frames);
+    const order = stripOrder(clip);
     for (const dir of facings) {
       const facing = RIG_FACING_BAKES[dir];
       const posed = sheets.map((sheet, i): PoseLayer => ({

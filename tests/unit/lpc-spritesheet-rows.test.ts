@@ -12,7 +12,8 @@ import {
   type LpcAnimSpec,
   type NpcAnimation,
 } from '@/core/npc-animation';
-import { RIG_ROW_CLIPS, RIG_STRIP_COLS, RIG_STRIP_ROWS, pingPongOrder } from '@/render/lpc/rig-rows';
+import { RIG_ROW_CLIPS, RIG_STRIP_COLS, RIG_STRIP_ROWS, stripOrder } from '@/render/lpc/rig-rows';
+import { IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 
 /** Every sheet row a spec occupies (4 for a directional block, 1 otherwise). */
 function rowsOf(spec: LpcAnimSpec): number[] {
@@ -74,14 +75,20 @@ describe('LPC sheet row space', () => {
     }
   });
 
-  it('lastCol counts the ping-ponged strip, not the authored clip', () => {
+  it('lastCol matches the strip order — ping-ponged for a clip that does not close on its own, straight for one that does', () => {
     for (const { anim, clip } of RIG_ROW_CLIPS) {
-      const order = pingPongOrder(clip.frames);
-      expect(order.length, anim).toBe(clip.frames * 2 - 2);
+      const order = stripOrder(clip);
       expect(LPC_ANIMATIONS[anim].lastCol, anim).toBe(order.length - 1);
-      // Closed loop: stepping off the end lands back on the first frame.
-      expect(order[0]).toBe(0);
-      expect(order[order.length - 1]).toBe(1);
+      if (IMPORTED_CLIP_META[clip.name]?.loop) {
+        // A closed cycle (e.g. march): played straight through, no ping-pong.
+        expect(order, anim).toEqual(Array.from({ length: clip.frames }, (_, i) => i));
+      } else {
+        // An open clip (the hand-authored devotional clips): ping-ponged so
+        // consecutive poses close the loop with no pop at the wrap.
+        expect(order.length, anim).toBe(clip.frames * 2 - 2);
+        expect(order[0]).toBe(0);
+        expect(order[order.length - 1]).toBe(1);
+      }
     }
   });
 });

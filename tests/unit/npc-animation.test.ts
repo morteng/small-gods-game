@@ -147,20 +147,24 @@ describe('march (profile rig row)', () => {
   });
 
   it('falls back to the vendored WALK row for south/north, carrying cycle POSITION not raw frame', () => {
-    // march frame 0 of its 0..31 cycle = cycle start -> walk's cycle start (col 1).
+    // march is a CLOSED cycle, played straight (not ping-ponged — see
+    // `rig-rows.ts`'s `stripOrder`): 17 frames, lastCol 16.
+    expect(LPC_ANIMATIONS['march'].lastCol).toBe(16);
+
+    // march frame 0 of its 0..16 cycle = cycle start -> walk's cycle start (col 1).
     const start = resolveNpcFrame(npc({ animation: 'march', direction: 'down', frame: 0 }), true);
     expect(start).toEqual({ sx: 1 * 64, sy: 10 * 64, rig: false });
 
-    // march's LAST frame (31) = cycle end -> walk's LAST column (8).
-    const end = resolveNpcFrame(npc({ animation: 'march', direction: 'up', frame: 31 }), true);
+    // march's LAST frame (16) = cycle end -> walk's LAST column (8).
+    const end = resolveNpcFrame(npc({ animation: 'march', direction: 'up', frame: 16 }), true);
     expect(end).toEqual({ sx: 8 * 64, sy: 8 * 64, rig: false });
 
     // A literal frame carry-through would clamp anything past column 8 to 8 —
     // prove the MIDPOINT of the march cycle does not read as walk's last
     // frame (frozen), which is exactly the bug the proportional remap avoids.
-    const mid = resolveNpcFrame(npc({ animation: 'march', direction: 'down', frame: 16 }), true);
+    const mid = resolveNpcFrame(npc({ animation: 'march', direction: 'down', frame: 8 }), true);
     expect(mid.sx).not.toBe(8 * 64);
-    expect(mid.sx).toBe(5 * 64); // 1 + round((16/31)*7) = 5
+    expect(mid.sx).toBe(5 * 64); // 1 + round((8/16)*7) = 5
   });
 
   it('also falls back — same walk row — when the strip is simply unbaked', () => {

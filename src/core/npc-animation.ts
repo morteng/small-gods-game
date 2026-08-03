@@ -132,9 +132,13 @@ export const LPC_ANIMATIONS: Record<NpcAnimation, LpcAnimSpec> = {
   'pray-raise': { rowBase: 54, firstCol: 0, lastCol: 11, directional: true, loop: true, facings: RIG_FACINGS, fallback: RIG_FALLBACK },
   'idle-shift': { rowBase: 58, firstCol: 0, lastCol: 13, directional: true, loop: true, facings: RIG_FACINGS, fallback: RIG_FALLBACK },
   // march is 17 frames (the importer's own aliasing sweep: 9 sat at 8.0° RMS /
-  // 26.6° worst step, 17 clears it at 2.7° / 6.3°) → 2×17−2 = 32 ping-ponged
-  // columns, lastCol 31 — by far the widest row the shared strip carries.
-  'march': { rowBase: 62, firstCol: 0, lastCol: 31, directional: true, loop: true, facings: MARCH_FACINGS, fallback: MARCH_FALLBACK },
+  // 26.6° worst step, 17 clears it at 2.7° / 6.3°). UNLIKE pray-raise/
+  // idle-shift, march does NOT ping-pong: it is a CLOSED gait cycle (the
+  // importer measured t=0 and t=1 sampling identically on every facing —
+  // `CLIP_MARCH_META.loop`), so `rig-rows.ts`'s `stripOrder` plays it
+  // straight through — 17 columns, lastCol 16 — and ping-ponging it anyway
+  // would have played the march backward every other cycle.
+  'march': { rowBase: 62, firstCol: 0, lastCol: 16, directional: true, loop: true, facings: MARCH_FACINGS, fallback: MARCH_FALLBACK },
 };
 
 /** Direction → row offset from an animation's `rowBase` (LPC order: n,w,s,e). */

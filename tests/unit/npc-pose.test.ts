@@ -34,7 +34,7 @@ describe('animateWalking', () => {
     expect(p.frame).toBeGreaterThanOrEqual(LPC_ANIMATIONS.walk.firstCol);
   });
 
-  it('march wraps at its OWN lastCol (31), not walk\'s 8', () => {
+  it('march wraps at its OWN lastCol, not walk\'s 8', () => {
     const p = initNpcProps('Legionary', 'soldier', 1);
     animateWalking(p, 0); // anim = 'march', frame = 0
     p.frame = LPC_ANIMATIONS.march.lastCol;

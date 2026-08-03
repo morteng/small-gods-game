@@ -18,6 +18,7 @@ import {
   RIG_BAKE_SUPERSAMPLE,
   RIG_CELL,
   RIG_ROW_CLIPS,
+  stripOrder,
 } from '@/render/lpc/rig-rows';
 
 /** A synthetic 3-row LPC sheet: every cell filled with a row/col-dependent
@@ -124,7 +125,11 @@ describe('runtime rig-row bake', { timeout: 60_000 }, () => {
     const expected = bakeClip(LPC_HUMANOID_WEST, westLayers, CLIP_MARCH_LEFT, {
       supersample: RIG_BAKE_SUPERSAMPLE,
     });
-    const order = pingPongOrder(CLIP_MARCH_LEFT.frames);
+    // march is a CLOSED cycle (`CLIP_MARCH_META.loop`) — straight order, NOT
+    // ping-ponged. Ping-ponging it would play the gait backward every repeat.
+    const order = stripOrder(CLIP_MARCH_LEFT);
+    expect(order).toEqual(Array.from({ length: CLIP_MARCH_LEFT.frames }, (_, i) => i));
+    expect(west!.frames.length).toBe(CLIP_MARCH_LEFT.frames);
     expect(west!.frames.map(bytes)).toEqual(order.map((f) => bytes(expected[f])));
 
     // East is west mirrored frame-for-frame, not a second bake.
@@ -132,6 +137,27 @@ describe('runtime rig-row bake', { timeout: 60_000 }, () => {
 
     expect(rows.find((r) => r.row === base + LPC_DIR_OFFSET.down)).toBeUndefined();
     expect(rows.find((r) => r.row === base + LPC_DIR_OFFSET.up)).toBeUndefined();
+  });
+
+  it('march does not ping-pong a closed cycle — no INTERIOR column repeats (the shape a ping-pong leaves)', () => {
+    // The bug this guards: ping-ponging a clip that already closes plays it
+    // forward then BACKWARD every repeat (a march that moonwalks home). A
+    // ping-ponged strip is mirror-symmetric about its middle column — column
+    // n equals column (2f-2-n) for EVERY interior n of a clip of f frames —
+    // which shows up as every interior pose appearing twice.
+    //
+    // The clip's own measured closure means column 0 and the LAST column are
+    // *expected* to coincide (t=0 and t=1 sample the same pose — that is what
+    // "closes" means, confirmed here: march's own frame 0 and frame 16 bake
+    // byte-identical on this fixture). That single wrap pair is not the bug,
+    // so it is excluded; anything else repeating is.
+    const spec = LPC_ANIMATIONS['march'];
+    const base = spec.rowBase - STANDARD_SHEET_ROWS;
+    const west = rows.find((r) => r.row === base + LPC_DIR_OFFSET.left)!;
+    const cols = west.frames.map(bytes);
+    expect(cols[0]).toBe(cols[cols.length - 1]); // the legitimate wrap closure
+    const interior = cols.slice(1, -1);
+    expect(new Set(interior).size).toBe(interior.length);
   });
 
   it('is deterministic — a second bake of the same wardrobe is byte-identical', async () => {
