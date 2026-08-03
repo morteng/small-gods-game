@@ -63,7 +63,7 @@ import {
 import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
 import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST, mirrorFrame } from '@/render/paperdoll/lpc-humanoid-west';
 import { CLIP_MARCH_LEFT } from '@/render/paperdoll/clips/march';
-import { IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
+import { IMPORTED_CLIPS, IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 import { sliceSourceCell } from '@/render/paperdoll/humanoid-loader';
 
 /** Cell size of every rig row (the LPC frame size). */
@@ -151,15 +151,25 @@ function straightOrder(frames: number): number[] {
 
 /**
  * The strip's playback order for one row's clip. Driven by the clip's OWN
- * measured loop fact (`ImportedClipMeta.loop`, keyed by `clip.name` — the
- * importer's own `IMPORTED_CLIP_META`), not a per-row flag someone has to
- * remember to set correctly the next time an imported clip lands here.
- * No meta entry (every hand-authored devotional clip — `pray-raise`,
- * `idle-shift`) → ping-pong, the safe default for a clip nothing has
- * measured the closure of.
+ * measured loop fact (`ImportedClipMeta.loop`, from the importer), not a
+ * per-row flag someone has to remember to set the next time an imported clip
+ * lands here. No meta entry (every hand-authored devotional clip —
+ * `pray-raise`, `idle-shift`) → ping-pong, the safe default for a clip nothing
+ * has measured the closure of.
+ *
+ * Matched by IDENTITY, not by name. **Clip names collide across rigs by
+ * design** — the quadruped rig has its own hand-authored `walk`, and a
+ * name lookup would hand it the CMU humanoid capture's measurements and play
+ * a sheep's open clip straight through. That exact bug already shipped once in
+ * the studio's capture-metadata panel and was fixed the same way
+ * (`rig-catalog.ts`'s `importedMetaFor`). Nothing quadruped reaches this file
+ * today; the identity check is what keeps that from being load-bearing.
  */
 export function stripOrder(clip: Clip): number[] {
-  return IMPORTED_CLIP_META[clip.name]?.loop ? straightOrder(clip.frames) : pingPongOrder(clip.frames);
+  const set = IMPORTED_CLIPS[clip.name];
+  const imported = set !== undefined && Object.values(set).includes(clip);
+  const closes = imported && (IMPORTED_CLIP_META[clip.name]?.loop ?? false);
+  return closes ? straightOrder(clip.frames) : pingPongOrder(clip.frames);
 }
 
 /** Rows the strip occupies (four per clip — the two facings a row does NOT
