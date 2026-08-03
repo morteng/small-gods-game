@@ -23,6 +23,13 @@
  *   tuning knob, not a defect of this bake.
  * Loop residual (capture, first→last pose): 0.63 px RMS per joint.
  *
+ * Sampling: 15.88 source frames between baked samples (132.3 ms per frame).
+ *   DECIMATION ERROR vs an undecimated bake of the same range: 4.6° RMS,
+ *   12.7° peak, worst on legNear_fore (left).
+ *   That is the whole aliasing question answered by measurement: an under-sampled
+ *   wiggle reconstructs to the wrong shape and this number blows up. Re-run the
+ *   importer to check it rather than trusting this sentence.
+ *
  * Per facing — tracks, worst per-frame angle step, t=0..t=1 gap, plants,
  * and the foreshortening floor (least of any rotating bone in-plane length):
  *   down  10 tracks · max   22.5° · step    24° (legR_fore) · loop 0° · 0 plant(s) · in-plane ≥ 0.44 (armR_fore)

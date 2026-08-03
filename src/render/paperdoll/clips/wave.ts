@@ -9,22 +9,25 @@
  * wave hello — a ONE-SHOT, not a loop. Range is the whole gesture: arm hanging
  * at frame 1, up by ~35, waving until ~200, down and settled by ~240.
  * Reference frame 0 is therefore the actor STANDING (the range start), which
- * is what the rig rest cell should mean. Phase budget at 17 frames: one frame
- * of raise, ~13 held aloft, two of lowering — the raise genuinely takes 0.13 s
- * in the capture, so more frames buy a smoother hold, not a smoother raise.
- * CAVEAT, STATED RATHER THAN HIDDEN: the wave proper is a 24-frame forearm
- * oscillation and this decimation samples every ~15.6 frames, so what survives
- * on the forearm chips is an UNDER-SAMPLED oscillation — right limb, right
- * amplitude (~±25 deg), right duration, wrong phase. That is the honest trade
- * at a sprite-row frame count; resolving 24 frames would need ~60 baked
- * frames. The dangerous failure (the unwrapper picking the wrong branch and
- * winding the chip past a full turn) was checked for and does not happen HERE:
- * the worst per-frame step is 113 deg, and it is the real raise. It DOES
- * happen at 11 frames, where the sample spacing lands near the oscillation
- * period and the forearm winds to -359 deg — which is why the frame count is
- * not a free dial.
+ * is what the rig rest cell should mean. THE RANGE CANNOT BE TIGHTENED to
+ * "just the waving", and that is a constraint rather than a preference:
+ * referenceFrame indexes the SAMPLED frames, so the rest pose has to lie
+ * inside the range, and the only standing pose in the capture is at the start.
+ * Trim to the oscillation alone and the reference becomes an arms-up pose —
+ * the raise, which is the whole readable gesture at 64 px, would vanish. SO
+ * THE SAMPLING WAS FIXED INSTEAD, and it took two knobs, not one. The wave
+ * proper is a 24-frame forearm oscillation, so 33 frames puts the spacing at
+ * 7.8 source frames (3.1 samples per oscillation, clear of Nyquist). That
+ * alone changed nothing — because the SECOND limit was the keyframe cap: seven
+ * oscillations cannot be described in 12 keys, so the fitter smoothed the wave
+ * away no matter how finely the range was sampled, and the error sat at ~12
+ * deg RMS from 17 frames all the way to 65. Lifting maxKeys to 24 with frames
+ * at 33 drops it to 4.8 deg RMS / 13.8 deg peak — better than the walk at 9
+ * frames (5.6 / 19.4), and the plateau is gone. The two knobs are measurable
+ * with `--sweep`; a bake at 9 frames still winds the forearm to -359 deg,
+ * which is why neither is a free dial.
  *
- * Options: range [1, 250] · frames 17 ·
+ * Options: range [1, 250] · frames 33 ·
  *   referenceFrame 0 ·
  *   loop 'none' · rootMotion 'in-place' (default) ·
  *   pxPerUnit 2.110113 (51 px figure ÷ T-pose extent 24.169 units)
@@ -33,11 +36,18 @@
  * Stride: 0.7 px per cycle — this clip does not travel; ground speed 0.
  * Loop residual (capture, first→last pose): 2.09 px RMS per joint.
  *
+ * Sampling: 7.78 source frames between baked samples (64.8 ms per frame).
+ *   DECIMATION ERROR vs an undecimated bake of the same range: 4.8° RMS,
+ *   13.8° peak, worst on armFar_fore (left).
+ *   That is the whole aliasing question answered by measurement: an under-sampled
+ *   wiggle reconstructs to the wrong shape and this number blows up. Re-run the
+ *   importer to check it rather than trusting this sentence.
+ *
  * Per facing — tracks, worst per-frame angle step, t=0..t=1 gap, plants,
  * and the foreshortening floor (least of any rotating bone in-plane length):
- *   down  10 tracks · max  153.5° · step   113° (armL_fore) · loop 9° · 0 plant(s) · in-plane ≥ 0.69 (armL_fore)
- *   up    10 tracks · max  153.5° · step   113° (armR_fore) · loop 9° · 0 plant(s) · in-plane ≥ 0.69 (armR_fore)
- *   left  10 tracks · max    102° · step    54° (armFar_fore) · loop 9° · 0 plant(s) · in-plane ≥ 0.27 (armFar_up)
+ *   down  10 tracks · max  153.5° · step   104° (armL_fore) · loop 9° · 0 plant(s) · in-plane ≥ 0.49 (armL_fore)
+ *   up    10 tracks · max  153.5° · step   104° (armR_fore) · loop 9° · 0 plant(s) · in-plane ≥ 0.49 (armR_fore)
+ *   left  10 tracks · max    102° · step  44.5° (armFar_fore) · loop 9° · 0 plant(s) · in-plane ≥ 0.25 (armFar_up)
  *
  * A per-frame step approaching 180° would mean the gesture outran the baked
  * rate and the angle unwrapper picked the wrong branch. A foreshortening
@@ -50,21 +60,22 @@ import type { Clip } from '../rig';
 
 export const CLIP_WAVE_DOWN: Clip = {
   name: 'wave',
-  frames: 17,
+  frames: 33,
   tracks: {
     trunk: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.125, deg: 0, dx: 3, dy: -0.5 },
-      { t: 0.1875, deg: 0, dx: 5, dy: -0.75 },
-      { t: 0.3125, deg: 0, dx: 7.25, dy: -0.5 },
-      { t: 0.5, deg: 0, dx: 6.5, dy: -0.5 },
-      { t: 0.625, deg: 0, dx: 4.75, dy: -0.5 },
-      { t: 0.8125, deg: 0, dx: 0.5, dy: 0 },
+      { t: 0.125, deg: 0, dx: 3.25, dy: -0.5 },
+      { t: 0.15625, deg: 0, dx: 4.25, dy: -0.5 },
+      { t: 0.21875, deg: 0, dx: 5.75, dy: -0.5 },
+      { t: 0.375, deg: 0, dx: 7.25, dy: -0.25 },
+      { t: 0.5625, deg: 0, dx: 5.75, dy: -0.5 },
+      { t: 0.65625, deg: 0, dx: 4, dy: -0.5 },
+      { t: 0.78125, deg: 0, dx: 1, dy: -0.25 },
       { t: 1, deg: 0, dx: 0, dy: 0 },
     ],
     head: [
       { t: 0, deg: 0, dx: 0 },
-      { t: 0.1875, deg: 0, dx: 0.75 },
+      { t: 0.21875, deg: 0, dx: 1 },
       { t: 0.625, deg: 0, dx: 1.75 },
       { t: 1, deg: 0, dx: -0.5 },
     ],
@@ -72,42 +83,65 @@ export const CLIP_WAVE_DOWN: Clip = {
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.0625, deg: 21, dx: 0.25, dy: -0.25 },
       { t: 0.125, deg: 67, dx: 0.75, dy: -0.5 },
+      { t: 0.15625, deg: 62, dx: 1, dy: -0.75 },
       { t: 0.1875, deg: 71, dx: 1, dy: -0.75 },
+      { t: 0.25, deg: 65, dx: 1.25, dy: -1 },
+      { t: 0.28125, deg: 68, dx: 1.25, dy: -0.75 },
+      { t: 0.34375, deg: 63, dx: 1.25, dy: -1 },
       { t: 0.375, deg: 66.5, dx: 1.25, dy: -1 },
+      { t: 0.40625, deg: 65, dx: 1.25, dy: -1 },
       { t: 0.4375, deg: 58.5, dx: 1.25, dy: -0.75 },
+      { t: 0.5, deg: 62, dx: 1.5, dy: -0.75 },
+      { t: 0.5625, deg: 55, dx: 1.5, dy: -0.75 },
+      { t: 0.59375, deg: 64, dx: 1.5, dy: -0.75 },
+      { t: 0.625, deg: 56, dx: 1.75, dy: -1 },
+      { t: 0.65625, deg: 52.5, dx: 1.5, dy: -0.75 },
       { t: 0.6875, deg: 60, dx: 1.25, dy: -0.75 },
       { t: 0.75, deg: 49.5, dx: 1.25, dy: -0.75 },
-      { t: 0.8125, deg: 18.5, dx: 1, dy: -0.5 },
-      { t: 0.875, deg: 2.5, dx: 0, dy: -0.25 },
+      { t: 0.78125, deg: 35, dx: 1.25, dy: -0.75 },
+      { t: 0.84375, deg: 4.5, dx: 0.5, dy: -0.5 },
       { t: 0.9375, deg: -6.5, dx: -0.5, dy: 0.25 },
       { t: 1, deg: -4, dx: -0.25, dy: 0.25 },
     ],
     armL_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
+      { t: 0.03125, deg: 9, dx: -0.25, dy: 0.75 },
       { t: 0.0625, deg: 113, dx: 0, dy: 1 },
+      { t: 0.09375, deg: 125, dx: 0.5, dy: 2.25 },
+      { t: 0.15625, deg: 107, dx: 1.5, dy: 2.5 },
+      { t: 0.1875, deg: 119, dx: 1, dy: 2.75 },
       { t: 0.25, deg: 106, dx: 1.25, dy: 2.75 },
+      { t: 0.28125, deg: 125.5, dx: 0.75, dy: 2.75 },
+      { t: 0.3125, deg: 114, dx: 0.75, dy: 2.75 },
+      { t: 0.34375, deg: 111, dx: 1, dy: 2.75 },
       { t: 0.375, deg: 127.5, dx: 0.75, dy: 3 },
+      { t: 0.40625, deg: 116.5, dx: 0.75, dy: 3 },
       { t: 0.4375, deg: 112.5, dx: 1, dy: 2.75 },
+      { t: 0.46875, deg: 134, dx: 0.75, dy: 3 },
+      { t: 0.53125, deg: 106, dx: 0.75, dy: 2.75 },
       { t: 0.5625, deg: 131, dx: 0.75, dy: 3 },
+      { t: 0.59375, deg: 136, dx: 0.75, dy: 3 },
       { t: 0.625, deg: 116.5, dx: 1, dy: 2.75 },
       { t: 0.6875, deg: 153.5, dx: 0.75, dy: 3 },
       { t: 0.75, deg: 93, dx: 0.75, dy: 3 },
       { t: 0.8125, deg: 61.5, dx: -0.25, dy: 1.5 },
+      { t: 0.84375, deg: 34.5, dx: -0.25, dy: 0.5 },
       { t: 0.875, deg: 3.5, dx: 0, dy: 0.25 },
       { t: 1, deg: 7.5, dx: 0, dy: -0.25 },
     ],
     armR_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.125, deg: 6.5, dx: 0.75, dy: 0.5 },
-      { t: 0.4375, deg: 5, dx: 1.25, dy: 0.75 },
+      { t: 0.21875, deg: 4.5, dx: 1, dy: 0.75 },
+      { t: 0.46875, deg: 5, dx: 1.25, dy: 0.75 },
       { t: 0.625, deg: 9, dx: 1.5, dy: 1 },
-      { t: 0.8125, deg: 6.5, dx: 1, dy: 0.5 },
-      { t: 0.875, deg: 0, dx: 0, dy: 0 },
+      { t: 0.78125, deg: 8, dx: 1.25, dy: 0.5 },
+      { t: 0.90625, deg: -2, dx: -0.5, dy: -0.25 },
       { t: 1, deg: -1.5, dx: -0.5, dy: -0.25 },
     ],
     armR_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.1875, deg: -4, dx: -0.25, dy: -0.25 },
+      { t: 0.21875, deg: -4, dx: -0.25, dy: -0.25 },
       { t: 0.5625, deg: -1, dx: -0.25, dy: -0.5 },
       { t: 0.625, deg: -4, dx: -0.25, dy: -0.5 },
       { t: 0.75, deg: -3.5, dx: -0.25, dy: -0.5 },
@@ -115,12 +149,13 @@ export const CLIP_WAVE_DOWN: Clip = {
     ],
     legL_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.125, deg: 4.5, dx: -0.25, dy: 0 },
+      { t: 0.09375, deg: 1.5, dx: -0.25, dy: -0.25 },
       { t: 0.1875, deg: 10.5, dx: 0, dy: 0.25 },
       { t: 0.25, deg: 14, dx: 0, dy: 0.5 },
       { t: 0.375, deg: 16.5, dx: 0, dy: 0.5 },
       { t: 0.625, deg: 12, dx: 0.25, dy: 0.25 },
-      { t: 0.8125, deg: -0.5, dx: 0, dy: -0.25 },
+      { t: 0.6875, deg: 7, dx: 0, dy: 0.25 },
+      { t: 0.84375, deg: -2, dx: -0.25, dy: -0.25 },
       { t: 1, deg: -2, dx: -0.25, dy: 0 },
     ],
     legL_fore: [
@@ -132,20 +167,20 @@ export const CLIP_WAVE_DOWN: Clip = {
     ],
     legR_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.1875, deg: 15.5, dx: 0, dy: -0.5 },
-      { t: 0.375, deg: 20, dx: 0, dy: -0.75 },
+      { t: 0.15625, deg: 13.5, dx: 0, dy: -0.25 },
+      { t: 0.34375, deg: 20, dx: 0, dy: -0.5 },
+      { t: 0.53125, deg: 17.5, dx: 0.25, dy: -0.5 },
       { t: 0.625, deg: 13.5, dx: 0.25, dy: -0.5 },
-      { t: 0.75, deg: 6, dx: 0, dy: 0 },
-      { t: 0.875, deg: 1.5, dx: -0.25, dy: 0 },
+      { t: 0.78125, deg: 4.5, dx: 0, dy: 0 },
       { t: 1, deg: 1.5, dx: -0.5, dy: 0 },
     ],
     legR_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.0625, deg: -5.5, dx: -0.75, dy: -0.5 },
+      { t: 0.09375, deg: -6, dx: -1, dy: 0 },
       { t: 0.1875, deg: 1, dx: -2, dy: 0.5 },
-      { t: 0.375, deg: 6.5, dx: -2.5, dy: 0.75 },
+      { t: 0.34375, deg: 6.5, dx: -2.5, dy: 0.75 },
       { t: 0.6875, deg: 6, dx: -1.25, dy: 0.25 },
-      { t: 0.8125, deg: -3.5, dx: -0.5, dy: 0 },
+      { t: 0.78125, deg: -2.5, dx: -0.5, dy: 0 },
       { t: 1, deg: -3.5, dx: -0.25, dy: 0 },
     ],
   },
@@ -153,36 +188,38 @@ export const CLIP_WAVE_DOWN: Clip = {
 
 export const CLIP_WAVE_UP: Clip = {
   name: 'wave',
-  frames: 17,
+  frames: 33,
   tracks: {
     trunk: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.125, deg: 0, dx: -3, dy: -0.5 },
-      { t: 0.1875, deg: 0, dx: -5, dy: -0.75 },
-      { t: 0.3125, deg: 0, dx: -7.25, dy: -0.5 },
-      { t: 0.5, deg: 0, dx: -6.25, dy: -0.5 },
-      { t: 0.625, deg: 0, dx: -4.5, dy: -0.5 },
-      { t: 0.8125, deg: 0, dx: -0.5, dy: 0 },
+      { t: 0.15625, deg: 0, dx: -4.25, dy: -0.5 },
+      { t: 0.21875, deg: 0, dx: -5.5, dy: -0.5 },
+      { t: 0.375, deg: 0, dx: -7.25, dy: -0.25 },
+      { t: 0.5625, deg: 0, dx: -5.75, dy: -0.5 },
+      { t: 0.65625, deg: 0, dx: -4, dy: -0.5 },
+      { t: 0.78125, deg: 0, dx: -1, dy: -0.25 },
       { t: 1, deg: 0, dx: 0, dy: 0 },
     ],
     head: [
       { t: 0, deg: 0, dx: 0 },
-      { t: 0.1875, deg: 0, dx: -0.75 },
+      { t: 0.21875, deg: 0, dx: -1 },
       { t: 0.625, deg: 0, dx: -1.75 },
       { t: 1, deg: 0, dx: 0.5 },
     ],
     armL_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.125, deg: -6.5, dx: -0.75, dy: 0.5 },
-      { t: 0.4375, deg: -5, dx: -1.25, dy: 0.75 },
+      { t: 0.21875, deg: -4.5, dx: -1, dy: 0.75 },
+      { t: 0.46875, deg: -5, dx: -1.25, dy: 0.75 },
       { t: 0.625, deg: -9, dx: -1.5, dy: 1 },
-      { t: 0.8125, deg: -6.5, dx: -1, dy: 0.5 },
-      { t: 0.875, deg: 0, dx: 0, dy: 0 },
+      { t: 0.78125, deg: -8, dx: -1.25, dy: 0.5 },
+      { t: 0.90625, deg: 2, dx: 0.5, dy: -0.25 },
       { t: 1, deg: 1.5, dx: 0.5, dy: -0.25 },
     ],
     armL_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.1875, deg: 4, dx: 0.25, dy: -0.5 },
+      { t: 0.21875, deg: 4, dx: 0.25, dy: -0.25 },
       { t: 0.5625, deg: 1, dx: 0.25, dy: -0.75 },
       { t: 0.625, deg: 4, dx: 0.25, dy: -0.75 },
       { t: 0.75, deg: 3.5, dx: 0.25, dy: -0.75 },
@@ -192,56 +229,79 @@ export const CLIP_WAVE_UP: Clip = {
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.0625, deg: -21, dx: -0.25, dy: -0.25 },
       { t: 0.125, deg: -67, dx: -0.75, dy: -0.5 },
+      { t: 0.15625, deg: -62, dx: -1, dy: -0.75 },
       { t: 0.1875, deg: -71, dx: -1, dy: -0.75 },
+      { t: 0.25, deg: -65, dx: -1.25, dy: -1 },
+      { t: 0.28125, deg: -68, dx: -1.25, dy: -0.75 },
+      { t: 0.34375, deg: -63, dx: -1.25, dy: -1 },
       { t: 0.375, deg: -66.5, dx: -1.25, dy: -1 },
+      { t: 0.40625, deg: -65, dx: -1.25, dy: -1 },
       { t: 0.4375, deg: -58.5, dx: -1.25, dy: -0.75 },
+      { t: 0.5, deg: -62, dx: -1.5, dy: -0.75 },
+      { t: 0.5625, deg: -55, dx: -1.5, dy: -0.75 },
+      { t: 0.59375, deg: -64, dx: -1.5, dy: -0.75 },
+      { t: 0.625, deg: -56, dx: -1.75, dy: -1 },
+      { t: 0.65625, deg: -52.5, dx: -1.5, dy: -0.75 },
       { t: 0.6875, deg: -60, dx: -1.25, dy: -0.75 },
       { t: 0.75, deg: -49.5, dx: -1.25, dy: -0.75 },
-      { t: 0.8125, deg: -18.5, dx: -1, dy: -0.5 },
-      { t: 0.875, deg: -2.5, dx: 0, dy: -0.25 },
+      { t: 0.78125, deg: -35, dx: -1.25, dy: -0.75 },
+      { t: 0.84375, deg: -4.5, dx: -0.5, dy: -0.5 },
       { t: 0.9375, deg: 6.5, dx: 0.5, dy: 0.25 },
       { t: 1, deg: 4, dx: 0.25, dy: 0.25 },
     ],
     armR_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
+      { t: 0.03125, deg: -9, dx: 0.25, dy: 0.5 },
       { t: 0.0625, deg: -113, dx: 0.25, dy: 0.25 },
+      { t: 0.09375, deg: -125, dx: 0, dy: 1 },
+      { t: 0.125, deg: -119, dx: -0.25, dy: 2.25 },
+      { t: 0.15625, deg: -107, dx: -0.5, dy: 0.75 },
+      { t: 0.1875, deg: -119, dx: -0.25, dy: 2.5 },
       { t: 0.25, deg: -106, dx: -0.25, dy: 1.75 },
+      { t: 0.28125, deg: -125.5, dx: 0, dy: 2.5 },
+      { t: 0.3125, deg: -114, dx: 0, dy: 2.5 },
+      { t: 0.34375, deg: -111, dx: -0.25, dy: 1.75 },
       { t: 0.375, deg: -127.5, dx: 0, dy: 2.5 },
       { t: 0.4375, deg: -112.5, dx: 0, dy: 1.5 },
+      { t: 0.46875, deg: -134, dx: 0, dy: 2.5 },
+      { t: 0.53125, deg: -106, dx: 0, dy: 1.75 },
       { t: 0.5625, deg: -131, dx: 0, dy: 1.75 },
+      { t: 0.59375, deg: -136, dx: 0, dy: 2.5 },
       { t: 0.625, deg: -116.5, dx: 0, dy: 1.5 },
       { t: 0.6875, deg: -153.5, dx: 0, dy: 2.25 },
       { t: 0.75, deg: -93, dx: 0, dy: 1.25 },
       { t: 0.8125, deg: -61.5, dx: 0.5, dy: 1 },
+      { t: 0.84375, deg: -34.5, dx: 0.25, dy: 0.25 },
       { t: 0.875, deg: -3.5, dx: 0, dy: 0 },
       { t: 1, deg: -7.5, dx: 0, dy: -0.25 },
     ],
     legL_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.1875, deg: -15.5, dx: 0, dy: -0.5 },
-      { t: 0.375, deg: -20, dx: 0, dy: -0.75 },
+      { t: 0.15625, deg: -13.5, dx: 0, dy: -0.25 },
+      { t: 0.34375, deg: -20, dx: 0, dy: -0.5 },
+      { t: 0.53125, deg: -17.5, dx: -0.25, dy: -0.5 },
       { t: 0.625, deg: -13.5, dx: -0.25, dy: -0.5 },
-      { t: 0.75, deg: -6, dx: 0, dy: 0 },
-      { t: 0.875, deg: -1.5, dx: 0.25, dy: 0 },
+      { t: 0.78125, deg: -4.5, dx: 0, dy: 0 },
       { t: 1, deg: -1.5, dx: 0.5, dy: 0 },
     ],
     legL_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.0625, deg: 5.5, dx: 0.75, dy: -0.5 },
+      { t: 0.09375, deg: 6, dx: 1, dy: 0 },
       { t: 0.1875, deg: -1, dx: 2, dy: 0.5 },
-      { t: 0.375, deg: -6.5, dx: 2.5, dy: 0.75 },
+      { t: 0.34375, deg: -6.5, dx: 2.5, dy: 0.75 },
       { t: 0.6875, deg: -6, dx: 1.25, dy: 0.25 },
-      { t: 0.8125, deg: 3.5, dx: 0.5, dy: 0 },
+      { t: 0.78125, deg: 2.5, dx: 0.5, dy: 0 },
       { t: 1, deg: 3.5, dx: 0.25, dy: 0 },
     ],
     legR_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.125, deg: -4.5, dx: 0.25, dy: 0 },
+      { t: 0.09375, deg: -1.5, dx: 0.25, dy: -0.25 },
       { t: 0.1875, deg: -10.5, dx: 0, dy: 0.25 },
       { t: 0.25, deg: -14, dx: 0, dy: 0.5 },
       { t: 0.375, deg: -16.5, dx: 0, dy: 0.5 },
       { t: 0.625, deg: -12, dx: -0.25, dy: 0.25 },
-      { t: 0.8125, deg: 0.5, dx: 0, dy: -0.25 },
+      { t: 0.6875, deg: -7, dx: 0, dy: 0.25 },
+      { t: 0.84375, deg: 2, dx: 0.25, dy: -0.25 },
       { t: 1, deg: 2, dx: 0.25, dy: 0 },
     ],
     legR_fore: [
@@ -256,25 +316,25 @@ export const CLIP_WAVE_UP: Clip = {
 
 export const CLIP_WAVE_LEFT: Clip = {
   name: 'wave',
-  frames: 17,
+  frames: 33,
   tracks: {
     trunk: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.0625, deg: 0, dx: 1.25, dy: 0 },
-      { t: 0.125, deg: 0, dx: -1, dy: -0.5 },
+      { t: 0.09375, deg: 0, dx: 0.75, dy: -0.25 },
+      { t: 0.15625, deg: 0, dx: -2.5, dy: -0.5 },
       { t: 0.1875, deg: 0, dx: -3.5, dy: -0.75 },
       { t: 0.25, deg: 0, dx: -4.5, dy: -0.5 },
       { t: 0.5625, deg: 0, dx: -5, dy: -0.5 },
       { t: 0.6875, deg: 0, dx: -4.5, dy: -0.5 },
-      { t: 0.75, deg: 0, dx: -2, dy: -0.5 },
-      { t: 0.8125, deg: 0, dx: -0.5, dy: 0 },
+      { t: 0.78125, deg: 0, dx: -1, dy: -0.25 },
       { t: 1, deg: 0, dx: 0, dy: 0 },
     ],
     head: [
       { t: 0, deg: 0, dx: 0 },
       { t: 0.0625, deg: -2, dx: 0.25 },
       { t: 0.1875, deg: 2, dx: 1.25 },
-      { t: 0.4375, deg: 0.5, dx: 0.75 },
+      { t: 0.40625, deg: 2, dx: 0.75 },
       { t: 0.625, deg: -4, dx: 0.75 },
       { t: 1, deg: 2.5, dx: 0.75 },
     ],
@@ -282,76 +342,106 @@ export const CLIP_WAVE_LEFT: Clip = {
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.1875, deg: 3.5, dx: 0.5, dy: 0.5 },
       { t: 0.5, deg: 0, dx: -0.5, dy: 0.75 },
-      { t: 0.625, deg: 2.5, dx: 0.5, dy: 1 },
-      { t: 0.8125, deg: 2, dx: 0.5, dy: 0.5 },
+      { t: 0.65625, deg: 3, dx: 0.75, dy: 0.75 },
+      { t: 0.84375, deg: 2, dx: 0.5, dy: 0.25 },
       { t: 1, deg: 7.5, dx: -0.5, dy: -0.25 },
     ],
     armNear_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
-      { t: 0.125, deg: -2.5, dx: 0, dy: 0 },
-      { t: 0.1875, deg: 1.5, dx: 0, dy: 0.25 },
+      { t: 0.15625, deg: -3, dx: 0, dy: 0.25 },
+      { t: 0.21875, deg: 3.5, dx: 0, dy: 0 },
+      { t: 0.25, deg: 0, dx: 0, dy: 0.25 },
+      { t: 0.34375, deg: -1, dx: 0, dy: 0 },
       { t: 0.4375, deg: -1.5, dx: 0, dy: 0 },
       { t: 0.5, deg: 2, dx: 0, dy: 0 },
-      { t: 0.6875, deg: -3, dx: 0, dy: 0.25 },
+      { t: 0.65625, deg: -4, dx: 0, dy: 0.25 },
       { t: 0.75, deg: 0.5, dx: 0, dy: 0.25 },
-      { t: 0.8125, deg: -4.5, dx: 0, dy: 0 },
-      { t: 0.9375, deg: 3, dx: -0.25, dy: 0 },
+      { t: 0.84375, deg: -5.5, dx: 0, dy: 0 },
+      { t: 0.90625, deg: 3, dx: -0.25, dy: 0 },
       { t: 1, deg: 0.5, dx: -0.25, dy: 0 },
     ],
     armFar_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
+      { t: 0.03125, deg: 7.5, dx: 0.25, dy: -0.25 },
       { t: 0.0625, deg: 40.5, dx: 0.75, dy: -0.25 },
+      { t: 0.09375, deg: 63, dx: 1, dy: -0.5 },
       { t: 0.125, deg: 93, dx: 1.5, dy: -0.5 },
+      { t: 0.15625, deg: 91.5, dx: 1.5, dy: -0.75 },
       { t: 0.1875, deg: 102, dx: 1.75, dy: -0.75 },
       { t: 0.25, deg: 92, dx: 1.75, dy: -1 },
+      { t: 0.40625, deg: 85, dx: 1.75, dy: -1 },
       { t: 0.4375, deg: 80.5, dx: 1.75, dy: -0.75 },
+      { t: 0.46875, deg: 65.5, dx: 1.5, dy: -0.75 },
       { t: 0.5, deg: 67.5, dx: 1.25, dy: -0.75 },
+      { t: 0.53125, deg: 79, dx: 1.25, dy: -0.75 },
+      { t: 0.5625, deg: 68, dx: 1.25, dy: -0.75 },
+      { t: 0.59375, deg: 80, dx: 1.25, dy: -0.75 },
       { t: 0.625, deg: 78, dx: 1.25, dy: -1 },
+      { t: 0.65625, deg: 69, dx: 1.25, dy: -0.75 },
+      { t: 0.6875, deg: 73, dx: 1.5, dy: -0.75 },
       { t: 0.75, deg: 66, dx: 1.25, dy: -0.75 },
+      { t: 0.78125, deg: 33, dx: 1.25, dy: -0.75 },
       { t: 0.8125, deg: 14, dx: 1.25, dy: -0.5 },
       { t: 0.875, deg: -1, dx: 1.75, dy: -0.25 },
+      { t: 0.96875, deg: -3.5, dx: 2.25, dy: 0.25 },
       { t: 1, deg: -0.5, dx: 2, dy: 0.25 },
     ],
     armFar_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.0625, deg: 54, dx: -0.75, dy: 0.25 },
+      { t: 0.09375, deg: 47.5, dx: -1, dy: -0.5 },
       { t: 0.125, deg: 8, dx: -0.5, dy: -1.5 },
+      { t: 0.15625, deg: 43.5, dx: -0.25, dy: 0.5 },
       { t: 0.1875, deg: -1, dx: -0.25, dy: -1.5 },
       { t: 0.25, deg: 42, dx: -0.5, dy: -0.75 },
+      { t: 0.28125, deg: 9.5, dx: -0.75, dy: -2.5 },
+      { t: 0.34375, deg: 45, dx: -0.5, dy: -1 },
       { t: 0.375, deg: 16.5, dx: -0.75, dy: -2.5 },
+      { t: 0.40625, deg: 30, dx: -1, dy: -2.5 },
       { t: 0.4375, deg: 57, dx: -0.75, dy: -1 },
+      { t: 0.46875, deg: 35.5, dx: -1.25, dy: -2.75 },
+      { t: 0.53125, deg: 61, dx: -0.75, dy: -1.25 },
+      { t: 0.5625, deg: 48, dx: -1, dy: -1.75 },
+      { t: 0.59375, deg: 20, dx: -1, dy: -2.75 },
       { t: 0.625, deg: 53.5, dx: -0.75, dy: -0.75 },
+      { t: 0.65625, deg: 48, dx: -1, dy: -1.25 },
       { t: 0.6875, deg: 19, dx: -1.25, dy: -2.5 },
+      { t: 0.71875, deg: 50.5, dx: -1, dy: -1.5 },
       { t: 0.75, deg: 68, dx: -1, dy: -1 },
-      { t: 0.875, deg: -1.5, dx: 0, dy: -0.25 },
+      { t: 0.78125, deg: 72.5, dx: -1, dy: -1.75 },
+      { t: 0.84375, deg: 4, dx: -0.25, dy: 0 },
       { t: 1, deg: -9, dx: 0, dy: 0.25 },
     ],
     legNear_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.0625, deg: 9, dx: -0.25, dy: 0 },
       { t: 0.1875, deg: -13.5, dx: -0.75, dy: -0.5 },
-      { t: 0.25, deg: -18, dx: -0.75, dy: -0.5 },
+      { t: 0.28125, deg: -19.5, dx: -1, dy: -0.75 },
       { t: 0.375, deg: -20, dx: -1, dy: -0.75 },
       { t: 0.6875, deg: -15, dx: 0, dy: -0.25 },
-      { t: 0.75, deg: -4, dx: 0, dy: 0 },
-      { t: 0.8125, deg: 2, dx: -0.25, dy: 0 },
+      { t: 0.78125, deg: 1, dx: 0, dy: 0 },
       { t: 0.9375, deg: 0, dx: -1, dy: -0.25 },
       { t: 1, deg: 2, dx: -1, dy: 0 },
     ],
     legNear_fore: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.0625, deg: -18, dx: -1.25, dy: -0.25 },
+      { t: 0.09375, deg: -16, dx: -0.75, dy: 0 },
+      { t: 0.125, deg: -9, dx: 0.25, dy: 0.25 },
+      { t: 0.15625, deg: -2.5, dx: 1.25, dy: 0.5 },
       { t: 0.1875, deg: 2.5, dx: 2, dy: 0.75 },
       { t: 0.3125, deg: 9.5, dx: 2.75, dy: 1 },
       { t: 0.6875, deg: 9, dx: 2.25, dy: 1 },
-      { t: 0.8125, deg: -7, dx: -0.25, dy: 0 },
+      { t: 0.71875, deg: 7, dx: 1.75, dy: 0.75 },
+      { t: 0.75, deg: 0, dx: 0.5, dy: 0.25 },
+      { t: 0.78125, deg: -6, dx: -0.25, dy: 0 },
       { t: 0.9375, deg: -2.5, dx: 0, dy: 0 },
       { t: 1, deg: -5, dx: -0.25, dy: 0 },
     ],
     legFar_up: [
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.125, deg: -4, dx: 0.25, dy: 0 },
-      { t: 0.375, deg: 1, dx: 0.75, dy: 0.5 },
+      { t: 0.40625, deg: 1.5, dx: 0.75, dy: 0.5 },
       { t: 0.625, deg: 2.5, dx: -0.25, dy: 0.25 },
       { t: 0.75, deg: -4.5, dx: -0.25, dy: 0 },
       { t: 1, deg: 1.5, dx: 0.75, dy: 0 },
@@ -360,8 +450,9 @@ export const CLIP_WAVE_LEFT: Clip = {
       { t: 0, deg: 0, dx: 0, dy: 0 },
       { t: 0.125, deg: -2, dx: 0.75, dy: 0 },
       { t: 0.3125, deg: -8.5, dx: 0, dy: 0.25 },
-      { t: 0.5625, deg: -8, dx: 0, dy: 0.25 },
+      { t: 0.53125, deg: -7.5, dx: 0, dy: 0.25 },
       { t: 0.625, deg: -10.5, dx: -0.25, dy: 0.25 },
+      { t: 0.65625, deg: -6.5, dx: 0, dy: 0.25 },
       { t: 0.75, deg: -0.5, dx: 0.75, dy: 0 },
       { t: 1, deg: 0, dx: -0.25, dy: 0 },
     ],

@@ -123,6 +123,17 @@ describe('motion import — a byte-identical clip can still be a wrong clip', ()
     }
   });
 
+  it.each(imported)('$spec.id stays close to an undecimated bake of the same range', ({ metrics }) => {
+    // The decimation error is what stops a landed clip carrying an asterisk.
+    // 8° RMS is a real bar, not a rubber stamp: the three landed clips measure
+    // 4.6–5.6°, and the wave as first imported (17 frames, default 12-key cap)
+    // measured 13.3° — this assertion is exactly what would have caught it.
+    // When it fires, the fix is a tighter `range`, more `frames` or more
+    // `maxKeys`; never a looser bound here.
+    expect(metrics.decimation).not.toBeNull();
+    expect(metrics.decimation!.rmsDeg).toBeLessThanOrEqual(8);
+  });
+
   it('every locomotion clip records the ground speed its feet need', () => {
     // The bake is in-place, so the feet slide one stride per cycle and only read
     // as planted at this speed. If the number were absent, M2 would have to

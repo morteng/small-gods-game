@@ -4,9 +4,15 @@
  *   npx tsx scripts/motion-import-bvh.ts --plan        # print what it WOULD emit, write nothing
  *   npx tsx scripts/motion-import-bvh.ts               # (re)emit every clip module
  *   npx tsx scripts/motion-import-bvh.ts walk wave     # only these ids
- *   npx tsx scripts/motion-import-bvh.ts walk --in-plane            # foreshortening table
- *   npx tsx scripts/motion-import-bvh.ts 138_01.bvh --in-plane \
- *     --range 361,509 --frames 9                       # …for a capture NOT in the table
+ *
+ * Read-only diagnostics — how a `range` and a `frames` get CHOSEN, so the next
+ * capture can be judged the same way instead of on somebody's memory:
+ *
+ *   … 104_02.bvh --contacts                  # footfalls → candidate gait cycles
+ *   … 104_02.bvh --periods --from 214        # which cycle length actually closes
+ *   … walk --sweep                           # decimation error vs frame count
+ *   … walk --in-plane                        # per-bone foreshortening
+ *   … 138_01.bvh --in-plane --range 361,509 --frames 9   # …for a capture NOT in the table
  *
  * THE GENERATED MODULES ARE THE ARTIFACT. Nothing at runtime ever opens a
  * `.bvh`: this script reads the vendored CMU captures once, at author time, and
@@ -34,9 +40,19 @@
  *   closing duplicate that makes `t=1` sample identically to `t=0`; an
  *   LPC-style 8-column row is frames 0..7. GOTCHA: a gesture faster than half
  *   the baked rate ALIASES — the angle unwrapper cannot tell +200° from −160°.
- *   Every emitted header therefore quotes the worst per-frame angle step, and
- *   the determinism suite refuses any clip that steps past 180°. The fix when
- *   that fires is a tighter `range` / more `frames`, never looser tolerances.
+ *
+ * - `maxKeys` IS THE SECOND SAMPLING LIMIT, and it is easy to miss because it
+ *   looks like a size knob. The fitter compresses the baked poses into at most
+ *   `maxKeys` keys per track; a clip carrying MORE extrema than that (the wave
+ *   has ~7 oscillations, i.e. ~14) has the surplus smoothed away no matter how
+ *   finely `range` was sampled. Symptom: decimation error that PLATEAUS as
+ *   `frames` rises instead of converging. `--sweep` shows the difference in one
+ *   table, which is why choosing these two is a measurement, not a taste call.
+ *
+ *   Every emitted header quotes the decimation error against an undecimated
+ *   bake of the same range, and the determinism suite refuses a clip past 8°
+ *   RMS or a per-frame angle step past 180°. The fix when either fires is a
+ *   tighter `range`, more `frames`, or more `maxKeys` — never looser tolerances.
  *
  * - `referenceFrame` — frame 0 of every file in this corpus is a SYNTHETIC
  *   T-POSE the cgspeed converter prepended, not capture data, so the importer's
@@ -69,7 +85,10 @@ import {
   type BvhImportOptions,
   type RigFacing,
 } from '../src/render/paperdoll/bvh';
-import type { Clip, Keyframe } from '../src/render/paperdoll/rig';
+import { sampleClip, type AnimTemplate, type ChipPose, type Clip, type Keyframe } from '../src/render/paperdoll/rig';
+import { LPC_HUMANOID_SOUTH } from '../src/render/paperdoll/lpc-humanoid';
+import { LPC_HUMANOID_NORTH } from '../src/render/paperdoll/lpc-humanoid-north';
+import { LPC_HUMANOID_WEST } from '../src/render/paperdoll/lpc-humanoid-west';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CAPTURES = join(ROOT, 'vendor/mocap/cmu');
@@ -79,6 +98,13 @@ export const CLIPS_DIR = join(ROOT, 'src/render/paperdoll/clips');
 const FIGURE_HEIGHT_PX = 51;
 
 const FACINGS = ['down', 'up', 'left'] as const;
+
+/** The template each facing's clip is authored against — same map as `bvh.ts`. */
+const TEMPLATES: Record<RigFacing, AnimTemplate> = {
+  down: LPC_HUMANOID_SOUTH,
+  up: LPC_HUMANOID_NORTH,
+  left: LPC_HUMANOID_WEST,
+};
 
 export interface ImportSpec {
   /** Clip name, module basename, and the CLI filter token. ASCII, kebab-case. */
@@ -95,10 +121,10 @@ export interface ImportSpec {
  * The clip table. Every `range` here is measured, not guessed, and each `note`
  * records BOTH the number and how it was obtained (successive same-foot stance
  * onsets, and the period minimizing the first/last hips-relative pose distance).
- * Honest limit on reproducibility: those two searches were run in throwaway
- * probes over `parseBvh`/`fkPositions` and are NOT checked in — the notes carry
- * the results, not the search. `--in-plane` is the one diagnostic that lives
- * here, because it is the one that decided which captures were importable.
+ * Both searches are checked in as `--contacts` and `--periods`, so a range for
+ * a capture we add later is re-derivable rather than remembered; `--sweep` and
+ * `--in-plane` do the same for `frames`/`maxKeys` and for whether a capture is
+ * importable at all.
  *
  * A capture with no defensible trim is ABSENT rather than imported badly; see
  * the CAPTURES MEASURED, THEN DECLINED block below.
@@ -130,20 +156,25 @@ export const MOTION_IMPORTS: readonly ImportSpec[] = [
       'wave hello — a ONE-SHOT, not a loop. Range is the whole gesture: arm hanging ' +
       'at frame 1, up by ~35, waving until ~200, down and settled by ~240. Reference ' +
       'frame 0 is therefore the actor STANDING (the range start), which is what the ' +
-      'rig rest cell should mean. Phase budget at 17 frames: one frame of raise, ~13 ' +
-      'held aloft, two of lowering — the raise genuinely takes 0.13 s in the capture, ' +
-      'so more frames buy a smoother hold, not a smoother raise. ' +
-      'CAVEAT, STATED RATHER THAN HIDDEN: the wave proper is a 24-frame forearm ' +
-      'oscillation and this decimation samples every ~15.6 frames, so what survives ' +
-      'on the forearm chips is an UNDER-SAMPLED oscillation — right limb, right ' +
-      'amplitude (~±25 deg), right duration, wrong phase. That is the honest trade at ' +
-      'a sprite-row frame count; resolving 24 frames would need ~60 baked frames. ' +
-      'The dangerous failure (the unwrapper picking the wrong branch and winding the ' +
-      'chip past a full turn) was checked for and does not happen HERE: the worst ' +
-      'per-frame step is 113 deg, and it is the real raise. It DOES happen at 11 ' +
-      'frames, where the sample spacing lands near the oscillation period and the ' +
-      'forearm winds to -359 deg — which is why the frame count is not a free dial.',
-    opts: { range: [1, 250], frames: 17, referenceFrame: 0, loop: 'none' },
+      'rig rest cell should mean. ' +
+      'THE RANGE CANNOT BE TIGHTENED to "just the waving", and that is a constraint ' +
+      'rather than a preference: referenceFrame indexes the SAMPLED frames, so the ' +
+      'rest pose has to lie inside the range, and the only standing pose in the ' +
+      'capture is at the start. Trim to the oscillation alone and the reference ' +
+      'becomes an arms-up pose — the raise, which is the whole readable gesture at ' +
+      '64 px, would vanish. ' +
+      'SO THE SAMPLING WAS FIXED INSTEAD, and it took two knobs, not one. The wave ' +
+      'proper is a 24-frame forearm oscillation, so 33 frames puts the spacing at ' +
+      '7.8 source frames (3.1 samples per oscillation, clear of Nyquist). That alone ' +
+      'changed nothing — because the SECOND limit was the keyframe cap: seven ' +
+      'oscillations cannot be described in 12 keys, so the fitter smoothed the wave ' +
+      'away no matter how finely the range was sampled, and the error sat at ~12 deg ' +
+      'RMS from 17 frames all the way to 65. Lifting maxKeys to 24 with frames at 33 ' +
+      'drops it to 4.8 deg RMS / 13.8 deg peak — better than the walk at 9 frames ' +
+      '(5.6 / 19.4), and the plateau is gone. The two knobs are measurable with ' +
+      '`--sweep`; a bake at 9 frames still winds the forearm to -359 deg, which is ' +
+      'why neither is a free dial.',
+    opts: { range: [1, 250], frames: 33, maxKeys: 24, referenceFrame: 0, loop: 'none' },
   },
 ];
 
@@ -228,6 +259,12 @@ export interface ClipMetrics {
   groundSpeedPxPerSec: number;
   /** RMS hips-relative joint offset between the range's first and last frame, px. */
   loopResidualPx: number;
+  /** Source frames between baked samples — the decimation, stated as a number. */
+  sampleSpacingFrames: number;
+  /** Wall-clock ms one baked frame covers. Compare against the player cadence. */
+  msPerFrame: number;
+  /** Worst chip's gap from an undecimated bake of the same range. */
+  decimation: DecimationError | null;
   facings: FacingMetrics[];
 }
 
@@ -270,26 +307,36 @@ export interface BoneInPlane {
   frames: number[];
 }
 
+interface ProjCtx {
+  bvh: BvhClip;
+  /** FK at the BAKED sample frames, in order. */
+  baked: Vec3[][];
+  /** FK at every SOURCE frame of the range, in order. */
+  source: Vec3[][];
+  resolve: (ref: string | readonly string[]) => number;
+  up: Vec3;
+  rightOf: (facing: RigFacing) => Vec3;
+}
+
 /**
- * How much of each bone survives the projection, per facing — the CAUSE behind
- * a windmilling chip, where the emitted track only shows the symptom. This is
- * what decides whether a capture is importable at all (see the declined block
- * above), so it lives here rather than in a throwaway probe.
+ * Shared projection setup for the diagnostics below.
  *
  * HONEST DUPLICATION: the sampling, world-up, forward guess and per-facing
- * screen-right below MIRROR `projectToRig`'s internals, which are private to
- * `bvh.ts`. They can drift. This is diagnostic output only — nothing emitted
- * depends on it — and a drift shows up immediately as numbers that no longer
- * explain the tracks beside them.
+ * screen-right here MIRROR `projectToRig`'s internals, which are private to
+ * `bvh.ts`. They can drift. Everything built on this is diagnostic output only
+ * — nothing emitted depends on it — and a drift shows up immediately as
+ * numbers that no longer explain the tracks beside them.
  */
-export function inPlaneFractions(spec: ImportSpec): Record<RigFacing, BoneInPlane[]> {
+function projectionContext(spec: ImportSpec): ProjCtx {
   const bvh = readCapture(spec.source);
   const [r0, r1] = spec.opts.range;
   const span = r1 - r0;
   const n = Math.max(1, Math.min(spec.opts.frames, span + 1));
   const src: number[] = [];
   for (let f = 0; f < n; f++) src.push(n === 1 ? r0 : r0 + Math.round((f * span) / (n - 1)));
-  const pos = src.map((f) => fkPositions(bvh, bvh.frames[f]));
+  const baked = src.map((f) => fkPositions(bvh, bvh.frames[f]));
+  const source: Vec3[][] = [];
+  for (let f = r0; f <= r1; f++) source.push(fkPositions(bvh, bvh.frames[f]));
 
   const index = new Map<string, number>();
   bvh.joints.forEach((j, k) => {
@@ -306,10 +353,10 @@ export function inPlaneFractions(spec: ImportSpec): Record<RigFacing, BoneInPlan
   const up: Vec3 = [0, 1, 0];
   const refPos = (j: number): Vec3 => {
     if (spec.opts.referenceFrame !== 'mean') {
-      return pos[Math.max(0, Math.min(spec.opts.referenceFrame ?? 0, n - 1))][j];
+      return baked[Math.max(0, Math.min(spec.opts.referenceFrame ?? 0, n - 1))][j];
     }
     const s: Vec3 = [0, 0, 0];
-    for (const p of pos) {
+    for (const p of baked) {
       s[0] += p[j][0];
       s[1] += p[j][1];
       s[2] += p[j][2];
@@ -323,19 +370,30 @@ export function inPlaneFractions(spec: ImportSpec): Record<RigFacing, BoneInPlan
   const rightOf = (facing: RigFacing): Vec3 =>
     facing === 'down' ? unit(cross(up, fwd)) : facing === 'up' ? unit(cross(fwd, up)) : [-fwd[0], -fwd[1], -fwd[2]];
 
+  return { bvh, baked, source, resolve, up, rightOf };
+}
+
+/**
+ * How much of each bone survives the projection, per facing — the CAUSE behind
+ * a windmilling chip, where the emitted track only shows the symptom. This is
+ * what decides whether a capture is importable at all (see the declined block
+ * above), so it lives here rather than in a throwaway probe.
+ */
+export function inPlaneFractions(spec: ImportSpec): Record<RigFacing, BoneInPlane[]> {
+  const ctx = projectionContext(spec);
   const out = {} as Record<RigFacing, BoneInPlane[]>;
   for (const facing of FACINGS) {
-    const u = rightOf(facing);
+    const u = ctx.rightOf(facing);
     const bones: BoneInPlane[] = [];
     for (const bone of HUMANOID_BVH_MAP.facings[facing].bones) {
       if (bone.mode === 'translate') continue; // never rotated: foreshortening is moot
-      const a = resolve(bone.from);
-      const b = resolve(bone.to);
+      const a = ctx.resolve(bone.from);
+      const b = ctx.resolve(bone.to);
       if (a < 0 || b < 0) continue;
-      const fr = pos.map((p) => {
+      const fr = ctx.baked.map((p) => {
         const d = sub(p[b], p[a]);
         const L3 = Math.hypot(d[0], d[1], d[2]);
-        return L3 > 0 ? Math.hypot(dot(d, u), dot(d, up)) / L3 : 1;
+        return L3 > 0 ? Math.hypot(dot(d, u), dot(d, ctx.up)) / L3 : 1;
       });
       bones.push({
         chip: bone.chip,
@@ -347,6 +405,191 @@ export function inPlaneFractions(spec: ImportSpec): Record<RigFacing, BoneInPlan
     out[facing] = bones;
   }
   return out;
+}
+
+// ── the sampling-rate diagnostic ────────────────────────────────────────────
+
+export interface DecimationError {
+  facing: RigFacing;
+  chip: string;
+  /** RMS gap between the shipped clip and an undecimated bake, degrees. */
+  rmsDeg: number;
+  /** Worst single-frame gap, degrees. */
+  maxDeg: number;
+}
+
+/**
+ * What the decimation COST, measured rather than argued.
+ *
+ * The obvious check — "is the sample spacing under half the fastest oscillation
+ * period?" — needs a period, and a limb angle is never one clean frequency: the
+ * wave's forearm carries a whole-gesture arc AND a 5 Hz rider, and any single
+ * "the period" for that series is a guess. So instead of estimating a period,
+ * re-import the SAME range at source rate (`frames` = every frame, keyframe cap
+ * lifted, tolerances tightened) and ask how far the shipped clip sits from it.
+ *
+ * That reference bake comes out of `projectToRig` itself, so this compares the
+ * shipped clip against the real code path rather than a re-derivation — and it
+ * catches aliasing exactly: an under-sampled wiggle reconstructs to the wrong
+ * shape and the error is large, while a well-sampled one is small no matter how
+ * many frequencies the limb carries.
+ *
+ * Series are mean-centred before comparison: with `referenceFrame: 'mean'` the
+ * two bakes average over different sample sets, so a constant offset between
+ * them is an artifact of the comparison, not decimation loss. Shape is the
+ * question.
+ */
+export function decimationError(spec: ImportSpec, clips: Record<RigFacing, Clip>): DecimationError | null {
+  const bvh = readCapture(spec.source);
+  const [r0, r1] = spec.opts.range;
+  const span = r1 - r0;
+  if (span < 2) return null;
+  const reference = projectToRig(bvh, HUMANOID_BVH_MAP, {
+    ...spec.opts,
+    name: spec.id,
+    pxPerUnit: FIGURE_HEIGHT_PX / verticalExtent(bvh, 0),
+    frames: span + 1,
+    maxKeys: span + 1,
+    degTol: 0.05,
+    pxTol: 0.05,
+  });
+
+  let worst: DecimationError | null = null;
+  for (const facing of FACINGS) {
+    const template = TEMPLATES[facing];
+    const shipped = clips[facing];
+    const ref = reference[facing];
+    // Sample each clip ONCE per frame: `sampleClip` poses the whole template,
+    // so asking it per chip would redo every other chip's work chips-times over.
+    const poseA: ChipPose[][] = [];
+    const poseB: ChipPose[][] = [];
+    for (let f = 0; f <= span; f++) {
+      const t = f / span;
+      poseA.push(sampleClip(template, shipped, t));
+      poseB.push(sampleClip(template, ref, t));
+    }
+    template.chips.forEach((ch, ci) => {
+      if (shipped.tracks[ch.name] === undefined && ref.tracks[ch.name] === undefined) return;
+      let meanA = 0;
+      let meanB = 0;
+      for (let f = 0; f <= span; f++) {
+        meanA += poseA[f][ci].deg;
+        meanB += poseB[f][ci].deg;
+      }
+      meanA /= span + 1;
+      meanB /= span + 1;
+      let sq = 0;
+      let mx = 0;
+      for (let f = 0; f <= span; f++) {
+        const e = Math.abs(poseA[f][ci].deg - meanA - (poseB[f][ci].deg - meanB));
+        sq += e * e;
+        mx = Math.max(mx, e);
+      }
+      const rms = Math.sqrt(sq / (span + 1));
+      if (worst === null || rms > worst.rmsDeg) {
+        worst = { facing, chip: ch.name, rmsDeg: round(rms, 1), maxDeg: round(mx, 1) };
+      }
+    });
+  }
+  return worst;
+}
+
+// ── the range-finding probes (how a `range` gets chosen at all) ─────────────
+
+export interface StanceRun {
+  joint: string;
+  from: number;
+  to: number;
+}
+
+/**
+ * Stance runs per ankle over a WHOLE capture, using the importer's own stance
+ * rule (an ankle near the lowest height seen, moving slowly). Successive runs
+ * of the SAME foot are successive footfalls, and the gap between their onsets
+ * is one gait cycle — which is how every locomotion `range` in the table above
+ * was found. Checked in rather than kept as a probe: without it nobody can
+ * derive a range for a capture we add later.
+ */
+export function stanceRuns(source: string, minRun = 8): StanceRun[] {
+  const bvh = readCapture(source);
+  // Frame 0 is the synthetic T-pose — never capture data, so never a footfall.
+  const pos: Vec3[][] = [];
+  for (let f = 1; f < bvh.frames.length; f++) pos.push(fkPositions(bvh, bvh.frames[f]));
+  const N = pos.length;
+  const index = new Map<string, number>();
+  bvh.joints.forEach((j, k) => {
+    if (!index.has(j.name)) index.set(j.name, k);
+  });
+  const figureUnits = verticalExtent(bvh, 0);
+  const dt = bvh.frameTime > 0 ? bvh.frameTime : 1 / 30;
+
+  const ankles = FACINGS.flatMap((f) => HUMANOID_BVH_MAP.facings[f].feet.map((ft) => ft.joint));
+  const names = [...new Set(ankles.map((r) => (typeof r === 'string' ? r : r[0])))].sort();
+  const heights = names.map((n) => pos.map((p) => p[index.get(n)!][1]));
+  const ground = Math.min(...heights.map((h) => Math.min(...h)));
+
+  const out: StanceRun[] = [];
+  names.forEach((name, k) => {
+    const j = index.get(name)!;
+    let start = -1;
+    for (let f = 0; f < N; f++) {
+      const a = pos[Math.max(0, f - 1)][j];
+      const b = pos[Math.min(N - 1, f + 1)][j];
+      const steps = Math.min(N - 1, f + 1) - Math.max(0, f - 1);
+      const d = sub(b, a);
+      const speed = steps === 0 ? 0 : Math.hypot(d[0], d[1], d[2]) / (steps * dt) / figureUnits;
+      const on = heights[k][f] - ground <= 0.06 * figureUnits && speed <= 0.4;
+      if (on && start < 0) start = f;
+      if (!on && start >= 0) {
+        if (f - start >= minRun) out.push({ joint: name, from: start + 1, to: f });
+        start = -1;
+      }
+    }
+    if (start >= 0 && N - start >= minRun) out.push({ joint: name, from: start + 1, to: N });
+  });
+  return out.sort((x, y) => x.from - y.from);
+}
+
+export interface PeriodCandidate {
+  frames: number;
+  seconds: number;
+  /** RMS hips-relative joint offset between frame `from` and `from + p`, px. */
+  poseDistancePx: number;
+  /** Horizontal root travel over the candidate period, in cell px. */
+  travelPx: number;
+}
+
+/**
+ * Candidate cycle lengths from a start frame, ranked by how nearly the pose at
+ * `from + p` reproduces the pose at `from`. The winner is the `range` end: a
+ * cycle chosen this way closes on measurement rather than on a foot-contact
+ * eyeball, and its `poseDistancePx` is exactly what `closeLoop` must absorb.
+ */
+export function periodCandidates(source: string, from: number, min: number, max: number): PeriodCandidate[] {
+  const bvh = readCapture(source);
+  const index = new Map<string, number>();
+  bvh.joints.forEach((j, k) => {
+    if (!index.has(j.name)) index.set(j.name, k);
+  });
+  const hips = index.get(typeof HUMANOID_BVH_MAP.root.joint === 'string' ? HUMANOID_BVH_MAP.root.joint : 'Hips')!;
+  const pxPerUnit = FIGURE_HEIGHT_PX / verticalExtent(bvh, 0);
+  const base = fkPositions(bvh, bvh.frames[from]);
+
+  const out: PeriodCandidate[] = [];
+  for (let p = min; p <= max && from + p < bvh.frames.length; p++) {
+    const now = fkPositions(bvh, bvh.frames[from + p]);
+    let sum = 0;
+    for (let j = 1; j < base.length; j++) {
+      for (let k = 0; k < 3; k++) sum += (base[j][k] - base[hips][k] - (now[j][k] - now[hips][k])) ** 2;
+    }
+    out.push({
+      frames: p,
+      seconds: round(p * bvh.frameTime, 4),
+      poseDistancePx: round(Math.sqrt(sum / (base.length - 1)) * pxPerUnit, 3),
+      travelPx: round(Math.hypot(now[hips][0] - base[hips][0], now[hips][2] - base[hips][2]) * pxPerUnit, 1),
+    });
+  }
+  return out.sort((a, b) => a.poseDistancePx - b.poseDistancePx);
 }
 
 /**
@@ -390,6 +633,8 @@ export function runImport(spec: ImportSpec): { clips: Record<RigFacing, Clip>; m
   }
   const loopResidualPx = Math.sqrt(sum / (first.length - 1)) * pxPerUnit;
   const inPlane = inPlaneFractions(spec);
+  const baked = Math.max(1, Math.min(spec.opts.frames, cycleFrames + 1));
+  const sampleSpacingFrames = baked > 1 ? cycleFrames / (baked - 1) : cycleFrames;
 
   return {
     clips,
@@ -401,6 +646,9 @@ export function runImport(spec: ImportSpec): { clips: Record<RigFacing, Clip>; m
       stridePx: round(stridePx, 1),
       groundSpeedPxPerSec: round(stridePx / cycleSeconds, 1),
       loopResidualPx: round(loopResidualPx, 2),
+      sampleSpacingFrames: round(sampleSpacingFrames, 2),
+      msPerFrame: round((cycleSeconds * 1000) / Math.max(1, baked - 1), 1),
+      decimation: decimationError(spec, clips),
       facings: FACINGS.map((f) => facingMetrics(f, clips[f], inPlane[f])),
     },
   };
@@ -546,6 +794,19 @@ export function renderModule(spec: ImportSpec, clips: Record<RigFacing, Clip>, m
     );
   }
   head.push(` * Loop residual (capture, first→last pose): ${m.loopResidualPx} px RMS per joint.`);
+  head.push(
+    ' *',
+    ` * Sampling: ${m.sampleSpacingFrames} source frames between baked samples (${m.msPerFrame} ms per frame).`,
+  );
+  if (m.decimation) {
+    head.push(
+      ` *   DECIMATION ERROR vs an undecimated bake of the same range: ${m.decimation.rmsDeg}° RMS,`,
+      ` *   ${m.decimation.maxDeg}° peak, worst on ${m.decimation.chip} (${m.decimation.facing}).`,
+      ' *   That is the whole aliasing question answered by measurement: an under-sampled',
+      ' *   wiggle reconstructs to the wrong shape and this number blows up. Re-run the',
+      ' *   importer to check it rather than trusting this sentence.',
+    );
+  }
   head.push(' *');
   head.push(' * Per facing — tracks, worst per-frame angle step, t=0..t=1 gap, plants,');
   head.push(' * and the foreshortening floor (least of any rotating bone in-plane length):');
@@ -649,11 +910,71 @@ function trialSpec(source: string): ImportSpec {
 
 function main(): void {
   const plan = process.argv.includes('--plan');
-  const flagValues = new Set(['--range', '--frames', '--ref'].flatMap((f) => {
+  const flagValues = new Set(['--range', '--frames', '--ref', '--from', '--min', '--max'].flatMap((f) => {
     const i = process.argv.indexOf(f);
     return i >= 0 ? [process.argv[i + 1]] : [];
   }));
   const positional = process.argv.slice(2).filter((a) => !a.startsWith('--') && !flagValues.has(a));
+
+  const arg = (flag: string): string | undefined => {
+    const i = process.argv.indexOf(flag);
+    return i >= 0 ? process.argv[i + 1] : undefined;
+  };
+
+  // ── range finding: how a `range` in the table above gets chosen ────────────
+  if (process.argv.includes('--contacts')) {
+    const source = positional[0];
+    if (!source?.endsWith('.bvh')) {
+      console.error('--contacts needs a vendor/mocap/cmu/*.bvh filename');
+      process.exit(1);
+    }
+    const runs = stanceRuns(source);
+    console.log(`${source}: stance runs (importer's own rule: ankle near ground, moving slowly)`);
+    for (const r of runs) console.log(`  ${r.joint.padEnd(10)} ${String(r.from).padStart(5)} – ${String(r.to).padStart(5)}`);
+    console.log('  One gait cycle = the gap between successive onsets of the SAME foot:');
+    for (const joint of [...new Set(runs.map((r) => r.joint))]) {
+      const onsets = runs.filter((r) => r.joint === joint).map((r) => r.from);
+      console.log(`  ${joint.padEnd(10)} onsets ${onsets.join(', ')} → gaps ${onsets.slice(1).map((v, i) => v - onsets[i]).join(', ')}`);
+    }
+    return;
+  }
+
+  if (process.argv.includes('--periods')) {
+    const source = positional[0];
+    const from = Number(arg('--from'));
+    if (!source?.endsWith('.bvh') || !Number.isFinite(from)) {
+      console.error('--periods needs a vendor/mocap/cmu/*.bvh filename and --from <frame> [--min n --max n]');
+      process.exit(1);
+    }
+    const min = Number(arg('--min') ?? 30);
+    const max = Number(arg('--max') ?? 300);
+    console.log(`${source}: cycle candidates from frame ${from}, ranked by how nearly the pose returns`);
+    for (const c of periodCandidates(source, from, min, max).slice(0, 10)) {
+      console.log(
+        `  P=${String(c.frames).padStart(4)} (${c.seconds.toFixed(3)}s)  pose distance ${c.poseDistancePx.toFixed(3)} px  travel ${c.travelPx} px`,
+      );
+    }
+    return;
+  }
+
+  if (process.argv.includes('--sweep')) {
+    const base = positional[0]?.endsWith('.bvh') ? trialSpec(positional[0]) : MOTION_IMPORTS.find((s) => s.id === positional[0]);
+    if (!base) {
+      console.error('--sweep needs a clip id or a *.bvh filename with --range a,b');
+      process.exit(1);
+    }
+    console.log(`${base.id} range [${base.opts.range[0]}, ${base.opts.range[1]}] — decimation error vs frame count:`);
+    for (const frames of [5, 9, 13, 17, 21, 25, 33, 41, 49, 65]) {
+      if (frames > base.opts.range[1] - base.opts.range[0] + 1) break;
+      const spec = { ...base, opts: { ...base.opts, frames } };
+      const { metrics } = runImport(spec);
+      console.log(
+        `  frames ${String(frames).padStart(3)} · spacing ${String(metrics.sampleSpacingFrames).padStart(6)} · ${String(metrics.msPerFrame).padStart(6)} ms/frame · ` +
+          `error ${String(metrics.decimation?.rmsDeg ?? 0).padStart(6)}° RMS / ${String(metrics.decimation?.maxDeg ?? 0).padStart(6)}° peak (${metrics.decimation?.chip ?? '—'})`,
+      );
+    }
+    return;
+  }
 
   if (process.argv.includes('--in-plane')) {
     const spec = positional[0]?.endsWith('.bvh')
@@ -696,6 +1017,11 @@ function main(): void {
     console.log(
       `  cycle ${metrics.cycleSeconds}s · stride ${metrics.stridePx}px · ground speed ${metrics.groundSpeedPxPerSec}px/s ·` +
         ` loop residual ${metrics.loopResidualPx}px`,
+    );
+    console.log(
+      `  spacing ${metrics.sampleSpacingFrames} frames (${metrics.msPerFrame}ms/frame) · decimation error ${
+        metrics.decimation ? `${metrics.decimation.rmsDeg}° RMS / ${metrics.decimation.maxDeg}° peak on ${metrics.decimation.chip} (${metrics.decimation.facing})` : 'n/a'
+      }`,
     );
     for (const f of metrics.facings) {
       console.log(
