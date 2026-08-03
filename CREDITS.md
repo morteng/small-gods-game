@@ -78,6 +78,30 @@ CC0: https://creativecommons.org/publicdomain/zero/1.0/
 
 ---
 
+## Motion Capture Data
+
+**CMU Graphics Lab Motion Capture Database** (BVH conversion by Bruce Hahne)
+- License: free for research **and commercial** use worldwide; the BVH
+  conversion adds no further restrictions. Credit is requested, not required —
+  we give it anyway (see the acknowledgement below).
+- Source: https://mocap.cs.cmu.edu/ — BVH conversion vendored from
+  https://github.com/una-dinosauria/cmu-mocap
+- Files: `vendor/mocap/cmu/*.bvh` (`07_01` walk, `104_02` neutral walk with
+  exact footfalls, `138_01` march, `141_16` wave, `79_04` digging, `62_07`
+  hammering, `05_02` dance) plus the conversion's own `READMEFIRST.txt`.
+- Used for: author-time only. `scripts/motion-import-bvh.ts` projects these
+  onto the paperdoll rig and emits checked-in `Clip` modules; **the runtime
+  never reads a BVH file** and none of this data ships to players.
+
+> The data used in this project was obtained from mocap.cs.cmu.edu. The
+> database was created with funding from NSF EIA-0196217.
+
+**These files are NOT CC-BY-SA** and are not covered by the LPC notice below.
+The clips derived from them are our own code; the share-alike obligation on
+NPC sprites comes from the LPC *pixels*, never from the motion.
+
+---
+
 ## Attribution Notice
 
 This project uses and adapts assets from the
