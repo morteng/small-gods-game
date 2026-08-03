@@ -44,6 +44,17 @@
  */
 
 import type { Clip } from '../rig';
+import type { ImportedClipMeta } from '../clip-meta';
+
+/** Capture facts a player can feel: cadence, travel, and whether it loops. */
+export const CLIP_WALK_BRISK_META: ImportedClipMeta = {
+  source: '07_01.bvh',
+  cycleSeconds: 1.0583,
+  frameMs: 132.3,
+  stridePx: 52.3,
+  groundSpeedPxPerSec: 49.4,
+  loop: true,
+};
 
 export const CLIP_WALK_BRISK_DOWN: Clip = {
   name: 'walk-brisk',

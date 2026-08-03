@@ -33,7 +33,9 @@
  *   pxPerUnit 2.110113 (51 px figure ÷ T-pose extent 24.169 units)
  *
  * Cycle: 249 source frames = 2.075 s.
- * Stride: 0.7 px per cycle — this clip does not travel; ground speed 0.
+ * Stride: 0.7 px per cycle — under the 1 px floor, so this is capture
+ *   noise rather than travel. Recorded as stride 0 / ground speed 0, which is
+ *   the honest reading: play it on an NPC standing still.
  * Loop residual (capture, first→last pose): 2.09 px RMS per joint.
  *
  * Sampling: 7.78 source frames between baked samples (64.8 ms per frame).
@@ -57,6 +59,17 @@
  */
 
 import type { Clip } from '../rig';
+import type { ImportedClipMeta } from '../clip-meta';
+
+/** Capture facts a player can feel: cadence, travel, and whether it loops. */
+export const CLIP_WAVE_META: ImportedClipMeta = {
+  source: '141_16.bvh',
+  cycleSeconds: 2.075,
+  frameMs: 64.8,
+  stridePx: 0,
+  groundSpeedPxPerSec: 0,
+  loop: false,
+};
 
 export const CLIP_WAVE_DOWN: Clip = {
   name: 'wave',

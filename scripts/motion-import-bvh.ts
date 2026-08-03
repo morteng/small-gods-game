@@ -266,6 +266,12 @@ export interface ClipMetrics {
   /** Worst chip's gap from an undecimated bake of the same range. */
   decimation: DecimationError | null;
   facings: FacingMetrics[];
+  /**
+   * Whether every facing samples identically at t=0 and t=1 — MEASURED on the
+   * emitted clips, not read back off `opts.loop`. `'auto'` means the importer
+   * decided, and what it decided is exactly what a player would see pop.
+   */
+  loops: boolean;
 }
 
 const readCapture = (source: string): BvhClip =>
@@ -663,6 +669,15 @@ export function runImport(spec: ImportSpec): { clips: Record<RigFacing, Clip>; m
       msPerFrame: round((cycleSeconds * 1000) / Math.max(1, baked - 1), 1),
       decimation: decimationError(spec, clips),
       facings: FACINGS.map((f) => facingMetrics(f, clips[f], inPlane[f])),
+      // Deep pose equality, not just angle equality: a clip whose endpoints
+      // agree on every angle but differ by a quarter-pixel of trunk dx still
+      // twitches at the wrap, and `dx/dy` is where the out-of-plane residual
+      // lives — precisely the channel a locomotion import writes most into.
+      loops: FACINGS.every((f) => {
+        const at0 = sampleClip(TEMPLATES[f], clips[f], 0);
+        const at1 = sampleClip(TEMPLATES[f], clips[f], 1);
+        return JSON.stringify(at0) === JSON.stringify(at1);
+      }),
     },
   };
 }
@@ -803,7 +818,9 @@ export function renderModule(spec: ImportSpec, clips: Record<RigFacing, Clip>, m
     );
   } else {
     head.push(
-      ` * Stride: ${m.stridePx} px per cycle — this clip does not travel; ground speed 0.`,
+      ` * Stride: ${m.stridePx} px per cycle — under the 1 px floor, so this is capture`,
+      ' *   noise rather than travel. Recorded as stride 0 / ground speed 0, which is',
+      ' *   the honest reading: play it on an NPC standing still.',
     );
   }
   head.push(` * Loop residual (capture, first→last pose): ${m.loopResidualPx} px RMS per joint.`);
@@ -844,6 +861,20 @@ export function renderModule(spec: ImportSpec, clips: Record<RigFacing, Clip>, m
   const base = constBase(spec.id);
   const body = [
     "import type { Clip } from '../rig';",
+    "import type { ImportedClipMeta } from '../clip-meta';",
+    '',
+    // The numbers above this line are a comment; these are the same numbers as
+    // something a bench or a runtime can actually read. The foot-plant speed in
+    // particular is unusable as prose — see `clip-meta.ts`.
+    `/** Capture facts a player can feel: cadence, travel, and whether it loops. */`,
+    `export const ${base}_META: ImportedClipMeta = {`,
+    `  source: '${spec.source}',`,
+    `  cycleSeconds: ${m.cycleSeconds},`,
+    `  frameMs: ${m.msPerFrame},`,
+    `  stridePx: ${locomotion ? m.stridePx : 0},`,
+    `  groundSpeedPxPerSec: ${locomotion ? m.groundSpeedPxPerSec : 0},`,
+    `  loop: ${m.loops},`,
+    '};',
     '',
     serializeClip(`${base}_DOWN`, clips.down),
     '',
@@ -874,18 +905,25 @@ export function renderIndex(specs: readonly ImportSpec[]): string {
     ' * Each entry holds the three AUTHORED facings; east is west mirrored at bake',
     ' * time (`facing.ts`), so it is never imported.',
     ' *',
-    ' * NOT wired into `rig-catalog.ts` — that is a separate slice.',
+    ' * `IMPORTED_CLIP_META` is keyed the same way — same ids, one entry each, so a',
+    ' * caller holding a clip name can always ask what capture it came from and how',
+    ' * fast it wants to be played.',
     ' */',
     "import type { Clip } from '../rig';",
+    "import type { ImportedClipMeta } from '../clip-meta';",
   ];
-  for (const s of specs) lines.push(`import { ${constBase(s.id)} } from './${s.id}';`);
+  for (const s of specs) lines.push(`import { ${constBase(s.id)}, ${constBase(s.id)}_META } from './${s.id}';`);
   lines.push('');
-  for (const s of specs) lines.push(`export { ${constBase(s.id)} } from './${s.id}';`);
+  for (const s of specs) lines.push(`export { ${constBase(s.id)}, ${constBase(s.id)}_META } from './${s.id}';`);
   lines.push('');
   lines.push("export type ImportedClipSet = Readonly<Record<'down' | 'up' | 'left', Clip>>;");
   lines.push('');
   lines.push('export const IMPORTED_CLIPS: Readonly<Record<string, ImportedClipSet>> = {');
   for (const s of specs) lines.push(`  '${s.id}': ${constBase(s.id)},`);
+  lines.push('};');
+  lines.push('');
+  lines.push('export const IMPORTED_CLIP_META: Readonly<Record<string, ImportedClipMeta>> = {');
+  for (const s of specs) lines.push(`  '${s.id}': ${constBase(s.id)}_META,`);
   lines.push('};');
   return `${lines.join('\n')}\n`;
 }

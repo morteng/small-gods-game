@@ -7,16 +7,19 @@
  * Each entry holds the three AUTHORED facings; east is west mirrored at bake
  * time (`facing.ts`), so it is never imported.
  *
- * NOT wired into `rig-catalog.ts` — that is a separate slice.
+ * `IMPORTED_CLIP_META` is keyed the same way — same ids, one entry each, so a
+ * caller holding a clip name can always ask what capture it came from and how
+ * fast it wants to be played.
  */
 import type { Clip } from '../rig';
-import { CLIP_WALK } from './walk';
-import { CLIP_WALK_BRISK } from './walk-brisk';
-import { CLIP_WAVE } from './wave';
+import type { ImportedClipMeta } from '../clip-meta';
+import { CLIP_WALK, CLIP_WALK_META } from './walk';
+import { CLIP_WALK_BRISK, CLIP_WALK_BRISK_META } from './walk-brisk';
+import { CLIP_WAVE, CLIP_WAVE_META } from './wave';
 
-export { CLIP_WALK } from './walk';
-export { CLIP_WALK_BRISK } from './walk-brisk';
-export { CLIP_WAVE } from './wave';
+export { CLIP_WALK, CLIP_WALK_META } from './walk';
+export { CLIP_WALK_BRISK, CLIP_WALK_BRISK_META } from './walk-brisk';
+export { CLIP_WAVE, CLIP_WAVE_META } from './wave';
 
 export type ImportedClipSet = Readonly<Record<'down' | 'up' | 'left', Clip>>;
 
@@ -24,4 +27,10 @@ export const IMPORTED_CLIPS: Readonly<Record<string, ImportedClipSet>> = {
   'walk': CLIP_WALK,
   'walk-brisk': CLIP_WALK_BRISK,
   'wave': CLIP_WAVE,
+};
+
+export const IMPORTED_CLIP_META: Readonly<Record<string, ImportedClipMeta>> = {
+  'walk': CLIP_WALK_META,
+  'walk-brisk': CLIP_WALK_BRISK_META,
+  'wave': CLIP_WAVE_META,
 };

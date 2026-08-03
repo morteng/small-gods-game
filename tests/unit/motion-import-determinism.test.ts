@@ -29,7 +29,7 @@ import { sampleClip, type AnimTemplate, type Clip } from '@/render/paperdoll/rig
 import { LPC_HUMANOID_SOUTH } from '@/render/paperdoll/lpc-humanoid';
 import { LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
 import { LPC_HUMANOID_WEST } from '@/render/paperdoll/lpc-humanoid-west';
-import { IMPORTED_CLIPS } from '@/render/paperdoll/clips';
+import { IMPORTED_CLIPS, IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 
 const TEMPLATES: Record<'down' | 'up' | 'left', AnimTemplate> = {
   down: LPC_HUMANOID_SOUTH,
@@ -134,6 +134,37 @@ describe('motion import — a byte-identical clip can still be a wrong clip', ()
     // `maxKeys`; never a looser bound here.
     expect(metrics.decimation).not.toBeNull();
     expect(metrics.decimation!.rmsDeg).toBeLessThanOrEqual(8);
+  });
+
+  it('the exported meta says the same thing as the comment above it', () => {
+    // The header prose and `*_META` are rendered from one `ClipMetrics`, but only
+    // the meta is readable by code — so it is the one that can silently drift
+    // into decoration. Pin it against the measurement it claims to report.
+    for (const { spec, metrics } of imported) {
+      const meta = IMPORTED_CLIP_META[spec.id];
+      expect(meta, `${spec.id} has no meta entry`).toBeDefined();
+      expect(meta.source).toBe(spec.source);
+      expect(meta.cycleSeconds).toBe(metrics.cycleSeconds);
+      expect(meta.frameMs).toBe(metrics.msPerFrame);
+      expect(meta.loop).toBe(metrics.loops);
+      // Sub-pixel travel over a whole cycle is capture noise; calling it a stride
+      // would hand M2 a ground speed to tune against that means nothing.
+      const travels = metrics.stridePx >= 1;
+      expect(meta.stridePx).toBe(travels ? metrics.stridePx : 0);
+      expect(meta.groundSpeedPxPerSec).toBe(travels ? metrics.groundSpeedPxPerSec : 0);
+    }
+  });
+
+  it('agrees with the loop closure the clips actually have', () => {
+    // `metrics.loops` is itself a claim. Check it against the clips rather than
+    // trusting two derived numbers to agree with each other.
+    for (const { spec, clips } of imported) {
+      const closed = FACINGS.every((f) => {
+        const t = TEMPLATES[f];
+        return JSON.stringify(sampleClip(t, clips[f], 0)) === JSON.stringify(sampleClip(t, clips[f], 1));
+      });
+      expect(IMPORTED_CLIP_META[spec.id].loop).toBe(closed);
+    }
   });
 
   it('every locomotion clip records the ground speed its feet need', () => {
