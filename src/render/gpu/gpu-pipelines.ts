@@ -254,17 +254,32 @@ export function createOceanBackdropPipeline(device: GPUDevice, format: GPUTextur
   });
 }
 
+/** RGB only — leave the target's alpha exactly as the pass cleared it. */
+const RGB_ONLY: GPUColorWriteFlags =
+  GPUColorWrite.RED | GPUColorWrite.GREEN | GPUColorWrite.BLUE;
+
 /** Title-screen sky-backdrop pipeline (P1-C, meta mode): mirrors the ocean
  *  backdrop EXACTLY — a fullscreen triangle, OPAQUE, no depth — so the bind
  *  group the scene builds for it (globals uniform + noise texture + sampler,
  *  bindings 0/1/2) follows the same shape. Drawn only by `GpuScene.renderMeta`
- *  (the world-less title-screen path), never by `renderFrame`. */
+ *  (the world-less title-screen path), never by `renderFrame`.
+ *
+ *  ALPHA IS MASKED OFF, and that is the whole point of the mask. The shader is
+ *  shared with the overlay pipeline below, so its fragment returns a real
+ *  coverage-driven VEIL alpha — which at the idle title's coverage 0 is ~0
+ *  almost everywhere. With no blend state, "opaque" only means the alpha is
+ *  ignored for BLENDING; it was still WRITTEN, so the title screen composited
+ *  its correct colours behind an almost entirely transparent alpha channel and
+ *  every meta-mode capture (`__debug.grab`, the photo verb) came out see-through.
+ *  Masking the channel leaves the attachment's cleared alpha of 1 in place, which
+ *  is what an opaque pass always meant. The overlay pipeline, which genuinely
+ *  needs that alpha, keeps writing it. */
 export function createSkyBackdropPipeline(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
   const module = device.createShaderModule({ code: SKY_BACKDROP_WGSL });
   return device.createRenderPipeline({
     layout: 'auto',
     vertex: { module, entryPoint: 'vsMain' },
-    fragment: { module, entryPoint: 'fsMain', targets: [{ format }] },
+    fragment: { module, entryPoint: 'fsMain', targets: [{ format, writeMask: RGB_ONLY }] },
     primitive: { topology: 'triangle-list' },
   });
 }
