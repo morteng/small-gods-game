@@ -342,6 +342,16 @@ The render/world/content engine is an active, multi-epic effort separate from th
 gameplay arc above. These live as topic files under the session memory; the
 current shortlist (see `MEMORY.md` for status & next slices):
 
+- **NPC motion & appearance** — own the MOTION, rent the APPEARANCE. Free motion
+  capture (CMU BVH, vendored author-time) projects onto the existing paperdoll rig
+  into checked-in `Clip` modules; appearance goes through one swappable
+  `SpriteBackend` so no single art vendor is load-bearing. **Wave 1 shipped
+  2026-08-03:** the BVH importer (`src/render/paperdoll/bvh.ts`), rig clips
+  reaching live NPCs for the first time (`pray-raise`/`idle-shift`), the
+  provider-neutral sprite library, and `AssetProvider` becoming real dispatch.
+  *Next:* M2 studio validation, then the img2img NPC pipeline (G0–G2) with paid
+  generation OFF by default. Spec + plan:
+  `docs/superpowers/{specs,plans}/2026-08-03-npc-animation-appearance-*.md`.
 - **Structure-mesh rendering** — render ground-anchored structural geometry
   (bridges + stairs first, walls/towers next) as real 3D meshes in a depth-tested
   pass sharing the terrain depth buffer, instead of flat billboard sprites. Fixes
