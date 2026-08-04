@@ -22,44 +22,21 @@
 // `paperdoll-bake.ts`, whose layer loading it deliberately mirrors.
 
 import { mkdirSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { PNG } from 'pngjs';
-import { bakeClip, type AnimTemplate } from '@/render/paperdoll/rig';
-import { DEFAULT_HUMANOID_LAYERS, HUMANOID_SOURCE, LPC_HUMANOID_SOUTH } from '@/render/paperdoll/lpc-humanoid';
-import { HUMANOID_SOURCE_NORTH, LPC_HUMANOID_NORTH } from '@/render/paperdoll/lpc-humanoid-north';
-import { HUMANOID_WEST_SOURCE, LPC_HUMANOID_WEST } from '@/render/paperdoll/lpc-humanoid-west';
+import { bakeClip } from '@/render/paperdoll/rig';
+import { DEFAULT_HUMANOID_LAYERS, HUMANOID_SOURCE } from '@/render/paperdoll/lpc-humanoid';
 import { IMPORTED_CLIPS, IMPORTED_CLIP_META } from '@/render/paperdoll/clips';
 import { LPC_ANIMATIONS, LPC_DIR_OFFSET } from '@/core/npc-animation';
 import { fragmentation, worstFragmentation } from '@/render/paperdoll/clip-measure';
 import { collectOutlinePalette, collectSourcePalette, reinkOutline, snapToSourcePalette } from '@/render/paperdoll/palette-snap';
 import type { Raster } from '@/render/sprite-postprocess';
+import { RIG, RIG_CELL, RIG_FACINGS, type RigFacing, cellAt, loadDefaultWardrobeSheets } from './lib/rig-bake-node';
 
 const OUT = 'tmp/motion';
-const CELL = LPC_HUMANOID_SOUTH.cell;
-const FACINGS = ['down', 'up', 'left'] as const;
-type Facing = (typeof FACINGS)[number];
-
-/** Template + the sheet row its chip rects were authored against, per facing. */
-const RIG: Record<Facing, { template: AnimTemplate; row: number }> = {
-  down: { template: LPC_HUMANOID_SOUTH, row: HUMANOID_SOURCE.row },
-  up: { template: LPC_HUMANOID_NORTH, row: HUMANOID_SOURCE_NORTH.row },
-  left: { template: LPC_HUMANOID_WEST, row: HUMANOID_WEST_SOURCE.row },
-};
-
-async function loadSheet(publicPath: string): Promise<Raster> {
-  const png = PNG.sync.read(await readFile(`public/${publicPath}`));
-  return { data: new Uint8ClampedArray(png.data), w: png.width, h: png.height };
-}
-
-/** One CELL-sized cell out of a sheet. */
-function cellAt(sheet: Raster, col: number, row: number): Raster {
-  const data = new Uint8ClampedArray(CELL * CELL * 4);
-  for (let y = 0; y < CELL; y++) {
-    const si = ((row * CELL + y) * sheet.w + col * CELL) * 4;
-    data.set(sheet.data.subarray(si, si + CELL * 4), y * CELL * 4);
-  }
-  return { data, w: CELL, h: CELL };
-}
+const CELL = RIG_CELL;
+const FACINGS = RIG_FACINGS;
+type Facing = RigFacing;
 
 /** Alpha-over composite of one cell across the whole wardrobe stack. */
 function compositeCell(sheets: readonly Raster[], col: number, row: number): Raster {
@@ -171,7 +148,7 @@ async function main(): Promise<void> {
   const only = process.argv.slice(2);
   const ids = Object.keys(IMPORTED_CLIPS).filter((id) => only.length === 0 || only.includes(id));
 
-  const sheets = await Promise.all(DEFAULT_HUMANOID_LAYERS.map((s) => loadSheet(s.path)));
+  const sheets = await loadDefaultWardrobeSheets();
   const walk = LPC_ANIMATIONS.walk;
   const perClip = new Map<string, ClipBake[]>();
 
