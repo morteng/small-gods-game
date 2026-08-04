@@ -407,13 +407,18 @@ async function attemptFrame(
   deps: NpcSheetDeps,
   acc: { cost: number; ignored: Set<SpriteJobField>; attempts: number },
 ): Promise<{ sprite: Raster; iou: number } | string> {
+  // Size is stated ONLY to a backend that takes its size from the job. An
+  // editor matches the init image, which IS this size — so setting the field
+  // anyway would land 'width'/'height' in `ignored` on every real run, and
+  // `ignored` is supposed to mean "the caller asked for something it did not
+  // get". Nothing is lost here, so nothing is reported.
+  const sized = deps.backend.capabilities.size;
   const req: SpriteJob = {
     prompt: job.prompt,
     negative: job.negative,
     seed,
     init: { pngDataUri: initDataUri, denoise01: job.denoise01 },
-    width: prep.init.w,
-    height: prep.init.h,
+    ...(sized ? { width: prep.init.w, height: prep.init.h } : {}),
     meta: { kind: 'npc-sprite', lineage: NPC_SHEET_LINEAGE, tags: ['npc', job.clip] },
     signal: deps.signal,
   };

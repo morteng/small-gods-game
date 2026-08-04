@@ -283,6 +283,20 @@ describe('npc-sprite pipeline — gates on what came back', () => {
     expect(notes.join('\n')).toMatch(/not reproducible/);
   });
 
+  it('does not report size as ignored by a backend that matches the init image', async () => {
+    // An editor's output IS the init's size, so nothing the caller wanted was
+    // lost — reporting it would make `ignored` mean nothing.
+    const frames = [poseFrame()];
+    const { deps, backend } = depsReturning(
+      [goodGeneration(frames[0])],
+      { capabilities: { size: false, init: 'required' } },
+    );
+    const out = await generateNpcSheet(job(frames), deps);
+    expect(out?.ignored).not.toContain('width');
+    expect(out?.ignored).not.toContain('height');
+    expect(backend.calls[0].width).toBeUndefined();
+  });
+
   it('abandons the whole sheet when one frame fails — a cycle with a hole is not a degraded cycle', async () => {
     const frames = [poseFrame(), poseFrame(), poseFrame()];
     const { deps } = depsReturning([
