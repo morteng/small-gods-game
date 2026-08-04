@@ -8,6 +8,8 @@ import {
   replicateImageBaseUrl, replicateDeliveryBaseUrl, type ProviderConfig,
 } from '@/llm/provider-factory';
 import { generateBuildingImageAuto, BUILDING_IMAGE_MODEL } from '@/llm/building-image';
+import { createImg2ImgBackend } from '@/assetgen/compilers/img2img-backend';
+import type { SpriteBackend } from '@/assetgen/compilers/backend';
 import type { CostTracker } from '@/llm/cost-tracker';
 
 export const SESSION_CAP_USD = 2; // per-session live building-art spend cap
@@ -91,5 +93,51 @@ export function paidArtGenOptions(deps: {
       deps.costTracker.record({ cost: res.costUsd, cacheStatus: 'MISS' });
       return res.blob;
     },
+  };
+}
+
+/**
+ * The `enabled/canSpend/model/backend/onSpend` head `GeneratedNpcArtSource`
+ * (G2) shares — the `SpriteBackend`-shaped counterpart to `paidArtGenOptions`
+ * above. Buildings/flora call the older direct-blob `generate` seam; G0's
+ * `generateNpcSheet` (`src/assetgen/npc-sprite-pipeline.ts`) wants a
+ * `SpriteBackend`, the same interface `createImg2ImgBackend` already produces
+ * for the shipped img2img editors, so this wires the same provider config +
+ * session cap through THAT seam instead of re-deriving one. `onSpend` feeds
+ * the cost tracker directly — `GeneratedNpcArtSource` reports real spend by
+ * wrapping the backend, not by trusting `NpcSheetResult.costUsd` (see its
+ * header for why: a quality-gate refusal after a real, billed request would
+ * otherwise vanish from the session cap).
+ */
+export function paidNpcArtGenOptions(deps: {
+  enabled: () => boolean;
+  costTracker: CostTracker;
+  /** img2img model id; defaults to the building model (Qwen), same precedent
+   *  as flora reusing it so a seeded library's keys match. */
+  modelId?: string;
+}): {
+  enabled: () => boolean;
+  canSpend: () => boolean;
+  model: () => string;
+  backend: () => SpriteBackend;
+  onSpend: (usd: number) => void;
+} {
+  const modelId = deps.modelId ?? BUILDING_IMAGE_MODEL;
+  return {
+    enabled: deps.enabled,
+    canSpend: () => deps.costTracker.snapshot().sessionUsd < SESSION_CAP_USD,
+    model: () => modelId,
+    backend: () => {
+      const cfg = loadProviderConfig();
+      return createImg2ImgBackend({
+        model: modelId,
+        providers: {
+          openrouter: { apiKey: cfg.openrouterApiKey ?? '', baseUrl: openrouterImageBaseUrl(),
+            siteName: cfg.openrouterSiteName },
+          replicate: { baseUrl: replicateImageBaseUrl(), deliveryBaseUrl: replicateDeliveryBaseUrl() },
+        },
+      });
+    },
+    onSpend: (usd) => deps.costTracker.record({ cost: usd, cacheStatus: 'MISS' }),
   };
 }

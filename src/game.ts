@@ -28,7 +28,7 @@ import { getHydrologyResult } from '@/world/hydrology-store';
 // divine-actions functions now invoked via DivineActionsController
 import type { LLMClient } from "@/llm/llm-client";
 import type { ProviderConfig, ProviderType } from '@/llm/provider-factory';
-import { bootLlmClients, buildChatClient, buildCapableClient, paidArtGenOptions } from '@/game/llm-runtime';
+import { bootLlmClients, buildChatClient, buildCapableClient, paidArtGenOptions, paidNpcArtGenOptions } from '@/game/llm-runtime';
 import { CostTracker } from '@/llm/cost-tracker';
 import { mountSpendChip, type SpendChipHandle } from '@/ui/spend-chip';
 import { NpcAttentionStore } from '@/llm/npc-attention-store';
@@ -45,6 +45,7 @@ import { ParametricBuildingSource } from '@/render/parametric-building-source';
 import { ParametricBarrierSource } from '@/render/parametric-barrier-source';
 import { ParametricPlantSource } from '@/render/parametric-plant-source';
 import { GeneratedBuildingArtSource } from '@/render/generated-building-art-source';
+import { GeneratedNpcArtSource } from '@/render/generated-npc-art-source';
 import { GeneratedFloraArtSource } from '@/render/generated-flora-art-source';
 import { ClutterFloraArtSource } from '@/render/clutter-flora-art-source';
 import { FLORA_IMAGE_MODEL } from '@/assetgen/flora-image-prompt';
@@ -464,6 +465,16 @@ export class Game {
   // (paidArtGenOptions) — one wiring shared by both paid sources.
   private readonly generatedBuildingArtSource = new GeneratedBuildingArtSource(
     paidArtGenOptions({ enabled: () => this.liveBuildingArtEnabled, costTracker: this.costTracker }),
+  );
+  // G2 — the runtime NPC-sprite consumer (src/render/generated-npc-art-source.ts),
+  // wired the same OFF-by-default shape as building/flora art. Nothing on the
+  // frame path constructs an NpcArtRequest or calls warm() yet (see that
+  // module's header for exactly what's still missing and why) — this field
+  // exists so the source + its IndexedDB cache + the setting are real and
+  // testable ahead of the rendering-integration slice that will call them.
+  private liveNpcArtEnabled = false; // setting `liveNpcArt`, default OFF
+  private readonly generatedNpcArtSource = new GeneratedNpcArtSource(
+    paidNpcArtGenOptions({ enabled: () => this.liveNpcArtEnabled, costTracker: this.costTracker }),
   );
   // img2img flora sprites — same pipeline + gating as buildings, default OFF (the
   // `liveFloraArt` setting). With no key + an unseeded library it always misses and
