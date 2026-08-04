@@ -349,8 +349,20 @@ current shortlist (see `MEMORY.md` for status & next slices):
   2026-08-03:** the BVH importer (`src/render/paperdoll/bvh.ts`), rig clips
   reaching live NPCs for the first time (`pray-raise`/`idle-shift`), the
   provider-neutral sprite library, and `AssetProvider` becoming real dispatch.
-  *Next:* M2 studio validation, then the img2img NPC pipeline (G0–G2) with paid
-  generation OFF by default. Spec + plan:
+  **Wave 2 shipped 2026-08-04:** M2's studio + offline validation lanes, M4/M5
+  (chip skinning, the frontal forearm unlock, and `march` — the rig's first gait
+  LPC does not ship — live on moving soldiers), and all of Phase G: the
+  rig-frame img2img pipeline with its gates (`src/assetgen/npc-sprite-pipeline.ts`),
+  the author-time seeder (`scripts/seed-npc-art.ts`, `--plan` is free and there is
+  deliberately no `--go`), and the runtime source shipped **dark**
+  (`liveNpcArtEnabled = false`). **Nothing has been generated through it — every
+  gate constant is a first guess awaiting the first funded run**, and the seeder's
+  default target list is ONE sheet for that reason. *Next:* a funded pilot run
+  (needs an explicit spend decision), then the two things G2's header names as
+  genuinely unwired — deriving an `NpcSubject` description from a live
+  `CharacterSpec`, and landing a generated strip on a fresh-identity canvas in
+  `rigSheets`. Phase L (local SD backend) is a sketch by choice:
+  `docs/superpowers/plans/2026-08-04-npc-local-sd-backend-sketch.md`. Spec + plan:
   `docs/superpowers/{specs,plans}/2026-08-03-npc-animation-appearance-*.md`.
 - **Structure-mesh rendering** — render ground-anchored structural geometry
   (bridges + stairs first, walls/towers next) as real 3D meshes in a depth-tested
