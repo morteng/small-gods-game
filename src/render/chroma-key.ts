@@ -34,6 +34,18 @@ export function compositeOverChroma(d: Uint8ClampedArray): Uint8ClampedArray {
   return out;
 }
 
+/**
+ * Would the keyer touch this colour at all — full transparency or partial edge
+ * alpha? A building's palette never goes near magenta, so nothing asked before.
+ * An NPC's wardrobe does: a violet cloak is ordinary, and a pipeline that
+ * composites its own subject over chroma would key holes straight through it.
+ * Exported so a caller can test its INIT image and refuse before it spends,
+ * rather than paying for a repaint of a character with a hole in its coat.
+ */
+export function chromaWouldKey(r: number, g: number, b: number): boolean {
+  return Math.min(r, b) - g > T_EDGE;
+}
+
 /** Key magenta → alpha (with edge despill), mutating the RGBA buffer in place. */
 export function chromaKeyMagenta(d: Uint8ClampedArray): void {
   for (let i = 0; i < d.length; i += 4) {
