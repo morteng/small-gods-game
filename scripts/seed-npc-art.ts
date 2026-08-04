@@ -162,11 +162,29 @@ export function wardrobeLayerHash(): string {
 }
 
 /**
+ * The per-frame prompt builder for one target — what `NpcSheetJob.prompt`
+ * takes. Every clause is identical across the sheet EXCEPT the cycle sentence
+ * ("frame 4 of 7 in a single continuous animation cycle"), which is the only
+ * textual lever there is against per-frame drift on a backend that ignores the
+ * seed. Pure, so `--plan` and the paid run build the same strings.
+ */
+export function promptFor(target: NpcSeedTarget, frames: number): (frame: number) => string {
+  return (frame) => npcImagePrompt({
+    subject: target.subject,
+    clip: target.clip,
+    facing: target.facing,
+    model: NPC_IMAGE_MODEL,
+    frame,
+    frames,
+  });
+}
+
+/**
  * What `--plan` prints, per target: the library key, the derived seed, the
- * frame count, and the prompt for frame 0 — the ONE prompt the pipeline
- * actually sends for every frame of the sheet (`NpcSheetJob.prompt` is a
- * single string reused across the whole cycle; see the report on this in the
- * script's tail comment for why "frame 0" is the whole story, not a sample).
+ * frame count, and the prompt for frame 0. Frame 0 is a REPRESENTATIVE sample,
+ * not the whole story — every other frame's prompt differs only in its cycle
+ * sentence, which `promptFor` supplies and which the plan line names so nobody
+ * reads one prompt and assumes it is sent verbatim seven times.
  * Pure: no backend, no `SpriteBackend` import reachable from this function.
  */
 export function planLines(targets: readonly NpcSeedTarget[]): string[] {
@@ -180,16 +198,8 @@ export function planLines(targets: readonly NpcSeedTarget[]): string[] {
       continue;
     }
     const seed = npcSheetSeed(target.clip, layerSetHash);
-    const prompt = npcImagePrompt({
-      subject: target.subject,
-      clip: target.clip,
-      facing: target.facing,
-      model: NPC_IMAGE_MODEL,
-      frame: 0,
-      frames: clip.frames,
-    });
     lines.push(`${key}: seed ${seed} · ${clip.frames} frames · cell ${RIG_CELL}px`);
-    lines.push(`  prompt: ${prompt}`);
+    lines.push(`  prompt (frame 1 of ${clip.frames}; later frames differ only in that count): ${promptFor(target, clip.frames)(0)}`);
   }
   return lines;
 }
@@ -359,20 +369,21 @@ async function main(): Promise<void> {
       assign: DEFAULT_HUMANOID_LAYERS[i].assign,
     }));
     const frames = bakeClip(template, layers, clip);
-    const prompt = npcImagePrompt({
-      subject: target.subject,
-      clip: target.clip,
-      facing: target.facing,
-      model: NPC_IMAGE_MODEL,
-      frame: 0,
-      frames: frames.length,
-    });
 
     let result: NpcSheetResult | null;
+    // Spend is tallied through `onSpend`, not from `result.costUsd`: a sheet
+    // the gates refuse still cost whatever its billed attempts cost, and a
+    // total that quietly omits the failures is wrong in the one direction that
+    // matters to whoever is deciding whether to run this again.
+    let spent = 0;
     try {
       result = await generateNpcSheet(
-        { clip: target.clip, layerSetHash, prompt, frames },
-        { backend, decodeImage, encodeInit, onNote: (m) => console.log(m) },
+        { clip: target.clip, layerSetHash, prompt: promptFor(target, frames.length), frames },
+        {
+          backend, decodeImage, encodeInit,
+          onNote: (m) => console.log(m),
+          onSpend: (usd) => { spent += usd; total += usd; },
+        },
       );
     } catch (err) {
       // Fatal (spend limit / bad key): every later target would fail the same
@@ -389,15 +400,18 @@ async function main(): Promise<void> {
       continue;
     }
 
-    if (!result) { console.error(`${key}: FAILED — gates rejected every attempt, not seeded`); failed.push(key); continue; }
+    if (!result) {
+      console.error(`${key}: FAILED — gates rejected every attempt, not seeded ($${spent.toFixed(4)} spent anyway)`);
+      failed.push(key);
+      continue;
+    }
 
-    total += result.costUsd;
     await writeFile(join(OUT, `${safeName(key)}.png`), toPng(result.strip));
     manifest.entries[key] = buildManifestRow(target, key, result);
     await writeFile(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
     console.log(
       `${key}: seeded ${safeName(key)}.png (${result.frames.length} frames, shimmer ${result.shimmer.toFixed(4)}` +
-        `, IoU ${Math.min(...result.iou).toFixed(3)}–${Math.max(...result.iou).toFixed(3)}, $${result.costUsd.toFixed(4)})`,
+        `, IoU ${Math.min(...result.iou).toFixed(3)}–${Math.max(...result.iou).toFixed(3)}, $${spent.toFixed(4)})`,
     );
   }
 

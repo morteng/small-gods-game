@@ -325,8 +325,18 @@ export interface NpcSheetJob {
   /** Hash of the wardrobe layer set this sheet was baked from — the other half.
    *  The caller owns the hashing; it already has the spec. */
   layerSetHash: string;
-  /** What to paint. Built by the caller (G1/G2 own the prompt lore). */
-  prompt: string;
+  /**
+   * What to paint. Built by the caller (G1/G2 own the prompt lore).
+   *
+   * A FUNCTION when the prompt varies per frame, which for a cycle it should:
+   * `npcImagePrompt` takes `frame`/`frames` and states "frame 4 of 17 in a
+   * single continuous animation cycle", and that sentence is the only textual
+   * lever we have against per-frame drift on a backend that ignores the seed —
+   * which is every img2img editor we ship. A single string sent seventeen
+   * times can only ever claim to be frame 1, which is worse than saying
+   * nothing, because it is false about sixteen of them.
+   */
+  prompt: string | ((frame: number, frames: number) => string);
   negative?: string;
   /** Rig-baked cells, in play order, all the same size. */
   frames: readonly Raster[];
@@ -345,6 +355,17 @@ export interface NpcSheetDeps {
   /** Diagnostics. Every gate failure and every measured number arrives here;
    *  nothing is swallowed. */
   onNote?(msg: string): void;
+  /**
+   * Called after EVERY backend call that reported a cost, including calls on a
+   * sheet that is later refused.
+   *
+   * `NpcSheetResult.costUsd` cannot carry this, because a refused sheet has no
+   * result — and a refusal after two billed attempts per frame is precisely
+   * when a caller most needs to know what it just spent. A seeder tallying
+   * `result.costUsd` alone under-reports every failure, which is the wrong
+   * direction for a number a human uses to decide whether to keep going.
+   */
+  onSpend?(costUsd: number): void;
   signal?: AbortSignal;
 }
 
@@ -402,6 +423,7 @@ export function prepareFrame(frame: Raster): NpcFramePrep | string {
 async function attemptFrame(
   prep: NpcFramePrep,
   initDataUri: string,
+  prompt: string,
   job: NpcSheetJob,
   seed: number,
   deps: NpcSheetDeps,
@@ -414,7 +436,7 @@ async function attemptFrame(
   // get". Nothing is lost here, so nothing is reported.
   const sized = deps.backend.capabilities.size;
   const req: SpriteJob = {
-    prompt: job.prompt,
+    prompt,
     negative: job.negative,
     seed,
     init: { pngDataUri: initDataUri, denoise01: job.denoise01 },
@@ -424,7 +446,7 @@ async function attemptFrame(
   };
   acc.attempts++;
   const res = await deps.backend.generate(req);
-  acc.cost += res.costUsd ?? 0;
+  if (res.costUsd !== undefined) { acc.cost += res.costUsd; deps.onSpend?.(res.costUsd); }
   for (const f of res.ignored) acc.ignored.add(f);
 
   const raw = await deps.decodeImage(res.blob);
@@ -481,9 +503,10 @@ export async function generateNpcSheet(
     const initDataUri = await deps.encodeInit(prep.init);
     if (!initDataUri) throw new Error('no PNG encoder for the NPC init image');
 
+    const prompt = typeof job.prompt === 'string' ? job.prompt : job.prompt(i, job.frames.length);
     let got: { sprite: Raster; iou: number } | null = null;
     for (let n = 1; n <= NPC_MAX_FRAME_ATTEMPTS && !got; n++) {
-      const r = await attemptFrame(prep, initDataUri, job, seed, deps, acc);
+      const r = await attemptFrame(prep, initDataUri, prompt, job, seed, deps, acc);
       if (typeof r === 'string') note(`frame ${i} attempt ${n}: ${r}`);
       else got = r;
     }

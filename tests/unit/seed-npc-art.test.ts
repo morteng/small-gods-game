@@ -127,7 +127,7 @@ describe('planLines — --plan output, zero backend calls', () => {
       expect(header).toBeDefined();
       expect(header).toContain(`${clip?.frames} frames`);
       const promptLine = lines[lines.indexOf(header!) + 1];
-      expect(promptLine).toContain('prompt:');
+      expect(promptLine).toContain('prompt (frame 1 of');
       expect(promptLine).toContain(target.subject.name);
     }
   });

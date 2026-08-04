@@ -283,6 +283,26 @@ describe('npc-sprite pipeline — gates on what came back', () => {
     expect(notes.join('\n')).toMatch(/not reproducible/);
   });
 
+  it('builds a fresh prompt per frame, so a cycle sentence can be true of every frame', async () => {
+    const frames = [poseFrame(), poseFrame(), poseFrame()];
+    const { deps, backend } = depsReturning(frames.map(goodGeneration));
+    await generateNpcSheet(
+      { clip: 'march', layerSetHash: 'h', frames, prompt: (f, n) => `frame ${f + 1} of ${n}` }, deps,
+    );
+    expect(backend.calls.map((c) => c.prompt)).toEqual(['frame 1 of 3', 'frame 2 of 3', 'frame 3 of 3']);
+  });
+
+  it('reports spend even when the gates then refuse the sheet', async () => {
+    // Two billed attempts happened. A caller tallying result.costUsd alone
+    // would record a failed sheet as free.
+    const frames = [poseFrame()];
+    const { deps } = depsReturning([goodGeneration(driftedFrame()), goodGeneration(driftedFrame())]);
+    let spent = 0;
+    deps.onSpend = (usd) => { spent += usd; };
+    expect(await generateNpcSheet(job(frames), deps)).toBeNull();
+    expect(spent).toBeCloseTo(0.02, 6);
+  });
+
   it('does not report size as ignored by a backend that matches the init image', async () => {
     // An editor's output IS the init's size, so nothing the caller wanted was
     // lost — reporting it would make `ignored` mean nothing.
