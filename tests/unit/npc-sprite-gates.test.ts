@@ -177,6 +177,16 @@ describe('npc-sprite pipeline — refusals that happen BEFORE any spend', () => 
     expect(notes.join('\n')).toMatch(/chroma key colour/);
   });
 
+  it('tolerates a few colliding pixels, because registration repairs those', () => {
+    // One stray violet pixel out of ~960: the keyer punches a 1px hole, and
+    // registerAlbedo fills it straight back from the mask.
+    const f = poseFrame();
+    const o = (20 * CELL + 25) * 4;
+    f.data[o] = 190; f.data[o + 1] = 40; f.data[o + 2] = 200;
+    expect(chromaCollisionFraction(cropRaster(f, opaqueBBox(f)!))).toBeGreaterThan(0);
+    expect(typeof prepareFrame(f)).not.toBe('string');
+  });
+
   it('refuses an empty frame', () => {
     expect(prepareFrame({ data: new Uint8ClampedArray(CELL * CELL * 4), w: CELL, h: CELL }))
       .toMatch(/empty/);

@@ -42,7 +42,13 @@
  *    that separates subject from background does not know that this violet is
  *    a cloak and that one is the backdrop. Rather than punch a hole through a
  *    character and gate on the damage afterwards, `prepareFrame` refuses up
- *    front — before any spend — and names the colour collision.
+ *    front — before any spend — and names the colour collision. The threshold
+ *    is a FRACTION rather than zero for a reason worth knowing: a handful of
+ *    colliding pixels is harmless, because `registerAlbedo` forces alpha back
+ *    to the mask across the eroded core and the hole is filled with
+ *    neighbouring colour. It is a whole violet cloak that is fatal — it
+ *    destroys the silhouette the IoU gate measures. So the gate fires where
+ *    the damage stops being repairable, not where it first appears.
  *
  * What this module does NOT do, on purpose: no interior-tearing gate. That
  * instrument (`fragmentation` in `clip-measure.ts`) earned its place in M4
@@ -122,6 +128,11 @@ export const NPC_INIT_MARGIN_FRAC = 0.08;
 
 /** Absolute floor for that margin, in output pixels. */
 export const NPC_INIT_MARGIN_MIN_PX = 8;
+
+/** Largest fraction of a pose's opaque pixels that may share the key colour
+ *  before the frame is refused. Not zero — see limit 3 in the header: a few
+ *  colliding pixels are repaired by registration, a violet cloak is not. */
+export const NPC_MAX_CHROMA_COLLISION = 0.02;
 
 /** Attempts per FRAME before the sheet is abandoned. The model is
  *  nondeterministic, so one re-roll is worth its cost; a second is buying
@@ -371,8 +382,8 @@ export function prepareFrame(frame: Raster): NpcFramePrep | string {
   if (!bb) return 'the rig frame is empty — nothing to repaint';
   const mask = cropRaster(frame, bb);
   const collision = chromaCollisionFraction(mask);
-  if (collision > 0) {
-    return `${(collision * 100).toFixed(1)}% of the pose wears the chroma key colour, which the keyer would erase from the result`;
+  if (collision > NPC_MAX_CHROMA_COLLISION) {
+    return `${(collision * 100).toFixed(1)}% of the pose wears the chroma key colour (max ${(NPC_MAX_CHROMA_COLLISION * 100).toFixed(0)}%), which the keyer would erase from the result`;
   }
   const factor = upscaleFactorFor(mask.w, mask.h);
   const up = nearestUpscale(mask, factor);
