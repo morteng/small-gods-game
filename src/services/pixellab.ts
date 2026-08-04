@@ -20,7 +20,6 @@ import { getPixellabApiKey, setPixellabApiKey, clearPixellabApiKey } from './set
 import { cacheGet, cachePut, normalizeTags } from './sprite-library';
 
 const API_BASE = 'https://api.pixellab.ai/v2';
-const PALETTE_URL = assetUrl('sprites/palette/lpc-anchor.png');
 
 /**
  * Project-wide style recipe baked into every call. The palette swatch
@@ -36,7 +35,13 @@ let cachedPaletteB64: string | null = null;
 
 async function loadPaletteB64(): Promise<string> {
   if (cachedPaletteB64) return cachedPaletteB64;
-  const res = await fetch(PALETTE_URL);
+  // Resolved lazily, not at module scope: `assetUrl` reads Vite's
+  // `import.meta.env.BASE_URL`, which does not exist when this module is
+  // reached from a plain Node/tsx import graph (the author-time seeders route
+  // through `backend-registry.ts`, which imports this file for the PixelLab
+  // provider even when a run never selects it) — only the CALL was ever
+  // browser-only, not the import.
+  const res = await fetch(assetUrl('sprites/palette/lpc-anchor.png'));
   if (!res.ok) throw new Error(`palette swatch fetch failed: ${res.status}`);
   const buf = await res.arrayBuffer();
   cachedPaletteB64 = arrayBufferToBase64(buf);
