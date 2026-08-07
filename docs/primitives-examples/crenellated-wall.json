@@ -1,0 +1,15 @@
+{
+  "note": "A crenellated stone town-wall run — demonstrates the 'barrier' part exposing the linear.ts masonry cross-section (battered plinth, wall-walk, merlon/crenel parapet). kind:'wall' + crenellated:true + material:'stone'. NOTE: this defensive vocabulary was ALREADY authorable before the LLM-modeling epic (B4 re-scoped to 'already shipped, no geometry change'); it is included as a discoverable worked example of defensive construction.",
+  "blueprint": {
+    "version": 1,
+    "class": "building",
+    "footprint": { "w": 8, "h": 2 },
+    "parts": {
+      "wall1": {
+        "type": "barrier",
+        "at": { "x": 0, "y": 0 },
+        "params": { "kind": "wall", "lengthM": 16, "heightM": 4, "thicknessTiles": 1, "crenellated": true, "material": "stone" }
+      }
+    }
+  }
+}

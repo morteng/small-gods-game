@@ -58,6 +58,14 @@ in the generated catalogue below — that is your legal knob set.
   roof: \`thatch wood tile slate hide none\`; ground: \`flagstone dirt packed_dirt wood tile gravel\`.
 - **Masonry \`work\`** (on \`body\`/walls): \`coursed_rubble\`, \`ashlar\`, \`dry_stone\`, \`running\`
   brick, plaster finish — picked automatically from material, thickness and crenellation.
+- **Defensive / masonry construction is FIRST-CLASS and already authorable** — the
+  \`barrier\` part emits the same \`linear\` prim the world's walls use: \`kind:'wall'\`
+  (crenellated town wall / curtain), \`rampart\`, \`palisade\`, \`fence\`, \`barricade\`,
+  \`hedge\`, with \`lengthM/heightM/thicknessTiles/material\`, \`crenellated\` (merlon/crenel
+  parapet on the field edges), \`posts\` and an optional \`gateWidthM\` opening. \`body.parapet\`
+  puts a crenellated parapet on a building's flat roof. See
+  \`docs/primitives-examples/crenellated-wall.json\`. This vocabulary existed before the
+  LLM-modeling epic — no geometry was added for it.
 - **Lifecycle \`stage\`**: buildings run \`complete → fire_damaged → ruin → burnt → old_ruin\`;
   \`stage\` rides the resolve identity (its painter/validity check) — geometry compose still
   reflects the base massing. **Descriptors \`condition\`/a lowered \`quality\` are what believably
@@ -70,6 +78,7 @@ composes non-empty geometry — pinned by the sync test. Point a preview at any 
 
 \`\`\`
 npx tsx scripts/author-preview.ts docs/primitives-examples/cottage.json
+npx tsx scripts/author-preview.ts docs/primitives-examples/crenellated-wall.json
 npx tsx scripts/author-preview.ts docs/primitives-examples/townhouse.json --json
 \`\`\`
 

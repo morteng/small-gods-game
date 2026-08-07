@@ -133,6 +133,19 @@ Phases are ordered by dependency; each is independently shippable. B0 is the pay
 
 **Goldens/version:** YES per addition — this is the phase where the DR-7 contract is exercised for real.
 
+> **B4 disposition (decided 2026-08-07, implemented):** the plan's first candidate — a
+> wall/parapet part exposing `linear.ts` masonry cross-sections (talus/crenels) — was found
+> to be **ALREADY implemented**: `src/blueprint/parts/barrier.ts` is a registered part that
+> emits the `linear` prim with `kind:'wall'`/`rampart`/`palisade`/…, `crenellated`
+> (merlon/crenel parapet), `material` override, `lengthM/heightM/thicknessTiles`, optional
+> `gateWidthM`; and `body.parapet` puts a crenellated parapet on a flat roof. Adding it again
+> would have duplicated geometry and incurred `ART_RECIPE_VERSION`/golden churn for zero new
+> capability — against the plan's own YAGNI + keep-B4-small rules. **Decision: do NOT add new
+> geometry or bump audio/art versions; close B4 with documentation only.** Delivered: a
+> worked `docs/primitives-examples/crenellated-wall.json` example (auto-adopted by the
+> primitives-doc sync test) and a defensive-construction note in PRIMITIVES.md. This is the
+> explicit no-geometry closeout the review called for.
+
 ### Phase B5 — Policy + docs codification
 
 **Objective:** write the contract down where an agent will find it.
