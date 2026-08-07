@@ -138,6 +138,24 @@ export interface AuthorPreviewResult {
   rb?: ResolvedBlueprint;
 }
 
+/** Part types that signal a span-construction (a crossing an author should validate against
+ *  terrain). Note this deliberately EXCLUDES the defensive `barrier` wall class — a wall is
+ *  not a span. */
+const SPAN_PART_TYPES = new Set(['deck', 'arch_span', 'abutment', 'pier', 'railing']);
+
+/** Emit a single 'info' advisory when the resolved blueprint contains span-construction parts,
+ *  pointing the author at the terrain-aware span check. INFO only — never flips `ok`. */
+function buildSpanAdvisories(rb: ResolvedBlueprint): StructureAudit[] {
+  const present = (rb.parts ?? []).filter((p) => SPAN_PART_TYPES.has(p.type));
+  if (present.length === 0) return [];
+  const kinds = [...new Set(present.map((p) => p.type))].sort();
+  return [{
+    severity: 'info' as const,
+    code: 'span-validate',
+    message: `contains span-construction part(s): ${kinds.join('/')} — validate clear span vs its class envelope against real terrain with: npx tsx scripts/measure-structure-fit.ts <spec.json> x y`,
+  }];
+}
+
 export async function authorPreview(input: AuthorInput): Promise<AuthorPreviewResult> {
   const gate = authorBlueprint(input);
   const base: AuthorPreviewResult = { ok: gate.ok, summary: gate.summary, lints: gate.lints, merged: gate.lints };
@@ -146,7 +164,7 @@ export async function authorPreview(input: AuthorInput): Promise<AuthorPreviewRe
   const r = await composeStructure(spec, undefined, { ...(spec.yaw ? { yaw: spec.yaw } : {}) });
   // Structure-stage audit (B1): structure ERRORS fail the preview exactly like lint errors,
   // so the merged summary + `ok` reflect BOTH stages — an agent branches on the same ok flag.
-  const audits = await auditStructure(spec, gate.rb, r);
+  const audits = [...(await auditStructure(spec, gate.rb, r)), ...buildSpanAdvisories(gate.rb)];
   const rank: Record<string, number> = { error: 0, warn: 1, info: 2 };
   const merged = [...gate.lints, ...audits].sort((a, b) => rank[a.severity] - rank[b.severity]);
   const ok = audits.every((a) => a.severity !== 'error');

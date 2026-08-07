@@ -63,6 +63,45 @@ describe('authorPreview diagnostics', () => {
     // exercised via a composed result below for shape stability.
     expect(typeof buildStats).toBe('function');
   });
+
+  it('emits a span-validate info advisory for bridge/span parts but stays ok (exit 0)', async () => {
+    const input: AuthorInput = {
+      blueprint: {
+        version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 8, h: 2 },
+        materials: { walls: 'stone', roof: 'none' },
+        parts: {
+          deck1: { type: 'deck', at: { x: 0, y: 0 } },
+          arch1: { type: 'arch_span', at: { x: 0, y: 0 } },
+        },
+      },
+    };
+    const res = await authorPreview(input);
+    // Info advisory only — it must NOT flip the gate.
+    expect(res.ok).toBe(true);
+    const adv = (res.merged ?? []).find((l) => l.code === 'span-validate');
+    expect(adv).toBeDefined();
+    expect(adv!.severity).toBe('info');
+    expect(adv!.message).toMatch(/span-construction part\(s\): arch_span\/deck/);
+  });
+
+  it('does NOT emit a span-validate advisory for a defensive barrier wall (not a span)', async () => {
+    const input: AuthorInput = {
+      blueprint: {
+        version: BLUEPRINT_VERSION, class: 'building', footprint: { w: 8, h: 1 },
+        materials: { walls: 'stone' },
+        parts: {
+          wall1: {
+            type: 'barrier', at: { x: 0, y: 0 },
+            params: { kind: 'wall', lengthM: 16, heightM: 4, crenellated: true, material: 'stone' },
+          },
+        },
+      },
+    };
+    const res = await authorPreview(input);
+    expect(res.ok).toBe(true);
+    const adv = (res.merged ?? []).find((l) => l.code === 'span-validate');
+    expect(adv).toBeUndefined();
+  });
 });
 
 describe('authorPreview gate exit-code semantics (runAuthorPreview)', () => {

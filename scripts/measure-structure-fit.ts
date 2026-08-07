@@ -19,11 +19,16 @@
 //     wrong" — it means the sampled world has nothing realised near that tile.
 //
 // Run:
-//   npx tsx scripts/measure-structure-fit.ts spec.json x y [--seed N] [--json]
+//   npx tsx scripts/measure-structure-fit.ts spec.json x y [--seed N] [--json] [--class arch|deck|timber|stone]
 //     spec.json           AuthorInput spec (preset name or Blueprint) — same loader as author-preview
 //     x y                 target tile (integers)
 //     --seed <N>          deterministic world seed (default 12345)
 //     --json              machine-parseable JSON only
+//     --class <cls>       bridge superstructure class for the span check (overrides the
+//                         blueprint-inferred one; default: arch if arch_span, else deck,
+//                         timber, stone — see inferBridgeClass)
+//   The span/validity report (clear span vs the class envelope + a sag proxy) is printed
+//   alongside clearance/slope. It is INFORMATIONAL — never changes the exit code.
 //   Exit codes: 0 = measured; 1 = spec rejected by the authoring gate (actionable report);
 //   2 = usage/bad input. Deterministic for a fixed spec + seed.
 import { readFileSync } from 'node:fs';
@@ -36,6 +41,8 @@ import type { World } from '../src/world/world';
 import type { WorldSeed } from '../src/core/types';
 import { authorPreview } from './author-preview';
 import { measureStructureFit, type StructureFitReport } from './lib/measure-structure-fit';
+import { checkSpan, BRIDGE_CLASSES, type BridgeClass, type SpanReport } from './lib/structure-validity';
+import type { ResolvedBlueprint } from '../src/blueprint/types';
 
 const DEFAULT_SEED = 12345;
 
@@ -48,6 +55,25 @@ export interface OcclusionProbe {
 }
 
 /** Probe for placed buildings near the footprint via the clean world.query tag index. */
+/** Infer a bridge superstructure class from the resolved blueprint: an arch_span part ⇒
+ *  'arch', a deck part ⇒ 'deck', a timber-ish walls material ⇒ 'timber', else 'stone'. */
+function inferBridgeClass(rb: ResolvedBlueprint): BridgeClass {
+  const types = new Set((rb.parts ?? []).map((p) => p.type));
+  if (types.has('arch_span')) return 'arch';
+  if (types.has('deck')) return 'deck';
+  const walls = rb.materials?.walls ?? '';
+  if (walls === 'timber' || walls === 'log' || walls === 'wattle') return 'timber';
+  return 'stone';
+}
+
+function isBridgeClass(v: string | undefined): v is BridgeClass {
+  return BRIDGE_CLASSES.includes(v as BridgeClass);
+}
+
+function spanLine(span: SpanReport): string {
+  return `span: clear ${span.clearSpanM.toFixed(1)}m vs ${span.cls} max ${span.maxSpanM}m  ratio ${span.ratio.toFixed(2)}  ${span.status}${span.suggested ? ` → ${span.suggested}` : ''}`;
+}
+
 function probeOcclusion(world: World, ox: number, oy: number, w: number, h: number, width: number, height: number, margin = 2): OcclusionProbe {
   const rx = Math.max(0, Math.min(width - 1, ox - margin));
   const ry = Math.max(0, Math.min(height - 1, oy - margin));
@@ -110,7 +136,7 @@ export async function runMeasure(argv: string[]): Promise<number> {
   const x = Number(positional[1]);
   const y = Number(positional[2]);
   if (!specPath || !Number.isFinite(x) || !Number.isFinite(y)) {
-    console.error('usage: measure-structure-fit.ts <spec.json> <x> <y> [--seed N] [--json]');
+    console.error('usage: measure-structure-fit.ts <spec.json> <x> <y> [--seed N] [--json] [--class arch|deck|timber|stone]');
     return 2;
   }
   const seedIdx = argv.indexOf('--seed');
@@ -149,6 +175,12 @@ export async function runMeasure(argv: string[]): Promise<number> {
   const place = { x: Math.floor(x), y: Math.floor(y) };
   const report = measureStructureFit(place, footprint, terrain);
 
+  // Analytic span/validity (ASCE crossover slice): class from the blueprint, `--class` override.
+  const classIdx = argv.indexOf('--class');
+  const classFlag = classIdx >= 0 ? argv[classIdx + 1] : undefined;
+  const cls: BridgeClass = isBridgeClass(classFlag) ? classFlag : inferBridgeClass(res.rb);
+  const span = checkSpan(place, report.footprint, terrain, cls);
+
   const anchors = (res.composed.anchors.tags ?? []).map((a) => ({
     kind: a.kind, z: a.z, nx: a.x, ny: a.y,
   }));
@@ -156,11 +188,19 @@ export async function runMeasure(argv: string[]): Promise<number> {
   const occ = probeOcclusion(world, place.x, place.y, report.footprint.w, report.footprint.h, laidOut.size.width, laidOut.size.height);
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, seed, place: report.origin, ...reportToJson(report), sockets: anchors, occlusion: occ }, null, 2));
+    console.log(JSON.stringify({ ok: true, seed, place: report.origin, ...reportToJson(report), span: spanToJson(span), sockets: anchors, occlusion: occ }, null, 2));
   } else {
     console.log(`seed ${seed}: ${formatText(place, report, anchors, occ, terrain)}`);
+    console.log(`  ${spanLine(span)}  (${span.msg})`);
   }
   return 0;
+}
+
+function spanToJson(span: SpanReport): Record<string, unknown> {
+  return {
+    cls: span.cls, clearSpanM: span.clearSpanM, maxSpanM: span.maxSpanM,
+    ratio: span.ratio, status: span.status, suggested: span.suggested, msg: span.msg,
+  };
 }
 
 function reportToJson(r: StructureFitReport): Record<string, unknown> {

@@ -65,6 +65,13 @@ Deterministic for a fixed spec + seed. Same exit-code contract (0 measured / 1 s
 by the gate / 2 usage). Occlusion only reflects building entities the sampled world has
 realised (a settled/snapshot world, not the light terrain-only default).
 
+Prints an INFORMATIONAL **span report** beside clearance/slope: the clear span across the
+footprint vs the class envelope (deck/arch/timber/stone — `--class` overrides the blueprint
+inference) plus a cheap sag proxy — an ASCE Bridge Designer crossover, so an author sees
+whether a crossing reads as an *engineered span* or a *lintel in the void*. Span is advisory
+only and never changes the exit code. Spec:
+`docs/superpowers/specs/2026-08-07-structure-validity-authoring-spec.md`.
+
 ## Preview ≠ in-game truth
 
 The previews are headless `composeStructure` renders — deterministic and correct for
