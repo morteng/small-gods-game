@@ -88,6 +88,7 @@ import { composeHallView } from '@/game/hall-view';
 import { encodeWorldCode, decodeWorldCode } from '@/game/world-code';
 import { firstRunTidings, FIRST_RUN_TIDING_HORIZON_TICKS } from '@/game/first-run-tidings';
 import { originProfileFor, DEFAULT_ORIGIN, type OriginProfile } from '@/game/origin-profile';
+import { newGameSeed } from '@/game/new-game-seed';
 import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
 import { setUiScaleMultiplier } from '@/render/ui/ui-tokens';
@@ -3259,9 +3260,17 @@ export class Game {
     this.persistence?.destroy();
     if (!opts.demo) await clearSave();
     if (this.state.map) await this.returnToTitle();
+    // A NEW GAME with NO explicit seed ROLLS one. This "which world" choice is
+    // deliberately nondeterministic (see `new-game-seed.ts`) — it is the whole
+    // point of New Game: a fresh random run, never the pinned demo. Once rolled
+    // it becomes the world's genSeed and is persisted, so the sim stays fully
+    // deterministic/replayable FROM that seed. DEMO and pasted/URL seeds pass
+    // their own explicit seed (or stay pinned) and never reach this roll.
+    const genSeed = opts.genSeed !== undefined ? opts.genSeed
+      : !opts.demo && !opts.genome ? newGameSeed() : undefined;
     await this.startWorld({
       fresh: true,
-      ...(opts.genSeed !== undefined ? { genSeed: opts.genSeed } : {}),
+      ...(genSeed !== undefined ? { genSeed } : {}),
       ...(opts.genome !== undefined ? { genome: opts.genome } : {}),
       // The Demo World is the pinned default world with autosave suppressed —
       // it must never write over the player's real save.

@@ -383,9 +383,27 @@ current shortlist (see `MEMORY.md` for status & next slices):
   (`scripts/measure-structure-fit.ts`), and the golden/version commit contract. **No
   geometry was added** — the masonry wall/parapet/crenellation vocab was already
   authorable (`barrier` part + `body.parapet`), so no `ART_RECIPE_VERSION` bump. **$0.**
-  *Deferred:* an MCP/dev meta-verb wrapping measurement (verb names are API — pending
+  *Deferred:* an MCP/dev meta-verb wrapping measurement (verb names are API - pending
   product sign-off).
-- **Terrain+Water shader system** — one per-cell field → texturing + water +
+- **New Game origin & onboarding** - the fresh-run entry re-conceived as **New Game** (a
+  run, not a map) with a **god's-origin** first session. **Phase 1 shipped:** the
+  game-vs-world terminology contract: title NEW WORLD->NEW GAME, LOAD WORLD->LOAD GAME,
+  DEMO WORLD->DEMO; pause-menu NEW WORLD->NEW GAME; `new_game`/`load_slot` describe prose
+  -> "begin a new game"/"load the saved game". Verb NAMES kept (external agent API, renaming
+  is breaking); "world" kept only for the map/technical sense (COPY WORLD CODE). **Phase 2
+  shipped:** first-run tidings re-authored as the player's origin story - the player
+  "Boltzmanns into existence" because one primitive mind half-believes in a simple spirit,
+  and domain/vocabulary is defined by that believer (`src/game/first-run-tidings.ts`).
+  **Origin variety shipped:** `src/game/origin-profile.ts` derives a per-run origin
+  (water/forest/stone/bog/dry/meadow place + a named founding first-mind + prose variant)
+  from the seeded world - same world code, same opening; different codes differ. `$0`,
+  no sim/worldgen change, sim-truth guarded (only storm/flood are real domains, so only a
+  water place gestures at a water spirit - and never as a claimed power). *Deferred, gated
+  (DR-6):* planned **Phase 3 single-believer intro mode** - a lone believer by a stream,
+  rivals + statistical cohorts deferred until "first crystallization" matures the god into
+  a clan (threads an intro flag through `startWorld`/`bootstrapWorld` + a deferred-seeding
+  determinism pin); and any NEW domain/power (fire/sky/...) = a new `BeliefDomain` +
+  capability + `DOMAIN_DEFS` entry (product sign-off + version/golden review). — one per-cell field → texturing + water +
   scatter; zoom-LOD; pixel-perfect snap (also kills jerky-zoom). *Spec, no code.*
 - **Render-perf engine pass** — attack the overview fill-bound regime (deeper px
   ladder + half-res water target + bake fbm noise to a tiling texture), kill
