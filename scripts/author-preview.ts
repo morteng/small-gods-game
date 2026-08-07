@@ -30,6 +30,7 @@ import { composeStructure, type StructureResult } from '../src/assetgen/compose'
 import { toGeometry } from '../src/blueprint/compile/to-geometry';
 import { authorBlueprint, type AuthorInput } from '../src/blueprint/authoring';
 import { summarizeLint, type BlueprintLint } from '../src/blueprint/lint';
+import { auditStructure, type StructureAudit } from '../src/blueprint/audit-structure';
 import { formatCatalogue } from '../src/blueprint/describe-registry';
 import { ensureBuildingTypesRegistered } from '../src/blueprint/register-buildings';
 import { renderBlueprintMontage } from '../src/assetgen/blueprint-montage';
@@ -124,6 +125,11 @@ export interface AuthorPreviewResult {
   ok: boolean;
   summary: string;
   lints: BlueprintLint[];
+  /** Structure-stage audits (Phase B1), present when the spec composed. Mirrors BlueprintLint. */
+  audits?: StructureAudit[];
+  /** The single merged, severity-ordered report (blueprint lint + structure audit) that
+   *  `ok` / `summary` now reflect. Present on every (ok or rejected) result. */
+  merged?: Array<BlueprintLint | StructureAudit>;
   stats?: AuthorPreviewStats;
   /** Rendered grey (albedo) PNG bytes — deterministic for a given spec. */
   greyPng?: Buffer;
@@ -134,14 +140,22 @@ export interface AuthorPreviewResult {
 
 export async function authorPreview(input: AuthorInput): Promise<AuthorPreviewResult> {
   const gate = authorBlueprint(input);
-  const base: AuthorPreviewResult = { ok: gate.ok, summary: gate.summary, lints: gate.lints };
+  const base: AuthorPreviewResult = { ok: gate.ok, summary: gate.summary, lints: gate.lints, merged: gate.lints };
   if (!gate.ok || !gate.rb) return base;
   const spec = toGeometry(gate.rb);
   const r = await composeStructure(spec, undefined, { ...(spec.yaw ? { yaw: spec.yaw } : {}) });
+  // Structure-stage audit (B1): structure ERRORS fail the preview exactly like lint errors,
+  // so the merged summary + `ok` reflect BOTH stages — an agent branches on the same ok flag.
+  const audits = await auditStructure(spec, gate.rb, r);
+  const rank: Record<string, number> = { error: 0, warn: 1, info: 2 };
+  const merged = [...gate.lints, ...audits].sort((a, b) => rank[a.severity] - rank[b.severity]);
+  const ok = audits.every((a) => a.severity !== 'error');
   return {
-    ok: true,
-    summary: gate.summary,
+    ok,
+    summary: summarizeLint(merged),
     lints: gate.lints,
+    audits,
+    merged,
     stats: buildStats(r),
     greyPng: toPng(r.grey, r.size),
     composed: r,
@@ -149,12 +163,12 @@ export async function authorPreview(input: AuthorInput): Promise<AuthorPreviewRe
   };
 }
 
-/** Print a lint report (mirrors building-preview's printLint). */
-function printLint(rb: ResolvedBlueprint, lints: BlueprintLint[]): void {
-  console.log(`lint: ${summarizeLint(lints)}`);
-  for (const l of lints) {
+/** Print a merged (blueprint lint + structure audit) report, severity-tagged. */
+function printAudits(items: Array<BlueprintLint | StructureAudit>): void {
+  for (const l of items) {
     const tag = l.severity === 'error' ? 'ERR ' : l.severity === 'warn' ? 'warn' : 'note';
-    console.log(`    [${tag}] ${l.code}: ${l.message}`);
+    const where = [l.part, l.feature].filter(Boolean).join('/');
+    console.log(`    [${tag}] ${l.code}${where ? ` (${where})` : ''}: ${l.message}`);
   }
 }
 
@@ -211,15 +225,18 @@ export async function runAuthorPreview(argv: string[]): Promise<number> {
 
   const res = await authorPreview(input);
   if (!res.ok || !res.stats) {
-    // Gate rejection — actionable lint, non-zero exit so an agent loop can branch.
-    console.error(`author-preview: gate rejected — ${res.summary}`);
-    for (const l of res.lints) console.error(`  [${l.severity}] ${l.code}: ${l.message}`);
+    // Gate rejection (blueprint OR structure) — actionable report, non-zero exit for a loop.
+    console.error(`author-preview: rejected — ${res.summary}`);
+    printAudits(res.merged ?? res.lints);
     return 1;
   }
 
   const base = specPath.replace(/\.json$/i, '').split('/').pop() ?? 'spec';
   mkdirSync(OUT, { recursive: true });
-  if (res.rb && res.lints.length) printLint(res.rb, res.lints);
+  if (!json && res.merged && res.merged.length) {
+    console.log(`merged audit: ${res.summary}`);
+    printAudits(res.merged);
+  }
   if (res.composed) writeFileSync(join(OUT, `${base}-${map}.png`), toPng(pick(res.composed, map), res.composed.size));
   if (wantMontage && res.rb) {
     const m = await renderBlueprintMontage(res.rb);
@@ -228,7 +245,11 @@ export async function runAuthorPreview(argv: string[]): Promise<number> {
   }
 
   if (json) {
-    console.log(JSON.stringify({ ok: true, summary: res.summary, ...res.stats }, null, 2));
+    console.log(JSON.stringify({
+      ok: true, summary: res.summary,
+      lint: summarizeLint(res.lints), audits: res.audits ?? [],
+      ...res.stats,
+    }, null, 2));
   } else {
     console.log(`ok: ${res.summary}`);
     console.log(formatStats(res.stats));
