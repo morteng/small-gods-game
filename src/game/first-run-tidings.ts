@@ -14,10 +14,13 @@
 // honest best-effort every other auto-expiring tiding already settles for
 // (nobody guarantees the player actually opened the inbox tray).
 //
-// Pure + deterministic, no RNG: there is genuinely nothing random to seed.
+// Pure + deterministic, no Math.random: the opening's per-run variety is seeded
+// by `originProfileFor` (src/game/origin-profile.ts) from the world's substrate
+// seed + identity — same seed ⇒ same opening, replay-safe.
 
 import type { InboxItem } from '@/game/game-query';
 import { TICKS_PER_HOUR } from '@/core/calendar';
+import { DEFAULT_ORIGIN, type OriginProfile } from '@/game/origin-profile';
 
 /** How long these stay available to a fresh world before falling out of the
  *  inbox on their own — the SAME "auto-expire, no stored per-item state"
@@ -33,24 +36,38 @@ interface FirstRunStep {
 }
 
 /**
- * Ported from `tutorial.ts`'s `STEPS` — content only, re-authored (Phase 2 of the
- * "New Game" epic) as the player's ORIGIN STORY: the player does not start as a
- * formed god but "Boltzmanns into existence" because one primitive mind half-
- * believes in a simple spirit (here, a spirit of the running water). The player's
- * DOMAIN and VOCABULARY are defined by the believer, not chosen — which is the
- * game's own divine-inbox law ("a god's vocabulary = what its believers think it
- * can do"). The dev-mode step (backquote → debug HUD) is deliberately DROPPED: the
- * shipped game stays clean of dev overlays (CLAUDE.md, dev-tools-in-studios-not-game),
- * so onboarding a new player toward a debug toggle would contradict that rule.
+ * Compose the step list for a given ORIGIN PROFILE (per-run variety). Only the
+ * steps that NAME the born-from place or the first mind vary with the profile;
+ * the mechanical steps (time, the wider hand) and the closing wish are constant.
+ *
+ * SIM-TRUTH GUARD: the sim's only real domains are storm/flood (smite/
+ * summon_storm). So only a water place dares gesture at "a spirit of the water",
+ * and even that stays a half-belief — never a claimed storm. Forest/stone/bog/dry
+ * or meadow places say "a spirit of that place" and promise no power the sim cannot
+ * grant (see origin-profile.ts). The dev-mode step (backquote → debug HUD) is
+ * deliberately DROPPED: the shipped game stays clean of dev overlays (CLAUDE.md,
+ * dev-tools-in-studios-not-game).
  */
-const STEPS: readonly FirstRunStep[] = [
-  { id: 'welcome', title: 'Into existence', detail: 'You are not a born god. Somewhere, a mind half-believes in a spirit of the running water, and that faint belief is what lets you be. Belief made you; belief sustains you.' },
-  { id: 'domain', title: 'What they believe, you become', detail: 'Your power is not chosen. It is reflected: whatever your believers think you can do is the vocabulary you can actually speak. One sincere mind is enough to give you shape.' },
-  { id: 'time', title: 'Time controls', detail: 'Press T to open the time bar. 1, 2, 4, 8 change speed; Space pauses.' },
-  { id: 'npc-interact', title: 'Find your first mind', detail: 'Click a soul to see them. Whisper, omen and the other divine actions reach them from there. Someone near the water is already half-listening.' },
-  { id: 'right-click', title: 'The wider hand', detail: 'Right-click a tile to act on the place itself: a pool, a bank, a bend in the stream. Not every miracle needs a soul to hold it.' },
-  { id: 'ready', title: 'You are ready', detail: 'Your first belief is your creation. Nurture it and it becomes a congregation. Good luck, young spirit.' },
-];
+function buildSteps(origin: OriginProfile): FirstRunStep[] {
+  const waterClause = origin.flavor === 'water' ? 'a spirit of the water' : 'a spirit of that place';
+  return [
+    {
+      id: 'welcome', title: 'Into existence',
+      detail: `You are not a born god. Somewhere ${origin.place}, a mind half-believes in ${waterClause}, and that faint belief is what lets you be. Belief made you; belief sustains you.`,
+    },
+    {
+      id: 'domain', title: 'What they believe, you become',
+      detail: 'Your power is not chosen. It is reflected: whatever your believers think you can do is the vocabulary you can actually speak. One sincere mind is enough to give you shape.',
+    },
+    { id: 'time', title: 'Time controls', detail: 'Press T to open the time bar. 1, 2, 4, 8 change speed; Space pauses.' },
+    {
+      id: 'npc-interact', title: 'Find your first mind',
+      detail: `Click a soul to see them. Whisper, omen and the other divine actions reach them from there. ${origin.firstMind} is already half-listening.`,
+    },
+    { id: 'right-click', title: 'The wider hand', detail: 'Right-click a tile to act on the place itself: the ground, the water, the open land. Not every miracle needs a soul to hold it.' },
+    { id: 'ready', title: 'You are ready', detail: 'Your first belief is your creation. Nurture it and it becomes a congregation. Good luck, young spirit.' },
+  ];
+}
 
 /**
  * The first-run sequence as inbox items, or `[]` once `now` has moved past
@@ -61,9 +78,9 @@ const STEPS: readonly FirstRunStep[] = [
  * never outrank a real prayer or threat, only sort sensibly against itself
  * (WELCOME first, without needing Fate's surfacing machinery).
  */
-export function firstRunTidings(now: number): InboxItem[] {
+export function firstRunTidings(now: number, origin: OriginProfile = DEFAULT_ORIGIN): InboxItem[] {
   if (now >= FIRST_RUN_TIDING_HORIZON_TICKS) return [];
-  return STEPS.map((step, i): InboxItem => ({
+  return buildSteps(origin).map((step, i): InboxItem => ({
     id: `firstrun:${step.id}`,
     kind: 'tiding',
     title: step.title,

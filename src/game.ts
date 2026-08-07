@@ -87,6 +87,7 @@ import type { HallAction, HallView } from '@/render/ui/shell/hall-screen';
 import { composeHallView } from '@/game/hall-view';
 import { encodeWorldCode, decodeWorldCode } from '@/game/world-code';
 import { firstRunTidings, FIRST_RUN_TIDING_HORIZON_TICKS } from '@/game/first-run-tidings';
+import { originProfileFor, DEFAULT_ORIGIN, type OriginProfile } from '@/game/origin-profile';
 import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
 import { setUiScaleMultiplier } from '@/render/ui/ui-tokens';
@@ -2054,11 +2055,22 @@ export class Game {
       powers: this.query.beliefPowers(),
       inbox: [
         ...this.query.divineInbox(),
-        ...(this.firstRunTidingsOver(simNow) ? [] : firstRunTidings(simNow)),
+        ...(this.firstRunTidingsOver(simNow) ? [] : firstRunTidings(simNow, this.originProfile())),
       ],
     };
     this.hudSimCache = fresh;
     return fresh;
+  }
+
+  /** The per-run origin profile (place + first mind for the opening tidings),
+   *  derived deterministically from the generated world. Falls back to the safe
+   *  default when there is no world. Cheap (a small ring scan + a POI pick);
+   *  recomputed only when the hudSim memo recomputes. */
+  private originProfile(): OriginProfile {
+    const map = this.state.map;
+    const ws = this.state.worldSeed;
+    if (!map || !ws) return DEFAULT_ORIGIN;
+    return originProfileFor(map, ws);
   }
 
   /** Has the first-run tiding window closed? `firstRunSeen` flips PERMANENTLY once the

@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { firstRunTidings, FIRST_RUN_TIDING_HORIZON_TICKS } from '@/game/first-run-tidings';
 import { supportedGlyphs } from '@/render/ui/text/pixel-font';
+import { DEFAULT_ORIGIN, type OriginProfile } from '@/game/origin-profile';
+
+/** A water-flavoured origin (the classic "spirit of the running water" opening). */
+const WATER_ORIGIN: OriginProfile = {
+  flavor: 'water', place: 'beside the running water', firstMind: 'Bram', variant: 0,
+};
+/** A bog-flavoured origin — must NOT promise any water/storm power. */
+const BOG_ORIGIN: OriginProfile = {
+  flavor: 'bog', place: 'in the mists of the marsh', firstMind: 'Mira', variant: 0,
+};
 
 describe('first-run tidings', () => {
   it('offers a non-empty sequence at world start (tick 0)', () => {
@@ -44,19 +54,61 @@ describe('first-run tidings', () => {
     // The first step is the Boltzmann origin, not a generic "a minor deity" opener.
     expect(titles[0]).toMatch(/Into existence/);
     expect(items.some(i => i.title === 'A minor deity')).toBe(false);
-    // The domain/identity step appears, with the water-spirit belief named.
+    // The domain/identity step appears (a god's powers = what believers think it can do).
     expect(items.some(i => i.id === 'firstrun:domain')).toBe(true);
-    expect(items.some(i => /water/i.test(i.detail))).toBe(true);
     // The old straight-apostrophe "You're ready" title is gone (ASCII-only law).
     expect(titles.some(t => /^You.re ready$/.test(t))).toBe(false);
   });
 
+  it('composes the born-from PLACE from the origin profile (water vs bog)', () => {
+    const water = firstRunTidings(0, WATER_ORIGIN);
+    const waterWelcome = water.find(i => i.id === 'firstrun:welcome')!.detail;
+    expect(waterWelcome).toMatch(/beside the running water/);
+    expect(waterWelcome).toMatch(/a spirit of the water/i);
+    // The bog place reads as its own marsh, not the water-stream.
+    const bog = firstRunTidings(0, BOG_ORIGIN);
+    const bogWelcome = bog.find(i => i.id === 'firstrun:welcome')!.detail;
+    expect(bogWelcome).toMatch(/in the mists of the marsh/);
+    // Non-water places must NOT claim a water spirit — the sim has no such power
+    // for them (SIM-TRUTH guard).
+    expect(bogWelcome).toMatch(/a spirit of that place/i);
+    expect(bogWelcome).not.toMatch(/a spirit of the water/i);
+    expect(waterWelcome).not.toMatch(/a spirit of that place/i);
+  });
+
+  it('names the first mind and never promises a non-existent power', () => {
+    const bog = firstRunTidings(0, BOG_ORIGIN);
+    const npc = bog.find(i => i.id === 'firstrun:npc-interact')!.detail;
+    expect(npc).toMatch(/Mira is already half-listening/);
+    // No bog opening may gesture at storm/summon/flood/wave — only water may, and
+    // even then only as a half-belief. Assert no granted-power language anywhere
+    // in a non-water profile.
+    const all = bog.map(i => (i.title + ' ' + i.detail).toLowerCase()).join(' ');
+    for (const word of ['smite', 'summon', 'storm', 'flood', 'wave', 'command the rain', 'command the rains']) {
+      expect(all).not.toContain(word);
+    }
+  });
+
+  it('permits only the potential "may" tense for the water place, never a held power', () => {
+    // The water opening may gesture at water — but only as a half-belief, never
+    // "you command the storms". Our prose stays within that guard.
+    const water = firstRunTidings(0, WATER_ORIGIN).map(i => (i.title + ' ' + i.detail).toLowerCase()).join(' ');
+    expect(water).not.toMatch(/command(s)? the (storm|rain|flood)/);
+    expect(water).not.toContain('smite');
+    expect(water).not.toContain('summon');
+  });
+
   it('every glyph in the ported prose is in the pixel font (ASCII-only law for dynamic text)', () => {
     const glyphs = supportedGlyphs();
-    for (const item of firstRunTidings(0)) {
-      for (const ch of (item.title + item.detail).toUpperCase()) {
-        if (ch === ' ') continue;
-        expect(glyphs.has(ch), `"${ch}" in "${item.title}" / "${item.detail}"`).toBe(true);
+    // Check the variety-composed prose too, not just the default profile — the
+    // place locatives and first-mind names must all be glyph-safe at runtime.
+    const profiles = [DEFAULT_ORIGIN, WATER_ORIGIN, BOG_ORIGIN];
+    for (const origin of profiles) {
+      for (const item of firstRunTidings(0, origin)) {
+        for (const ch of (item.title + item.detail).toUpperCase()) {
+          if (ch === ' ') continue;
+          expect(glyphs.has(ch), `"${ch}" in "${item.title}" / "${item.detail}"`).toBe(true);
+        }
       }
     }
   });
