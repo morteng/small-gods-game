@@ -63,3 +63,6 @@ reference-library/
 
 # Claude Code live session memory (symlinked from ~/.claude cache, never commit)
 MEMORY.md
+
+# subagent run artifacts (transient, not part of the repo)
+.pi-subagents/
