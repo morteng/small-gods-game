@@ -14,11 +14,11 @@
 // Canonical ids: file stem, lowercase (e.g. "default"). Codes, URLs and New
 // Game carry these ids; the human display name (`WorldSeed.name`) is separate.
 
-/** Canonical ids of the playable worlds. The code is `$0` and currently ships
- *  exactly one (the pinned default); RANDOM with a single entry is identical to
- *  today, which is EXPECTED — the variety lands as more worlds are authored
- *  (each id added here + a JSON under `public/data/worlds/`). */
-export const PLAYABLE_WORLD_NAMES: readonly string[] = ['default'];
+/** Canonical ids of the playable worlds. The seeded `default` is always the
+ *  first (DEMO + fallback); `dawn` and `frost` are authored B1 worlds. RANDOM
+ *  picks among these via `pickPlayableWorld()`; a pasted world code resolves
+ *  through `resolvePlayableWorld`. */
+export const PLAYABLE_WORLD_NAMES: readonly string[] = ['default', 'dawn', 'frost'];
 
 /**
  * Normalise an arbitrary token (a code's `worldSeedName`, a url, a display

@@ -11,8 +11,8 @@ describe('content-version constants', () => {
     expect(NPC_ART_RECIPE_VERSION).toBe('n1');
   });
 
-  it('declares the current world content version (118: road-grade stairs now measure grade in RENDER space (curveRenderElev) so a gentle rise the terrain-gamma flattens on screen no longer fires a dressed-stone monument standing on flat ground beside the road — the detection threshold and the placement geometry both agree with the drawn terrain)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(118);
+  it('declares the current world content version (119: New-Game playable worlds B1 — New Game begins in one of three authored worlds (dawn/frost) plus the seeded default, picked + persisted per run; old saves regenerate, default world + goldens unchanged)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(119);
   });
 
   it('declares the current save schema version (4: the event journal — `events` left the SaveFile blob for the event-journal IDB store; `eventCursor` + `playtimeMs` took its place, see save-file.ts)', () => {

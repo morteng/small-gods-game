@@ -39,7 +39,7 @@ function expectInsideTarget(groups: UiDrawGroup[], w: number, h: number): void {
 }
 
 const TITLE: TitleView = {
-  continueLine: 'DAY 3', continueBlocked: null, hasAnySave: true, buildLine: 'W 118',
+  continueLine: 'DAY 3', continueBlocked: null, hasAnySave: true, buildLine: 'W 119',
 };
 
 function runtimeWithShell(): { rt: UiRuntime; shell: Shell } {

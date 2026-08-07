@@ -405,11 +405,14 @@ current shortlist (see `MEMORY.md` for status & next slices):
   `WorldManager.loadNamed`, threads `worldSeedName` through New Game/RANDOM/paste (fixing
   the paste-drop: world codes now regenerate the world they name), and `pickPlayableWorld()`
   on the same CSPRNG. With a one-entry registry RANDOM equals today (expected); B0 is
-  invisible until worlds are authored. *Deferred, gated (DR-6):* **B1 - author a set of
-  playable worlds** (each new canonical id + a `WorldSeed` JSON under `public/data/worlds/`,
-  passing `lint:world` + the world-doctor) so RANDOM yields different people/places/biome
-  per run; scoped by a separate planning run, with a `WORLD_CONTENT_VERSION` bump at B1
-  sign-off. *Deferred, gated
+  invisible until worlds are authored. **B1 shipped (DR-6, WORLD_CONTENT_VERSION 119):**
+  two new authored playable worlds are live — `dawn` ("A Steppe To The Sun", temperate/arid
+  steppe-herder world) and `frost` ("The Frost Reaches", arctic/boreal fiord world). Both
+  reuse existing biomes/climate/art, pass the world-doctor at 0 errors across seeds, and
+  run at-or-better than the shipped `default` on the connectome contracts; `connectome-lint`
+  now iterates every {`PLAYABLE_WORLD_NAMES`} entry (new `--world <id|path>` flag) and per-world
+  schema/determinism pins gate each JSON. RANDOM genuinely yields different people/places/biome
+  per run (old saves regenerate). *Deferred, gated
   (DR-6):* planned **Phase 3 single-believer intro mode** - a lone believer by a stream,
   rivals + statistical cohorts deferred until "first crystallization" matures the god into
   a clan (threads an intro flag through `startWorld`/`bootstrapWorld` + a deferred-seeding

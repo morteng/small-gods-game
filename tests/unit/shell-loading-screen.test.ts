@@ -287,7 +287,7 @@ describe('Shell — the stateful glue', () => {
         continueLine: null,
         continueBlocked: { reason: 'stale-world', text: 'Saved under an older world (117)' },
         hasAnySave: false,
-        buildLine: 'BUILD 118',
+        buildLine: 'BUILD 119',
       }),
     });
     shell.push('title');

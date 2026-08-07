@@ -1,0 +1,198 @@
+{
+  "name": "A Steppe To The Sun",
+  "description": "A broad island realm baked by a dry sun: a wind-scoured steppe where goat- and camel-herders scratch their prayers into living rock, a hot southern waste of dunes and cracked hardpan, and between them a thin chain of oases and irrigated fields fed by the melt seeps of a western massif. A bronze-age hillfort guards the passes; pale ruins of an older people rise from the burning sand.",
+  "size": {
+    "width": 228,
+    "height": 158
+  },
+  "biome": "temperate",
+  "era": "medieval",
+  "island": true,
+  "climate": "arid",
+  "visualTheme": "dry steppe and desert island, ochre and bleached stone, low red sun",
+  "style": {
+    "overrides": {
+      "terrainHeightGamma": 1.8,
+      "mountainRelief": 55,
+      "terrainVerticalExaggeration": 30
+    }
+  },
+  "pois": [
+    {
+      "id": "sunglow_massif",
+      "type": "mountain",
+      "name": "The Sunglow Massif",
+      "position": { "x": 46, "y": 34 },
+      "size": "huge",
+      "description": "A dry grey range walling off the north-western shore, its naked spurs catching the low red light of dawn and dusk; the seeps from its deep springs feed the oases far below."
+    },
+    {
+      "id": "windever_steppe",
+      "type": "plains",
+      "name": "The Windever Steppe",
+      "region": { "x_min": 125, "x_max": 226, "y_min": 0, "y_max": 44 },
+      "description": "Open, sun-baked grassland on the island's broad northern plain, grazed thin by the herders' small, hardy flocks."
+    },
+    {
+      "id": "azuredun_camp",
+      "type": "village",
+      "name": "Azure Dunes",
+      "position": { "x": 150, "y": 38 },
+      "size": "medium",
+      "era": "primordial",
+      "description": "A scatter of low goat-hair tents and dry-stone pens ringed against the wind — the camp of the steppe herders, who bow to no lord of the oasis.",
+      "npcs": [
+        { "name": "Old Rahi the Rock-Scribe", "role": "priest" },
+        { "name": "Dunespear", "role": "soldier" },
+        { "name": "Yelda the Goatwife", "role": "elder" }
+      ]
+    },
+    {
+      "id": "mirage_oasis",
+      "type": "oasis",
+      "name": "The Mirage Oasis",
+      "position": { "x": 150, "y": 74 },
+      "size": "small",
+      "description": "A double ring of palms and sweet water where the steppe begins to burn — the deck of the herders' summer trade."
+    },
+    {
+      "id": "amberharbor",
+      "type": "city",
+      "name": "Amber Harbor",
+      "position": { "x": 152, "y": 98 },
+      "size": "large",
+      "description": "The one true city of the dust: a press of ochre houses, dye-vats and cameltraders' caravanserai ringed around the great oasis, grown rich on salt, spices and the highland iron.",
+      "npcs": [
+        { "name": "Shahda of the Dunes", "role": "noble" },
+        { "name": "Mistress Yara", "role": "merchant" },
+        { "name": "Dune-Captain Harken", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "dusk_temple",
+      "type": "temple",
+      "name": "Temple of the Standing Sun",
+      "position": { "x": 96, "y": 58 },
+      "size": "medium",
+      "description": "A squat, sun-dried sanctuary on a low mesa, its walls etched with ten thousand prayers scratched by pilgrims who crossed the waste.",
+      "npcs": [
+        { "name": "Highkeeper Anah", "role": "priest" },
+        { "name": "Keeper Iskander", "role": "priest" }
+      ]
+    },
+    {
+      "id": "sandsea",
+      "type": "desert",
+      "name": "The Sandsea",
+      "position": { "x": 197, "y": 127 },
+      "region": { "x_min": 166, "x_max": 226, "y_min": 88, "y_max": 148 },
+      "description": "A blinding waste of dunes and cracked hardpan on the hot southern cape where nothing grows but thorn."
+    },
+    {
+      "id": "bone_ruins",
+      "type": "ruins",
+      "name": "The Bone-Temple of the First Dynasty",
+      "position": { "x": 196, "y": 110 },
+      "size": "medium",
+      "era": "ancient",
+      "description": "Bleached stone columns rising from the sand, older than the herders' oldest song."
+    },
+    {
+      "id": "ember_heights",
+      "type": "castle",
+      "name": "Ember Heights",
+      "position": { "x": 86, "y": 118 },
+      "size": "medium",
+      "description": "A bronze-age hillfort of rough rammed earth and timber, watching the passes between steppe, oasis and shore.",
+      "npcs": [
+        { "name": "Lord Cael of the Heights", "role": "noble" },
+        { "name": "Sergeant Venn", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "palefield_farm",
+      "type": "farm",
+      "name": "The Palefield Freehold",
+      "position": { "x": 118, "y": 100 },
+      "size": "medium",
+      "description": "A rare holding of irrigated wheat and groves along the oasis-feed channel, worked by a stubborn family of free farmers.",
+      "npcs": [
+        { "name": "Thorne Palefield", "role": "farmer" },
+        { "name": "Serra Palefield", "role": "farmer" }
+      ]
+    },
+    {
+      "id": "flintgate_mine",
+      "type": "mine",
+      "name": "Flintgate",
+      "position": { "x": 80, "y": 66 },
+      "size": "small",
+      "description": "A mine at the massif's southern foot, digging copper and good hard flint for blade and arrow.",
+      "npcs": [
+        { "name": "Durik Flinthand", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "dune_watch",
+      "type": "tower",
+      "name": "The Dune Watch",
+      "position": { "x": 182, "y": 24 },
+      "size": "small",
+      "description": "A lone tower on the northern steppe edge, set to watch the hard road and the burning south."
+    },
+    {
+      "id": "windcatch_cove",
+      "type": "cove",
+      "name": "Windcatch Cove",
+      "position": { "x": 70, "y": 140 },
+      "coast": "west",
+      "size": "medium",
+      "description": "A hidden crescent of calm shallows on the western shore where the island's few sheltering boats lie."
+    },
+    {
+      "id": "saltedge_cliffs",
+      "type": "cliffs",
+      "name": "The Saltedge",
+      "position": { "x": 222, "y": 84 },
+      "coast": "east",
+      "size": "large",
+      "description": "A low red cliff where the eastern shore meets the sea, banded white with old salt where the waves have dried for a thousand years."
+    }
+  ],
+  "connections": [
+    { "from": "azuredun_camp", "to": "mirage_oasis", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 150, "y": 38 }, { "x": 150, "y": 56 }, { "x": 150, "y": 74 } ] },
+    { "from": "azuredun_camp", "to": "amberharbor", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 150, "y": 38 }, { "x": 151, "y": 68 }, { "x": 152, "y": 98 } ] },
+    { "from": "mirage_oasis", "to": "amberharbor", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 150, "y": 74 }, { "x": 151, "y": 86 }, { "x": 152, "y": 98 } ] },
+    { "from": "amberharbor", "to": "dusk_temple", "type": "road", "style": "stone",
+      "waypoints": [ { "x": 152, "y": 98 }, { "x": 124, "y": 78 }, { "x": 96, "y": 58 } ] },
+    { "from": "amberharbor", "to": "palefield_farm", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 152, "y": 98 }, { "x": 135, "y": 99 }, { "x": 118, "y": 100 } ] },
+    { "from": "amberharbor", "to": "ember_heights", "type": "road", "style": "stone",
+      "waypoints": [ { "x": 152, "y": 98 }, { "x": 119, "y": 108 }, { "x": 86, "y": 118 } ] },
+    { "from": "amberharbor", "to": "bone_ruins", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 152, "y": 98 }, { "x": 174, "y": 104 }, { "x": 196, "y": 110 } ] },
+    { "from": "ember_heights", "to": "flintgate_mine", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 86, "y": 118 }, { "x": 83, "y": 92 }, { "x": 80, "y": 66 } ] },
+    { "from": "ember_heights", "to": "windcatch_cove", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 86, "y": 118 }, { "x": 78, "y": 129 }, { "x": 70, "y": 140 } ] },
+    { "from": "amberharbor", "to": "flintgate_mine", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 152, "y": 98 }, { "x": 116, "y": 82 }, { "x": 80, "y": 66 } ] },
+    { "from": "azuredun_camp", "to": "dune_watch", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 150, "y": 38 }, { "x": 166, "y": 31 }, { "x": 182, "y": 24 } ] }
+  ],
+  "lore": {
+    "history": "The first herders came out of the north across the winter ice and found the steppe endless and the water scarce. Their rock-scritchings still line every bluff. The oasis city rose later, when the high western seeps were tamed into the feed-channels, and for three generations the hillfort at Ember Heights has kept the passes between dust and watered land.",
+    "quests": [
+      { "name": "The Missing Flock", "difficulty": "easy" },
+      { "name": "Whispers of the First Dynasty", "difficulty": "hard" }
+    ],
+    "rumors": [
+      "The Bone-Temple's columns hum in the south wind before rain",
+      "A white camel drinking at the Mirage at dead noon is an omen of a dry year",
+      "The Dune Watch saw dust-clouds on the eastern horizon that no herd could raise"
+    ]
+  }
+}

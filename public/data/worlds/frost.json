@@ -1,0 +1,199 @@
+{
+  "name": "The Frost Reaches",
+  "description": "A cold island realm gripped by ice: a vast crushing glacier and a treeless wind-reaped tundra in the north where reindeer hordes range, and a thin band of milder southern fiords and shingle where bundled fishers hollow their leather halls against the winter dark. Iron is dug from the highlands, old songs carved in whalebone, and the sea freezes out past the loomed headlands each year.",
+  "size": {
+    "width": 228,
+    "height": 158
+  },
+  "biome": "arctic",
+  "era": "medieval",
+  "island": true,
+  "climate": "boreal",
+  "visualTheme": "arctic fiord island, pale ice and grey sea, low cold sun",
+  "style": {
+    "overrides": {
+      "terrainHeightGamma": 1.8,
+      "mountainRelief": 55,
+      "terrainVerticalExaggeration": 30
+    }
+  },
+  "pois": [
+    {
+      "id": "frostcrown_glacier",
+      "type": "glacier",
+      "name": "The White Crown",
+      "position": { "x": 46, "y": 30 },
+      "size": "huge",
+      "description": "A vast blue-white ice cap crushing the northern highlands, its slow melt feeding every fiord and quickwater."
+    },
+    {
+      "id": "windtorn_tundra",
+      "type": "plains",
+      "name": "The Wind-Reaped Tundra",
+      "region": { "x_min": 120, "x_max": 226, "y_min": 0, "y_max": 52 },
+      "description": "Treeless moss and sedge where the reindeer hordes range, pocked with half-frozen meres and the old sea-worn gravels."
+    },
+    {
+      "id": "longtusk_camp",
+      "type": "village",
+      "name": "The Longtusk",
+      "position": { "x": 150, "y": 40 },
+      "size": "medium",
+      "era": "primordial",
+      "description": "A wandering camp of low hide tents ringed against the wind — the tundra folk who follow the great herds and bow to no southern hall.",
+      "npcs": [
+        { "name": "Chieftess Sarn of the Longtusk", "role": "noble" },
+        { "name": "Old Vorka the Bonedreamer", "role": "priest" },
+        { "name": "Letka the Herd-Tender", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "hall_of_ancestors",
+      "type": "temple",
+      "name": "Hall of the Ancestors",
+      "position": { "x": 96, "y": 60 },
+      "size": "medium",
+      "description": "A low whalebone and turf sanctuary in the southern fells, its carved lintels recounting the winters of every chief.",
+      "npcs": [
+        { "name": "Seer-Brother Eir", "role": "priest" },
+        { "name": "Bone-Singer Una", "role": "priest" }
+      ]
+    },
+    {
+      "id": "ironfjord_mine",
+      "type": "mine",
+      "name": "Ironfjord",
+      "position": { "x": 84, "y": 74 },
+      "size": "small",
+      "description": "A highland mine digging good dark iron from the fjord walls, worked winter and summer by a stubborn crew.",
+      "npcs": [
+        { "name": "Torval the Smith", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "helmhaven",
+      "type": "city",
+      "name": "Helm Haven",
+      "position": { "x": 152, "y": 102 },
+      "size": "large",
+      "description": "The one true town of the reaches: a huddle of hall, smithy and stone pier crowded under the loomed headland — winter harbour for every scattered fisher crew.",
+      "npcs": [
+        { "name": "Lord Helm", "role": "noble" },
+        { "name": "Mistress Sigrid", "role": "merchant" },
+        { "name": "Harbor-Captain Osric", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "skelford",
+      "type": "village",
+      "name": "Skelford",
+      "position": { "x": 120, "y": 120 },
+      "size": "large",
+      "description": "A bundled hamlet of leather and fur at the head of a sheltered fiord, where the fishers dry their catch on the shingle and mend their boats through the long dark.",
+      "npcs": [
+        { "name": "Elder Fiske", "role": "elder" },
+        { "name": "Gerta the Cured-Skin", "role": "merchant" },
+        { "name": "Brother Toki", "role": "priest" }
+      ]
+    },
+    {
+      "id": "icehold",
+      "type": "castle",
+      "name": "Icehold",
+      "position": { "x": 118, "y": 96 },
+      "size": "medium",
+      "description": "A squat stone-and-timber stronghold watching the gap between the highland mines and the southern harbours.",
+      "npcs": [
+        { "name": "Lord Rand of Icehold", "role": "noble" },
+        { "name": "Sergeant Elke", "role": "soldier" }
+      ]
+    },
+    {
+      "id": "coldmere",
+      "type": "lake",
+      "name": "Coldmere",
+      "position": { "x": 66, "y": 132 },
+      "size": "huge",
+      "description": "A broad still lake in the south-western lowlands, frozen solid from first frost to the spring melt, thick with good fish."
+    },
+    {
+      "id": "rime_fjord",
+      "type": "cove",
+      "name": "Rime Fjord",
+      "position": { "x": 60, "y": 118 },
+      "coast": "west",
+      "size": "medium",
+      "description": "An ice-choked cleft in the western shore, the fishers' sheltered water when the open sea runs white."
+    },
+    {
+      "id": "wailing_spire",
+      "type": "tower",
+      "name": "The Wailing Spire",
+      "position": { "x": 182, "y": 22 },
+      "size": "small",
+      "description": "A lone watchtower on the tundra's southern edge, set to mark the herds' coming and the cold roads from the north."
+    },
+    {
+      "id": "boneships_ruins",
+      "type": "ruins",
+      "name": "The Bone-Ships",
+      "position": { "x": 196, "y": 116 },
+      "size": "medium",
+      "era": "ancient",
+      "description": "Rails of whalebone ribbed into the frozen turf where an older people hauled their dead boats to rest."
+    },
+    {
+      "id": "saltmaw_head",
+      "type": "cliffs",
+      "name": "Saltmaw Head",
+      "position": { "x": 222, "y": 86 },
+      "coast": "east",
+      "size": "large",
+      "description": "A wild red headland where the eastern sea gnaws the cliff foot and the ice packs in late against the stacks."
+    },
+    {
+      "id": "frostshore_harbor",
+      "type": "port",
+      "name": "Frostshore",
+      "position": { "x": 140, "y": 130 },
+      "size": "small",
+      "description": "A little stone jetty where the fishers of the southern band work their boats and cure their catch."
+    }
+  ],
+  "connections": [
+    { "from": "skelford", "to": "helmhaven", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 120, "y": 120 }, { "x": 136, "y": 111 }, { "x": 152, "y": 102 } ] },
+    { "from": "helmhaven", "to": "icehold", "type": "road", "style": "stone",
+      "waypoints": [ { "x": 152, "y": 102 }, { "x": 135, "y": 99 }, { "x": 118, "y": 96 } ] },
+    { "from": "helmhaven", "to": "hall_of_ancestors", "type": "road", "style": "stone",
+      "waypoints": [ { "x": 152, "y": 102 }, { "x": 124, "y": 81 }, { "x": 96, "y": 60 } ] },
+    { "from": "helmhaven", "to": "boneships_ruins", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 152, "y": 102 }, { "x": 174, "y": 109 }, { "x": 196, "y": 116 } ] },
+    { "from": "helmhaven", "to": "ironfjord_mine", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 152, "y": 102 }, { "x": 118, "y": 88 }, { "x": 84, "y": 74 } ] },
+    { "from": "icehold", "to": "ironfjord_mine", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 118, "y": 96 }, { "x": 101, "y": 85 }, { "x": 84, "y": 74 } ] },
+    { "from": "icehold", "to": "frostshore_harbor", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 118, "y": 96 }, { "x": 129, "y": 113 }, { "x": 140, "y": 130 } ] },
+    { "from": "skelford", "to": "frostshore_harbor", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 120, "y": 120 }, { "x": 130, "y": 125 }, { "x": 140, "y": 130 } ] },
+    { "from": "helmhaven", "to": "longtusk_camp", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 152, "y": 102 }, { "x": 151, "y": 71 }, { "x": 150, "y": 40 } ] },
+    { "from": "longtusk_camp", "to": "wailing_spire", "type": "road", "style": "dirt",
+      "waypoints": [ { "x": 150, "y": 40 }, { "x": 166, "y": 31 }, { "x": 182, "y": 22 } ] },
+    { "from": "coldmere", "to": "rime_fjord", "type": "river",
+      "waypoints": [ { "x": 66, "y": 132 }, { "x": 63, "y": 125 }, { "x": 60, "y": 118 } ] }
+  ],
+  "lore": {
+    "history": "No one remembers the first crossing of the ice. The tundra folk of the Longtusk have always ranged the north with the herds, and the southern folk have always dug iron and taken fish at the fiord mouths. Helm Haven grew to a town when the winters thinned a little; the Bone-Ships are older than both, and their rails still wait on the turf.",
+    "quests": [
+      { "name": "The Lost Herd", "difficulty": "easy" },
+      { "name": "What the Whalebone Rails Hide", "difficulty": "hard" }
+    ],
+    "rumors": [
+      "The aurora over the White Crown has been green three nights running",
+      "The Longtusk's chieftess keeps a blade said to be as old as the ice",
+      "A ship of the old people was seen working north through the pack ice, crewed by no one"
+    ]
+  }
+}

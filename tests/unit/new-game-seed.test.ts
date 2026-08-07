@@ -7,6 +7,7 @@
 // the pinned seed would freeze the set below to a single value again.
 import { describe, it, expect, afterEach } from 'vitest';
 import { newGameSeed, pickPlayableWorld } from '@/game/new-game-seed';
+import { PLAYABLE_WORLD_NAMES } from '@/world/playable-worlds';
 
 // `globalThis.crypto` is a getter-only accessor in the node test env, so stubbing
 // it requires Object.defineProperty (a plain assignment throws).
@@ -65,21 +66,24 @@ describe('newGameSeed — the New-Game "which world" roll', () => {
 });
 
 describe('pickPlayableWorld — the New-Game "which world" pick', () => {
-  it('with a single-entry registry always returns default (a no-op, as expected)', () => {
-    expect(pickPlayableWorld()).toBe('default');
-    expect(pickPlayableWorld()).toBe('default');
+  it('never returns a value outside the playable set', () => {
+    for (let i = 0; i < 400; i++) {
+      expect(PLAYABLE_WORLD_NAMES).toContain(pickPlayableWorld());
+    }
+  });
+
+  it('can return every playable world (variety is reachable, not just default)', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 400; i++) seen.add(pickPlayableWorld());
+    // 400 draws across 3 entries must realise all of them — guards the
+    // regression where RANDOM silently returned only the pinned default.
+    expect(seen).toEqual(new Set(['default', 'dawn', 'frost']));
   });
 
   it('maps a CSPRNG draw deterministically onto the playable set', () => {
     stubCrypto((a: Uint32Array) => { a[0] = 12345; });
-    // 12345 % 1 = 0 -> names[0] = 'default' regardless of the draw.
+    // 12345 % 3 = 0 -> names[0] = 'default'; a fixed draw always lands the same.
     expect(pickPlayableWorld()).toBe('default');
-  });
-
-  it('never returns a value outside the playable set', () => {
-    for (let i = 0; i < 200; i++) {
-      const w = pickPlayableWorld();
-      expect(['default']).toContain(w);
-    }
+    expect(pickPlayableWorld()).toBe('default');
   });
 });

@@ -29,7 +29,7 @@ const TITLE_VIEW = {
   continueLine: 'Y1 SPRING · 2/96',
   continueBlocked: null,
   hasAnySave: true,
-  buildLine: 'WORLD 118',
+  buildLine: 'WORLD 119',
 };
 
 function shell(): Shell {

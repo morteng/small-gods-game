@@ -10,7 +10,7 @@ function view(over: Partial<TitleView> = {}): TitleView {
     continueLine: 'DAY 34 · A SMALL SHRINE · 2H 15M',
     continueBlocked: null,
     hasAnySave: true,
-    buildLine: 'BUILD 118',
+    buildLine: 'BUILD 119',
     ...over,
   };
 }
@@ -82,7 +82,7 @@ describe('title screen — rows and refusal logic', () => {
     // so, never be silently replaced by a freshly generated one.
     const rows = titleRows(view({
       continueLine: 'DAY 34 · A SMALL SHRINE',
-      continueBlocked: { reason: 'stale-world', text: 'Saved under an older world (117; this build is 118)' },
+      continueBlocked: { reason: 'stale-world', text: 'Saved under an older world (117; this build is 119)' },
     }));
     const cont = rows.find(r => r.id === 'title.continue')!;
     expect(cont.enabled).toBe(false);

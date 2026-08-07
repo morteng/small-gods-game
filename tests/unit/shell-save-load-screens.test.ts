@@ -84,7 +84,7 @@ describe('save screen — row logic', () => {
 
   it('a STALE slot can still be overwritten from the save screen', () => {
     const view = fullView({
-      slot1: { compat: 'stale-world', staleReason: 'Saved under an older world (content 117; this build is 118)' },
+      slot1: { compat: 'stale-world', staleReason: 'Saved under an older world (content 117; this build is 119)' },
     });
     expect(saveRows(view).find((r) => r.slot === 'slot1')!.enabled).toBe(true);
   });
@@ -120,12 +120,12 @@ describe('load screen — row logic', () => {
 
   it('DISABLES a stale slot and states the reason WITH the version numbers, offering Delete', () => {
     const view = fullView({
-      slot1: { compat: 'stale-world', staleReason: 'Saved under an older world (content 117; this build is 118)' },
+      slot1: { compat: 'stale-world', staleReason: 'Saved under an older world (content 117; this build is 119)' },
     });
     const stale = loadRows(view).find((r) => r.slot === 'slot1')!;
     expect(stale.enabled).toBe(false);
     expect(stale.reason).toContain('117');
-    expect(stale.reason).toContain('118');
+    expect(stale.reason).toContain('119');
     expect(stale.deletable).toBe(true);
   });
 
@@ -384,7 +384,7 @@ describe('Shell — save/load screens', () => {
       now: () => 0,
       loadView: () => fullView({
         slot1: { empty: true, name: '', dateLabel: '', tierLine: '', playtimeLabel: '' },
-        slot2: { compat: 'stale-world', staleReason: 'Saved under an older world (content 117; this build is 118)' },
+        slot2: { compat: 'stale-world', staleReason: 'Saved under an older world (content 117; this build is 119)' },
       }),
     });
     shell.push('load');

@@ -29,7 +29,7 @@ function titleView() {
     continueLine: 'Y1 SPRING · 2/96 · 08:00 · BELIEF 6.8',
     continueBlocked: null,
     hasAnySave: true,
-    buildLine: 'WORLD 118',
+    buildLine: 'WORLD 119',
   };
 }
 
