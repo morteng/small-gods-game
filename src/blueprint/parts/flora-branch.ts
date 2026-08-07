@@ -79,17 +79,14 @@ const RECIPE_PRESENT_BOOST: Record<FloraRecipeName, number> = {
 export const branchPlantPartType: PartType = {
   type: 'branch_plant',
   paramSchema: {
-    generator: { kind: 'enum', values: FLORA_GENERATORS, default: 'proctree' },
-    recipe: { kind: 'enum', values: FLORA_RECIPE_NAMES, default: 'oak' },
-    crownShape: { kind: 'enum', values: CROWN_SILHOUETTES, default: 'rounded' },
-    heightM: { kind: 'number', min: 0.2, max: 40, default: 10 },
-    trunkR: { kind: 'number', min: 0.02, max: 0.5, default: 0.16 },
-    /** Flower-head tint, packed 0xRRGGBB (0 = none) — recolours the leaf whorl. */
-    petalTint: { kind: 'number', min: 0, max: 0xffffff, default: 0 },
-    /** 1 = BARE crown (alpine/winter): same skeleton, leaves dropped, twig tips
-     *  extended a touch. Selected by the render layer's snow-mask variant. */
-    bare: { kind: 'number', min: 0, max: 1, default: 0 },
-    seed: { kind: 'number', default: 0 },
+    generator: { kind: 'enum', values: FLORA_GENERATORS, default: 'proctree', doc: 'branch-generation algorithm (shape the tree is grown with)' },
+    recipe: { kind: 'enum', values: FLORA_RECIPE_NAMES, default: 'oak', doc: 'species recipe — trunk/branch habit + bark/leaf dress (oak, birch, fir, …)' },
+    crownShape: { kind: 'enum', values: CROWN_SILHOUETTES, default: 'rounded', doc: 'crown silhouette: rounded, columnar, conical, umbrella, …' },
+    heightM: { kind: 'number', min: 0.2, max: 40, default: 10, doc: 'overall tree height (metres)' },
+    trunkR: { kind: 'number', min: 0.02, max: 0.5, default: 0.16, doc: 'trunk radius at the base (metres)' },
+    petalTint: { kind: 'number', min: 0, max: 0xffffff, default: 0, doc: 'flower-head tint packed 0xRRGGBB; 0 = none (recolours the leaf whorl)' },
+    bare: { kind: 'number', min: 0, max: 1, default: 0, doc: '1 = bare crown (alpine/winter): leaves dropped, twig tips extended; selected by the render snow-mask' },
+    seed: { kind: 'number', default: 0, doc: 'deterministic shape seed (0 = default form)' },
   },
   resolve: (part, ctx) => ({
     params: {
@@ -187,16 +184,13 @@ export function rockSizeFactor(seed: number): number {
 export const rockPartType: PartType = {
   type: 'rock',
   paramSchema: {
-    sizeM: { kind: 'number', min: 0.2, max: 8, default: 1.5 },
-    jitter: { kind: 'number', min: 0, max: 0.7, default: 0.35 },
-    aspect: { kind: 'number', min: 0.4, max: 4, default: 1 },
-    cluster: { kind: 'number', min: 1, max: 6, default: 1 },
-    // Plane-cut faceting (see rockFacets): large knapped facets instead of a noise
-    // lump. Defaulted ON — the smooth-ball look was the user-rejected one.
-    cuts: { kind: 'number', min: 0, max: 12, default: 6 },
-    // >1 = a craggy OUTCROP: stacked shrinking cut-slabs + foot stones, not a pile.
-    shelves: { kind: 'number', min: 1, max: 6, default: 1 },
-    seed: { kind: 'number', default: 0 },
+    sizeM: { kind: 'number', min: 0.2, max: 8, default: 1.5, doc: 'boulder size (metres)' },
+    jitter: { kind: 'number', min: 0, max: 0.7, default: 0.35, doc: 'how irregular the silhouette is (0 = smooth, 0.7 = craggy)' },
+    aspect: { kind: 'number', min: 0.4, max: 4, default: 1, doc: 'height/width ratio (1 = round; <1 = squat; >1 = tall pillar)' },
+    cluster: { kind: 'number', min: 1, max: 6, default: 1, doc: 'number of boulders in the cluster' },
+    cuts: { kind: 'number', min: 0, max: 12, default: 6, doc: 'plane-cut facets — large knapped faces instead of a noise lump (0 = no faceting)' },
+    shelves: { kind: 'number', min: 1, max: 6, default: 1, doc: '>1 = a craggy OUTcrop: stacked shrinking cut-slabs + foot stones, not a pile' },
+    seed: { kind: 'number', default: 0, doc: 'deterministic shape seed (0 = default form)' },
   },
   resolve: (part, ctx) => ({
     params: {

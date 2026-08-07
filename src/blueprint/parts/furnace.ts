@@ -21,12 +21,10 @@ const cellsOf = (p: { at: { x: number; y: number }; size: { w: number; h: number
 export const furnacePartType: PartType = {
   type: 'furnace',
   paramSchema: {
-    /** forge — a smithy hearth under a broad brick flue; oven — a domed masonry bread oven +
-     *  flue stack; kiln — a brewhouse oast: a drum under a conical cap with a timber cowl. */
-    kind: { kind: 'enum', values: ['forge', 'oven', 'kiln'], default: 'forge' },
-    /** forge only: which way the open hearth mouth faces (the back wall sits opposite,
-     *  against the body). Pick the direction away from the body it abuts. */
-    mouth: { kind: 'enum', values: ['north', 'south', 'east', 'west'], default: 'east' },
+    kind: { kind: 'enum', values: ['forge', 'oven', 'kiln'], default: 'forge',
+      doc: 'hearth type: forge = smithy hearth under a broad brick flue; oven = domed masonry bread oven + flue stack; kiln = brewhouse oast (a drum under a conical cap with a timber cowl)' },
+    mouth: { kind: 'enum', values: ['north', 'south', 'east', 'west'], default: 'east',
+      doc: 'forge only: which way the open hearth mouth faces (the back wall sits opposite, against the body) — face it away from the body it abuts' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p): Prim[] {

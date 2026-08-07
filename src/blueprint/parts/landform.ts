@@ -32,10 +32,10 @@ function h01(a: number, b: number): number {
 export const seaArchPartType: PartType = {
   type: 'sea_arch',
   paramSchema: {
-    spanM:  { kind: 'number', min: 4, max: 24, default: 13 },   // clear opening width
-    riseM:  { kind: 'number', min: 2, max: 16, default: 8 },    // crown height above springing
-    depthM: { kind: 'number', min: 2, max: 14, default: 6 },    // headland thickness (a mass, not a gate)
-    seed:   { kind: 'number', default: 0 },
+    spanM:  { kind: 'number', min: 4, max: 24, default: 13, doc: 'clear opening width under the arch (metres)' },   // clear opening width
+    riseM:  { kind: 'number', min: 2, max: 16, default: 8, doc: 'crown height above the springing (metres)' },    // crown height above springing
+    depthM: { kind: 'number', min: 2, max: 14, default: 6, doc: 'headland thickness (metres) — a solid mass, not a gate' },    // headland thickness (a mass, not a gate)
+    seed:   { kind: 'number', default: 0, doc: 'deterministic shape seed (0 = default form)' },
   },
   resolve: (part, ctx) => ({
     params: {
@@ -77,10 +77,10 @@ export const seaArchPartType: PartType = {
 export const cliffFacePartType: PartType = {
   type: 'cliff_face',
   paramSchema: {
-    widthM:    { kind: 'number', min: 4, max: 24, default: 11 },   // width along the shore
-    heightM:   { kind: 'number', min: 4, max: 26, default: 14 },   // total height
-    overhangM: { kind: 'number', min: 0, max: 12, default: 6 },    // how far the brow juts past the base
-    seed:      { kind: 'number', default: 0 },
+    widthM:    { kind: 'number', min: 4, max: 24, default: 11, doc: 'width along the shore (metres)' },   // width along the shore
+    heightM:   { kind: 'number', min: 4, max: 26, default: 14, doc: 'total cliff height (metres)' },   // total height
+    overhangM: { kind: 'number', min: 0, max: 12, default: 6, doc: 'how far the brow juts past the base (metres)' },    // how far the brow juts past the base
+    seed:      { kind: 'number', default: 0, doc: 'deterministic shape seed (0 = default form)' },
   },
   resolve: (part, ctx) => ({
     params: {
@@ -133,10 +133,10 @@ export const cliffFacePartType: PartType = {
 export const caveMouthPartType: PartType = {
   type: 'cave_mouth',
   paramSchema: {
-    widthM:  { kind: 'number', min: 6, max: 26, default: 13 },
-    depthM:  { kind: 'number', min: 5, max: 20, default: 10 },
-    heightM: { kind: 'number', min: 4, max: 18, default: 9 },
-    seed:    { kind: 'number', default: 0 },
+    widthM:  { kind: 'number', min: 6, max: 26, default: 13, doc: 'mouth width (metres)' },
+    depthM:  { kind: 'number', min: 5, max: 20, default: 10, doc: 'cave depth into the rock (metres)' },
+    heightM: { kind: 'number', min: 4, max: 18, default: 9, doc: 'mouth height (metres)' },
+    seed:    { kind: 'number', default: 0, doc: 'deterministic shape seed (0 = default form)' },
   },
   resolve: (part, ctx) => ({
     params: {
@@ -182,9 +182,9 @@ export const caveMouthPartType: PartType = {
 export const hoodooPartType: PartType = {
   type: 'hoodoo',
   paramSchema: {
-    heightM: { kind: 'number', min: 4, max: 18, default: 11 },
-    capM:    { kind: 'number', min: 2, max: 10, default: 5 },   // cap diameter (the overhang)
-    seed:    { kind: 'number', default: 0 },
+    heightM: { kind: 'number', min: 4, max: 18, default: 11, doc: 'pinnacle height (metres)' },
+    capM:    { kind: 'number', min: 2, max: 10, default: 5, doc: 'cap diameter (metres) — the overhang' },   // cap diameter (the overhang)
+    seed:    { kind: 'number', default: 0, doc: 'deterministic shape seed (0 = default form)' },
   },
   resolve: (part, ctx) => ({
     params: {

@@ -21,20 +21,13 @@ function matOf(ctx: CompileCtx): Mat {
 export const columnPartType: PartType = {
   type: 'column',
   paramSchema: {
-    /** Total height (base + shaft + capital) in metres. */
-    heightM: { kind: 'number', min: 0.3, max: 20, default: 3 },
-    /** Shaft half-width (round: radius) at the foot, metres. */
-    radiusM: { kind: 'number', min: 0.05, max: 3, default: 0.3 },
-    /** Cross-section. */
-    shape: { kind: 'enum', values: ['round', 'square', 'polygon'], default: 'round' },
-    /** Sides for `polygon` (ignored otherwise). */
-    sides: { kind: 'number', min: 3, max: 12, default: 8 },
-    /** Diminution / batter: top half-width = (1 − taper) × base. 0 = parallel sides. */
-    taper: { kind: 'number', min: 0, max: 0.6, default: 0 },
-    /** Add a plinth at the foot. */
-    base: { kind: 'bool', default: false },
-    /** Add a capital/abacus at the head. */
-    capital: { kind: 'bool', default: false },
+    heightM: { kind: 'number', min: 0.3, max: 20, default: 3, doc: 'total height (base + shaft + capital) in metres' },
+    radiusM: { kind: 'number', min: 0.05, max: 3, default: 0.3, doc: 'shaft half-width (round ⇒ radius) at the foot, in metres' },
+    shape: { kind: 'enum', values: ['round', 'square', 'polygon'], default: 'round', doc: 'cross-section: a round drum, a square pier, or a regular polygon' },
+    sides: { kind: 'number', min: 3, max: 12, default: 8, doc: 'sides for a polygon shaft (ignored otherwise)' },
+    taper: { kind: 'number', min: 0, max: 0.6, default: 0, doc: 'diminution/batter: top half-width = (1 − taper) × base. 0 = parallel-sided column' },
+    base: { kind: 'bool', default: false, doc: 'add a plinth at the foot' },
+    capital: { kind: 'bool', default: false, doc: 'add a capital/abacus at the head' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {

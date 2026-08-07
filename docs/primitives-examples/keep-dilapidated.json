@@ -1,0 +1,9 @@
+{
+  "note": "A dilapidated, poor keep — 'ruin-read' via qualitative descriptors rather than a hard roofless stage (see PRIMITIVES.md on lifecycle stage). Demonstrates the descriptor layering path: name a preset + fold in wealth/quality/condition. Lowers materials along the wealth ladder and ages the condition.",
+  "preset": "castle_keep",
+  "descriptors": {
+    "wealth": "poor",
+    "quality": "crude",
+    "condition": "dilapidated"
+  }
+}

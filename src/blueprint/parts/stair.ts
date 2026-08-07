@@ -76,18 +76,12 @@ function axis(dir: Dir): { ax: 0 | 1; sign: 1 | -1 } {
 export const stairFlightPartType: PartType = {
   type: 'stair_flight',
   paramSchema: {
-    /** Total vertical rise in metres (drives tread count unless `treads` is set). */
-    riseM: { kind: 'number', min: 0.3, max: 40, default: 1.8 },
-    /** Explicit tread count (overrides the rise-derived one). */
-    treads: { kind: 'number', min: 1, max: 200, default: -1 },
-    /** Running width in metres. */
-    widthM: { kind: 'number', min: 0.6, max: 12, default: 2 },
-    /** 0 = rough scramble (tall steep steps) → 1 = dressed accessible (low deep steps). */
-    construction: { kind: 'number', min: 0, max: 1, default: 0.5 },
-    /** Climb direction in structure-local space. */
-    dir: { kind: 'enum', values: ['north', 'south', 'east', 'west'], default: 'south' },
-    /** Balustrade: none / one side / both sides. */
-    railing: { kind: 'enum', values: ['none', 'one', 'both'], default: 'none' },
+    riseM: { kind: 'number', min: 0.3, max: 40, default: 1.8, doc: 'total vertical rise in metres (drives tread count unless `treads` is set)' },
+    treads: { kind: 'number', min: 1, max: 200, default: -1, doc: 'explicit tread count; -1 = derive from rise' },
+    widthM: { kind: 'number', min: 0.6, max: 12, default: 2, doc: 'running width in metres' },
+    construction: { kind: 'number', min: 0, max: 1, default: 0.5, doc: '0 = rough scramble (tall steep steps) → 1 = dressed accessible (low, deep steps)' },
+    dir: { kind: 'enum', values: ['north', 'south', 'east', 'west'], default: 'south', doc: 'climb direction in structure-local space (which way the flight ascends)' },
+    railing: { kind: 'enum', values: ['none', 'one', 'both'], default: 'none', doc: 'balustrade on none / one / both sides' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => {
     const p = { ...(part.params ?? {}) };
@@ -236,11 +230,10 @@ export const stairFlightPartType: PartType = {
 export const landingPartType: PartType = {
   type: 'landing',
   paramSchema: {
-    widthM: { kind: 'number', min: 0.6, max: 20, default: 2 },
-    depthM: { kind: 'number', min: 0.6, max: 20, default: 2 },
-    /** Top surface height above ground (where the flight below ends). */
-    elevM: { kind: 'number', min: 0, max: 40, default: 0 },
-    thicknessM: { kind: 'number', min: 0.1, max: 4, default: 0.4 },
+    widthM: { kind: 'number', min: 0.6, max: 20, default: 2, doc: 'platform width in metres' },
+    depthM: { kind: 'number', min: 0.6, max: 20, default: 2, doc: 'platform depth in metres' },
+    elevM: { kind: 'number', min: 0, max: 40, default: 0, doc: 'top-surface height above ground (the level the flight below ends at), in metres' },
+    thicknessM: { kind: 'number', min: 0.1, max: 4, default: 0.4, doc: 'platform slab thickness in metres' },
   },
   resolve: (part: Part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {

@@ -1,0 +1,19 @@
+{
+  "note": "A round-plan yurt: plan 'round' body with a domed roof and hide materials. Demonstrates the non-rect footprint shape and a hide wall/roof pairing.",
+  "blueprint": {
+    "version": 1,
+    "class": "building",
+    "footprint": { "w": 3, "h": 3 },
+    "materials": { "walls": "hide", "roof": "hide" },
+    "parts": {
+      "body": {
+        "type": "body",
+        "size": { "w": 3, "h": 3 },
+        "params": { "plan": "round", "levels": 1, "roof": "domed" },
+        "features": {
+          "door": { "type": "door", "face": "south", "params": { "main": true } }
+        }
+      }
+    }
+  }
+}

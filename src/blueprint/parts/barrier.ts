@@ -48,14 +48,16 @@ export function barrierRunFromParams(at: { x: number; y: number }, params: Recor
 export const barrierPartType: PartType = {
   type: 'barrier',
   paramSchema: {
-    kind: { kind: 'enum', values: KINDS as unknown as string[], default: 'wall' },
-    lengthM: { kind: 'number', min: 2, max: 48, default: 12 },
-    heightM: { kind: 'number', min: 0, max: 12, default: 0 },          // 0 = kind default
-    thicknessTiles: { kind: 'number', min: 0, max: 4, default: 0 },    // 0 = kind default
-    crenellated: { kind: 'bool', default: false },
-    posts: { kind: 'bool', default: false },
-    gateWidthM: { kind: 'number', min: 0, max: 8, default: 0 },        // 0 = no gate
-    material: { kind: 'enum', values: ['', 'stone', 'brick', 'timber', 'earth', 'hedge'], default: '' },
+    kind: { kind: 'enum', values: KINDS as unknown as string[], default: 'wall',
+      doc: 'defensive-structure family: wall (masonry curtain), rampart (earthen bank), palisade (staked), fence, barricade, or living hedge — each picks its own default cross-section + construction' },
+    lengthM: { kind: 'number', min: 2, max: 48, default: 12, doc: 'run length (metres; 1 tile = 2 m) — the wall/palisade is extruded along this line' },
+    heightM: { kind: 'number', min: 0, max: 12, default: 0, doc: 'height (metres); 0 = the kind default (a tall town wall vs a low hedge)' },          // 0 = kind default
+    thicknessTiles: { kind: 'number', min: 0, max: 4, default: 0, doc: 'wall thickness in tiles; 0 = the kind default (thick masonry vs a thin paling)' },    // 0 = kind default
+    crenellated: { kind: 'bool', default: false, doc: 'merlon/crenel teeth along the top (masonry wall)' },
+    posts: { kind: 'bool', default: false, doc: 'render the palisade stakes / fence posts (palisade & fence families)' },
+    gateWidthM: { kind: 'number', min: 0, max: 8, default: 0, doc: 'gate opening cut through the run (metres); 0 = solid, no gate' },        // 0 = no gate
+    material: { kind: 'enum', values: ['', 'stone', 'brick', 'timber', 'earth', 'hedge'], default: '',
+      doc: "construction material; '' = the kind default (stone wall, timber palisade, hedge)" },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, _ctx: CompileCtx): Prim[] {

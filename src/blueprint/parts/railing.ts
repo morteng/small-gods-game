@@ -123,11 +123,12 @@ function matOf(ctx: CompileCtx): Mat {
 export const railingPartType: PartType = {
   type: 'railing',
   paramSchema: {
-    style: { kind: 'enum', values: ['parapet', 'balustrade', 'picket', 'coping', 'crenellated'], default: 'balustrade' },
-    lengthM: { kind: 'number', min: 0.3, max: 60, default: 4 },
-    axis: { kind: 'enum', values: ['x', 'y'], default: 'x' },
-    heightM: { kind: 'number', min: 0.2, max: 4, default: 0.95 },
-    thicknessM: { kind: 'number', min: 0.05, max: 1.5, default: 0.22 },
+    style: { kind: 'enum', values: ['parapet', 'balustrade', 'picket', 'coping', 'crenellated'], default: 'balustrade',
+      doc: 'top treatment: solid parapet, open balustrade, picket fence, low coping cap, or crenellated teeth' },
+    lengthM: { kind: 'number', min: 0.3, max: 60, default: 4, doc: 'run length (metres; 1 tile = 2 m) — the rail is laid along this' },
+    axis: { kind: 'enum', values: ['x', 'y'], default: 'x', doc: 'which axis the run is laid out along (rotates the rail)' },
+    heightM: { kind: 'number', min: 0.2, max: 4, default: 0.95, doc: 'height of the rail/coping (metres)' },
+    thicknessM: { kind: 'number', min: 0.05, max: 1.5, default: 0.22, doc: 'thickness of the rail/coping band (metres)' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {

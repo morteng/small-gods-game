@@ -66,13 +66,13 @@ function matOf(ctx: CompileCtx): Mat {
 export const channelPartType: PartType = {
   type: 'channel',
   paramSchema: {
-    lengthM: { kind: 'number', min: 0.5, max: 60, default: 4 },
-    axis: { kind: 'enum', values: ['x', 'y'], default: 'x' },
-    innerWidthM: { kind: 'number', min: 0.2, max: 8, default: 1 },
-    wallM: { kind: 'number', min: 0.1, max: 2, default: 0.3 },
-    depthM: { kind: 'number', min: 0.2, max: 4, default: 0.6 },
-    floorM: { kind: 'number', min: 0.1, max: 2, default: 0.3 },
-    covered: { kind: 'bool', default: false },
+    lengthM: { kind: 'number', min: 0.5, max: 60, default: 4, doc: 'channel run length (metres)' },
+    axis: { kind: 'enum', values: ['x', 'y'], default: 'x', doc: 'axis the channel runs along (x or y)' },
+    innerWidthM: { kind: 'number', min: 0.2, max: 8, default: 1, doc: 'clear inner width of the waterway (metres)' },
+    wallM: { kind: 'number', min: 0.1, max: 2, default: 0.3, doc: 'side-wall thickness (metres)' },
+    depthM: { kind: 'number', min: 0.2, max: 4, default: 0.6, doc: 'channel depth below the surrounding surface (metres)' },
+    floorM: { kind: 'number', min: 0.1, max: 2, default: 0.3, doc: 'floor slab thickness (metres)' },
+    covered: { kind: 'bool', default: false, doc: 'covered/capped (a culvert) vs an open channel' },
   },
   resolve: (part: Part, _ctx: ResolveCtx) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {

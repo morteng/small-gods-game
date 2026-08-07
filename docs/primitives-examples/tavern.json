@@ -1,0 +1,4 @@
+{
+  "note": "Simplest authoring path: name a shipped preset. Builds a tavern with its default programme and materials. Demonstrates that a single preset key is a complete AuthorInput.",
+  "preset": "tavern"
+}

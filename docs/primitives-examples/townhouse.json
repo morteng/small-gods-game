@@ -1,0 +1,22 @@
+{
+  "note": "A jettied half-timber townhouse over a stone base course. Demonstrates the mid-tier body params: levels, jetty (each upper storey oversails), baseCourse, frame (half-timbering), a chimney vent, and per-storey windows.",
+  "blueprint": {
+    "version": 1,
+    "class": "building",
+    "footprint": { "w": 3, "h": 2 },
+    "materials": { "walls": "timber", "roof": "tile" },
+    "parts": {
+      "body": {
+        "type": "body",
+        "size": { "w": 3, "h": 2 },
+        "params": { "plan": "rect", "levels": 2, "jetty": 0.12, "baseCourse": 0.4, "frame": true, "roof": "gable" },
+        "features": {
+          "door": { "type": "door", "face": "south", "params": { "main": true } },
+          "w1": { "type": "window", "face": "south", "params": { "t": 0.2, "perStorey": true } },
+          "w2": { "type": "window", "face": "south", "params": { "t": 0.7, "perStorey": true } },
+          "smoke": { "type": "vent", "params": { "kind": "chimney", "t": 0.85, "material": "stone" } }
+        }
+      }
+    }
+  }
+}

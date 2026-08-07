@@ -66,7 +66,7 @@ const HEADSTONES: Array<{ dx: number; dy: number; h: number }> = [
  */
 export const graveyardPartType: PartType = {
   type: 'graveyard',
-  paramSchema: { stones: { kind: 'number', min: 0, max: 24, default: 5 } },
+  paramSchema: { stones: { kind: 'number', min: 0, max: 24, default: 5, doc: 'number of weathered headstones to place (2×2 footprint)' } },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {
     const n = Math.max(0, Math.min(HEADSTONES.length, (p.params.stones as number) ?? 5));

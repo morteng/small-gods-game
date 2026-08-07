@@ -83,9 +83,9 @@ const ROADWAY_SURFACE: Record<string, { mat: Mat; work?: string }> = {
 export const deckPartType: PartType = {
   type: 'deck',
   paramSchema: {
-    lengthM: { kind: 'number', min: 0.5, max: 60, default: 4 },
-    widthM: { kind: 'number', min: 0.5, max: 20, default: 3 },
-    thicknessM: { kind: 'number', min: 0.1, max: 3, default: 0.6 },
+    lengthM: { kind: 'number', min: 0.5, max: 60, default: 4, doc: 'span length along the road (metres)' },
+    widthM: { kind: 'number', min: 0.5, max: 20, default: 3, doc: 'deck width across the road (metres)' },
+    thicknessM: { kind: 'number', min: 0.1, max: 3, default: 0.6, doc: 'structural slab thickness (metres)' },
     // Deck-underside height above the part's z datum (m). 0 ⇒ foots at the datum (the historic
     // behaviour — the crossing pipeline lifts the whole entity via liftElev). A whole-bridge
     // OBJECT sets this to the arch-crown / pier-top height so the deck rides ON the supports
@@ -93,14 +93,15 @@ export const deckPartType: PartType = {
     baseZM: { kind: 'any', doc: 'deck-underside height above the part z datum (m); overrides nothing when unset' },
     // Hump: extra crown rise at mid-span (m), parabolic to 0 at the abutments. 0 ⇒ flat slab.
     camberM: { kind: 'any', doc: 'hump-back crown rise at mid-span (m); 0/unset ⇒ flat deck' },
-    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ns' },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ns', doc: 'span bearing: ns = along +y, ew = along +x (overridden by yawDeg)' },
     // TRUE span bearing in degrees (CCW from +x). Overrides `dir`; lets a deck go diagonal. `any`
     // (not `number`) so it stays UNSET when a caller passes only `dir` — a number default would be
     // injected and shadow the dir-based bearing.
     yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
     // `both` = solid masonry parapet walls; `rails` = open post-and-rail (timber bridges — posts
     // proud of a top handrail + mid rail, the profile every wooden TTI reference draws).
-    parapet: { kind: 'enum', values: ['none', 'both', 'rails'], default: 'none' },
+    parapet: { kind: 'enum', values: ['none', 'both', 'rails'], default: 'none',
+      doc: 'side edges: none, solid masonry parapet walls, or open post-and-rail (timber bridges)' },
     // The ROAD the deck carries (a `RoadState.surfaceMaterial`). Laid as a thin surface course
     // between the parapets, so the bridge visibly carries the road across instead of presenting a
     // bare structural slab. `any` (not enum) so an unset caller injects NO default and keeps the
@@ -213,16 +214,13 @@ export const deckPartType: PartType = {
 export const logPartType: PartType = {
   type: 'log',
   paramSchema: {
-    lengthM: { kind: 'number', min: 0.1, max: 40, default: 6 },
-    /** Butt-end radius (m) — a generous trunk, not a pole. */
-    radiusM: { kind: 'number', min: 0.02, max: 0.8, default: 0.3 },
+    lengthM: { kind: 'number', min: 0.1, max: 40, default: 6, doc: 'log length along its bearing (metres)' },
+    radiusM: { kind: 'number', min: 0.02, max: 0.8, default: 0.3, doc: 'butt-end radius (metres) — a generous trunk, not a pole' },
     // Tip-end radius (m) — the natural taper. `any` so an unset caller emits an untapered
     // member (byte-identical to radiusM at both ends).
     tipRadiusM: { kind: 'any', doc: 'tip-end radius (m), < radiusM = natural taper; unset ⇒ no taper' },
-    /** Axis-centre height above the part z datum (m) — the log RESTS with its underside at
-     *  baseZM − radiusM, so seat it on blocks via baseZM = seatTop + radiusM. */
-    baseZM: { kind: 'number', min: -10, max: 40, default: 0.5 },
-    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
+    baseZM: { kind: 'number', min: -10, max: 40, default: 0.5, doc: 'axis-centre height above the part z datum (metres) — the log rests with its underside at baseZM − radiusM, so seat it via baseZM = seatTop + radiusM' },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew', doc: 'bearing: ew = along +x, ns = along +y (overridden by yawDeg)' },
     // TRUE bearing °, CCW from +x; overrides `dir` (same convention as deck/arch/abutment).
     yawDeg: { kind: 'any', doc: 'true bearing °, CCW from +x; overrides dir' },
     // Incline °; positive lifts the far (+bearing) end. ±90 stands the log up as a post.
@@ -264,10 +262,9 @@ export const logPartType: PartType = {
 export const pierPartType: PartType = {
   type: 'pier',
   paramSchema: {
-    heightM: { kind: 'number', min: 0.3, max: 40, default: 3 },
-    widthM: { kind: 'number', min: 0.3, max: 8, default: 1 },
-    /** Top-vs-base taper, 0 = straight, 0.5 = top half the base width. */
-    batter: { kind: 'number', min: 0, max: 0.6, default: 0 },
+    heightM: { kind: 'number', min: 0.3, max: 40, default: 3, doc: 'pier height, riverbed → deck underside (metres)' },
+    widthM: { kind: 'number', min: 0.3, max: 8, default: 1, doc: 'pier shaft width (metres)' },
+    batter: { kind: 'number', min: 0, max: 0.6, default: 0, doc: 'top-vs-base taper: 0 = straight, 0.5 = top is half the base width' },
     // A chunky square pile HEAD capping the column, headM tall and wider than the shaft — the
     // proud pile-head every timber-trestle reference draws. `any` so an unset caller (all
     // masonry piers, the historic path) emits the bare column, byte-identical.
@@ -308,16 +305,17 @@ export const pierPartType: PartType = {
 export const archSpanPartType: PartType = {
   type: 'arch_span',
   paramSchema: {
-    spanM: { kind: 'number', min: 0.5, max: 40, default: 4 },
-    riseM: { kind: 'number', min: 0.3, max: 20, default: 2 },
-    thicknessM: { kind: 'number', min: 0.2, max: 6, default: 1 },
-    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
+    spanM: { kind: 'number', min: 0.5, max: 40, default: 4, doc: 'clear opening width of the arch (metres)' },
+    riseM: { kind: 'number', min: 0.3, max: 20, default: 2, doc: 'crown height above the springing (metres)' },
+    thicknessM: { kind: 'number', min: 0.2, max: 6, default: 1, doc: 'arch/wall thickness along the span (metres)' },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew', doc: 'arch opening faces this bearing: ew = along +x, ns = along +y (overridden by yawDeg)' },
     // TRUE span bearing °, CCW from +x; overrides `dir` (lets the arch face a diagonal ford). `any`
     // so it stays unset when only `dir` is passed (a number default would shadow the dir bearing).
     yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
     // Arch head profile. Default `round` — a real curved ring, replacing the historic
     // square portal. `flat` keeps the post-and-lintel portal for any caller that wants it.
-    style: { kind: 'enum', values: ['round', 'segmental', 'pointed', 'horseshoe', 'flat'], default: 'round' },
+    style: { kind: 'enum', values: ['round', 'segmental', 'pointed', 'horseshoe', 'flat'], default: 'round',
+      doc: 'arch head profile: round (curved ring), segmental, pointed, horseshoe, or flat post-and-lintel' },
     // Masonry ring depth above the intrados crown (m) — the voussoir band's substance. Unset ⇒
     // the arch prim's own default (0.35 cube = 0.7 m). A bridge sets this to make the arch ring
     // read as a proud archivolt; the caller must seat the deck at riseM + THIS so the crown still
@@ -367,16 +365,15 @@ const ABUT_STEP_M = 0.8;   // one batter step per ~this much height
 export const abutmentPartType: PartType = {
   type: 'abutment',
   paramSchema: {
-    heightM: { kind: 'number', min: 0.3, max: 20, default: 3 },   // bed → deck underside
-    widthM: { kind: 'number', min: 0.5, max: 20, default: 3 },    // across the road (deck width)
-    depthM: { kind: 'number', min: 0.3, max: 8, default: 1.5 },   // along the span (into the bank)
-    /** Foot flare, 0 = straight, 0.3 = foot 30% wider than the top. */
-    batter: { kind: 'number', min: 0, max: 0.6, default: 0.15 },
+    heightM: { kind: 'number', min: 0.3, max: 20, default: 3, doc: 'bed → deck underside (metres)',  },   // bed → deck underside
+    widthM: { kind: 'number', min: 0.5, max: 20, default: 3, doc: 'across the road (deck width), metres' },    // across the road (deck width)
+    depthM: { kind: 'number', min: 0.3, max: 8, default: 1.5, doc: 'along the span, into the bank (metres)' },   // along the span (into the bank)
+    batter: { kind: 'number', min: 0, max: 0.6, default: 0.15, doc: 'foot flare: 0 = straight, 0.3 = foot 30% wider than the top' },
     // Pad base height above the part datum (m). Unset ⇒ 0 (the bed) — the classic full-height
     // block. A humble SEAT PAD sets baseZM = deckUnderside − heightM so the pad hangs under the
     // deck end and settles into the bank instead of towering up from the bed.
     baseZM: { kind: 'any', doc: 'base height above the part datum (m); unset ⇒ 0' },
-    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew' },
+    dir: { kind: 'enum', values: ['ns', 'ew'], default: 'ew', doc: 'bearing: ew = along +x, ns = along +y (overridden by yawDeg)' },
     // TRUE span bearing °, CCW from +x; overrides `dir`. `any` so an unset caller keeps the dir bearing.
     yawDeg: { kind: 'any', doc: 'true bank→bank bearing °, CCW from +x; overrides dir' },
   },

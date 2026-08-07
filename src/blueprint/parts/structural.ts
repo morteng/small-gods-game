@@ -19,15 +19,11 @@ const cellsOf = (p: { at: { x: number; y: number }; size: { w: number; h: number
 export const towerPartType: PartType = {
   type: 'tower',
   paramSchema: {
-    levels: { kind: 'number', min: 1, max: 12, default: 3 },
-    shape: { kind: 'enum', values: ['square', 'round'], default: 'square' },
-    roof: { kind: 'enum', values: ['flat', 'pyramidal', 'conical', 'domed'], default: 'pyramidal' },
-    /** Spire/cap height as a multiple of the tower radius. The default (1.2) is the squat
-     *  watchtower cap; a church west tower passes a far taller broach spire (~4). */
-    spire: { kind: 'number', min: 0.5, max: 8, default: 1.2 },
-    /** Trim: a crenellated battlement around a FLAT top (corbel band + merlons — the same
-     *  teeth the defensive-wall towers wear). Ignored under a spire/cone cap. */
-    parapet: { kind: 'bool', default: false },
+    levels: { kind: 'number', min: 1, max: 12, default: 3, doc: 'storeys — tower height' },
+    shape: { kind: 'enum', values: ['square', 'round'], default: 'square', doc: 'tower footprint: square or round' },
+    roof: { kind: 'enum', values: ['flat', 'pyramidal', 'conical', 'domed'], default: 'pyramidal', doc: 'tower cap: flat, pyramidal, conical, or domed' },
+    spire: { kind: 'number', min: 0.5, max: 8, default: 1.2, doc: 'spire/cap height as a multiple of the tower radius. 1.2 = the squat watchtower cap; ~4 = a tall broach spire' },
+    parapet: { kind: 'bool', default: false, doc: 'crenellated battlement around a FLAT top (corbel band + merlons) — ignored under a spire/cone cap' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx: CompileCtx): Prim[] {
@@ -73,7 +69,7 @@ export const towerPartType: PartType = {
 
 export const porchPartType: PartType = {
   type: 'porch',
-  paramSchema: { depth: { kind: 'number', min: 1, max: 3, default: 1 } },
+  paramSchema: { depth: { kind: 'number', min: 1, max: 3, default: 1, doc: 'overhang depth of the covered porch (metres)' } },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx: CompileCtx): Prim[] {
     const wallMat = WALL_MAT[ctx.materials.walls] ?? 'timber';
@@ -86,7 +82,7 @@ export const porchPartType: PartType = {
 
 export const chimneyPartType: PartType = {
   type: 'chimney',
-  paramSchema: { height: { kind: 'number', min: 0.2, max: 3, default: 1 } },
+  paramSchema: { height: { kind: 'number', min: 0.2, max: 3, default: 1, doc: 'chimney rise above the standard storey (metres)' } },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p): Prim[] {
     const top = STOREY + (p.params.height as number);
@@ -105,10 +101,10 @@ export const chimneyPartType: PartType = {
 export const waterwheelPartType: PartType = {
   type: 'waterwheel',
   paramSchema: {
-    face: { kind: 'enum', values: ['south', 'north', 'east', 'west'], default: 'south' },
-    radius: { kind: 'number', min: 0.8, max: 4, default: 1.3 },
-    spokes: { kind: 'number', min: 4, max: 16, default: 8 },
-    paddles: { kind: 'number', min: 6, max: 24, default: 12 },
+    face: { kind: 'enum', values: ['south', 'north', 'east', 'west'], default: 'south', doc: 'wall face the wheel hangs against (the stream side)' },
+    radius: { kind: 'number', min: 0.8, max: 4, default: 1.3, doc: 'wheel radius (metres)' },
+    spokes: { kind: 'number', min: 4, max: 16, default: 8, doc: 'number of radial spokes' },
+    paddles: { kind: 'number', min: 6, max: 24, default: 12, doc: 'number of paddles around the rim' },
     submerge: { kind: 'number', min: 0, max: 1.5, default: 0.1,
       doc: 'tiles the wheel bottom sinks below the ground/waterline (dips into the millrace)' },
   },

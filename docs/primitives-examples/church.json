@@ -1,0 +1,21 @@
+{
+  "note": "A church / tithe-barn cue: a long masonry nave with buttresses and arched windows, a tall portal, a steep roof. Demonstrates the sacred-massing cues on 'body' (buttress, roofPitch) and arched window styles.",
+  "blueprint": {
+    "version": 1,
+    "class": "building",
+    "footprint": { "w": 6, "h": 3 },
+    "materials": { "walls": "stone", "roof": "slate" },
+    "parts": {
+      "body": {
+        "type": "body",
+        "size": { "w": 6, "h": 3 },
+        "params": { "plan": "rect", "levels": 2, "roof": "gable", "buttress": true, "roofPitch": 1.2 },
+        "features": {
+          "door": { "type": "door", "face": "south", "params": { "main": true, "width": 0.5, "height": 1.2 } },
+          "w1": { "type": "window", "face": "south", "params": { "style": "arched", "width": 0.6, "t": 0.25 } },
+          "w2": { "type": "window", "face": "south", "params": { "style": "arched", "width": 0.6, "t": 0.65 } }
+        }
+      }
+    }
+  }
+}

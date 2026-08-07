@@ -58,9 +58,9 @@ const stallFrontOpen = (p: { at: { x: number; y: number }; size: { w: number; h:
 export const stallPartType: PartType = {
   type: 'stall',
   paramSchema: {
-    counter: { kind: 'bool', default: true },
-    postHeightM: { kind: 'number', min: 1.4, max: 3.5, default: 1.9 },
-    canopyRiseM: { kind: 'number', min: 0.3, max: 3.5, default: 2.6 },
+    counter: { kind: 'bool', default: true, doc: 'add the front sales counter (waist-high) along the street side' },
+    postHeightM: { kind: 'number', min: 1.4, max: 3.5, default: 1.9, doc: 'corner-post height (metres)' },
+    canopyRiseM: { kind: 'number', min: 0.3, max: 3.5, default: 2.6, doc: 'peak of the cloth awning above the posts (metres)' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, _ctx): Prim[] {
@@ -104,8 +104,8 @@ export const stallPartType: PartType = {
 export const tentPartType: PartType = {
   type: 'tent',
   paramSchema: {
-    heightM: { kind: 'number', min: 1.2, max: 6, default: 2.6 },
-    pole: { kind: 'bool', default: true },
+    heightM: { kind: 'number', min: 1.2, max: 6, default: 2.6, doc: 'tent rise (metres): a squat bell vs a tall teepee' },
+    pole: { kind: 'bool', default: true, doc: 'centre pole through the apex (visible above the cone)' },
   },
   resolve: (part) => ({ params: { ...(part.params ?? {}) } }),
   toPrims(p, ctx): Prim[] {

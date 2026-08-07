@@ -1,0 +1,21 @@
+{
+  "note": "A hand-authored cottage — the bedrock 'write a Blueprint from scratch' example. One 'body' part (rect, gable, thatch), a main door, two shuttered windows. Demonstrates: class+footprint, one part, features with face/t on a part.",
+  "blueprint": {
+    "version": 1,
+    "class": "building",
+    "footprint": { "w": 4, "h": 3 },
+    "materials": { "walls": "timber", "roof": "thatch" },
+    "parts": {
+      "body": {
+        "type": "body",
+        "size": { "w": 4, "h": 3 },
+        "params": { "plan": "rect", "levels": 1, "roof": "gable" },
+        "features": {
+          "door": { "type": "door", "face": "south", "params": { "main": true, "t": 0.5 } },
+          "w1": { "type": "window", "face": "south", "params": { "t": 0.25, "style": "shuttered" } },
+          "w2": { "type": "window", "face": "south", "params": { "t": 0.75, "style": "shuttered" } }
+        }
+      }
+    }
+  }
+}
