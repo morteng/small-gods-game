@@ -371,6 +371,20 @@ current shortlist (see `MEMORY.md` for status & next slices):
   "structures sit *on* the world not *in* it" — reusing the manifold geometry we
   already compute + discard. **$0, draw-only, no sim changes.** *Spec + plan, no
   code:* `docs/superpowers/specs/2026-07-15-structure-mesh-rendering.md`.
+- **LLM-authorable modeling** — ✅ **shipped, B0–B5**
+  (`docs/LLM-AUTHORING.md` — the authoring contract; plan:
+  `docs/superpowers/plans/2026-08-07-llm-authorable-modeling-plan.md`; catalogue:
+  `docs/PRIMITIVES.md`). An LLM (dev harness / MCP / in-game Fate) now authors game
+  geometry as **validated Blueprints** through a deterministic feedback loop instead of
+  hand-edited manifold-3d code: the `author-preview` loop (spec → gate → sprite +
+  diagnostics; exit 0/1/2), the structure-stage audit (bbox, z-penetration, openings,
+  mount sockets, massing), a complete generated capability catalogue + 8 worked examples
+  pinned to pass-the-gate-and-compose, spec↔terrain fit measurement
+  (`scripts/measure-structure-fit.ts`), and the golden/version commit contract. **No
+  geometry was added** — the masonry wall/parapet/crenellation vocab was already
+  authorable (`barrier` part + `body.parapet`), so no `ART_RECIPE_VERSION` bump. **$0.**
+  *Deferred:* an MCP/dev meta-verb wrapping measurement (verb names are API — pending
+  product sign-off).
 - **Terrain+Water shader system** — one per-cell field → texturing + water +
   scatter; zoom-LOD; pixel-perfect snap (also kills jerky-zoom). *Spec, no code.*
 - **Render-perf engine pass** — attack the overview fill-bound regime (deeper px
