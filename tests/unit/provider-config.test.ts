@@ -17,9 +17,9 @@ describe('provider config — capable-tier field', () => {
     expect(loaded.openrouterModel).toBe('google/gemini-2.5-flash-lite');
   });
 
-  it('defaults the fast model to deepseek-v4-flash when no config saved', () => {
+  it('defaults the fast model to deepseek-v4-flash-0731 when no config saved', () => {
     const loaded = loadProviderConfig();
-    expect(loaded.openrouterModel).toBe('deepseek/deepseek-v4-flash');
+    expect(loaded.openrouterModel).toBe('deepseek/deepseek-v4-flash-0731');
   });
 
   it('defaults the capable model to deepseek-v4-pro when no config saved', () => {
@@ -38,7 +38,7 @@ describe('provider config — capable-tier field', () => {
       openrouterModelCapable: 'deepseek/deepseek-v4',
     });
     const loaded = loadProviderConfig();
-    expect(loaded.openrouterModel).toBe('deepseek/deepseek-v4-flash');
+    expect(loaded.openrouterModel).toBe('deepseek/deepseek-v4-flash-0731');
     expect(loaded.openrouterModelCapable).toBe('deepseek/deepseek-v4-pro');
   });
 });

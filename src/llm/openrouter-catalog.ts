@@ -19,7 +19,7 @@ export interface CuratedModel {
 
 /** Cheap/fast tier — the default backfill model players run. */
 export const VERIFIED_CHAT_MODELS: readonly CuratedModel[] = [
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash (cheapest)' },
+  { id: 'deepseek/deepseek-v4-flash-0731', name: 'DeepSeek V4 Flash (cheapest)' },
   { id: 'google/gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite' },
   { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite' },
   { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
