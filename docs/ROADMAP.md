@@ -398,7 +398,18 @@ current shortlist (see `MEMORY.md` for status & next slices):
   (water/forest/stone/bog/dry/meadow place + a named founding first-mind + prose variant)
   from the seeded world - same world code, same opening; different codes differ. `$0`,
   no sim/worldgen change, sim-truth guarded (only storm/flood are real domains, so only a
-  water place gestures at a water spirit - and never as a claimed power). *Deferred, gated
+  water place gestures at a water spirit - and never as a claimed power). **World-variety
+  seam (B0) shipped:** a fresh `genSeed` only tunes noise - the world's identity is the
+  `WorldSeed`, so a genuinely different New Game must vary the world/biome too. B0 adds
+  the playable-world registry (`src/world/playable-worlds.ts`, canonical ids),
+  `WorldManager.loadNamed`, threads `worldSeedName` through New Game/RANDOM/paste (fixing
+  the paste-drop: world codes now regenerate the world they name), and `pickPlayableWorld()`
+  on the same CSPRNG. With a one-entry registry RANDOM equals today (expected); B0 is
+  invisible until worlds are authored. *Deferred, gated (DR-6):* **B1 - author a set of
+  playable worlds** (each new canonical id + a `WorldSeed` JSON under `public/data/worlds/`,
+  passing `lint:world` + the world-doctor) so RANDOM yields different people/places/biome
+  per run; scoped by a separate planning run, with a `WORLD_CONTENT_VERSION` bump at B1
+  sign-off. *Deferred, gated
   (DR-6):* planned **Phase 3 single-believer intro mode** - a lone believer by a stream,
   rivals + statistical cohorts deferred until "first crystallization" matures the god into
   a clan (threads an intro flag through `startWorld`/`bootstrapWorld` + a deferred-seeding

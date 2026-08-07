@@ -11,6 +11,7 @@
 import type { WorldSeed } from '@/core/types';
 import { assetUrl } from '@/core/asset-url';
 import { validateWorldSeed } from '@/core/schema';
+import { resolvePlayableWorld } from '@/world/playable-worlds';
 
 /** Saved world metadata from localStorage */
 export interface SavedWorldEntry {
@@ -66,10 +67,22 @@ export const WorldManager = {
   },
 
   /**
+   * Load a named PLAYABLE world by its canonical id (file stem). Unknown names
+   * fall back to `default` — never throws. Stamps the canonical `id` onto the
+   * seed so world codes round-trip to the same world.
+   */
+  async loadNamed(name: string): Promise<WorldSeed> {
+    const key = resolvePlayableWorld(name);
+    const ws = await this.loadFromFile(assetUrl(`data/worlds/${key}.json`));
+    ws.id = key;
+    return ws;
+  },
+
+  /**
    * Load the default world
    */
   async loadDefault(): Promise<WorldSeed> {
-    return this.loadFromFile(this.DEFAULT_WORLD);
+    return this.loadNamed('default');
   },
 
   /**

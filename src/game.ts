@@ -88,7 +88,8 @@ import { composeHallView } from '@/game/hall-view';
 import { encodeWorldCode, decodeWorldCode } from '@/game/world-code';
 import { firstRunTidings, FIRST_RUN_TIDING_HORIZON_TICKS } from '@/game/first-run-tidings';
 import { originProfileFor, DEFAULT_ORIGIN, type OriginProfile } from '@/game/origin-profile';
-import { newGameSeed } from '@/game/new-game-seed';
+import { WorldManager } from '@/map/world-manager';
+import { newGameSeed, pickPlayableWorld } from '@/game/new-game-seed';
 import * as settingsStore from '@/services/settings-store';
 import { selectRenderer } from '@/render/select-renderer';
 import { setUiScaleMultiplier } from '@/render/ui/ui-tokens';
@@ -1225,7 +1226,10 @@ export class Game {
       onNewGameAction: (action: NewGameAction) => {
         switch (action.kind) {
           case 'random':
-            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
+            // A genuinely fresh NEW GAME: roll BOTH which world (among the
+            // playable set) and the noise seed, so consecutive New Games can
+            // differ in people/places, not just terrain texture.
+            this.bus.emit({ verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { genSeed: newGameSeed(), worldSeedName: pickPlayableWorld() } });
             break;
           case 'back':
             this.bus.emit({ verb: 'close_screen', source: PLAYER_SPIRIT_ID, target: { kind: 'none' } });
@@ -1248,7 +1252,7 @@ export class Game {
         this.newGameError = null;
         this.bus.emit({
           verb: 'new_game', source: PLAYER_SPIRIT_ID, target: { kind: 'none' },
-          params: { genSeed: decoded.code.genSeed },
+          params: { genSeed: decoded.code.genSeed, worldSeedName: decoded.code.worldSeedName },
         });
       },
       onSettingsAction: (action: SettingsAction) => {
@@ -2271,10 +2275,12 @@ export class Game {
       case 'new_game': {
         const genSeed = num('genSeed');
         const genome = str('genome');
+        const worldSeedName = str('worldSeedName');
         const demo = cmd.params?.demo !== undefined || cmd.payload?.demo !== undefined;
         void this.newWorld({
           ...(genSeed !== undefined ? { genSeed } : {}),
           ...(genome !== undefined ? { genome } : {}),
+          ...(worldSeedName !== undefined ? { worldSeedName } : {}),
           ...(demo ? { demo: true } : {}),
         }).catch((err) => console.error('[shell] new_game failed', err));
         break;
@@ -2737,7 +2743,7 @@ export class Game {
     }
     const code = encodeWorldCode({
       genSeed: this.state.map.seed,
-      worldSeedName: this.state.worldSeed?.name ?? '',
+      worldSeedName: this.state.worldSeed?.id ?? '',
       contentVersion: WORLD_CONTENT_VERSION,
     });
     try {
@@ -3256,7 +3262,7 @@ export class Game {
 
   /** Abandon the current world and start a brand-new one, without a reload.
    *  Kept as the public name the pause menu + embed API already call. */
-  async newWorld(opts: { genSeed?: number; genome?: string; demo?: boolean } = {}): Promise<void> {
+  async newWorld(opts: { genSeed?: number; genome?: string; demo?: boolean; worldSeedName?: string } = {}): Promise<void> {
     this.persistence?.destroy();
     if (!opts.demo) await clearSave();
     if (this.state.map) await this.returnToTitle();
@@ -3268,9 +3274,19 @@ export class Game {
     // their own explicit seed (or stay pinned) and never reach this roll.
     const genSeed = opts.genSeed !== undefined ? opts.genSeed
       : !opts.demo && !opts.genome ? newGameSeed() : undefined;
+    // A NEW GAME may also name a specific PLAYABLE world (RANDOM rolls it; a
+    // pasted code carries its canonical id). Loaded here so it rides
+    // `startWorld`'s `worldSeed` — the world's identity (people/places/biome) is
+    // deterministic from the (worldSeedName, genSeed) pair. DEMO omits it, so it
+    // stays the pinned default; genome (terrain study) leaves it untouched.
+    let worldSeed: WorldSeed | undefined;
+    if (!opts.demo && !opts.genome && opts.worldSeedName !== undefined) {
+      worldSeed = await WorldManager.loadNamed(opts.worldSeedName);
+    }
     await this.startWorld({
       fresh: true,
       ...(genSeed !== undefined ? { genSeed } : {}),
+      ...(worldSeed !== undefined ? { worldSeed } : {}),
       ...(opts.genome !== undefined ? { genome: opts.genome } : {}),
       // The Demo World is the pinned default world with autosave suppressed —
       // it must never write over the player's real save.

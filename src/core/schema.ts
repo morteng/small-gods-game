@@ -110,7 +110,7 @@ const COAST_ANCHORS = ['east', 'west', 'north', 'south', 'nearest'] as const;
 
 // Canonical key sets — anything else on the object is dead weight the engine
 // silently ignores, which is exactly what an authoring agent needs to hear about.
-const SEED_KEYS = new Set(['name', 'description', 'size', 'biome', 'visualTheme', 'era', 'pois',
+const SEED_KEYS = new Set(['id', 'name', 'description', 'size', 'biome', 'visualTheme', 'era', 'pois',
   'connections', 'constraints', 'tileWeights', 'lore', 'roadEndpoints', 'island', 'style',
   'climate', 'terrainShape']);
 const POI_KEYS = new Set(['id', 'type', 'name', 'description', 'position', 'region', 'size',

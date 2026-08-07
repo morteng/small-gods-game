@@ -14,18 +14,37 @@
 // different seeds). DEMO and pasted/URL seeds never call this (they pass their
 // own explicit seed).
 
-/** A uniform integer seed in [1, 0x7fffffff] — a valid world-gen seed (bootstrap
- *  requires `> 0` and finite). Prefers the platform CSPRNG; falls back to
- *  `Math.random` on hosts without `crypto`. */
-export function newGameSeed(): number {
-  let u = 0;
+import { PLAYABLE_WORLD_NAMES } from '@/world/playable-worlds';
+
+/** One uniform 32-bit draw from the platform CSPRNG (Math.random fallback on
+ *  hosts without `crypto`). Shared by both pickers below so they use the SAME
+ *  randomness discipline. */
+function randomUint(): number {
   const c = (globalThis as { crypto?: { getRandomValues?(a: Uint32Array): void } }).crypto;
   if (c && typeof c.getRandomValues === 'function') {
     const b = new Uint32Array(1);
     c.getRandomValues(b);
-    u = b[0];
-  } else {
-    u = Math.floor(Math.random() * 0xffffffff);
+    return b[0];
   }
-  return (u % 0x7fffffff) + 1;
+  return Math.floor(Math.random() * 0xffffffff);
+}
+
+/** A uniform integer seed in [1, 0x7fffffff] — a valid world-gen seed (bootstrap
+ *  requires `> 0` and finite).
+ *
+ *  This is the ONLY deliberately nondeterministic value in boot, and deliberately
+ *  OUTSIDE the seeded rng: it picks WHICH world (the run's identity), not any
+ *  sim value, so the sim is fully deterministic/replayable FROM the rolled seed
+ *  once it is persisted as the world's `genSeed`. */
+export function newGameSeed(): number {
+  return (randomUint() % 0x7fffffff) + 1;
+}
+
+/** Pick which PLAYABLE world a New Game starts in — uniformly among
+ *  `PLAYABLE_WORLD_NAMES`, from the same CSPRNG. Same nondeterministic "which
+ *  world" discipline as `newGameSeed()`. With a single-entry registry this is
+ *  always `'default'` (a no-op, as expected). */
+export function pickPlayableWorld(): string {
+  const n = PLAYABLE_WORLD_NAMES.length;
+  return n === 0 ? 'default' : PLAYABLE_WORLD_NAMES[randomUint() % n];
 }

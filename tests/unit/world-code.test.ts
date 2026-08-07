@@ -30,6 +30,15 @@ describe('world-code — encode/decode round trip', () => {
     expect(decoded.ok).toBe(true);
   });
 
+  it('round-trips a NON-default worldSeedName unchanged (a pasted code keeps its world)', () => {
+    const code = encodeWorldCode({ genSeed: 777, worldSeedName: 'dawnwood', contentVersion: 118 });
+    const decoded = decodeWorldCode(code, 118);
+    expect(decoded).toEqual({
+      ok: true,
+      code: { genSeed: 777, worldSeedName: 'dawnwood', contentVersion: 118 },
+    });
+  });
+
   it('genSeed 0 round-trips (falsy is not the same as absent)', () => {
     const code = encodeWorldCode({ genSeed: 0, worldSeedName: 'default', contentVersion: 118 });
     const decoded = decodeWorldCode(code, 118);

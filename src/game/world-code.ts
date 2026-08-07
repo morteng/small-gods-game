@@ -16,10 +16,11 @@
 // worldgen is content-version-sensitive, so opening a code from an older build
 // would quietly hand the player a different world than the one the code names.
 
-/** What a world code identifies. `worldSeedName` rides for display/future use
- *  (see `decodeWorldCode`'s doc for why it is NOT yet forwarded to `new_game`'s
- *  `genome` param) — the code is genuinely self-describing even though this
- *  slice only acts on `genSeed`. */
+/** What a world code identifies. `worldSeedName` is the canonical playable-world
+ *  id (file stem, e.g. "default"), and is now FORWARDED to `new_game` so a
+ *  pasted code regenerates the SAME world it names (not the demo) — see
+ *  `Game.onWorldCodeSubmit` → `newWorld`'s `worldSeedName`. `resolvePlayableWorld`
+ *  normalises any older display-name/id the code might carry. */
 export interface WorldCode {
   genSeed: number;
   worldSeedName: string;

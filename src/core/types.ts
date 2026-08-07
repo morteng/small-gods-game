@@ -249,6 +249,10 @@ export interface Connection {
 /** World seed -- full world definition */
 export interface WorldSeed {
   name: string;
+  /** Canonical playable-world id (file stem, e.g. "default"). Additive, optional
+   *  on disk (loaders stamp it); used by world codes so a minted code round-trips
+   *  to the SAME world (`resolvePlayableWorld` / `WorldManager.loadNamed`). */
+  id?: string;
   description?: string;
   size: { width: number; height: number };
   biome: string;

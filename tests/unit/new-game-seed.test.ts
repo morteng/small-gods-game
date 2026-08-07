@@ -6,7 +6,7 @@
 // NEW GAME previously always re-landed on the pinned demo world. Falling back to
 // the pinned seed would freeze the set below to a single value again.
 import { describe, it, expect, afterEach } from 'vitest';
-import { newGameSeed } from '@/game/new-game-seed';
+import { newGameSeed, pickPlayableWorld } from '@/game/new-game-seed';
 
 // `globalThis.crypto` is a getter-only accessor in the node test env, so stubbing
 // it requires Object.defineProperty (a plain assignment throws).
@@ -61,5 +61,25 @@ describe('newGameSeed — the New-Game "which world" roll', () => {
     expect(Number.isInteger(s)).toBe(true);
     expect(s).toBeGreaterThanOrEqual(1);
     expect(s).toBeLessThanOrEqual(0x7fffffff);
+  });
+});
+
+describe('pickPlayableWorld — the New-Game "which world" pick', () => {
+  it('with a single-entry registry always returns default (a no-op, as expected)', () => {
+    expect(pickPlayableWorld()).toBe('default');
+    expect(pickPlayableWorld()).toBe('default');
+  });
+
+  it('maps a CSPRNG draw deterministically onto the playable set', () => {
+    stubCrypto((a: Uint32Array) => { a[0] = 12345; });
+    // 12345 % 1 = 0 -> names[0] = 'default' regardless of the draw.
+    expect(pickPlayableWorld()).toBe('default');
+  });
+
+  it('never returns a value outside the playable set', () => {
+    for (let i = 0; i < 200; i++) {
+      const w = pickPlayableWorld();
+      expect(['default']).toContain(w);
+    }
   });
 });
