@@ -1163,7 +1163,7 @@ export class Game {
             this.bus.emit({ verb: 'load_slot', source: PLAYER_SPIRIT_ID, target: { kind: 'none' }, params: { slot: 'autosave' } });
             break;
           case 'new_world':
-            // P5b: NEW WORLD lands on the new-world screen (random OR a pasted
+            // P5b: NEW GAME lands on the new-game screen (random OR a pasted
             // seed-share code) rather than firing `new_game` straight away —
             // see `newgame-screen.ts`'s header. `open_screen` is the SAME
             // meta-verb path every other shell navigation takes (and clears
@@ -3517,7 +3517,7 @@ export class Game {
       // sky, so there is nothing beneath the hall to hide. Resetting (rather
       // than merely ignoring) the ramp is what guarantees no dangling coverage
       // survives a world: quit-to-title lands here, and so does the direct
-      // `returnToTitle` a mid-world NEW WORLD takes, so the next world's
+      // `returnToTitle` a mid-game NEW GAME takes, so the next world's
       // descent always starts from a genuinely clear sky.
       this.hallRampLinear = 0;
       this.hallRampAtMs = null;

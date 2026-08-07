@@ -38,6 +38,19 @@ describe('first-run tidings', () => {
     expect(items.some(i => /debug|backquote|dev mode/i.test(i.title + i.detail))).toBe(false);
   });
 
+  it('re-authors the opening as the player’s origin story, not a plain deity intro', () => {
+    const items = firstRunTidings(0);
+    const titles = items.map(i => i.title);
+    // The first step is the Boltzmann origin, not a generic "a minor deity" opener.
+    expect(titles[0]).toMatch(/Into existence/);
+    expect(items.some(i => i.title === 'A minor deity')).toBe(false);
+    // The domain/identity step appears, with the water-spirit belief named.
+    expect(items.some(i => i.id === 'firstrun:domain')).toBe(true);
+    expect(items.some(i => /water/i.test(i.detail))).toBe(true);
+    // The old straight-apostrophe "You're ready" title is gone (ASCII-only law).
+    expect(titles.some(t => /^You.re ready$/.test(t))).toBe(false);
+  });
+
   it('every glyph in the ported prose is in the pixel font (ASCII-only law for dynamic text)', () => {
     const glyphs = supportedGlyphs();
     for (const item of firstRunTidings(0)) {

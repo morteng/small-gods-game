@@ -33,7 +33,7 @@ export interface TitleView {
   continueLine: string | null;
   /** Non-null ⇒ CONTINUE is disabled and this explains why, in the player's words. */
   continueBlocked: ContinueBlock;
-  /** Whether any named slot holds a save (drives LOAD WORLD's enabled state). */
+  /** Whether any named slot holds a save (drives LOAD GAME's enabled state). */
   hasAnySave: boolean;
   /** True while the save probe is STILL IN FLIGHT — nothing is known yet about
    *  any slot. Distinct from `hasAnySave: false`, which is a positive finding.
@@ -88,9 +88,9 @@ export function titleRows(view: TitleView): Row[] {
       note: blocked ? blocked.text : view.continueLine,
       reserveNote: true,
     },
-    { id: 'title.new', label: 'NEW WORLD', action: { kind: 'new_world' }, enabled: true, note: null, reserveNote: false },
+    { id: 'title.new', label: 'NEW GAME', action: { kind: 'new_world' }, enabled: true, note: null, reserveNote: false },
     {
-      id: 'title.load', label: 'LOAD WORLD', action: { kind: 'load' },
+      id: 'title.load', label: 'LOAD GAME', action: { kind: 'load' },
       // Disabled while probing (there is genuinely nothing to open yet) but the
       // note must not CLAIM anything — see `TitleView.probing`.
       enabled: !view.probing && view.hasAnySave,
@@ -100,7 +100,7 @@ export function titleRows(view: TitleView): Row[] {
       reserveNote: true,
     },
     {
-      id: 'title.demo', label: 'DEMO WORLD', action: { kind: 'demo' }, enabled: true,
+      id: 'title.demo', label: 'DEMO', action: { kind: 'demo' }, enabled: true,
       note: 'A WORLD TO WATCH — NOTHING IS SAVED',
       reserveNote: true,
     },

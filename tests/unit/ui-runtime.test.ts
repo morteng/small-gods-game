@@ -183,7 +183,7 @@ describe('UiRuntime — HUD + pause menu', () => {
     const c = new UiContext();
     const labels: Record<string, string> = {
       'nav.resume': 'RESUME', 'nav.hall': 'HALL OF THE GODS',
-      'nav.settings': 'SETTINGS', 'nav.world': 'NEW WORLD',
+      'nav.settings': 'SETTINGS', 'nav.world': 'NEW GAME',
       'nav.copycode': 'COPY WORLD CODE',
     };
     for (const [id, label] of Object.entries(labels)) {

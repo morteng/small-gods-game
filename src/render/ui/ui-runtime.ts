@@ -60,7 +60,7 @@ export interface UiRuntimeHooks {
   requestRender?: () => void;
   /** Player presence in 0..1 (drives the orb fill). */
   getPower?: () => number;
-  /** Menu "NEW WORLD". */
+  /** Menu "NEW GAME". */
   onNewWorld?: () => void;
   /** Menu opened/closed — the game pauses while the menu is up. */
   onMenuToggle?: (open: boolean) => void;
@@ -2091,7 +2091,7 @@ export class UiRuntime {
     // the column never gets narrower than it used to be.
     const NAV_LABELS = {
       resume: 'RESUME', hall: 'HALL OF THE GODS', settings: 'SETTINGS',
-      world: 'NEW WORLD', copycode: 'COPY WORLD CODE',
+      world: 'NEW GAME', copycode: 'COPY WORLD CODE',
     } as const;
     const navX = 48 * s;
     const navTop = 100 * s;

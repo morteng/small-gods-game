@@ -1,6 +1,6 @@
 // src/render/ui/kit/world-code-island.ts
 //
-// The NEW WORLD screen's paste field (UI v3 P5b — seed share) — the third DOM
+// The NEW GAME screen's paste field (UI v3 P5b — seed share) — the third DOM
 // island, composing the shared shell in `island-frame.ts` rather than
 // hand-rolling a third root/show/hide/layout/destroy (the house rule this
 // module exists to honour; see that file's header). A single text field +
@@ -73,7 +73,7 @@ export class WorldCodeIsland {
     return this.frame.isShown();
   }
 
-  /** Position the island over the NEW WORLD screen's reserved rect (CSS px). */
+  /** Position the island over the NEW GAME screen's reserved rect (CSS px). */
   layout(r: IslandRect): void {
     this.frame.layout(r);
   }

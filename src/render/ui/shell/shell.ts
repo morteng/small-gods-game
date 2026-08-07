@@ -397,7 +397,7 @@ export class Shell implements LoadingSurface {
       choices = gameOverRows().map((r) => ({ id: r.id, label: r.label, enabled: true, note: null }));
     } else if (screen === 'newgame') {
       choices = [
-        { id: 'newgame.random', label: 'RANDOM WORLD', enabled: true, note: null },
+        { id: 'newgame.random', label: 'RANDOM', enabled: true, note: null },
         { id: 'newgame.back', label: 'BACK', enabled: true, note: null },
       ];
     } else if (screen === 'hall') {
@@ -459,7 +459,7 @@ export class Shell implements LoadingSurface {
       // `replace` (which this used to be) collapses only the topmost entry, so it
       // was depth-dependent: from `['title']` it gave `['loading']` and `hide()`
       // landed on the HUD correctly, but from `['title','load']` — the
-      // title → LOAD WORLD → pick-a-slot path — it gave `['title','loading']`, and
+      // title → LOAD GAME → pick-a-slot path — it gave `['title','loading']`, and
       // `hide()` popped back to a title screen left drawn on top of the running
       // world, with no HUD. Found in a live GPU pass (2026-07-25); pinned for all
       // four entry paths by `tests/unit/shell-entry-paths.test.ts`.

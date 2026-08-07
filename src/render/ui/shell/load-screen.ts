@@ -58,7 +58,7 @@ export function loadRows(view: LoadScreenView): ScreenRow[] {
 /** Paint the load screen. Returns the action the player triggered this frame,
  *  or null — same contract every shell screen follows. */
 export function drawLoadScreen(c: UiContext, w: number, h: number, s: number, view: LoadScreenView): LoadAction | null {
-  const outcome = drawSlotsScreen(c, w, h, s, 'LOAD WORLD', loadRows(view), 'load.back');
+  const outcome = drawSlotsScreen(c, w, h, s, 'LOAD GAME', loadRows(view), 'load.back');
   if (!outcome) return null;
   if (outcome.kind === 'back') return { kind: 'back' };
   if (outcome.kind === 'delete') return { kind: 'delete', slot: outcome.slot };

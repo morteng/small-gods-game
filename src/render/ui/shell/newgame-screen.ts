@@ -1,7 +1,7 @@
 // src/render/ui/shell/newgame-screen.ts
 //
-// The NEW WORLD screen (UI v3 P5b — seed share's other half). Title's NEW
-// WORLD row lands here instead of firing `new_game` straight away, so a
+// The NEW GAME screen (UI v3 P5b — seed share's other half). Title's NEW
+// GAME row lands here instead of firing `new_game` straight away, so a
 // player can either begin at random or paste a world code (`@/game/world-code`)
 // shared by another session. Pure like every shell screen: state in, geometry
 // out, action reported back — the paste field's own text lives in the DOM
@@ -38,8 +38,8 @@ export interface NewGameDrawResult {
   island: Rect;
 }
 
-const HEADER = 'NEW WORLD';
-const NOTE = 'PASTE A WORLD CODE, OR BEGIN AT RANDOM.';
+const HEADER = 'NEW GAME';
+const NOTE = 'PASTE A WORLD CODE, OR BEGIN A NEW GAME.';
 
 /** The largest INTEGER scale at or below `preferred` at which `text` fits
  *  `maxW` — mirrors every other shell screen's `fitScale` (pixel-perfect law:
@@ -52,7 +52,7 @@ function fitScale(c: UiContext, text: string, maxW: number, preferred: number): 
 }
 
 /**
- * Paint the NEW WORLD screen. Returns the GPU-button action fired this frame
+ * Paint the NEW GAME screen. Returns the GPU-button action fired this frame
  * (or null) plus the paste field's reserved rect — the paste SUBMIT itself
  * does not come through here (it is a DOM island event the caller wires
  * directly, the same split `onCardFreeText` uses for the whisper island).
@@ -77,7 +77,7 @@ export function drawNewGameScreen(
 
   const fieldH = Math.max(Math.round(36 * s), c.buttonHeight(T.menu));
   const btnH = Math.max(Math.round(30 * s), c.buttonHeight(T.menu));
-  const btnW = Math.round(Math.min(Math.max(220 * s, c.buttonWidth('RANDOM WORLD', T.menu)), colW));
+  const btnW = Math.round(Math.min(Math.max(220 * s, c.buttonWidth('RANDOM', T.menu)), colW));
   const backW = Math.round(Math.min(Math.max(160 * s, c.buttonWidth('BACK', T.menu)), colW));
 
   const fixedBtnH = backH(c, T.menu, s);
@@ -122,7 +122,7 @@ export function drawNewGameScreen(
 
   let fired: NewGameAction | null = null;
   const btnX = Math.round(cx - btnW / 2);
-  if (c.button('newgame.random', 'RANDOM WORLD', btnX, y, btnW, btnH, { scale: T.menu })) {
+  if (c.button('newgame.random', 'RANDOM', btnX, y, btnW, btnH, { scale: T.menu })) {
     fired = { kind: 'random' };
   }
   y += btnH + gap;

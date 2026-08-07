@@ -480,7 +480,7 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
   // Registering them (rather than wiring the menu straight to Game methods) is
   // what makes the entire shell drivable through the ordinary command path — the
   // MCP server's `capabilities`/`emit_command`, the dev bus CLI, and tests all
-  // get "start a new world", "load slot 2", "open settings" for free, with no
+  // get "begin a new game", "load slot 2", "open settings" for free, with no
   // bespoke test hook. Every one takes `targetKind: 'none'`, so they add nothing
   // to hover-affordance ranking (which keys on the target kind).
   new_game: {
@@ -488,13 +488,13 @@ export const CAPABILITY_REGISTRY: Record<CommandVerb, CapabilityDef> = {
     describe: (cmd) => {
       const seed = cmd.params?.genSeed ?? cmd.payload?.genSeed;
       const genome = cmd.params?.genome ?? cmd.payload?.genome;
-      if (genome) return `start a new world from the ${String(genome)} genome`;
-      return seed ? `start a new world from seed ${String(seed)}` : 'start a new world';
+      if (genome) return `begin a new game from the ${String(genome)} genome`;
+      return seed ? `begin a new game from seed ${String(seed)}` : 'begin a new game';
     },
   },
   load_slot: {
     verb: 'load_slot', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
-    describe: (cmd) => `load the saved world in ${String(cmd.params?.slot ?? cmd.payload?.slot ?? 'a slot')}`,
+    describe: (cmd) => `load the saved game in ${String(cmd.params?.slot ?? cmd.payload?.slot ?? 'a slot')}`,
   },
   save_slot: {
     verb: 'save_slot', tier: 'meta', cost: 0, targetKind: 'none', implemented: true,
