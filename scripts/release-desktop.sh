@@ -8,6 +8,10 @@
 # source + the public npm registry, and electron-builder runs with
 # `--publish never`.
 #
+# Most of the time you do NOT run this directly — `npm run release:linux`
+# (scripts/release-linux.sh) is the one-command release process and calls this as its
+# build+publish step. Run this alone to re-publish artifacts for a tag that exists.
+#
 # Prereqs:
 #   - The version tag already exists (cut it with `npm run release` first, per
 #     docs/RELEASING.md). This script does NOT bump/tag — it only builds+publishes.
@@ -62,8 +66,16 @@ fi
 if [ "$SKIP_BUILD" = 1 ]; then
   echo "▶ --skip-build: reusing existing ./release/"
 else
+  # The box builds from a `git archive` tar with no .git, so VITE_GIT_SHA must be
+  # handed in or the in-app build stamp reads "unknown". Injected 0600 and deleted
+  # by ci-on-server.sh the instant the run ends (same as dev-build.sh).
+  BOX_ENV="$(mktemp -t sg-release-env.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "rm -f '$BOX_ENV'" EXIT
+  printf 'VITE_GIT_SHA=%s\n' "$(git rev-parse --short "$TAG")" > "$BOX_ENV"
+  chmod 600 "$BOX_ENV"
   echo "▶ Building AppImage on ci-eph (electron-builder --publish never — no token on the box)..."
-  ./scripts/ci-on-server.sh --run="npm run dist:linux" --out=release
+  ./scripts/ci-on-server.sh --run="npm run dist:linux" --out=release --env="$BOX_ENV"
 fi
 
 APPIMAGE="$(ls release/*.AppImage 2>/dev/null | head -1 || true)"
@@ -80,11 +92,67 @@ echo "✓ Artifacts: $APPIMAGE + $FEED"
 # must live on the same Release. Create it if absent, else clobber the assets.
 if gh release view "$TAG" >/dev/null 2>&1; then
   echo "▶ Release $TAG exists — uploading (clobber) artifacts..."
+  echo "  (existing release notes left untouched — edit them on GitHub if needed)"
   gh release upload "$TAG" "$APPIMAGE" "$FEED" --clobber
 else
   echo "▶ Creating Release $TAG and uploading artifacts..."
+
+  # Release notes = PLAIN-LANGUAGE install instructions first, auto-generated
+  # changelog second. A player landing on this page should not have to know what an
+  # AppImage is, and the two questions Linux users actually hit (chmod, FUSE 2) are
+  # answered inline rather than in an issue thread.
+  APPNAME="$(basename "$APPIMAGE")"
+  NOTES_FILE="$(mktemp -t sg-release-notes.XXXXXX)"
+  cat > "$NOTES_FILE" <<EOF
+## Play on Linux
+
+Download **\`${APPNAME}\`** below — one file, no installer, nothing to unpack.
+
+\`\`\`bash
+chmod +x ${APPNAME}     # make it runnable (once)
+./${APPNAME}            # play
+\`\`\`
+
+Prefer clicking? Right-click the file → **Properties → Permissions → Allow executing
+file as program**, then double-click it.
+
+Requires a 64-bit (x86-64) Linux desktop. The app bundles its own Chromium/WebGPU
+runtime, so it works even if your browser doesn't support WebGPU.
+
+### If it won't start
+
+- **\`libfuse.so.2\` / "dlopen(): error loading libfuse.so.2"** — your distro ships
+  FUSE 3 and AppImages want FUSE 2. Either run it without FUSE:
+  \`./${APPNAME} --appimage-extract-and-run\`
+  or install the compatibility package (Debian/Ubuntu: \`sudo apt install libfuse2\`,
+  Fedora: \`sudo dnf install fuse-libs\`).
+- **Nothing happens / blank window** — start it from a terminal so you can see the
+  error, and please open an issue with that output.
+
+### Updates
+
+The app checks this page on launch and offers to install a newer version for you.
+
+### Rather not download anything?
+
+Play in the browser: <https://morteng.github.io/small-gods-game/>
+(needs a WebGPU-capable browser — Chrome or Edge 113+).
+
+---
+
+EOF
+  # Append GitHub's own commit-derived notes when available; a failure here (no
+  # previous tag, API hiccup) must not sink the release — the instructions matter more.
+  if gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" -f tag_name="$TAG" -q .body \
+       >> "$NOTES_FILE" 2>/dev/null; then
+    echo "✓ Appended auto-generated changelog"
+  else
+    echo "⚠ Could not auto-generate the changelog — publishing with install notes only" >&2
+  fi
+
   gh release create "$TAG" "$APPIMAGE" "$FEED" \
-    --title "$TAG" --generate-notes $DRAFT
+    --title "Small Gods $TAG" --notes-file "$NOTES_FILE" $DRAFT
+  rm -f "$NOTES_FILE"
 fi
 
 echo "✓ Desktop release published: $(gh release view "$TAG" --json url -q .url 2>/dev/null || echo "$TAG")"

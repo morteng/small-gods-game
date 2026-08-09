@@ -30,7 +30,8 @@
     "dist:mac": "npm run build:electron && electron-builder --mac --publish never",
     "dist:win": "npm run build:electron && electron-builder --win --publish never",
     "release": "commit-and-tag-version",
-    "release:dev": "commit-and-tag-version --prerelease dev"
+    "release:dev": "commit-and-tag-version --prerelease dev",
+    "release:linux": "./scripts/release-linux.sh"
   },
   "keywords": [],
   "author": "",

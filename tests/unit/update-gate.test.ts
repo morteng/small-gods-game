@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 // The gate is CommonJS (loaded by electron/main.cjs, which is not an ES module),
 // so pull it in via createRequire rather than an ESM import.
 const require = createRequire(import.meta.url);
-const { planAutoUpdate, FEED_OWNER, FEED_REPO } = require('../../electron/update-gate.cjs');
+const { planAutoUpdate, FEED_OWNER, FEED_REPO, STABLE_FEED_REPO } = require('../../electron/update-gate.cjs');
 
 const TOKEN = 'ghp_fake_read_only_token';
 
@@ -104,6 +104,44 @@ describe('planAutoUpdate — desktop auto-update gate', () => {
     });
     expect(dev.allowPrerelease).toBe(true);
     expect(stable.allowPrerelease).toBe(false);
+  });
+
+  it('enables a STABLE AppImage against the public source repo with no token', () => {
+    const plan = planAutoUpdate({
+      isPackaged: true,
+      platform: 'linux',
+      isAppImage: true,
+      version: '0.1.0',
+      token: null,
+    });
+    expect(plan.enabled).toBe(true);
+    expect(plan.allowPrerelease).toBe(false);
+    expect(plan.feed).toEqual({ provider: 'github', owner: FEED_OWNER, repo: STABLE_FEED_REPO });
+    expect(STABLE_FEED_REPO).toBe('small-gods-game');
+  });
+
+  it('never forwards the private-repo token to the public stable feed', () => {
+    // after-pack bakes the PAT on every non-darwin build, dev or stable. A token
+    // scoped to the private artifacts repo must not be sent to a different repo.
+    const plan = planAutoUpdate({
+      isPackaged: true, platform: 'linux', isAppImage: true, version: '0.1.0', token: TOKEN,
+    });
+    expect(plan.enabled).toBe(true);
+    expect(JSON.stringify(plan)).not.toContain(TOKEN);
+    expect(plan.feed.repo).toBe(STABLE_FEED_REPO);
+    expect(plan.feed.private).toBeUndefined();
+  });
+
+  it('routes dev and stable versions to DIFFERENT feed repos', () => {
+    const dev = planAutoUpdate({
+      isPackaged: true, platform: 'linux', isAppImage: true, version: '0.2.0-dev.3', token: TOKEN,
+    });
+    const stable = planAutoUpdate({
+      isPackaged: true, platform: 'linux', isAppImage: true, version: '0.2.0', token: TOKEN,
+    });
+    expect(dev.feed.repo).toBe(FEED_REPO);
+    expect(stable.feed.repo).toBe(STABLE_FEED_REPO);
+    expect(dev.feed.repo).not.toBe(stable.feed.repo);
   });
 
   it('never leaks a token value into a disabled plan', () => {

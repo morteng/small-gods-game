@@ -5,7 +5,7 @@ Two delivery surfaces, deliberately kept cheap on CI:
 | Surface | What | How it ships |
 | --- | --- | --- |
 | **Web (dev build)** | The live WebGPU game | GitHub Pages, auto-deploys on every push to `main` (`deploy.yml`) — unchanged |
-| **Linux desktop** | Electron AppImage bundling Chromium+Dawn → **guaranteed WebGPU** even for users whose browser/system lacks it | Built on the shared `ci-eph` box, published from the Mac via `scripts/release-desktop.sh` (zero Actions minutes) — GitHub Release + itch.io |
+| **Linux desktop** | Electron AppImage bundling Chromium+Dawn → **guaranteed WebGPU** even for users whose browser/system lacks it | `npm run release:linux` — builds on the shared `ci-eph` box, publishes a public GitHub Release from the Mac (zero Actions minutes) |
 
 > **Why Electron, not the `src-tauri/` scaffold?** Tauri uses the system webview
 > (webkit2gtk on Linux), which doesn't ship WebGPU on stock distros — so it can't reach
@@ -25,22 +25,63 @@ This is the app version (`package.json`), separate from the content gates
 
 ## Cutting a release
 
+**One command, from a clean `main`:**
+
 ```bash
-# 1. From a clean main, decide the bump automatically from commit history:
-npm run release                 # 0.1.0 → 0.2.0 (feat) / 0.1.1 (fix); writes CHANGELOG, tags vX.Y.Z
-#   or force one:
-npm run release -- --release-as 0.2.0
-#   first ever tag (keep 0.1.0, just tag + changelog):
-npm run release -- --first-release
-
-# 2. Push the commit AND the tag.
-git push --follow-tags origin main
-
-# 3. Build the desktop AppImage on ci-eph and publish it from here (no Actions):
-./scripts/release-desktop.sh    # tag = v<package.json version>; --tag=vX.Y.Z to override
+npm run release:linux
 ```
 
-`release-desktop.sh` builds the AppImage **on the shared `ci-eph` Hetzner box**
+It shows you exactly what it will do (old version → new version, the four steps),
+asks once, and then does all of it:
+
+1. bumps `package.json` + writes `CHANGELOG.md`, commits, tags `vX.Y.Z` — **local**
+2. `git push --follow-tags origin main` (which also redeploys the web build via Pages)
+3. builds `small-gods-X.Y.Z-x64.AppImage` on the `ci-eph` box
+4. publishes a **public GitHub Release** with the AppImage and plain-language install
+   instructions for players
+
+**Look before you leap:**
+
+```bash
+npm run release:linux -- --dry-run   # prints the plan + the version it would cut, changes nothing
+```
+
+**Options** (note the `--` — npm needs it to pass flags through):
+
+| Flag | What it does |
+| --- | --- |
+| `--dry-run` | Show the plan and the computed version; touch nothing |
+| `--as=0.2.0` | Force a version instead of deriving it from commits |
+| `--first-release` | Tag the **current** version without bumping (use for the very first tag) |
+| `--draft` | Publish as a draft — nothing is public until you hit publish on GitHub |
+| `--yes` | Skip the confirmation prompt |
+
+The version is derived from your Conventional Commits: any `feat:` since the last tag
+→ minor bump, only `fix:` → patch bump.
+
+**If something fails after the tag is pushed** (say the box build dies), the script tells
+you the recovery command — re-run just the build+publish half, no re-tagging:
+
+```bash
+./scripts/release-desktop.sh --tag=vX.Y.Z
+```
+
+Preflight refuses to start unless the tree is clean, you're on `main`, `main` is in sync
+with origin, `gh` is logged in, and the `ci-eph` credentials (`hcloud` + the SSH key) are
+present — each failure prints its own fix. The expensive box build only ever runs after
+all of that passes.
+
+### What players get
+
+The release page leads with instructions, not jargon: download one file, `chmod +x`, run
+it. It also answers the two things Linux users actually hit — the **FUSE 2** error
+(`--appimage-extract-and-run` or `libfuse2`) and the click-to-run permission dance — and
+links the browser build for anyone who'd rather not download anything. The generated
+changelog goes **below** all that.
+
+### Under the hood
+
+`release-desktop.sh` (the build+publish half) builds the AppImage **on the shared `ci-eph` Hetzner box**
 (`ci-on-server.sh --run="npm run dist:linux" --out=release`, `electron-builder
 --publish never` → no token on the box), fetches `release/small-gods-<version>-x64.AppImage`
 **and `release/latest-linux.yml`** back to the Mac, then creates/updates the GitHub
@@ -48,8 +89,8 @@ Release for the tag and uploads both with your local `gh` auth. Zero Actions min
 and the publish token never leaves your machine.
 
 > **Why off Actions?** Same reason as CI (infra Phase 1, Option A): heavy builds run on
-> the shared ephemeral box, not on paid runners. `git push --follow-tags` no longer
-> triggers a build — the release is a deliberate, local `./scripts/release-desktop.sh` step.
+> the shared ephemeral box, not on paid runners. Pushing a tag does **not** trigger a
+> build — the release is a deliberate, local `npm run release:linux` step.
 
 ### Break-glass: build on Actions instead
 
@@ -120,22 +161,33 @@ required. Two targets self-update, one doesn't:
 
 - **Linux AppImage** and **Windows NSIS** self-update via
   [`electron-updater`](https://www.electron.build/auto-update). On launch the packaged app
-  reads `latest-linux.yml` / `latest.yml` off the **latest release in
-  `small-gods-releases`** (authenticated with the baked read token), downloads the newer
+  reads `latest-linux.yml` / `latest.yml` off the latest release, downloads the newer
   binary in the background, and prompts *"Update ready — Restart now / Later"*.
+- **Two feeds, chosen by the version string** (`electron/update-gate.cjs`) — which is
+  exactly how the two publishing paths already differ, so nothing extra is baked in:
+
+  | Version | Cut by | Feed | Auth |
+  | --- | --- | --- | --- |
+  | `0.2.0` (stable) | `npm run release:linux` | **public** `small-gods-game` releases | none — and the private-repo token is deliberately **not** forwarded |
+  | `0.2.0-dev.3` | `dev-build.sh --publish` | **private** `small-gods-releases` | baked read PAT, mandatory |
+
+  So a public Linux release updates itself from the page the player downloaded it from,
+  with no token involved. (If the source repo ever goes private — see *Source privacy*
+  below — the stable feed must move, or public self-update stops working.)
 - **macOS** does **not** self-update — Squirrel.Mac needs a *signed* app and dev builds are
   unsigned, so `after-pack.cjs` skips baking the token on darwin and `main.cjs` skips the
   updater there. Mac testers update manually by downloading the new `.dmg`.
 
 The gate decision is a pure, unit-tested function (`electron/update-gate.cjs`,
 `tests/unit/update-gate.test.ts`); `main.cjs` wires the side effects. It runs **only** in a
-packaged, self-updatable, **tokened** build:
+packaged, self-updatable build:
 
 - unpackaged (`electron:preview`, dev server) → skipped;
 - darwin → skipped;
 - Linux that isn't an AppImage → skipped;
-- **no baked token** (a dev build cut before the PAT exists) → skipped *silently* — a private
-  feed is unreadable anonymously, so we disable rather than emit 401s.
+- **dev version with no baked token** (a dev build cut before the PAT exists) → skipped
+  *silently* — a private feed is unreadable anonymously, so we disable rather than emit
+  401s. A **stable** version needs no token (public feed) and stays enabled.
 
 **Fail-soft is a hard requirement:** every bit of updater setup and every event is wrapped so
 a missing/dead/unauthorized feed (offline, token revoked, repo empty, first release not cut
