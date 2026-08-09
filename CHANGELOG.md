@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.1](https://github.com/morteng/small-gods-game/compare/v0.1.0...v0.1.1) (2026-08-09)
+
+
+### Bug Fixes
+
+* **ci:** --env-file needs the HOST path, so --env never reached the container ([9714a60](https://github.com/morteng/small-gods-game/commit/9714a60873334f8d0f3dc6facac869283a9b2c92))
+* **release:** correct AppImage filename in the plan + stale no-token warning ([d70ec95](https://github.com/morteng/small-gods-game/commit/d70ec950256dd1856b3f3dcba13689473ab06620))
+* **render:** a machine without WebGPU showed a BLANK window, not the reason ([72bbb48](https://github.com/morteng/small-gods-game/commit/72bbb484d4b5a14b35d8d3fbfe34881290f30893))
+
 ## 0.1.0 (2026-08-09)
 
 

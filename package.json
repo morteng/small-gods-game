@@ -1,6 +1,6 @@
 {
   "name": "small-gods-game",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Small Gods - Isometric Game with AI-Powered Map Generation",
   "type": "module",
   "main": "electron/main.cjs",
@@ -68,8 +68,18 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64"] },
-        { "target": "zip", "arch": ["x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "identity": null,
       "notarize": false,
@@ -78,7 +88,12 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "small-gods-${version}-setup.${ext}"
     }
