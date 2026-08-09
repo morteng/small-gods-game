@@ -26,6 +26,7 @@ import { COLOR, SPACING } from '@/render/ui/ui-tokens';
 import { UI_PALETTE } from '@/render/ui/ui-palette';
 import { shade, withAlpha } from '@/render/ui/ui-color';
 import { wrapLines, rotationIndex } from '@/render/ui/shell/text-layout';
+import { versionStamp } from '@/core/build-stamp';
 
 /** How long each chronicle excerpt holds before rotating (real ms) — carried
  *  over verbatim from the DOM loader it replaces. */
@@ -88,6 +89,23 @@ export function drawLoadingScreen(c: UiContext, w: number, h: number, s: number,
   const bandW = Math.min(w, contentW + edge * 2);
   const bandX = Math.round(cx - bandW / 2);
   c.rect(bandX, 0, bandW, h, withAlpha(COLOR.ink, 0.42));
+
+  // ── build stamp ──
+  // Drawn HERE, not at the end: the column below returns early on a fresh world
+  // (no chronicle), so anything appended after that would never paint. The
+  // desktop artifact no longer carries the version in its filename, so this is
+  // where a player reads which build they are on.
+  //
+  // Bottom-CENTRE, not the usual corner: this screen is one centred column and a
+  // test guards that ("centred on the viewport's midline"). A corner stamp would
+  // skew it, and the guard is worth more than the corner.
+  c.labelCentered(
+    versionStamp(),
+    cx,
+    Math.round(h - SPACING.lg * s - c.lineHeight(fsCaption)),
+    fsCaption,
+    withAlpha(UI_PALETTE.text, 0.35),
+  );
 
   // ── wordmark ──
   c.labelCentered(WORDMARK, cx, y, fsWord, UI_PALETTE.text);

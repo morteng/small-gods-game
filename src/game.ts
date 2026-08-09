@@ -74,6 +74,7 @@ import {
 } from '@/services/save-store';
 import { SAVE_VERSION } from '@/core/save-file';
 import { WORLD_CONTENT_VERSION } from '@/core/content-version';
+import { versionStamp } from '@/core/build-stamp';
 import { Shell, EMPTY_HALL_VIEW } from '@/render/ui/shell/shell';
 import { isScreenId } from '@/render/ui/shell/shell-state';
 import type { TitleAction, TitleView } from '@/render/ui/shell/title-screen';
@@ -3040,6 +3041,21 @@ export class Game {
     this.requestRender();
   }
 
+  /**
+   * The title screen's bottom-right build line: APP version, then world-content
+   * version — e.g. `V0.1.2 · WORLD 110`.
+   *
+   * The app version is in here because the desktop artifact stopped carrying it
+   * in the FILENAME (self-update now overwrites one `small-gods-x86_64.AppImage`
+   * instead of leaving one executable per release behind), so the running build
+   * has to be legible from inside the game. Both numbers in one line rather than
+   * a second corner label — this corner already had an owner. `·` is in the pixel
+   * font's glyph set; most punctuation is not.
+   */
+  private titleBuildLine(): string {
+    return `${versionStamp()} · WORLD ${WORLD_CONTENT_VERSION}`;
+  }
+
   /** Build the title screen's view from the (possibly still-pending) probe. */
   private buildTitleView(): TitleView {
     if (!this.slotsProbed) {
@@ -3052,7 +3068,7 @@ export class Game {
         continueBlocked: { reason: 'none', text: 'Looking for a saved world…' },
         hasAnySave: false,
         probing: true,
-        buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
+        buildLine: this.titleBuildLine(),
       };
     }
     const auto = this.slotMetas.get('autosave');
@@ -3076,7 +3092,7 @@ export class Game {
       continueLine,
       continueBlocked: blocked,
       hasAnySave,
-      buildLine: `WORLD ${WORLD_CONTENT_VERSION}`,
+      buildLine: this.titleBuildLine(),
     };
   }
 

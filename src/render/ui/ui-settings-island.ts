@@ -27,14 +27,11 @@ export type { IslandRect };
 
 const PROVIDERS: ProviderType[] = ['mock', 'openai', 'openrouter'];
 
-// Build identity baked in by Vite `define` (see vite.config.ts). Guarded with `typeof`
-// so this module stays importable under vitest, which does not apply the vite define.
-const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev';
-const GIT_SHA = typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'unknown';
-/** Human-readable build stamp shown in the settings footer, e.g. `v0.1.0 (a11cd869)`. */
-export function buildStamp(): string {
-  return `v${APP_VERSION} (${GIT_SHA})`;
-}
+// Build identity now lives in the leaf `@/core/build-stamp` so the title and
+// loading screens can read it too (re-exported here: this module's `buildStamp`
+// is already imported elsewhere, and the settings footer is still its main user).
+import { buildStamp } from '@/core/build-stamp';
+export { buildStamp };
 
 export class SettingsIsland {
   private frame: IslandFrame;

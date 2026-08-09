@@ -64,7 +64,7 @@
       ],
       "category": "Game",
       "icon": "src-tauri/icons/icon.png",
-      "artifactName": "small-gods-${version}-${arch}.${ext}"
+      "artifactName": "small-gods-${arch}.${ext}"
     },
     "mac": {
       "target": [
@@ -95,7 +95,7 @@
           ]
         }
       ],
-      "artifactName": "small-gods-${version}-setup.${ext}"
+      "artifactName": "small-gods-setup.${ext}"
     }
   },
   "devDependencies": {
