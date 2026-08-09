@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/morteng/small-gods-game/compare/v0.1.2...v0.1.3) (2026-08-09)
+
+
+### Features
+
+* **desktop:** constant artifact filename; show the version in-game instead ([dc612f4](https://github.com/morteng/small-gods-game/commit/dc612f4118d3227c43b0d317a57b673e70d2cdba))
+
 ## [0.1.2](https://github.com/morteng/small-gods-game/compare/v0.1.1...v0.1.2) (2026-08-09)
 
 
