@@ -223,7 +223,10 @@ REMOTE_WRAPPER="$REMOTE_DIR/.ci-runner.sh"
 REMOTE_CMD="$REMOTE_DIR/.ci-cmd.sh"    # the command runs from a FILE so &&/quotes/pipes survive
 REMOTE_ENV="$REMOTE_DIR/.ci.env"       # optional secrets (--env); deleted by the wrapper after the run
 ENV_ARG=""
-[ -n "$ENV_FILE" ] && ENV_ARG="--env-file /app/.ci.env"
+# --env-file is read by the docker CLI on the HOST, not inside the container, so it
+# needs the host path ($REMOTE_DIR/.ci.env) — the in-container /app/.ci.env does not
+# exist for the CLI and fails the run with "open /app/.ci.env: no such file".
+[ -n "$ENV_FILE" ] && ENV_ARG="--env-file $REMOTE_ENV"
 
 # Ship the command as a file (never interpolate it into the wrapper — a `&&`
 # would otherwise break OUT of the docker run) plus any secrets env-file.

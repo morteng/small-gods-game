@@ -66,13 +66,23 @@ fi
 if [ "$SKIP_BUILD" = 1 ]; then
   echo "▶ --skip-build: reusing existing ./release/"
 else
+  # ci-on-server.sh ships HEAD, not the tag — so if they've drifted, the binary we
+  # are about to label "$TAG" is NOT the tagged code. Warn with both shas rather
+  # than publish that silently.
+  HEAD_SHA="$(git rev-parse --short HEAD)"
+  TAG_SHA="$(git rev-parse --short "$TAG^{commit}")"
+  if [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+    echo "⚠ HEAD ($HEAD_SHA) is not the tagged commit ($TAG_SHA) — the box builds HEAD." >&2
+    echo "  The build is stamped $HEAD_SHA so it stays honest. Check out $TAG to build the tag exactly." >&2
+  fi
+
   # The box builds from a `git archive` tar with no .git, so VITE_GIT_SHA must be
-  # handed in or the in-app build stamp reads "unknown". Injected 0600 and deleted
-  # by ci-on-server.sh the instant the run ends (same as dev-build.sh).
+  # handed in or the in-app build stamp reads "unknown". It stamps what is ACTUALLY
+  # built (HEAD). Injected 0600 and deleted by ci-on-server.sh when the run ends.
   BOX_ENV="$(mktemp -t sg-release-env.XXXXXX)"
   # shellcheck disable=SC2064
   trap "rm -f '$BOX_ENV'" EXIT
-  printf 'VITE_GIT_SHA=%s\n' "$(git rev-parse --short "$TAG")" > "$BOX_ENV"
+  printf 'VITE_GIT_SHA=%s\n' "$HEAD_SHA" > "$BOX_ENV"
   chmod 600 "$BOX_ENV"
   echo "▶ Building AppImage on ci-eph (electron-builder --publish never — no token on the box)..."
   ./scripts/ci-on-server.sh --run="npm run dist:linux" --out=release --env="$BOX_ENV"
