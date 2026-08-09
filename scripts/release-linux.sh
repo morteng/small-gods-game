@@ -100,7 +100,7 @@ echo "────────────────────────�
 echo "  version   $CURRENT  →  $NEXT      (tag $TAG)"
 echo "  1. bump package.json + CHANGELOG.md, commit, tag   (local)"
 echo "  2. git push --follow-tags origin main              (also redeploys the web build)"
-echo "  3. build small-gods-${NEXT}-x64.AppImage on ci-eph (~minutes, costs box time)"
+echo "  3. build small-gods-${NEXT}-x86_64.AppImage on ci-eph (~minutes, costs box time)"
 echo "  4. publish a public GitHub Release${DRAFT:+ (DRAFT)} with install instructions"
 echo "─────────────────────────────────────────────────────────────────────"
 echo ""

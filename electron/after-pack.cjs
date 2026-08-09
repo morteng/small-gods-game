@@ -17,7 +17,9 @@ const fs = require('node:fs');
 exports.default = async function afterPack(context) {
   const token = process.env.SG_RELEASES_READ_PAT;
   if (!token) {
-    console.log('[after-pack] SG_RELEASES_READ_PAT unset — shipping without an update token (updater will be skipped).');
+    // Only DEV builds need it: a stable build updates from the public source repo,
+    // which needs no auth (electron/update-gate.cjs picks the feed by version).
+    console.log('[after-pack] SG_RELEASES_READ_PAT unset — shipping without an update token (fine for a stable release; a -dev build will have its updater skipped).');
     return;
   }
   if (context.electronPlatformName === 'darwin') {
