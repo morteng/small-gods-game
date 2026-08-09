@@ -1,6 +1,6 @@
 {
   "name": "small-gods-game",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Small Gods - Isometric Game with AI-Powered Map Generation",
   "type": "module",
   "main": "electron/main.cjs",

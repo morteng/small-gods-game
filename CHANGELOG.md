@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/morteng/small-gods-game/compare/v0.1.1...v0.1.2) (2026-08-09)
+
+
+### Bug Fixes
+
+* **desktop:** ignore Chromium's GPU blocklist on Linux (it vetoed a working GPU) ([2c88c18](https://github.com/morteng/small-gods-game/commit/2c88c18b232bf6c4ec1aea099f573221dddf85bd))
+* **release:** publish the AppImage the FEED names, not `ls | head -1` ([177a21d](https://github.com/morteng/small-gods-game/commit/177a21d3e21441eef97287fbf15a3e718b631ee7))
+
 ## [0.1.1](https://github.com/morteng/small-gods-game/compare/v0.1.0...v0.1.1) (2026-08-09)
 
 
