@@ -52,43 +52,71 @@ async function defaultGpuScene(canvas?: HTMLCanvasElement): Promise<{ render: Re
   const target = canvas ?? document.createElement('canvas');
   const { initWebGpu } = await import('@/render/gpu/webgpu-context');
   const gpu = await initWebGpu(target);
-  if (!gpu) throw new Error('WebGPU init returned null');
+  // This string is shown to the PLAYER (it becomes the overlay's reason line), so
+  // it names the usual cause rather than the internal symptom. The desktop build
+  // ships Dawn, but Dawn still needs a working Vulkan driver underneath it.
+  if (!gpu) throw new Error('No GPU adapter available — on Linux this usually means no working Vulkan driver.');
   const { GpuScene } = await import('@/render/gpu/gpu-scene');
   const { buildGpuRenderFrame } = await import('@/render/gpu/gpu-render-frame');
   return buildGpuRenderFrame(new GpuScene(gpu), target);
 }
 
-/** A no-op `MetaRenderFn` — used when the GPU scene can't be built (no WebGPU
- *  support / init failure). The world-less title screen has nothing to paint
- *  without a GPU scene; the honest "WebGPU required" message already comes
- *  from `unavailableRenderFn` below, drawn by `render` (world mode). */
-function noopRenderMeta(): void {}
+/** The honest "WebGPU required" notice, painted into a 2D context. Shared by BOTH
+ *  render modes so neither can silently lose it. */
+function paintUnavailable(ctx: CanvasRenderingContext2D, w: number, h: number, reason: string): void {
+  ctx.save();
+  ctx.fillStyle = '#1a1a24';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#e8e6f0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '600 16px system-ui, sans-serif';
+  ctx.fillText('WebGPU is required to render this game.', w / 2, h / 2 - 12);
+  ctx.font = '13px system-ui, sans-serif';
+  ctx.fillStyle = '#9a98a8';
+  ctx.fillText(reason, w / 2, h / 2 + 12);
+  ctx.restore();
+}
 
 /** A RenderFn that paints an honest "WebGPU required" message — used when the
  *  GPU scene can't be built (no WebGPU support / init failure). */
 function unavailableRenderFn(reason: string): RenderFn {
   return (ctx: CanvasRenderingContext2D, rc: RenderContext): void => {
-    const { canvasWidth: w, canvasHeight: h } = rc;
-    ctx.save();
-    ctx.fillStyle = '#1a1a24';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#e8e6f0';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '600 16px system-ui, sans-serif';
-    ctx.fillText('WebGPU is required to render this game.', w / 2, h / 2 - 12);
-    ctx.font = '13px system-ui, sans-serif';
-    ctx.fillStyle = '#9a98a8';
-    ctx.fillText(reason, w / 2, h / 2 + 12);
-    ctx.restore();
+    paintUnavailable(ctx, rc.canvasWidth, rc.canvasHeight, reason);
+  };
+}
+
+/**
+ * A `MetaRenderFn` that paints the SAME message on the scene canvas.
+ *
+ * This used to be a no-op, on the reasoning that world mode's overlay already
+ * carried the message — but meta mode (title screen, no world) is the FIRST thing
+ * a launch paints, and world mode is unreachable from it: starting a world needs a
+ * button that a dead renderer never drew. So a machine without WebGPU showed a
+ * BLANK window and no explanation (reported 2026-08-09 as a white screen on the
+ * v0.1.0 Linux AppImage — Electron bundles Dawn, but Dawn still needs a working
+ * Vulkan driver). The message belongs on whichever mode is actually on screen.
+ *
+ * Painting 2D on the scene canvas is safe here: `initWebGpu` only binds a webgpu
+ * context AFTER the adapter and device resolve, so both real failure modes (no
+ * `navigator.gpu`; `requestAdapter()` → null) return with the canvas untouched.
+ * If a later-stage failure did bind it, `getContext('2d')` returns null and we
+ * degrade to the old no-op rather than throwing in the frame loop.
+ */
+function unavailableRenderMetaFn(reason: string, canvas?: HTMLCanvasElement): MetaRenderFn {
+  return (): void => {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    paintUnavailable(ctx, canvas.width, canvas.height, reason);
   };
 }
 
 /**
  * Resolve the scene render + meta-render pair and report which backend won.
- * Builds the WebGPU scene; on missing support or init failure returns the
- * `unavailable` overlay for `render` and a no-op `renderMeta` (never a black
- * screen). The `backend` tag feeds the dev HUD / telemetry / tests.
+ * Builds the WebGPU scene; on missing support or init failure BOTH modes get the
+ * honest "WebGPU required" overlay — never a black or blank screen, and never a
+ * silent one. The `backend` tag feeds the dev HUD / telemetry / tests.
  */
 export async function createGpuRenderMap(
   deps: GpuRenderDeps = {},
@@ -97,9 +125,11 @@ export async function createGpuRenderMap(
   const makeGpuScene = deps.makeGpuScene ?? defaultGpuScene;
 
   if (!probe()) {
+    const reason = 'This browser does not expose navigator.gpu.';
     return {
-      render: unavailableRenderFn('This browser does not expose navigator.gpu.'),
-      renderMeta: noopRenderMeta, backend: 'unavailable',
+      render: unavailableRenderFn(reason),
+      renderMeta: unavailableRenderMetaFn(reason, deps.canvas),
+      backend: 'unavailable',
     };
   }
   try {
@@ -107,6 +137,10 @@ export async function createGpuRenderMap(
     return { render, renderMeta, backend: 'webgpu' };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'GPU initialisation failed.';
-    return { render: unavailableRenderFn(reason), renderMeta: noopRenderMeta, backend: 'unavailable' };
+    return {
+      render: unavailableRenderFn(reason),
+      renderMeta: unavailableRenderMetaFn(reason, deps.canvas),
+      backend: 'unavailable',
+    };
   }
 }

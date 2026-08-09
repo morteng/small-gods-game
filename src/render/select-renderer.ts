@@ -30,9 +30,11 @@ export interface SelectedRenderers {
  *
  * Returns `{ render, renderMeta }` (P1-C): `render` is the unchanged world-mode
  * `RenderFn`; `renderMeta` draws the world-less title-screen sky + UI. When
- * WebGPU is UNAVAILABLE, `renderMeta` is a no-op — the honest "WebGPU required"
- * message already comes from `render`'s fallback overlay, and meta mode has
- * nothing else to paint without a GPU scene.
+ * WebGPU is UNAVAILABLE, BOTH paint the honest "WebGPU required" message. Meta
+ * mode used to no-op here, which meant a machine without WebGPU opened to a
+ * blank window: the title screen is what a launch shows first, and world mode —
+ * where the message lived — is unreachable without a button the dead renderer
+ * never drew.
  */
 export async function selectRenderer(sceneCanvas?: HTMLCanvasElement): Promise<SelectedRenderers> {
   const { createGpuRenderMap } = await import('@/render/gpu/gpu-renderer');

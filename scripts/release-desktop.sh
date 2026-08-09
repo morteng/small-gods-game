@@ -126,8 +126,11 @@ chmod +x ${APPNAME}     # make it runnable (once)
 Prefer clicking? Right-click the file → **Properties → Permissions → Allow executing
 file as program**, then double-click it.
 
-Requires a 64-bit (x86-64) Linux desktop. The app bundles its own Chromium/WebGPU
-runtime, so it works even if your browser doesn't support WebGPU.
+Requires a 64-bit (x86-64) Linux desktop, and a **working Vulkan driver** — the app
+brings its own Chromium/WebGPU runtime, so your *browser* doesn't need WebGPU, but the
+graphics driver underneath still does. Most desktop systems with Mesa or the proprietary
+NVIDIA driver already have it (\`vulkaninfo --summary\` confirms; \`mesa-vulkan-drivers\`
+installs it on Debian/Ubuntu).
 
 ### If it won't start
 
@@ -136,6 +139,9 @@ runtime, so it works even if your browser doesn't support WebGPU.
   \`./${APPNAME} --appimage-extract-and-run\`
   or install the compatibility package (Debian/Ubuntu: \`sudo apt install libfuse2\`,
   Fedora: \`sudo dnf install fuse-libs\`).
+- **A dark window saying "WebGPU is required to render this game."** — the graphics
+  driver can't provide WebGPU. On Linux that is nearly always a missing Vulkan driver;
+  install it (Debian/Ubuntu: \`sudo apt install mesa-vulkan-drivers\`) and relaunch.
 - **Nothing happens / blank window** — start it from a terminal so you can see the
   error, and please open an issue with that output.
 

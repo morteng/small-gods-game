@@ -14,7 +14,47 @@ describe('R2a — GPU renderer capability routing', () => {
     expect(makeGpuScene).not.toHaveBeenCalled(); // never build a GPU scene with no GPU
     // The unavailable render fn paints an honest message — it must not throw.
     expect(() => render(mockCtx(), mockRc())).not.toThrow();
-    // No GPU scene ⇒ nothing for meta mode to paint either; the no-op must not throw.
+    // With no canvas to paint on, meta mode degrades quietly rather than throwing.
+    expect(() => renderMeta({ nowMs: 0 })).not.toThrow();
+  });
+
+  // The v0.1.0 Linux AppImage opened to a BLANK window on a box whose Electron
+  // could not init WebGPU: meta mode (title screen, no world) was a no-op, and
+  // world mode — where the message lived — is unreachable without a button the
+  // dead renderer never drew. Both modes must speak.
+  it('paints the WebGPU-required message in META mode (title screen, no world)', async () => {
+    const ctx = mockCtx();
+    const canvas = mockCanvas(ctx);
+    const { renderMeta, backend } = await createGpuRenderMap({ probe: () => false, canvas });
+
+    expect(backend).toBe('unavailable');
+    renderMeta({ nowMs: 0 });
+    const painted = (ctx.fillText as unknown as ReturnType<typeof vi.fn>).mock.calls.map(c => String(c[0]));
+    expect(painted.some(t => t.includes('WebGPU is required'))).toBe(true);
+    // It fills a background too — a message over a transparent canvas is the same
+    // blank window with extra steps.
+    expect(ctx.fillRect).toHaveBeenCalled();
+  });
+
+  it('paints in META mode when scene INIT fails too (adapter/device path)', async () => {
+    const ctx = mockCtx();
+    const canvas = mockCanvas(ctx);
+    const { renderMeta } = await createGpuRenderMap({
+      probe: () => true,
+      canvas,
+      makeGpuScene: async () => { throw new Error('no adapter'); },
+    });
+    renderMeta({ nowMs: 0 });
+    const painted = (ctx.fillText as unknown as ReturnType<typeof vi.fn>).mock.calls.map(c => String(c[0]));
+    expect(painted.some(t => t.includes('WebGPU is required'))).toBe(true);
+    expect(painted.some(t => t.includes('no adapter'))).toBe(true); // the reason, verbatim
+  });
+
+  it('degrades to a no-op when the canvas cannot give a 2D context', async () => {
+    // A late-stage failure can leave the canvas already bound to webgpu, so
+    // getContext('2d') returns null. Never throw inside the frame loop.
+    const canvas = { width: 800, height: 600, getContext: vi.fn(() => null) } as unknown as HTMLCanvasElement;
+    const { renderMeta } = await createGpuRenderMap({ probe: () => false, canvas });
     expect(() => renderMeta({ nowMs: 0 })).not.toThrow();
   });
 
@@ -50,6 +90,10 @@ describe('R2a — GPU renderer capability routing', () => {
     expect(hasWebGpu()).toBe(false);
   });
 });
+
+function mockCanvas(ctx: CanvasRenderingContext2D): HTMLCanvasElement {
+  return { width: 800, height: 600, getContext: vi.fn(() => ctx) } as unknown as HTMLCanvasElement;
+}
 
 function mockCtx(): CanvasRenderingContext2D {
   return {

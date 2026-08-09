@@ -5,7 +5,14 @@ Two delivery surfaces, deliberately kept cheap on CI:
 | Surface | What | How it ships |
 | --- | --- | --- |
 | **Web (dev build)** | The live WebGPU game | GitHub Pages, auto-deploys on every push to `main` (`deploy.yml`) — unchanged |
-| **Linux desktop** | Electron AppImage bundling Chromium+Dawn → **guaranteed WebGPU** even for users whose browser/system lacks it | `npm run release:linux` — builds on the shared `ci-eph` box, publishes a public GitHub Release from the Mac (zero Actions minutes) |
+| **Linux desktop** | Electron AppImage bundling Chromium+Dawn → WebGPU without depending on the user's *browser* | `npm run release:linux` — builds on the shared `ci-eph` box, publishes a public GitHub Release from the Mac (zero Actions minutes) |
+
+> **It is NOT "guaranteed WebGPU".** Bundling Dawn removes the browser from the
+> equation, not the driver: on Linux, Dawn still needs a working **Vulkan** driver, so a
+> box without one cannot run the desktop build either. Verified the hard way — v0.1.0
+> opened to a blank window on such a machine (and, until `gpu-renderer.ts` was fixed,
+> did so *silently*, because the "WebGPU required" notice was wired only to world mode
+> while the title screen rendered through a no-op).
 
 > **Why Electron, not the `src-tauri/` scaffold?** Tauri uses the system webview
 > (webkit2gtk on Linux), which doesn't ship WebGPU on stock distros — so it can't reach
