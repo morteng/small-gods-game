@@ -15,6 +15,27 @@ const { pathToFileURL } = require('node:url');
 const { planAutoUpdate } = require('./update-gate.cjs');
 const { resolveUpdateToken } = require('./update-token.cjs');
 
+// ── Linux: don't let Chromium's GPU blocklist veto the whole app ─────────────
+//
+// Chromium ships a conservative blocklist and refuses WebGPU on driver/Mesa
+// combinations it doesn't vouch for — by POLICY, not capability. On 2026-08-09 an
+// AMD RX 570 (Polaris/RADV, thoroughly supported hardware, driver installed and
+// working) was refused exactly this way; launching with --ignore-gpu-blocklist ran
+// the game fine.
+//
+// For a normal app the blocklist is a sensible default: lose some acceleration,
+// keep the app. This game is WebGPU-ONLY, so being blocklisted means it does not
+// run at all — the trade is "possible instability on a genuinely bad driver" vs
+// "guaranteed dead app", and the honest overlay still catches a real init failure
+// and says why. Linux only: this is a Mesa/Linux problem, and macOS/Windows have
+// no equivalent pain worth taking the risk for.
+//
+// Escape hatch for anyone whose driver really is broken: SG_RESPECT_GPU_BLOCKLIST=1.
+// MUST run before app-ready — command-line switches are read during GPU init.
+if (process.platform === 'linux' && !process.env.SG_RESPECT_GPU_BLOCKLIST) {
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+}
+
 // In a packaged build __dirname is .../resources/app.asar/electron, so dist/ sits
 // one level up; the same relative layout holds when run unpacked (`electron .`).
 const DIST = path.join(__dirname, '..', 'dist');

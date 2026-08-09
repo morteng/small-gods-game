@@ -13,6 +13,13 @@ Two delivery surfaces, deliberately kept cheap on CI:
 > opened to a blank window on such a machine (and, until `gpu-renderer.ts` was fixed,
 > did so *silently*, because the "WebGPU required" notice was wired only to world mode
 > while the title screen rendered through a no-op).
+>
+> **Chromium's GPU blocklist is a second veto, independent of capability.** The same
+> machine — an AMD RX 570 on RADV, with the driver installed and `vulkaninfo` happy —
+> was still refused WebGPU until launched with `--ignore-gpu-blocklist`. Since this
+> game is WebGPU-only, being blocklisted means it does not run *at all*, so `main.cjs`
+> now sets that switch **on Linux** (escape hatch: `SG_RESPECT_GPU_BLOCKLIST=1`). Do not
+> "clean this up" — it is the difference between running and not on real hardware.
 
 > **Why Electron, not the `src-tauri/` scaffold?** Tauri uses the system webview
 > (webkit2gtk on Linux), which doesn't ship WebGPU on stock distros — so it can't reach

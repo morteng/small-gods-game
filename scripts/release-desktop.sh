@@ -167,8 +167,12 @@ installs it on Debian/Ubuntu).
   or install the compatibility package (Debian/Ubuntu: \`sudo apt install libfuse2\`,
   Fedora: \`sudo dnf install fuse-libs\`).
 - **A dark window saying "WebGPU is required to render this game."** — the graphics
-  driver can't provide WebGPU. On Linux that is nearly always a missing Vulkan driver;
-  install it (Debian/Ubuntu: \`sudo apt install mesa-vulkan-drivers\`) and relaunch.
+  driver isn't providing WebGPU. Install the Vulkan driver (Debian/Ubuntu:
+  \`sudo apt install mesa-vulkan-drivers\`; Arch: \`vulkan-radeon\` / \`vulkan-intel\`)
+  and relaunch. Check it with \`vulkaninfo --summary\` — your GPU should be listed.
+  This build already tells Chromium to ignore its GPU blocklist on Linux, which is
+  what refuses perfectly good AMD/Mesa setups; if your driver misbehaves *because* of
+  that, run with \`SG_RESPECT_GPU_BLOCKLIST=1\` to put the blocklist back.
 - **Nothing happens / blank window** — start it from a terminal so you can see the
   error, and please open an issue with that output.
 
