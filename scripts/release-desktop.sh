@@ -84,18 +84,45 @@ else
   trap "rm -f '$BOX_ENV'" EXIT
   printf 'VITE_GIT_SHA=%s\n' "$HEAD_SHA" > "$BOX_ENV"
   chmod 600 "$BOX_ENV"
+  # Clear prior artifacts so a stale build cannot be mistaken for this one. (The
+  # feed-driven selection below would now catch that, but not leaving the trap
+  # lying around beats detecting it.)
+  rm -f release/*.AppImage release/latest-linux.yml
   echo "▶ Building AppImage on ci-eph (electron-builder --publish never — no token on the box)..."
   ./scripts/ci-on-server.sh --run="npm run dist:linux" --out=release --env="$BOX_ENV"
 fi
 
-APPIMAGE="$(ls release/*.AppImage 2>/dev/null | head -1 || true)"
 FEED="release/latest-linux.yml"
-if [ -z "$APPIMAGE" ] || [ ! -f "$FEED" ]; then
-  echo "✗ Expected release/*.AppImage and $FEED after the build — not found." >&2
+if [ ! -f "$FEED" ]; then
+  echo "✗ Expected $FEED after the build — not found." >&2
   echo "  (Did the ci-eph build succeed and fetch back? Check its output above.)" >&2
   exit 1
 fi
-echo "✓ Artifacts: $APPIMAGE + $FEED"
+
+# Pick the AppImage the FEED names, never `ls | head -1`.
+#
+# release/ accumulates across builds, and `ls` sorts alphabetically — so a stale
+# small-gods-0.1.0-*.AppImage beat the freshly built 0.1.1 and got published under
+# the v0.1.1 tag (shipping the OLD binary while the feed pointed at a file that was
+# never uploaded, breaking self-update too). The feed is written by this build and
+# states exactly which file the updater will ask for, so it is the authority; the
+# version cross-check then proves that build is the one this tag is for.
+VERSION="${TAG#v}"
+FEED_PATH="$(sed -n 's/^path:[[:space:]]*//p' "$FEED" | head -1 | tr -d '\r')"
+FEED_VERSION="$(sed -n 's/^version:[[:space:]]*//p' "$FEED" | head -1 | tr -d '\r')"
+APPIMAGE="release/${FEED_PATH}"
+
+if [ -z "$FEED_PATH" ] || [ ! -f "$APPIMAGE" ]; then
+  echo "✗ $FEED names '$FEED_PATH', which is not in release/." >&2
+  echo "  Present: $(ls release/*.AppImage 2>/dev/null | tr '\n' ' ')" >&2
+  exit 1
+fi
+if [ "$FEED_VERSION" != "$VERSION" ]; then
+  echo "✗ Built version ($FEED_VERSION) is not the tag's version ($VERSION)." >&2
+  echo "  Publishing that would attach the wrong binary to $TAG. Rebuild without --skip-build." >&2
+  exit 1
+fi
+echo "✓ Artifacts: $APPIMAGE + $FEED (version $FEED_VERSION matches $TAG)"
 
 # ── Publish from the Mac via gh (token stays local) ──────────────────────────
 # electron-updater reads latest-linux.yml off the *latest* Release, so both files
