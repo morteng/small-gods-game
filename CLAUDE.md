@@ -75,6 +75,36 @@ npm run lint        # oxlint over src/tests/tools/scripts (~2s) — MUST stay at
 
 (`npm run dev` on port 3000, `npm run build`, `npm test` are the standard invocations — see `package.json`.)
 
+### Delegating to `pi` (second agent stack, DeepSeek)
+
+`pi` ([pi.dev](https://pi.dev), `~/.pi/agent/settings.json`) is a **separate AI coding CLI** installed on
+this machine and configured against **`openrouter/deepseek/deepseek-v4-flash`** (thinking `high`;
+`oracle` + `planner` overridden to `xhigh`). It is the cheap **fresh-eyes fleet** — a different model
+family with no shared context, which is exactly what you want for broad audits and second opinions.
+**When the user asks for a multi-agent sweep, prefer `pi`, not Claude Code's own workflow/subagents** —
+Claude Code cannot route its agents to DeepSeek, so a Claude fan-out is the wrong (and far pricier) tool.
+
+```bash
+pi -p -a @brief.md "Do the thing."   # -p non-interactive, -a trust project-local files, @file inlines it
+pi --list-models | grep deepseek     # available models
+pi auth check --provider openrouter  # credential check (key lives in ~/.pi/agent/auth.json, NOT .env)
+```
+
+- **Fan-out** comes from the `pi-subagents` package: builtin agents `scout` / `researcher` / `planner` /
+  `worker` / `reviewer` / `context-builder` / `oracle` / `delegate`. Ask for them in **plain language in
+  the prompt** ("spawn seven scouts in parallel, then an adversarial verifier per dimension") — there is
+  no script API to call from here. Run artifacts (input/output/meta/transcript per child) land in
+  `.pi-subagents/artifacts/` in this repo; read `*_output.md` to see what a child actually returned.
+- **Repo-local extension** `.pi/extensions/small-gods-devtools.ts` gives pi project tools: `sg_test`,
+  `sg_map_stats`, `sg_sim_tick`, `sg_npc_prompt`, `sg_lint`. `-a` is required for pi to trust it.
+- **`pi -p` exits 0 even when the run dies upstream.** Verify the DELIVERABLE exists, never the exit code.
+  (Dated model pins like `…-flash-0731` have thrown `TransferEncodingError` from a bad OpenRouter upstream;
+  the undated `deepseek/deepseek-v4-flash` is the safe id.)
+- Long sweeps: launch with `run_in_background`, and watch `.pi-subagents/artifacts/` (new files = children
+  spawned) rather than the stdout log — `pi -p` buffers and can look dead for minutes while it plans.
+- Write the deliverable to a **file** the brief names, and tell pi the audit is read-only otherwise — pi
+  has edit/write tools enabled by default.
+
 **Lint is a bug gate, not a style gate** (`.oxlintrc.json`). Every rule left on is one
 worth blocking a commit for; taste-only rules are off *with a written reason*, so a
 non-empty run always means something. Two rules are off because they are actively wrong
