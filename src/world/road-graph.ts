@@ -268,7 +268,28 @@ export function buildRoadGraph(
     // else the two POI endpoints.
     let points: { x: number; y: number }[];
     if (conn.waypoints?.length) {
-      points = conn.waypoints;
+      // RE-SEAT A TERMINAL WAYPOINT ONTO THE POI IT SERVES. `planWorldLayout` shifts POIs and
+      // waypoints by the SAME offset, so a connection authored end-on-endpoint keeps its
+      // terminal waypoint exactly on its POI. `snapDrySettlementsOffWater` then walks a
+      // settlement standing in a lake out to dry shore by mutating `poi.position` ONLY —
+      // waypoints are never rewritten — and waypoints WIN here. The road was therefore walked
+      // to the cell the settlement just VACATED, which by the snap's own trigger is inside the
+      // lake: a road terminating in open water, whose bridge abutment the crossing seater then
+      // rescues with `nearestDry` up to 6 tiles out (the class-3 "bank off the road" defect).
+      // `heightAnchor` is the exact witness — it holds the pre-snap position — so re-seat ONLY
+      // a terminal waypoint still sitting on it. Authored approach waypoints deliberately
+      // offset from their POI never match, and an unsnapped POI has no anchor at all, so
+      // worlds without a snap are bit-identical. Same fix `gateApproachPlan` already applies
+      // for ringed POIs (gate-approach.ts).
+      points = conn.waypoints.map((w) => w);
+      const reseat = (i: number, id: string | undefined): void => {
+        const poi = pois.find((p) => p.id === id);
+        const a = poi?.heightAnchor;
+        if (!a || !poi?.position) return;
+        if (points[i].x === a.x && points[i].y === a.y) points[i] = { ...poi.position };
+      };
+      reseat(0, conn.from);
+      reseat(points.length - 1, conn.to);
     } else {
       const from = pois.find(p => p.id === conn.from)?.position;
       const to = pois.find(p => p.id === conn.to)?.position;
