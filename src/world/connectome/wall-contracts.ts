@@ -7,13 +7,19 @@
 //
 //   • wall.crossing-only-at-gate  (invariant)  — no road tile sits on a curtain blocking cell.
 //   • gate.road-connected         (requirement)— every real gate is reached by a road.
+//   • wall.corners-resolved       (invariant)  — every ring resolves its corners (tower/post).
+//   • gate.framed                 (invariant)  — every real gate is framed (gatehouse/gateposts).
+//   • gate.minimum-separation     (invariant)  — no two real gates sit too close in bearing.
 //
 // Pure + deterministic: reads map.barrierRuns + map.tiles only.
 
 import type { Diagnostic } from '@/world/connectome-diagnostics';
 import type { Contract, ContractDeclaration } from '@/world/connectome-contracts';
 import { registerContract } from '@/world/connectome-contracts';
-import { barrierFootprintTiles, gateFootprintTiles, gateOpeningCell, type PlacedBarrier } from '@/world/barrier';
+import {
+  barrierFootprintTiles, gateFootprintTiles, gateOpeningCell, gatePoint, GATE_MIN_ANGLE_DEG,
+  type PlacedBarrier,
+} from '@/world/barrier';
 
 const ROAD_TYPES = new Set(['dirt_road', 'stone_road', 'bridge']);
 
@@ -142,10 +148,56 @@ export const gateFramed: Contract = {
   },
 };
 
+/** INVARIANT — no two real gates on a defensive ring sit closer than `params.minAngleDeg`
+ *  (default {@link GATE_MIN_ANGLE_DEG}°, the SAME constant `enclosure.ts`'s `commitDirectionGates`
+ *  dedups by — see its doc comment on `@/world/barrier`) apart as seen from the ring centroid. This is
+ *  the regression guard for the "two main gates side by side" siting bug WP-3 fixes at gen time
+ *  (`enclosure.ts`'s angular dedup) — `severity:'warn'` because existing (pre-WP-3) worlds
+ *  legitimately violate it until that fix lands; gap-kind openings (nature-forced, not sited)
+ *  are excluded, same as `gate.framed`. */
+export const gateMinimumSeparation: Contract = {
+  id: 'gate.minimum-separation',
+  level: 'settlement',
+  kind: 'invariant',
+  severity: 'warn',
+  description: 'No two real gates on a defensive ring sit closer than the minimum angular separation from the ring centroid.',
+  evaluate(ctx, scope, params) {
+    const b = ringOfScope(ctx.map.barrierRuns, scope.entities);
+    if (!b || !b.run.centroid) return [];
+    const minAngleDeg = Number(params?.minAngleDeg ?? GATE_MIN_ANGLE_DEG);
+    const [cx, cy] = b.run.centroid;
+    const realGates = b.run.gates.filter((g) => g.kind !== 'gap');
+    if (realGates.length < 2) return [];
+    const bearingDeg = (g: PlacedBarrier['run']['gates'][number]): number => {
+      const [gx, gy] = gatePoint(b.run, g);
+      return (Math.atan2(gy - cy, gx - cx) * 180) / Math.PI;
+    };
+    const bearings = realGates.map(bearingDeg);
+    const out: Diagnostic[] = [];
+    for (let i = 0; i < realGates.length; i++) {
+      for (let j = i + 1; j < realGates.length; j++) {
+        let diff = Math.abs(bearings[i] - bearings[j]) % 360;
+        if (diff > 180) diff = 360 - diff;
+        if (diff >= minAngleDeg) continue;
+        const [ax, ay] = gateOpeningCell(b.run, realGates[i]);
+        const [bx, by] = gateOpeningCell(b.run, realGates[j]);
+        out.push({
+          rule: 'gate.minimum-separation', severity: 'warn',
+          message: `two gates of ${scope.poi ?? b.id} are only ${diff.toFixed(1)}° apart from the ring centroid (min ${minAngleDeg}°)`,
+          locus: { entities: [b.id], pois: scope.poi ? [scope.poi] : [], tiles: [{ x: ax, y: ay }, { x: bx, y: by }] },
+          metrics: { angleDeg: diff },
+        });
+      }
+    }
+    return out;
+  },
+};
+
 registerContract(wallCrossingOnlyAtGate);
 registerContract(gateRoadConnected);
 registerContract(wallCornersResolved);
 registerContract(gateFramed);
+registerContract(gateMinimumSeparation);
 
 /** Build the contract DECLARATIONS a walled-town recipe commits: for each defensive ring
  *  (centroid-bearing), one crossing invariant + one gate-connectivity requirement, scoped to the
@@ -172,6 +224,7 @@ export function settlementRingContracts(barrierRuns: PlacedBarrier[]): ContractD
     decls.push({ contract: 'gate.road-connected', scope });
     decls.push({ contract: 'wall.corners-resolved', scope });
     decls.push({ contract: 'gate.framed', scope });
+    decls.push({ contract: 'gate.minimum-separation', scope });
   }
   return decls;
 }

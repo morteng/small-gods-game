@@ -152,9 +152,21 @@ export const POI_ZONE_RULES: Record<string, ZoneRule> = {
   },
 };
 
+/** POI types warned about already this session (warn once per distinct unknown type). */
+const warnedUnknownPoiTypes = new Set<string>();
+
 /** Get zone rule for a POI type, with fallback to empty rule */
 export function getZoneRule(poiType: string): ZoneRule {
-  return POI_ZONE_RULES[poiType] ?? {
+  const rule = POI_ZONE_RULES[poiType];
+  if (rule) return rule;
+  if (!warnedUnknownPoiTypes.has(poiType)) {
+    warnedUnknownPoiTypes.add(poiType);
+    console.warn(
+      `[worldgen] unrecognised POI type "${poiType}" — falling back to a zero-building zone rule ` +
+      `(no buildings, no internal roads). Add it to POI_ZONE_RULES if it should generate a site.`,
+    );
+  }
+  return {
     radius: { min: 1, max: 2 },
     buildings: [],
     buildingCount: { min: 0, max: 0 },

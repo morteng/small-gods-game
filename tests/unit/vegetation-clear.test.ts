@@ -6,8 +6,10 @@ import {
   UNDERGROWTH_CLEAR_RADIUS,
 } from '@/world/vegetation-clear';
 import { World } from '@/world/world';
+import { placeBarrier } from '@/world/place-barrier';
 import type { GameMap, Tile, Entity } from '@/core/types';
 import type { RoadGraph } from '@/world/road-graph';
+import type { BarrierRun } from '@/world/barrier';
 
 function makeMap(w: number, h: number, type = 'grass'): GameMap {
   const tiles: Tile[][] = [];
@@ -174,5 +176,77 @@ describe('clearObstructedVegetation — buildings', () => {
     expect(world.registry.get('c')).toBeDefined();
     // Second run finds nothing left to clear.
     expect(clearObstructedVegetation(world, map)).toBe(0);
+  });
+});
+
+describe('clearObstructedVegetation — barriers (WP-2)', () => {
+  it('clears a tree standing on a wall run\'s blocking cell', () => {
+    const map = makeMap(20, 20);
+    const world = new World(map);
+    const wall: BarrierRun = {
+      kind: 'wall', path: [[2, 10], [17, 10]], height: 3, thickness: 1, material: 'stone',
+      gates: [],
+    };
+    placeBarrier(world, wall);
+    world.addEntity(tree('on-wall', 8, 10));   // trunk on a blocking cell
+    world.addEntity(tree('far', 8, 2));         // well clear
+
+    const removed = clearObstructedVegetation(world, map);
+
+    expect(removed).toBe(1);
+    expect(world.registry.get('on-wall')).toBeUndefined();
+    expect(world.registry.get('far')).toBeDefined();
+  });
+
+  it('clears a tree 2 tiles from a tall palisade (canopy overhang)', () => {
+    const map = makeMap(20, 20);
+    const world = new World(map);
+    const palisade: BarrierRun = {
+      kind: 'palisade', path: [[2, 10], [17, 10]], height: 2.6, thickness: 1, material: 'timber',
+      gates: [],
+    };
+    placeBarrier(world, palisade);
+    world.addEntity(tree('nearby', 8, 12)); // trunk 2 tiles south of the (8,10) blocking cell
+
+    const removed = clearObstructedVegetation(world, map);
+
+    expect(removed).toBe(1);
+    expect(world.registry.get('nearby')).toBeUndefined();
+  });
+
+  it('keeps a tree 2 tiles from a hedge — living/low barriers are not "tall"', () => {
+    const map = makeMap(20, 20);
+    const world = new World(map);
+    const hedge: BarrierRun = {
+      kind: 'hedge', path: [[2, 10], [17, 10]], height: 1.5, thickness: 1, material: 'hedge',
+      gates: [],
+    };
+    placeBarrier(world, hedge);
+    world.addEntity(tree('beside-hedge', 8, 12)); // same offset that clears beside a palisade
+
+    const removed = clearObstructedVegetation(world, map);
+
+    expect(removed).toBe(0);
+    expect(world.registry.get('beside-hedge')).toBeDefined();
+  });
+
+  it('leaves a gate opening cell alone (opening cells are never in the blocking set)', () => {
+    const map = makeMap(20, 20);
+    const world = new World(map);
+    // A wide gate (width 8, centred at t=7) so its opening cells sit well clear
+    // (>TREE_CLEAR_RADIUS) of the nearest surviving blocking cell — isolating the
+    // "on the footprint" check from the separate canopy-radius rule.
+    const wall: BarrierRun = {
+      kind: 'wall', path: [[2, 10], [17, 10]], height: 3, thickness: 1, material: 'stone',
+      gates: [{ t: 7, width: 8 }],
+    };
+    placeBarrier(world, wall);
+    // A tree standing in the middle of the gate opening — not a blocking cell, so
+    // it must survive the barrier occupancy check.
+    world.addEntity(tree('in-gate', 9, 10));
+
+    clearObstructedVegetation(world, map);
+
+    expect(world.registry.get('in-gate')).toBeDefined();
   });
 });

@@ -22,7 +22,7 @@ import type { GameMap } from '@/core/types';
 import type { World } from '@/world/world';
 import { defaultEntity } from '@/world/brush-helpers';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
-import { isBuilding } from '@/world/building-collision';
+import { isBuilding, isBarrier } from '@/world/building-collision';
 import { getRenderWaterDist } from '@/world/render-water';
 import { isRoadOrRiver } from '@/world/vegetation-clear';
 import { worldStyleOf } from '@/core/world-style';
@@ -139,10 +139,12 @@ export function fillBareGround(world: World, map: GameMap, seed: number): number
       if (isRoadOrRiver(tile.type)) continue;              // (redundant with the set, but explicit)
       if (waterDist(x + 0.5, y + 0.5) < -0.5) continue;    // cell centre well under drawn water
 
-      // Bare? Skip the cell if it holds any building or existing nature entity.
+      // Bare? Skip the cell if it holds any building, barrier (wall/palisade/etc —
+      // tagged 'barrier', never 'building', so `isBuilding` alone misses it and
+      // ground cover got re-sown over wall footprints) or existing nature entity.
       let occupied = false;
       for (const e of world.registry.getAtTile(x, y)) {
-        if (isBuilding(e)) { occupied = true; break; }
+        if (isBuilding(e) || isBarrier(e)) { occupied = true; break; }
         const def = tryGetEntityKindDef(e.kind);
         if (def && NATURE_CATEGORIES.has(def.category)) { occupied = true; break; }
       }

@@ -11,8 +11,8 @@ describe('content-version constants', () => {
     expect(NPC_ART_RECIPE_VERSION).toBe('n1');
   });
 
-  it('declares the current world content version (119: New-Game playable worlds B1 — New Game begins in one of three authored worlds (dawn/frost) plus the seeded default, picked + persisted per run; old saves regenerate, default world + goldens unchanged)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(119);
+  it('declares the current world content version (120: siting believability — a watermill wheel must hang over PAINTED water within reach of it (per-site solved `submerge`), tall vegetation clears walls/palisades/ramparts as well as buildings, and ring gates dedup by angular separation so two approach roads no longer plant twin main gates side by side)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(120);
   });
 
   it('declares the current save schema version (4: the event journal — `events` left the SaveFile blob for the event-journal IDB store; `eventCursor` + `playtimeMs` took its place, see save-file.ts)', () => {

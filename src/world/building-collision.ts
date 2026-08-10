@@ -41,6 +41,23 @@ export function isBuilding(e: Entity): boolean {
 }
 
 /**
+ * True when this entity is a placed barrier (wall/fence/palisade/rampart/
+ * barricade/hedge run) — `placeBarrier` tags every run `'barrier'`
+ * (`place-barrier.ts`) but never `'building'`, so `isBuilding` alone is blind
+ * to it. Deliberately kept SEPARATE from `isBuilding` rather than folded in:
+ * `isBuilding` feeds the movement collider ({@link tileBlockedByBuilding}),
+ * and a barrier already blocks movement via its own `'obstacle'` tag — union-
+ * ing the two here would double-count and change collision semantics nobody
+ * asked to change. This predicate exists for callers that need "is this a
+ * solid MAN-MADE structure" without touching that path — today the
+ * vegetation clear/fill sweeps, so trees don't stand inside wall footprints
+ * and ground cover isn't re-sown over them.
+ */
+export function isBarrier(e: Entity): boolean {
+  return Array.isArray(e.tags) && e.tags.includes('barrier');
+}
+
+/**
  * Whether a single footprint cell of `building` can be walked through.
  *
  * Reads the blueprint's precomputed collision mask (`@/blueprint/entity`): a

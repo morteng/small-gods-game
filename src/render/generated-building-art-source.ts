@@ -57,6 +57,21 @@ export interface ProducedPack {
   anchors?: string;
 }
 
+/**
+ * Presets EXCLUDED from the vendored library's bare-preset fallback (see
+ * `fetchFromBaseLibrary`). An exact content-addressed key still hits normally — only the
+ * "reuse whatever was seeded for this preset name, sight unseen" path is refused, so these
+ * fall through to the parametric (textured K0d) source instead.
+ *
+ * `watermill` (believability round WP-1): the vendored library is stale at recipe v31 and the
+ * mill's exact key can never match it, so every mill rendered the v31 PAINTED sprite via this
+ * fallback — art composed against the OLD wheel geometry. WP-1's whole point is a per-site
+ * wheel depth, and a painted sprite is a photograph of one fixed depth: the fix would have
+ * been invisible in game while looking correct in every test. Fold `watermill` back in the
+ * moment a funded reseed refreshes the library (spend is frozen; plan §5).
+ */
+const PRESET_FALLBACK_DENY: ReadonlySet<string> = new Set(['watermill']);
+
 /** One vendored-library manifest row (see scripts/seed-building-art.ts). */
 interface BaseManifestEntry {
   file: string; targetWidth: number;
@@ -248,7 +263,7 @@ export class GeneratedBuildingArtSource {
       // fallback is tagged 'preset-fallback' for callers that want to warn about it.
       let entry: BaseManifestEntry | undefined = entries[key];
       let provenance: 'exact' | 'preset-fallback' = 'exact';
-      if (!entry && preset) {
+      if (!entry && preset && !PRESET_FALLBACK_DENY.has(preset)) {
         this.basePresetIndex ??= new Map(
           Object.values(entries).filter(e => e.preset).map(e => [e.preset as string, e]),
         );

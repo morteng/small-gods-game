@@ -201,6 +201,85 @@ describe('deriveSettlementRing encloses the built bbox with gates at crossings',
     expect(gates.length).toBe(1);
   });
 
+  // ── WP-3: angular gate dedup (no two main gates side by side) ─────────────────────
+  // Bearings are measured from the ring centroid, the frame `commitDirectionGates` sites in.
+  const bearingsOf = (ring: NonNullable<ReturnType<typeof deriveSettlementRing>>): number[] => {
+    const c = ring.run.centroid!;
+    return ring.run.gates.filter((g) => g.kind !== 'gap').map((g) => {
+      const [gx, gy] = gatePoint(ring.run, g);
+      return (Math.atan2(gy - c[1], gx - c[0]) * 180) / Math.PI;
+    });
+  };
+  const sepDeg = (a: number, b: number): number => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+  const dirAt = (deg: number): { dx: number; dy: number } =>
+    ({ dx: Math.cos((deg * Math.PI) / 180), dy: Math.sin((deg * Math.PI) / 180) });
+  // A BIG ring on purpose: on a small ring the old ring-arc floor (a few tiles) already merged
+  // near-parallel picks, so only a large circuit — where 30° of bearing is a dozen tiles of wall —
+  // exposes the bug these pins guard.
+  const ringWith = (poiId: string, connections: { dx: number; dy: number }[], isWater: (x: number, y: number) => boolean = () => false) =>
+    deriveSettlementRing({
+      bbox: { minX: 20, minY: 20, maxX: 56, maxY: 56 },
+      mapW: 80, mapH: 80, buildingCount: 20, poiId,
+      isWater, isRoad: () => false, connections, ctx,
+    })!;
+
+  it('two connections 30° apart share ONE gate (no two main gates on the same wall face)', () => {
+    const ring = ringWith('near-parallel', [dirAt(0), dirAt(30)]);
+    expect(bearingsOf(ring).length).toBe(1);
+  });
+
+  it('two connections 90° apart still get their own gate each', () => {
+    const ring = ringWith('spread', [dirAt(0), dirAt(90)]);
+    const bs = bearingsOf(ring);
+    expect(bs.length).toBe(2);
+    expect(sepDeg(bs[0], bs[1])).toBeGreaterThan(55);
+  });
+
+  it('a cluster collapses but a distant bearing survives (3 connections → 2 gates)', () => {
+    const bs = bearingsOf(ringWith('cluster', [dirAt(0), dirAt(20), dirAt(90)]));
+    expect(bs.length).toBe(2);
+    expect(sepDeg(bs[0], bs[1])).toBeGreaterThanOrEqual(55);
+  });
+
+  it('every pair of committed gates is at least the angular minimum apart', () => {
+    // Eight inbound roads on a 45° rosette — the pathological case that produced adjacent gates.
+    const bs = bearingsOf(ringWith('rosette', [0, 20, 40, 95, 130, 180, 200, 275].map(dirAt)));
+    expect(bs.length).toBeGreaterThanOrEqual(2);
+    for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+      expect(sepDeg(bs[i], bs[j])).toBeGreaterThanOrEqual(55);
+    }
+  });
+
+  it('the angular dedup keeps the BETTER-ALIGNED pick, not the first one', () => {
+    // River to the EAST: the east face is off-bank, so an ENE connection can only be served from
+    // the ring's north-east shoulder (a poor match), while an NNE one is served head-on. The two
+    // are 53° apart → one gate, and it must be the NNE (well-aligned) one even though ENE is first.
+    const bs = bearingsOf(ringWith('shoulder', [{ dx: 3, dy: -1 }, { dx: 1, dy: -3 }], (x) => x >= 60));
+    expect(bs.length).toBe(1);
+    expect(bs[0]).toBeLessThan(-60);        // north-north-east, not the east shoulder (~-45°)
+  });
+
+  it('an interior-street crossing ABSORBS a direction gate within the angular minimum', () => {
+    // Ring 18..58 (centroid 38,38): a street pokes north through the wall at x≈45 (bearing ≈ -71°).
+    const street = (x: number, y: number): boolean => y <= 18 && x >= 44 && x <= 46;
+    const withStreet = (poiId: string, connections: { dx: number; dy: number }[]) =>
+      deriveSettlementRing({
+        bbox: { minX: 20, minY: 20, maxX: 56, maxY: 56 },
+        mapW: 80, mapH: 80, buildingCount: 20, poiId,
+        isWater: () => false, isRoad: street, connections, ctx,
+      })!;
+    // A connection arriving ~40° from the crossing shares it — no second gate on the north face.
+    expect(bearingsOf(withStreet('absorbed', [dirAt(-110)])).length).toBe(1);
+    // A connection on a genuinely different face still gets its own gate.
+    expect(bearingsOf(withStreet('kept', [dirAt(180)])).length).toBe(2);
+  });
+
+  it('is deterministic — connection order does not change the committed gate set', () => {
+    const a = bearingsOf(ringWith('order-a', [dirAt(0), dirAt(20), dirAt(90)])).sort((x, y) => x - y);
+    const b = bearingsOf(ringWith('order-b', [dirAt(90), dirAt(20), dirAt(0)])).sort((x, y) => x - y);
+    expect(b).toEqual(a);
+  });
+
   it('returns null for a hamlet', () => {
     const ring = deriveSettlementRing({
       bbox: { minX: 5, minY: 5, maxX: 9, maxY: 9 },

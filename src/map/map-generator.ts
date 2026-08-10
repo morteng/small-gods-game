@@ -35,6 +35,9 @@ import '@/world/connectome/road-contracts';
 // Registers `scaling.infrastructure-sublinear` (world-level invariant, interaction-scaling
 // plan Phase 4 S4.1) — same side-effect-import wiring as `road-contracts` above.
 import '@/world/connectome/scaling-contracts';
+// Registers `mill.wheel-reaches-water` (site-level requirement, believability WP-1) — same
+// side-effect-import wiring as the two above.
+import '@/world/connectome/site-contracts';
 import { wireGateToRoad } from '@/world/wire-gate';
 import { corridorCells } from '@/world/road-corridors';
 import type { RoadGraph } from '@/world/road-graph';

@@ -88,6 +88,21 @@ export interface PlacedBarrier {
   ownerPoiId?: string;
 }
 
+/**
+ * Minimum angular separation between two REAL gates, as seen from the ring centroid (degrees).
+ *
+ * 55° caps a circuit at ~6 gates, which brackets the historical range for a walled town (York's
+ * four bars + posterns; Carcassonne's two); it also means two connections inside a ~1-in-8 slice
+ * of the horizon share one portal rather than planting two main gates side by side.
+ *
+ * ONE number, TWO consumers, deliberately homed on this leaf (both already import it, so no new
+ * module edge): `enclosure.ts` `commitDirectionGates` enforces it at gen time, and the
+ * `gate.minimum-separation` contract (`connectome/wall-contracts.ts`) audits it afterwards. They
+ * MUST agree — a contract that judges by a different threshold than the generator obeys reports
+ * phantom violations or misses real ones.
+ */
+export const GATE_MIN_ANGLE_DEG = 55;
+
 export const BARRIER_DEFAULTS: Record<BarrierKind, Omit<BarrierRun, 'kind' | 'path' | 'gates'>> = {
   wall:      { height: mToTiles(3.0), thickness: 1, material: 'stone',  crenellated: false }, // 3.0 m
   rampart:   { height: mToTiles(3.5), thickness: 2, material: 'stone',  crenellated: true },  // 3.5 m

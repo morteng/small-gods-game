@@ -16,7 +16,7 @@
 // (none / palisade / town wall) chosen by settlement size + wealth + era.
 
 import type { BarrierRun, BarrierKind, BarrierGate, RingSegment, NatureDefends, TowerPlacement, RingDefends } from '@/world/barrier';
-import { barrierFootprintTiles, defendsForSegment, segmentIndexAt, gatePoint, gateOpeningCell } from '@/world/barrier';
+import { barrierFootprintTiles, defendsForSegment, segmentIndexAt, gatePoint, gateOpeningCell, GATE_MIN_ANGLE_DEG } from '@/world/barrier';
 import type { Lot } from '@/world/settlement-plan';
 import type { Era } from '@/core/era';
 import { catalogue, type BarrierTypeFields } from '@/catalogue';
@@ -653,7 +653,13 @@ export function deriveSettlementRing(args: {
   const circDist = (a: number, b: number): number => { const d = Math.abs(a - b); return Math.min(d, total - d); };
   const realGates: BarrierGate[] = [...roadCross];
   for (const g of commitDirectionGates(path, total, centroid, args.connections ?? [], offBank, gateW)) {
-    if (realGates.some((h) => circDist(h.t, g.t) < minSep)) continue;
+    const gb = ringBearing(path, centroid, g.t);
+    // Absorbed by an existing opening when it is within the arc floor (tiny rings) OR within the
+    // angular minimum of it (WP-3) — a street crossing that already faces this bearing IS this
+    // connection's gate. `roadCross` openings are mandatory (a road physically crosses there), so
+    // only the DIRECTION gate is ever dropped here; `roadCross`-vs-`roadCross` doubling is left
+    // alone deliberately — merging two mandatory crossings needs a merge-and-widen, not a drop.
+    if (realGates.some((h) => circDist(h.t, g.t) < minSep || bearingSep(ringBearing(path, centroid, h.t), gb) < GATE_MIN_ANGLE_RAD)) continue;
     realGates.push({ ...g, kind: 'gate' as const });
   }
   const softOpen = (x: number, y: number): boolean => offBank(x, y) || (args.isBuilding?.(x, y) ?? false);
@@ -1017,6 +1023,33 @@ function classifyRingSegments(
   return segs;
 }
 
+// ── Gate siting: angular separation (WP-3) ──────────────────────────────────────────────────────
+//
+// A real fortified town spaces its portals AROUND the circuit — two main gates a few tiles apart on
+// the same wall face never happened (they would share one gatehouse, one barbican, one guard). The
+// ring-ARC floor in `dedupeGatesBySpacing` (a few tiles) is far too small to express that: two POIs
+// at similar bearings whose ring points land ~5 tiles apart both kept a gate, which is exactly the
+// "two main gates side by side" the players saw. The authoritative test is ANGULAR, from the ring
+// centroid — it is scale-free (a big ring needs proportionally more spacing) and it is the same
+// frame the gates were sited in (`commitDirectionGates` picks by centroid bearing).
+
+/** Radians form of the shared {@link GATE_MIN_ANGLE_DEG} (defined on `@/world/barrier`, and
+ *  shared with the `gate.minimum-separation` contract that audits this pass). The arc floor
+ *  still applies AFTER this on tiny rings, where 55° is only a couple of tiles. */
+const GATE_MIN_ANGLE_RAD = (GATE_MIN_ANGLE_DEG * Math.PI) / 180;
+
+/** Outward bearing (radians) of ring parameter `t`, seen from the ring centroid. */
+function ringBearing(path: Pt[], centroid: Pt, t: number): number {
+  const [px, py] = pointOnPath(path, t);
+  return Math.atan2(py - centroid[1], px - centroid[0]);
+}
+
+/** Absolute separation of two bearings, wrapped into [0, π]. */
+function bearingSep(a: number, b: number): number {
+  const d = Math.abs(a - b) % (2 * Math.PI);
+  return d > Math.PI ? 2 * Math.PI - d : d;
+}
+
 /**
  * COMMIT one gate per distinct inbound connection direction — the Watabou portal-node pattern.
  * For each unit ray toward a connected POI, pick the LANDWARD ring point whose bearing from the
@@ -1027,8 +1060,9 @@ function classifyRingSegments(
  * Landward-only: a candidate whose short outward step lands off our bank (water / far bank) is
  * skipped, so a gate never opens onto the river. A direction whose best landward alignment is worse
  * than a small threshold (the POI lies across the water) yields no gate — that connection routes to
- * the nearest committed gate instead. Deduped by ring spacing so two near-parallel connections share
- * one gate. Deterministic (no rng): a fixed sub-tile walk + a stable arg order.
+ * the nearest committed gate instead. Deduped by centroid ANGLE (`GATE_MIN_ANGLE_DEG`) so two
+ * near-parallel connections share one gate, then by the ring-arc floor for tiny rings.
+ * Deterministic (no rng): a fixed sub-tile walk + a stable arg order.
  */
 function commitDirectionGates(
   path: Pt[], total: number, centroid: Pt,
@@ -1036,11 +1070,11 @@ function commitDirectionGates(
 ): BarrierGate[] {
   if (dirs.length === 0) return [];
   const step = 0.5;
-  const picks: BarrierGate[] = [];
+  const picks: { t: number; bearing: number; dot: number; order: number }[] = [];
   for (const dir of dirs) {
     const dl = Math.hypot(dir.dx, dir.dy) || 1;
     const ux = dir.dx / dl, uy = dir.dy / dl;
-    let bestT = -1, bestDot = -Infinity;
+    let bestT = -1, bestDot = -Infinity, bestBearing = 0;
     for (let t = 0; t < total; t += step) {
       const [px, py] = pointOnPath(path, t);
       const bx = px - centroid[0], by = py - centroid[1];
@@ -1048,13 +1082,22 @@ function commitDirectionGates(
       // Landward guard: the cell a short step OUTWARD (along the bearing) must be on our land.
       if (offBank(Math.round(px + (bx / bm) * 1.5), Math.round(py + (by / bm) * 1.5))) continue;
       const dot = (bx / bm) * ux + (by / bm) * uy;
-      if (dot > bestDot) { bestDot = dot; bestT = t; }
+      if (dot > bestDot) { bestDot = dot; bestT = t; bestBearing = Math.atan2(by, bx); }
     }
     // Only commit when the best landward point is at least loosely toward the POI (dot > ~0.15);
     // otherwise the connection fronts water on this side and shares another gate.
-    if (bestT >= 0 && bestDot > 0.15) picks.push({ t: bestT, width: gateW });
+    if (bestT >= 0 && bestDot > 0.15) picks.push({ t: bestT, bearing: bestBearing, dot: bestDot, order: picks.length });
   }
-  return dedupeGatesBySpacing(picks, total, gateW);
+  // ANGULAR DEDUP (WP-3): a cluster of connections arriving within `GATE_MIN_ANGLE_DEG` of one
+  // another shares ONE portal. Best-alignment-first so the gate that survives is the one actually
+  // facing its road; ties broken by input order — deterministic, no rng, no iteration-order reliance.
+  const ranked = [...picks].sort((a, b) => (b.dot - a.dot) || (a.order - b.order));
+  const kept: typeof ranked = [];
+  for (const p of ranked) {
+    if (kept.some((k) => bearingSep(k.bearing, p.bearing) < GATE_MIN_ANGLE_RAD)) continue;
+    kept.push(p);
+  }
+  return dedupeGatesBySpacing(kept.map((k) => ({ t: k.t, width: gateW })), total, gateW);
 }
 
 /** Drop gates that sit within a min ring-spacing of an already-kept gate (circular distance on the

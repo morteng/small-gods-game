@@ -31,8 +31,9 @@
 import type { GameMap, EntityId, Entity } from '@/core/types';
 import type { World } from '@/world/world';
 import type { RoadGraph } from '@/world/road-graph';
+import type { BarrierKind, BarrierRun } from '@/world/barrier';
 import { tryGetEntityKindDef, isRockKind } from '@/world/entity-kinds';
-import { isBuilding } from '@/world/building-collision';
+import { isBuilding, isBarrier } from '@/world/building-collision';
 import { elevationAt } from '@/world/heightfield';
 import { getRenderWaterDist } from '@/world/render-water';
 import { canStandAtPoint } from '@/world/water-habitat';
@@ -114,6 +115,55 @@ function nearRoadOrRiverTile(map: GameMap, x: number, y: number, r: number): boo
     }
   }
   return false;
+}
+
+/**
+ * Barrier kinds tall enough that a tree standing BESIDE them (not just on their
+ * footprint) still visually merges into the wall — a canopy overhangs the
+ * curtain the way it overhangs a road. `hedge`/`fence`/`barricade` are
+ * deliberately excluded: a hedge is itself living, and a garden fence lives
+ * happily next to a tree.
+ */
+const TALL_BARRIER_KINDS: ReadonlySet<BarrierKind> = new Set(['wall', 'palisade', 'rampart']);
+
+/**
+ * True if any cell in `cells` lies within `r` tiles of continuous point (x,y).
+ * Same shape as {@link nearRoadOrRiverTile} — a small window scan around the
+ * point, membership tested against a precomputed Set instead of `map.tiles` —
+ * so a long wall doesn't cost a linear scan per tree.
+ */
+function nearCellSet(cells: ReadonlySet<string>, x: number, y: number, r: number): boolean {
+  const span = Math.ceil(r);
+  const cx = Math.floor(x), cy = Math.floor(y);
+  const r2 = r * r;
+  for (let dy = -span; dy <= span; dy++) {
+    for (let dx = -span; dx <= span; dx++) {
+      const tx = cx + dx, ty = cy + dy;
+      if (!cells.has(`${tx},${ty}`)) continue;
+      const ddx = (tx + 0.5) - x, ddy = (ty + 0.5) - y;
+      if (ddx * ddx + ddy * ddy <= r2) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Every blocking cell of a placed TALL barrier run (wall/palisade/rampart) —
+ * gate openings are already excluded upstream (`placeBarrier` only indexes
+ * `footprintCells` for cells that actually block, per `barrierFootprintTiles`).
+ */
+function tallBarrierCells(world: World): Set<string> {
+  const cells = new Set<string>();
+  for (const e of world.query({})) {
+    if (!isBarrier(e)) continue;
+    const run = (e.properties as { barrier?: BarrierRun } | undefined)?.barrier;
+    if (!run || !TALL_BARRIER_KINDS.has(run.kind)) continue;
+    const footprintCells = (e.properties as { footprintCells?: [number, number][] } | undefined)
+      ?.footprintCells;
+    if (!footprintCells) continue;
+    for (const [cx, cy] of footprintCells) cells.add(`${cx},${cy}`);
+  }
+  return cells;
 }
 
 /** Squared distance from point (px,py) to segment (ax,ay)-(bx,by). */
@@ -207,6 +257,10 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     return Math.max(gx, gy);
   };
 
+  // Canopy clearance around tall barriers (walls/palisades/ramparts): computed once,
+  // reused per tree via the small-window `nearCellSet` scan (see its doc comment).
+  const tallCells = tallBarrierCells(world);
+
   for (const e of world.query({})) {
     const def = tryGetEntityKindDef(e.kind);
     if (!def || !NATURE_CATEGORIES.has(def.category)) continue;
@@ -223,9 +277,12 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
 
     const inCorridor = !waterPlaced &&
       (nearRoadOrRiverTile(map, e.x, e.y, r) || nearCorridor(corridors, e.x, e.y, r));
-    const onBuilding = world.registry
+    // A barrier run (wall/fence/palisade/rampart/barricade/hedge) is tagged 'barrier',
+    // never 'building' (`place-barrier.ts`) — `isBuilding` alone is blind to it, which
+    // let trunks stand inside wall/tower footprints. `isBarrier` closes that gap.
+    const onStructure = world.registry
       .getAtTile(tx, ty)
-      .some((b) => b.id !== e.id && isBuilding(b));
+      .some((b) => b.id !== e.id && (isBuilding(b) || isBarrier(b)));
     // Above the treeline no TREE grows — but rocks, tussock and the alpine dwarf shrubs
     // do, and they are what make a summit read as a rocky crag rather than a bald dome.
     // Culling them here (as this used to) threw away the hills brush's entire mountain/
@@ -233,6 +290,9 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     // waterline, well below it — exempted explicitly so the intent survives a retune.)
     const isTree = e.tags?.includes('tree') ?? false;
     const aboveTreeline = !waterPlaced && isTree && elevationAt(map, tx, ty) > TREELINE_ELEV;
+    // A tree's CANOPY overhangs a tall curtain even when its trunk is clear of the
+    // wall's own footprint — the "around" half of the symptom, not just "on".
+    const nearTallBarrier = isTree && nearCellSet(tallCells, e.x, e.y, TREE_CLEAR_RADIUS);
     // Standing in the drawn water on ground that can't hold it. The water-placed tag
     // exempts only a ROCK the riparian pass MEANT to put in the channel (habitat
     // 'in-water'); a riparian BANK tree carries the same tag and a willow belongs on the
@@ -245,7 +305,9 @@ export function clearObstructedVegetation(world: World, map: GameMap): number {
     const onDryLand = !WATER_TYPES.has(map.tiles[ty]?.[tx]?.type ?? '');
     const onSteepBank = onDryLand && isRockKind(e.kind) && composedSlopeM(tx, ty) > STONE_SLOPE.maxSlopeM;
 
-    if (inCorridor || onBuilding || aboveTreeline || inWater || onSteepBank) toRemove.push(e.id);
+    if (inCorridor || onStructure || aboveTreeline || nearTallBarrier || inWater || onSteepBank) {
+      toRemove.push(e.id);
+    }
   }
 
   for (const id of toRemove) world.removeEntity(id);

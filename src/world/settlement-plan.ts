@@ -667,7 +667,15 @@ export interface MillSiteHint { x: number; y: number; face: CardinalFace; }
 
 /** Mill placement inputs for the civic pass: the tagged sites near this settlement (nearest
  *  first) plus the "does this cell RENDER as water" predicate (the same source the tags were
- *  derived from), so the seated footprint's wheel dips into water the player actually sees. */
+ *  derived from), so the seated footprint's wheel dips into water the player actually sees.
+ *
+ *  WP-1 CONTRACT ON `isWater`: for the MILL this must be the PAINTED-water truth
+ *  (`paintedWaterAt`, via `mill-site-store.millWaterDrawnAt`), not the render water-TYPE mask.
+ *  `flushFootprintForHint` slides the footprint ±1 along the bank, so the cell the wheel
+ *  finally hangs over need not be the hint's own water neighbour — a mask-based predicate here
+ *  silently re-admits the fringe seating `mill-site-store.ts` filtered out, one cell later. The
+ *  caller (`building-placer.ts`) supplies the strict one; the fishery hut, which has no wheel
+ *  to dip, keeps the looser mask and its byte-identical behaviour. */
 export interface MillPlacement { hints: MillSiteHint[]; isWater: (x: number, y: number) => boolean; }
 
 /** Outward unit vector for a cardinal flank — the direction a fixture on that flank reaches

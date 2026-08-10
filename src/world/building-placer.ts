@@ -27,7 +27,7 @@ import { synthesizeBlueprint } from '@/blueprint/presets';
 import { expandSite, siteToPlan } from '@/blueprint/connectome/site';
 import { catalogue } from '@/catalogue/pack';
 import { loadDefaultPacks } from '@/catalogue/default-packs';
-import type { ResolvedBlueprint } from '@/blueprint/types';
+import type { BlueprintPatch, ResolvedBlueprint } from '@/blueprint/types';
 import { blueprintEntity } from '@/blueprint/entity';
 import { toCollision } from '@/blueprint/compile/to-collision';
 import { toAnchors } from '@/blueprint/compile/to-anchors';
@@ -46,7 +46,7 @@ import {
   type SettlementPlan, type Lot, type FrontageSlot, type MillPlacement, type FisheryPlacement,
   type CivicSite, type CardinalFace,
 } from './settlement-plan';
-import { getMillSites, millSitesNear } from './mill-site-store';
+import { getMillSites, millSitesNear, millWaterDrawnAt, millWheelSubmergeForFootprint } from './mill-site-store';
 import { getFisherySites, fisherySitesNear } from './fishery-site-store';
 import { buildRenderWaterTypeMemo } from '@/render/gpu/render-water-mask';
 import { maxCarriageHalfWidth } from '@/world/road-state';
@@ -515,22 +515,39 @@ export function placeSettlement(
   // (nearest first) + the render-water predicate so it can seat the mill flush against water the
   // player sees — trying several, since not every bank cell admits a clean 2×2. No map
   // (legacy/test callers) ⇒ planCivics keeps its tile-scan fallback. A pond fishery (rivers R3
-  // P3) is the SAME pattern against still water (getFisherySites, pond klass only) — both share
-  // the one render-water predicate below.
+  // P3) is the SAME pattern against still water (getFisherySites, pond klass only).
   let mill: MillPlacement | undefined;
   let fishery: FisheryPlacement | undefined;
   if (map) {
     const renderWT = buildRenderWaterTypeMemo(map);
     const isWater = (x: number, y: number): boolean =>
       x >= 0 && y >= 0 && x < map.width && y < map.height && renderWT[y * map.width + x] !== 0;
+    // WP-1: the MILL asks the PAINT, not the mask. `flushFootprintForHint` slides the footprint
+    // ±1 along the bank, so the cell the wheel finally hangs over is NOT necessarily the tagged
+    // hint's own water neighbour — seating on the fringe-inclusive mask would therefore undo the
+    // site filter one cell later, which is precisely how a wheel ends up over the ribbon's dry
+    // edge. `millWaterDrawnAt` is the same `paintedWaterAt` truth `getMillSites` filtered on, so
+    // tag and seat agree by construction. (The fishery hut has no wheel to dip: mask adjacency
+    // is the right, looser test for a shore hut, and it keeps its byte-identical behaviour.)
+    const millIsWater = (x: number, y: number): boolean => millWaterDrawnAt(map, x, y);
     const millHints = millSitesNear(getMillSites(map), cx, cy, radius + 12)
       .map(s => ({ x: s.x, y: s.y, face: s.waterFace }));
-    mill = { hints: millHints, isWater };
+    mill = { hints: millHints, isWater: millIsWater };
     const fisheryHints = fisherySitesNear(getFisherySites(map), cx, cy, radius + 12)
       .map(s => ({ x: s.x, y: s.y, face: s.waterFace }));
     fishery = { hints: fisheryHints, isWater };
   }
   planCivics(plan, tiles, worldSeed, greenSize, mill, fishery);
+  // FLUSH-OR-NOTHING, made audible. A settlement with no wheel-scale bank that is BOTH drawn-wet
+  // and within a wheel's vertical reach simply gets no watermill — better than a wheel turning
+  // on dry grass (mill-site-store.ts header). Silence made that indistinguishable from a bug, so
+  // say it once per settlement that wanted one and lost it.
+  if (mill && plan.lots.length > 0 && !plan.civics.some(c => c.type === 'mill')) {
+    console.log(
+      `[worldgen] ${poi.id}: no watermill — ${mill.hints.length} wheel-scale bank site(s) within `
+      + `${radius + 12} tiles were drawn-wet and within a wheel's reach, none admitted a clean 2×2`,
+    );
+  }
 
   // Civic precincts (S5): reserve every civic tile against building placement —
   // props don't block via canPlaceIgnoringNature, so the fallback spiral would
@@ -601,7 +618,24 @@ export function placeSettlement(
       // (no rng). The mill is a workplace; well/graveyard are civic props.
       const presetName = CIVIC_PRESETS[c.type];
       if (!presetName) continue;   // agent-registered precinct with no art: ground only
-      let rb = synthesizeBlueprint(presetName, [], instSeed());
+      // WP-1 — PER-SITE WHEEL DEPTH. The preset hangs the wheel a constant 0.38 prim-z below the
+      // mill's foot, which is correct only for a bank standing exactly that far above the water;
+      // measured banks vary 0–1.5 m, so one authored depth either floats or buries. Patch THIS
+      // mill's `submerge` from its own seated geometry instead. Cheap and version-free:
+      // `synthesizeBlueprint` takes per-call patches, and the sprite caches are content-addressed
+      // over the resolved spec, so a patched mill simply misses and composes its own variant —
+      // no ART_RECIPE_VERSION bump, and the preset default is untouched for every other caller.
+      // (The gate is `waterFace`: a map-less/legacy mill has no resolved flank to measure from
+      // and keeps the preset default, exactly as it keeps the scan-based wheel orientation.)
+      const patches: BlueprintPatch[] = [];
+      if (c.type === 'mill' && map && c.waterFace) {
+        // Measured for the SEATED footprint, not the tagged hint: `flushFootprintForHint` may
+        // have slid it ±1 along the bank, and the cell that matters is the footprint cell the
+        // wheel actually hangs off.
+        const q = millWheelSubmergeForFootprint(map, c.x, c.y, c.w, c.h, c.waterFace);
+        if (q !== null) patches.push({ parts: { wheel: { type: 'waterwheel', params: { submerge: q } } } });
+      }
+      let rb = synthesizeBlueprint(presetName, patches, instSeed());
       if (!rb) continue;
       // The watermill's wheel must dip into the actual stream, not a hand-authored flank: rotate
       // the WHOLE asset so its wheel face — and the wheel-housing vent with it — points at the
@@ -617,6 +651,11 @@ export function placeSettlement(
       }
       const civic = blueprintEntity(`${poi.id}_civic_${c.type}`, rb, c.x, c.y, { poiId: poi.id });
       civic.properties!.civic = c.type;
+      // The flank this civic's business end (a mill's wheel, a fishery's jetty) was seated
+      // against — DECLARED on the entity so a post-hoc check (the `mill.wheel-reaches-water`
+      // contract) can judge the claim against the final terrain without re-deriving which side
+      // the placer chose. Absent on the map-less/legacy path, exactly like `waterFace` itself.
+      if (c.waterFace) civic.properties!.waterFace = c.waterFace;
       const civicTags = c.type === 'mill' ? ['settlement', 'civic', 'workplace'] : ['settlement', 'civic'];
       civic.tags = [...new Set([...(civic.tags ?? []), ...civicTags])];
       clearFootprint(c.x, c.y, rb.footprint.w, rb.footprint.h, registry, world, tiles);
