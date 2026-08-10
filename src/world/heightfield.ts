@@ -47,7 +47,13 @@ function poiHeightSignature(pois: POI[] | null | undefined): string {
     // here AND in `applyPoiInfluences` (see src/world/runtime-poi.ts).
     if (p.runtime) continue;
     if (!POI_INFLUENCES[p.type]?.elevation) continue;
-    s += `${p.type}@${p.position.x},${p.position.y};`;
+    // Key on the position the influence is STAMPED at, not where the POI stands. A
+    // POI worldgen moved mid-gen (`snapDrySettlementsOffWater`) keeps its plateau at
+    // its frozen `heightAnchor` (see POI in core/types + applyPoiInfluences), so the
+    // key must too — otherwise the snap invalidates a memo entry for a field that did
+    // not change, and worse, a re-key would suggest the field DOES follow the POI.
+    const at = p.heightAnchor ?? p.position;
+    s += `${p.type}@${at.x},${at.y};`;
   }
   return s;
 }

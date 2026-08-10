@@ -215,6 +215,30 @@ export interface POI {
    */
   summitM?: number;
   /**
+   * THE POSITION THE TERRAIN WAS BUILT FROM. Frozen the instant a POI is MOVED
+   * mid-generation (`snapDrySettlementsOffWater` walks a settlement standing in a
+   * lake out to dry shore), and from then on it — not `position` — is what stamps
+   * this POI's field influence (`applyPoiInfluences`) and keys the heightfield memo
+   * (`poiHeightSignature`).
+   *
+   * WHY: worldgen classifies biomes, carves hydrology, stamps the lake/river tiles,
+   * sites settlements and walks the roads from an elevation field built with POI
+   * plateaus at their LAYOUT positions. The snap then runs, and every LATER
+   * derivation — the drawn water ribbon, the continuous water distance, the
+   * predicate the bridge-crossing detector seats abutments with — re-derives
+   * elevation through `getHeightfield` from `worldSeed.pois`, i.e. from the SNAPPED
+   * positions. That is a second, different hydrology: moving a settlement out of a
+   * lake moves its plateau, which moves the lake, so the drawn world disagreed with
+   * the world the roads were actually routed through (measured: 1,656 waterType
+   * cells on default/777) and bridges landed beside the channel. Anchoring the
+   * height influence makes it ONE hydrology per world, restoring the contract
+   * `computeHeightfield` already documents ("Mirror map-generator EXACTLY").
+   *
+   * Absent on every POI that never moved ⇒ readers fall back to `position` ⇒
+   * unsnapped worlds are bit-identical. Travels in the save with `worldSeed`.
+   */
+  heightAnchor?: { x: number; y: number };
+  /**
    * TRUE for a POI created AT RUNTIME (an M4 `RuntimePoiStore` projection — the
    * lord's castle), never authored by hand. Runtime POIs are HEIGHTFIELD-INERT by
    * rule: `poiHeightSignature` and `applyPoiInfluences` skip them (their ground

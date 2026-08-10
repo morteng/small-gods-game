@@ -11,8 +11,8 @@ describe('content-version constants', () => {
     expect(NPC_ART_RECIPE_VERSION).toBe('n1');
   });
 
-  it('declares the current world content version (122: bridge decks seat on the road the game DRAWS — the span pass re-detects crossings on the POST-reconcile graph, after `reconcileCenterlineBows`/`reconcileCenterlineLegality` have written the `edge.pins` the drawn ribbon is smoothed through, instead of reusing specs detected ~200 lines earlier against an unpinned Catmull-Rom that bows up to ~1.6 tiles off it; this also aligns the deck entity id with the opening id the crossing-tier store joins on)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(122);
+  it('declares the current world content version (123: ONE hydrology per world — `POI.heightAnchor` freezes a POI\'s height influence at the position the terrain was built from, so `snapDrySettlementsOffWater` moving a settlement out of a lake no longer moves its elevation plateau and, with it, the lake; the drawn water / hydrology store / bridge-crossing seater now rebuild the SAME field biomes, rivers, settlements and roads were derived from)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(123);
   });
 
   it('declares the current save schema version (4: the event journal — `events` left the SaveFile blob for the event-journal IDB store; `eventCursor` + `playtimeMs` took its place, see save-file.ts)', () => {

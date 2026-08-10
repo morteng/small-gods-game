@@ -443,8 +443,21 @@ export function applyPoiInfluences(
     const canRegion = !!(spec.regionFill && region);
     if (!poi.position && !canRegion) continue;
 
-    let px = poi.position?.x ?? 0;
-    let py = poi.position?.y ?? 0;
+    // STAMP AT THE HEIGHT ANCHOR, NOT THE LIVE POSITION. A POI that worldgen MOVED
+    // mid-generation (`snapDrySettlementsOffWater`: a settlement standing in a lake
+    // walks to dry shore) carries `heightAnchor` = the position the terrain was
+    // actually built from. Its plateau must NOT follow it, or every post-snap
+    // re-derivation of the field (renderer, hydrology store, crossing seater) gets a
+    // different world from the one biomes/rivers/roads were computed in — and moving
+    // a settlement's plateau out of a lake moves the lake. Unmoved POIs have no
+    // anchor and read `position`, so unsnapped worlds are bit-identical. See POI.
+    // The four `poi.position` reads below stay PRESENCE guards ("does this POI have a
+    // point at all?") — `heightAnchor` is only ever minted FROM a position, so
+    // presence is identical either way, and reading the anchor there would only
+    // obscure the test. The COORDINATES all come from `stampAt`.
+    const stampAt = poi.heightAnchor ?? poi.position;
+    let px = stampAt?.x ?? 0;
+    let py = stampAt?.y ?? 0;
     // Coastal features attach to the REAL shoreline, not their nominal point: the
     // terrain seed varies the coast each world, so a fixed coord can land inland (a
     // hill by a river, not a sea cliff). Snap the centre to the nearest land cell that
@@ -714,7 +727,10 @@ export function getAffectedRegion(poi: POI, config: TerrainConfig): AffectedRegi
   }
 
   if (!poi.position) return null;
-  const px = poi.position.x, py = poi.position.y;
+  // Same anchor `applyPoiInfluences` stamps at — this box must describe where the
+  // influence LANDS, not where the POI now stands (they differ for a snapped POI).
+  const stampAt = poi.heightAnchor ?? poi.position;
+  const px = stampAt.x, py = stampAt.y;
   const scale = SIZE_SCALE[poi.size ?? 'medium'] ?? 1.0;
   const warp = spec.warp ?? 0;
 

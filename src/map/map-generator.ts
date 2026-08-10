@@ -208,6 +208,16 @@ export function snapDrySettlementsOffWater(
     }
     console.warn(`[worldgen] POI ${poi.id} (${poi.type}) stood in ${wt === WaterType.Lake ? 'a lake' : 'the sea'} `
       + `@ (${px},${py}) — snapped to dry shore (${dry.x},${dry.y})`);
+    // FREEZE THE HEIGHT ANCHOR BEFORE MOVING. Every field above this line — biomes,
+    // hydrology, the lake/river tile stamp, settlement siting, the road walk — was
+    // derived from an elevation field with this POI's plateau at its LAYOUT position.
+    // Everything below (and the renderer, and the crossing seater) re-derives
+    // elevation from `worldSeed.pois` through `getHeightfield`. Without the anchor
+    // those are two DIFFERENT hydrologies: the snap moves the plateau, the plateau
+    // moves the lake, and the drawn water ends up somewhere the roads never saw —
+    // which is how bridges came to be seated beside the channel. `??=` so a POI that
+    // somehow snaps twice keeps the position the terrain was actually built from.
+    poi.heightAnchor ??= { x: poi.position.x, y: poi.position.y };
     poi.position = { ...poi.position, x: dry.x, y: dry.y };
   }
 }
