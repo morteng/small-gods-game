@@ -139,8 +139,10 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   }
   // Hump: masonry gets a gentle camber; a timber arch gets the strongly hump-backed "moon bridge"
   // profile (matches the bridge-timber-arch recipe: camber 1.2 over a 10 m span); log-plank is flat.
-  const camberM = stone ? Math.min(1.2, spanLen * METRES_PER_TILE * 0.045)
+  const humpM = stone ? Math.min(1.2, spanLen * METRES_PER_TILE * 0.045)
     : arched ? Math.min(1.2, spanLen * METRES_PER_TILE * 0.12) : 0;
+  // DECK THICKNESS is one number for every class — the arch rise below is solved against it.
+  const deckThickM = 0.6;
 
   // Footprint = the yawed span's AABB (+1 tile so the deck seats onto both banks as abutments),
   // origin rounded with the sub-tile remainder flowed into the part offsets (as deckEntity does).
@@ -173,6 +175,22 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
   // a full hump above the mid-span cusp — with a stout timber pier landing each joint. Masonry
   // keeps the single continuous deck (a stone viaduct has one road profile, not a hump per arch).
   const perBay = arched && !stone && bays >= 2;
+  /**
+   * DECK SEATING IS `clearZM`, DELIBERATELY — do not "improve" it into a moon bridge.
+   *
+   * The comment above claims the timber arch gets the recipe's "strongly hump-backed moon bridge
+   * profile", and it is only half true: the recipe (`deckFollowsArch`, presets/bridges.ts) lands
+   * its deck ENDS low on footing blocks, while this path rides flat at `clearZM` with the hump
+   * added on top. Dropping the ends to match was tried and is WRONG here: `clearZM` carries +0.6 m
+   * of freeboard over the bank by the clearance formula above, and
+   * `tests/unit/bridge-deck-carries-road.test.ts` pins that the underside stays proud of the bank
+   * ("never seats the deck BELOW its bank") — bringing the ends down by a slab thickness buries
+   * them in the bank instead of landing on it. The two paths differ because the recipe builds a
+   * free-standing montage subject on flat studio ground, where "the bank" is a 0.5 m footing block
+   * it owns; this one seats into real carved terrain it does not control.
+   */
+  const deckBaseZM = clearZM;
+  const deckCamberM = humpM;
   const parts: Record<string, NonNullable<Blueprint['parts']>[string]> = {};
   if (perBay) {
     const bayT = spanLen / bays;
@@ -208,8 +226,8 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
     parts.deck = {
       type: 'deck', at: { x: cxL - fpW / 2, y: cyL - fpH / 2 }, size: { w: fpW, h: fpH },
       params: {
-        lengthM: lengthT * METRES_PER_TILE, widthM: widthT * METRES_PER_TILE, thicknessM: 0.6,
-        yawDeg, parapet, baseZM: clearZM, camberM,
+        lengthM: lengthT * METRES_PER_TILE, widthM: widthT * METRES_PER_TILE, thicknessM: deckThickM,
+        yawDeg, parapet, baseZM: deckBaseZM, camberM: deckCamberM,
         ...(roadway ? { roadway } : {}),
       },
     };
@@ -242,7 +260,16 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
 
   if (arched) {
     const bayT = spanLen / bays;
-    const riseM = Math.max(0.8, clearZM - ARCH_RING_M);   // crown meets the deck underside
+    // THE RING MUST REACH THE DECK IT CARRIES. A cambered deck lifts its whole segment — underside
+    // included (`z0 = baseZ + camber·(1−t²)`, parts/bridge.ts) — so the deck underside at MID-SPAN
+    // is `baseZM + camberM`, not `baseZM`. Solving the rise against `clearZM` alone left the crown
+    // a full camber SHORT of the deck; on masonry the filled spandrel hid that gap, which is why
+    // it never showed. It matters now that the timber rib is open (below): a short rib would hang
+    // visibly under its own deck.
+    const crownUndersideZM = perBay
+      ? clearZM + Math.min(1.2, (spanLen / bays) * METRES_PER_TILE * 0.12)
+      : deckBaseZM + deckCamberM;
+    const riseM = Math.max(0.8, crownUndersideZM - ARCH_RING_M);
     for (let i = 0; i < bays; i++) {
       const t = (i + 0.5) - bays / 2;                     // bay centre offset from mid, in bays
       const px = cxL + t * bayT * cs, py = cyL + t * bayT * sn;   // bay centre (footprint-local)
@@ -252,7 +279,17 @@ export function buildBridgeObject(spec: CrossingSpec, opts: SpanEntityOptions = 
       const ayy = py - (bayT / 2) * sn - (widthT / 2) * cs;
       parts[`arch${i + 1}`] = {
         type: 'arch_span', at: { x: axx, y: ayy }, size: { w: Math.max(1, Math.ceil(bayT)), h: Math.max(1, Math.ceil(widthT)) },
-        params: { spanM: bayT * METRES_PER_TILE, riseM, thicknessM: widthT * METRES_PER_TILE, yawDeg, style: archStyle, ringDepthM: ARCH_RING_M },
+        params: { spanM: bayT * METRES_PER_TILE, riseM, thicknessM: widthT * METRES_PER_TILE,
+          yawDeg, style: archStyle, ringDepthM: ARCH_RING_M,
+          // TIMBER ARCHES ARE OPEN RIBS, NEVER FILLED SPANDRELS (user, live playtest: "the arched
+          // wood bridge appears to have a huge flat block of wood under the arch span"). An
+          // `arch_span` defaults to a filled spandrel WALL, drawn in the bridge's own material —
+          // so every wooden crossing in the world carried a solid slab of timber between the ring
+          // and the deck. Masonry genuinely is filled (that mass is the structure); a timber arch
+          // is a curved rib you see daylight through, which is what the `bridge-timber-arch`
+          // recipe has always built via `openRib` (presets/bridges.ts). This is the same drift the
+          // rise fix above closes: the game path composes its own parts and never learned either.
+          ...(stone ? {} : { openRib: true }) },
       };
     }
   } else {

@@ -11,8 +11,8 @@ describe('content-version constants', () => {
     expect(NPC_ART_RECIPE_VERSION).toBe('n1');
   });
 
-  it('declares the current world content version (120: siting believability — a watermill wheel must hang over PAINTED water within reach of it (per-site solved `submerge`), tall vegetation clears walls/palisades/ramparts as well as buildings, and ring gates dedup by angular separation so two approach roads no longer plant twin main gates side by side)', () => {
-    expect(WORLD_CONTENT_VERSION).toBe(120);
+  it('declares the current world content version (121: timber arches are OPEN RIBS, not filled spandrels drawn in the bridge\'s own timber — and the arch ring is now solved against the deck underside at mid-span so it actually reaches the deck it carries; the game\'s `buildBridgeObject` had drifted from the `BRIDGE_RECIPES` the crossings studio renders)', () => {
+    expect(WORLD_CONTENT_VERSION).toBe(121);
   });
 
   it('declares the current save schema version (4: the event journal — `events` left the SaveFile blob for the event-journal IDB store; `eventCursor` + `playtimeMs` took its place, see save-file.ts)', () => {
