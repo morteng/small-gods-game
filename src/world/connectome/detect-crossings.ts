@@ -14,7 +14,7 @@
 
 import type { RoadGraph, RoadClass } from '@/world/road-graph';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
-import type { CrossingSpec } from './crossing-builder';
+import type { CrossingSpec, CrossingDeclineReason } from './crossing-builder';
 
 /** Site parameters at a tile — supplied by the caller (nearest settlement, world climate). */
 export interface CrossingSiteParams {
@@ -118,13 +118,17 @@ function arcOfNearest(pts: ReadonlyArray<Pt>, cum: number[], px: number, py: num
 }
 
 /** The two bank points where the SMOOTHED ribbon leaves the visible channel, flanking the wet run
- *  the raster crossing [sArc..eArc] sits in. Returns undefined when the ribbon never actually
- *  touches render water near this crossing (then the caller keeps the legacy raw-polyline banks —
- *  nothing to re-seat against). Pure; one scan, one rounding at the caller. */
+ *  the raster crossing [sArc..eArc] sits in. DECLINES — with the REASON, so the caller can split
+ *  the decline count by shape instead of reporting one opaque number — when the ribbon never
+ *  actually touches render water near this crossing, or when no bank is reachable (then the caller
+ *  keeps the legacy raw-polyline banks — nothing to re-seat against). Pure; one scan, one rounding
+ *  at the caller. */
+type RibbonBanks = { ok: true; a: Pt; b: Pt } | { ok: false; reason: CrossingDeclineReason };
+
 function banksOnRibbon(
   sm: ReadonlyArray<Pt>, cum: number[], sArc: number, eArc: number,
   wet: (x: number, y: number) => boolean,
-): { a: Pt; b: Pt } | undefined {
+): RibbonBanks {
   const total = cum[cum.length - 1];
   const lo = Math.max(0, Math.min(sArc, eArc) - RIBBON_SCAN_PAD_TILES);
   const hi = Math.min(total, Math.max(sArc, eArc) + RIBBON_SCAN_PAD_TILES);
@@ -136,14 +140,15 @@ function banksOnRibbon(
     if (s < wetLo) wetLo = s;
     if (s > wetHi) wetHi = s;
   }
-  if (!Number.isFinite(wetLo)) return undefined;    // ribbon misses the visible channel entirely
+  // DECLINE-A: the ribbon misses the visible channel entirely.
+  if (!Number.isFinite(wetLo)) return { ok: false, reason: 'no-wet-interval' };
   // Walk OUT of the channel each way to the first dry step — the bank: the last cell of the drawn
-  // road that stands on dry land. DECLINES (undefined) rather than returning a wet point when no
+  // road that stands on dry land. DECLINES (with the reason) rather than returning a wet point when no
   // dry ground is reachable within the cap or before the ribbon ends: a road that runs into an
   // estuary, or a crossing at the very end of a road, has no ribbon-seated bank to offer, and
   // inventing one would seat an abutment in open water — exactly the defect this WP removes. The
   // caller then keeps the legacy raw-polyline banks, which is no worse than before.
-  const walk = (from: number, dir: -1 | 1): Pt | undefined => {
+  const walk = (from: number, dir: -1 | 1): { p: Pt } | { reason: CrossingDeclineReason } => {
     for (let d = RIBBON_STEP_TILES; d <= RIBBON_BANK_MAX_TILES; d += RIBBON_STEP_TILES) {
       const s = from + dir * d;
       if (s < 0 || s > total) {
@@ -161,16 +166,20 @@ function banksOnRibbon(
         // bank the connected road continues onto), so the abutment lands in line with the road.
         const inArc = dir < 0 ? Math.min(total, RIBBON_STEP_TILES) : Math.max(0, total - RIBBON_STEP_TILES);
         const inP = pointAtArc(sm, cum, inArc);
-        return nearestDry(end.x, end.y, end.x - inP.x, end.y - inP.y, wet, RIBBON_BANK_MAX_TILES);
+        const dry = nearestDry(end.x, end.y, end.x - inP.x, end.y - inP.y, wet, RIBBON_BANK_MAX_TILES);
+        // DECLINE-C: ran off the ribbon END while wet and `nearestDry` found no bank in reach.
+        return dry ? { p: dry } : { reason: 'end-no-dry' };
       }
       const p = pointAtArc(sm, cum, s);
-      if (!wet(Math.round(p.x), Math.round(p.y))) return p;
+      if (!wet(Math.round(p.x), Math.round(p.y))) return { p };
     }
-    return undefined;                              // never cleared the water within the cap
+    return { reason: 'cap' };                      // DECLINE-B: never cleared the water within the cap
   };
   const a = walk(wetLo, -1);
   const b = walk(wetHi, 1);
-  return a && b ? { a, b } : undefined;
+  if ('reason' in a) return { ok: false, reason: a.reason };
+  if ('reason' in b) return { ok: false, reason: b.reason };
+  return { ok: true, a: a.p, b: b.p };
 }
 
 /** The first DRY cell centre reached by stepping from (px,py) ALONG (dx,dy) — the ribbon's
@@ -293,12 +302,18 @@ export function detectCrossings(graph: RoadGraph | undefined, width: number, opt
         ? banksOnRibbon(sm, smCum, arcOfNearest(sm, smCum, pts[s].x, pts[s].y),
           arcOfNearest(sm, smCum, pts[e].x, pts[e].y), opts.bridgeAt!)
         : undefined;
-      if (ribbon) {
+      // Why the seating declined, when it did — carried on the spec for the worldgen warn's
+      // histogram. DIAGNOSTIC ONLY: it never gates a branch here or anywhere downstream.
+      let declineReason: CrossingDeclineReason | undefined = ribbon && !ribbon.ok ? ribbon.reason : undefined;
+      if (ribbon?.ok) {
         const ca: [number, number] = [Math.round(ribbon.a.x), Math.round(ribbon.a.y)];
         const cb: [number, number] = [Math.round(ribbon.b.x), Math.round(ribbon.b.y)];
         const ax = cb[0] - ca[0], ay = cb[1] - ca[1];
         const len = Math.hypot(ax, ay);
-        if (len >= 0.5) {
+        // Both banks seated but they rounded onto (nearly) the same cell — no opening to share.
+        if (len < 0.5) {
+          declineReason = 'degenerate';
+        } else {
           near = { x: ca[0], y: ca[1] };
           far = { x: cb[0], y: cb[1] };
           bankCells = [ca, cb];
@@ -333,6 +348,7 @@ export function detectCrossings(graph: RoadGraph | undefined, width: number, opt
         banks: [{ x: near.x, y: near.y }, { x: far.x, y: far.y }],
         ...(bankCells ? { bankCells } : {}),
         ...(axis ? { axis } : {}),
+        ...(declineReason ? { declineReason } : {}),
       });
       run++;
     }

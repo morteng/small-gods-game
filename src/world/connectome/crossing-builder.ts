@@ -14,6 +14,15 @@
 import { node, type WorldNode } from './world-node';
 import { bridgeClassFor } from './buildability-envelope';
 
+/** WHY a crossing could not seat its opening on the smoothed ribbon — DIAGNOSTIC ONLY.
+ *  - `no-wet-interval`: the ribbon never touches render water anywhere near the raster run.
+ *  - `cap`:             the outward walk off the wet run never reached dry ground within the cap.
+ *  - `end-no-dry`:      the walk ran off the ribbon's END while wet and no dry cell was in reach.
+ *  - `degenerate`:      both banks seated, but they rounded onto (almost) the same cell.
+ *  Never persisted, never read by any producer — it exists so the decline COUNT can be split by
+ *  shape (a bare count cannot tell whether a fix fixed anything or just moved failures around). */
+export type CrossingDeclineReason = 'no-wet-interval' | 'cap' | 'end-no-dry' | 'degenerate';
+
 /** What a detected road×water crossing hands the producer. */
 export interface CrossingSpec {
   id: string;
@@ -43,6 +52,11 @@ export interface CrossingSpec {
    *  bank-a → bank-b. The deck's yaw comes from THIS, not from the chord of two independently
    *  snapped raster points — that chord is what rotated the deck diagonally off the road. */
   axis?: [number, number];
+  /** Why `bankCells`/`axis` are absent — DIAGNOSTIC ONLY (set by `detectCrossings`, read only by
+   *  the worldgen decline warn). Nothing produces geometry from it and nothing persists it; adding
+   *  or changing it cannot move a tile, an entity or a saved byte. Present only when the detector
+   *  had a render-water signal AND declined; absent on a seated crossing and on legacy callers. */
+  declineReason?: CrossingDeclineReason;
 }
 
 // Ordinal ranks for the open-vocabulary params (unknown → a sensible middle/low).

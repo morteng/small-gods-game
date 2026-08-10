@@ -969,14 +969,28 @@ export async function generateWithNoise(
     }
     // A crossing whose ribbon could not be seated still gets a deck — the road really does cross
     // water there and the world must resolve that claim — but it is seated from the RAW walker
-    // line, so it is NOT guaranteed to sit on the drawn ribbon. On both probe seeds every one of
-    // these is a road NODE sited in render water (the ribbon ends mid-channel, so no far bank
-    // exists to seat against). Name them: the repair belongs upstream, in road-node siting, and
-    // silence here is what let a 20-tile span down a road running into the sea look intentional.
-    const declined = crossingSpecs.filter((s) => !s.bankCells).length;
-    if (declined > 0) {
-      console.warn(`[worldgen] ${declined}/${crossingSpecs.length} crossing(s) have NO ribbon-seated opening — their decks `
-        + `fall back to the raw walker line and may not sit on the drawn road (a road NODE sited in the water)`);
+    // line, so it is NOT guaranteed to sit on the drawn ribbon. Name them: silence here is what
+    // let a 20-tile span down a road running into the sea look intentional.
+    // The old note here blamed "a road NODE sited in render water" for all of them; that is
+    // DISPROVEN — snapping road waypoints off water moved this count by exactly zero. What IS
+    // established (docs/audit/CROSSING-RIBBON-PLAN.md §A) is that the seating above ran on a
+    // PRE-reconcile graph: `detectCrossings` fires ~200 lines earlier, before any `edge.pins`
+    // exist, so it seats against the unpinned Catmull-Rom rather than the ribbon this pass has
+    // since drawn. How much of the residual that accounts for is NOT yet known per seed — which
+    // is exactly why the count is split by DECLINE SHAPE below instead of being one opaque number.
+    const declinedSpecs = crossingSpecs.filter((s) => !s.bankCells);
+    if (declinedSpecs.length > 0) {
+      const byReason = new Map<string, number>();
+      for (const s of declinedSpecs) {
+        const r = s.declineReason ?? 'unclassified';
+        byReason.set(r, (byReason.get(r) ?? 0) + 1);
+      }
+      const histogram = [...byReason.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([r, n]) => `${n} ${r}`).join(', ');
+      console.warn(`[worldgen] ${declinedSpecs.length}/${crossingSpecs.length} crossing(s) have NO ribbon-seated opening `
+        + `(${histogram}) — their decks fall back to the raw walker line and may not sit on the drawn road `
+        + `(seating ran on the PRE-reconcile ribbon; per-shape cause unproven — see docs/audit/CROSSING-RIBBON-PLAN.md)`);
     }
     if (spans > 0) await report(`Raised ${spans} bridge span${spans === 1 ? '' : 's'}`);
   }

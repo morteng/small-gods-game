@@ -107,6 +107,42 @@ describe('detectCrossings', () => {
     expect(specs[0].bankCells).toBeUndefined();                  // no dry ground → no invented bank
   });
 
+  it('reports WHY a crossing declined — the three decline shapes are distinguishable', () => {
+    // A bare decline COUNT cannot tell whether a later fix fixed anything or merely moved the
+    // failures around, so every decline carries a typed reason. Diagnostic only: it never changes
+    // WHICH crossings decline (each case below still has no `bankCells`).
+    const WIDE = 64;
+    const at = (poly: { x: number; y: number }[], bridged: { x: number; y: number }, wet: (x: number, y: number) => boolean) =>
+      detectCrossings({ nodes: [], edges: [edge('e', poly, { bridgeCells: [bridged.y * WIDE + bridged.x] })] },
+        WIDE, { isWater: wet, bridgeAt: wet });
+
+    // A: the walker bridged a cell the RENDER water mask says is dry — the ribbon scan finds no
+    // wet interval at all, so there is no channel to flank.
+    const dryRun = at([4, 5, 6, 7, 8].map((x) => ({ x, y: 6 })), { x: 6, y: 6 }, () => false);
+    expect(dryRun).toHaveLength(1);
+    expect(dryRun[0].bankCells).toBeUndefined();
+    expect(dryRun[0].declineReason).toBe('no-wet-interval');
+
+    // B: water far wider than RIBBON_BANK_MAX_TILES on the near side — the outward walk never
+    // clears it within the cap (the "ribbon running ALONG drawn water" class).
+    const longPoly = Array.from({ length: 41 }, (_, x) => ({ x, y: 6 }));
+    const capped = at(longPoly, { x: 20, y: 6 }, (x) => x <= 30);
+    expect(capped).toHaveLength(1);
+    expect(capped[0].bankCells).toBeUndefined();
+    expect(capped[0].declineReason).toBe('cap');
+
+    // C: the ribbon ENDS mid-channel in open water — `nearestDry` finds no bank to rescue it.
+    const estuary = at([4, 5, 6].map((x) => ({ x, y: 6 })), { x: 6, y: 6 }, () => true);
+    expect(estuary).toHaveLength(1);
+    expect(estuary[0].bankCells).toBeUndefined();
+    expect(estuary[0].declineReason).toBe('end-no-dry');
+
+    // A SEATED crossing carries no reason at all (the field is the decline's, not everyone's).
+    const seated = at([4, 5, 6, 7, 8].map((x) => ({ x, y: 6 })), { x: 6, y: 6 }, (x, y) => x === 6 && y === 6);
+    expect(seated[0].bankCells).toBeDefined();
+    expect(seated[0].declineReason).toBeUndefined();
+  });
+
   it('leaves dry bank anchors exactly where they were (no isWater ⇒ legacy behaviour)', () => {
     const poly = [4, 5, 6, 7, 8].map((x) => ({ x, y: 6 }));
     const graph: RoadGraph = { nodes: [], edges: [edge('e', poly, { bridgeCells: [6 * W + 6] })] };
