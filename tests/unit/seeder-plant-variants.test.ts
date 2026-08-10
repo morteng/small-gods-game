@@ -40,6 +40,11 @@ describe('seeder plant enumeration matches the runtime plant source', () => {
     }
   });
 
+  // EXPLICIT TIMEOUT: this walks every plant slot and synthesizes a blueprint per variant —
+  // ~3.3 s on an idle dev machine, i.e. 66 % of vitest's 5 s default. It has been living on
+  // that edge and finally tipped over on a loaded CI box (two consecutive server runs failed
+  // here on TIMEOUT, zero assertion failures, while the same commit's run on a quieter box
+  // passed). The work is genuinely heavy and correct; the budget was simply mis-specified.
   it('every seeder slot keys the SAME plt spec the runtime composes for that variant', () => {
     for (const slot of plantSlots()) {
       const spec = plantSpecForSlot(slot);
@@ -51,7 +56,7 @@ describe('seeder plant enumeration matches the runtime plant source', () => {
       const runtimeKey = runtimePlantKey(slot.kind, v, slot.bare);
       expect(seederKey, `mismatch for ${slot.label}`).toBe(runtimeKey);
     }
-  });
+  }, 30_000);
 
   it('regression witness: variant-0 differs from the legacy synthesizeBlueprint(kind) default for many species', () => {
     // The OLD seeder used synthesizeBlueprint(kind) (seed = hashKind) for every plant;
