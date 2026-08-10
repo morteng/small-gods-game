@@ -943,7 +943,42 @@ export async function generateWithNoise(
   // it at all: sampled raw, every bank→bed drop read ~0, every clearance collapsed onto the 1.2 m
   // floor, and decks landed 42 px BELOW their bank (buried) to 57 px ABOVE it (floating). The
   // reconcile above bumps `roadGraph.rev`, so the composed field is correctly re-derived here.
-  if (roadGraph && crossingSpecs.length) {
+  //
+  // …and on the FINAL ROAD GRAPH. The crossings are RE-DETECTED here rather than reusing the
+  // early `crossingSpecs` (detected ~200 lines above, before ANY `edge.pins` existed): the bow
+  // reconcile and the legality self-heal inside `reconcileFilletRaster` have since pinned the
+  // spline's control points, and `banksOnRibbon` seats a crossing's banks on
+  // `smoothCenterline(polyline, edge.pins)` — the road the game DRAWS. Seated pre-pin, the deck
+  // was sited against an unpinned Catmull-Rom that bows up to ~1.6 tiles off the pinned line, so
+  // the span landed off the line the road visibly follows (docs/audit/CROSSING-RIBBON-PLAN.md).
+  // Detecting again here costs one graph walk (~5 ms against a ~2 min gen) and puts the deck on
+  // the same detection `getCrossingOpenings` yields — which matters because that is a HARD JOIN:
+  // the crossing-tier store finds a crossing's standing gen span as `${opening.id}-bridge`
+  // (crossing-tier-store.ts) against the deck entity id minted from `spec.id`
+  // (crossing-structures.ts). Ids are `crossing@<edge>#<run>` and only diverge if the
+  // `seenOpenings` dedupe fires differently between the two detections; MEASURED, the id sets are
+  // identical pre- and post-pin on every probe seed, so this closes a live hazard, not an observed
+  // defect. Were it to fire, the store would build a second span without removing the first.
+  // NOT claimed: parity with the raster stamp or the seating lint. `reconcileFilletRaster` reads
+  // `deckCellKeys` BEFORE its own `reconcileCenterlineLegality` adds pins (263 of them on 777), so
+  // bridge TILES still come from a post-bow/pre-legality detection. And `bridge.seating` consumes
+  // no detection at all — it judges the deck's own `bankCells`, which is exactly why no lint ever
+  // saw this defect.
+  // WHAT THIS DID AND DID NOT FIX — measured over 46 decks on 6 world×seed combos: 10 decks moved,
+  // 4 sat closer to the drawn road, 2 marginally further, 40 unchanged (mean bank→road 1.40 →
+  // 1.37 tiles). ZERO decks went from missing the drawn channel to crossing it. The 6 decks that
+  // span no visible water, and the 4 with both abutments standing in it, are UNCHANGED — that
+  // population is `nearestDry` seating a bank up to RIBBON_BANK_MAX_TILES off the ribbon, a
+  // different defect from this one. Do not read this pass as the cure for "the bridge is beside
+  // the river".
+  // The EARLY specs deliberately stay in force upstream: the ancillary structures (:720) need the
+  // pre-assembly tiles they were sited against, and the stair exclusion (:890) is a radius-5
+  // keep-out that only needs to know roughly where a crossing's banks are.
+  const spanSpecs = detectCrossings(roadGraph, width, {
+    isWater: renderWaterAt, bridgeAt: renderWaterAt,
+    defaults: { era: 'late-medieval', prosperity: 'modest' },
+  });
+  if (roadGraph && spanSpecs.length) {
     await report('Raising bridge spans...');
     const spanComposed = getComposedHeightfield(map);
     const spanStyle = worldStyleOf(worldSeed ?? undefined);
@@ -955,7 +990,7 @@ export async function generateWithNoise(
     const spanNodeById = new Map(roadGraph.nodes.map((n) => [n.id, n]));
     const spanPoiById = new Map((worldSeed?.pois ?? []).map((p) => [p.id, p]));
     let spans = 0;
-    for (const spec of crossingSpecs) {
+    for (const spec of spanSpecs) {
       const e = buildBridgeObject(spec, {
         deckElevAt: spanElevAt,
         reliefM: spanStyle.mountainRelief,
@@ -971,14 +1006,14 @@ export async function generateWithNoise(
     // water there and the world must resolve that claim — but it is seated from the RAW walker
     // line, so it is NOT guaranteed to sit on the drawn ribbon. Name them: silence here is what
     // let a 20-tile span down a road running into the sea look intentional.
-    // The old note here blamed "a road NODE sited in render water" for all of them; that is
-    // DISPROVEN — snapping road waypoints off water moved this count by exactly zero. What IS
-    // established (docs/audit/CROSSING-RIBBON-PLAN.md §A) is that the seating above ran on a
-    // PRE-reconcile graph: `detectCrossings` fires ~200 lines earlier, before any `edge.pins`
-    // exist, so it seats against the unpinned Catmull-Rom rather than the ribbon this pass has
-    // since drawn. How much of the residual that accounts for is NOT yet known per seed — which
-    // is exactly why the count is split by DECLINE SHAPE below instead of being one opaque number.
-    const declinedSpecs = crossingSpecs.filter((s) => !s.bankCells);
+    // Two causes have now been ruled out for this residual. "A road NODE sited in render water"
+    // is DISPROVEN — snapping road waypoints off water moved the count by exactly zero. And it is
+    // no longer STALENESS either: the detection directly above runs on the post-reconcile graph,
+    // so what remains is genuine — the drawn ribbon really does not go dry→wet→dry within reach
+    // at these sites. Which shape it is, is in the histogram (`no-wet-interval` = the pinned
+    // ribbon never touches the visible channel near the crossing; `cap` = it never clears the
+    // water within RIBBON_BANK_MAX_TILES, i.e. it runs ALONG the water rather than across it).
+    const declinedSpecs = spanSpecs.filter((s) => !s.bankCells);
     if (declinedSpecs.length > 0) {
       const byReason = new Map<string, number>();
       for (const s of declinedSpecs) {
@@ -988,9 +1023,10 @@ export async function generateWithNoise(
       const histogram = [...byReason.entries()]
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .map(([r, n]) => `${n} ${r}`).join(', ');
-      console.warn(`[worldgen] ${declinedSpecs.length}/${crossingSpecs.length} crossing(s) have NO ribbon-seated opening `
+      console.warn(`[worldgen] ${declinedSpecs.length}/${spanSpecs.length} crossing(s) have NO ribbon-seated opening `
         + `(${histogram}) — their decks fall back to the raw walker line and may not sit on the drawn road `
-        + `(seating ran on the PRE-reconcile ribbon; per-shape cause unproven — see docs/audit/CROSSING-RIBBON-PLAN.md)`);
+        + `(seated on the POST-reconcile ribbon; the residual is the drawn road genuinely not crossing `
+        + `dry→wet→dry here — see docs/audit/CROSSING-RIBBON-PLAN.md)`);
     }
     if (spans > 0) await report(`Raised ${spans} bridge span${spans === 1 ? '' : 's'}`);
   }

@@ -181,3 +181,62 @@ independently against the source before it was saved:
 Not re-verified (stated as such): the crossing-openings / desire-line-adoption line references in
 §C, and the slice-2/3/4 line numbers inside `detect-crossings.ts`. Those are navigational, not
 load-bearing — slice 1 is the fix.
+
+---
+
+## OUTCOME (2026-08-10) — slices 1 and 2 shipped; slice 1 MISSED its target
+
+Slice 2 shipped at `9dfcff21` (no WCV bump). Slice 1 shipped at WCV 122. **§D slice 1's acceptance
+criterion was NOT met**, and the plan's central premise turned out to be wrong about the *player's*
+bug. Recorded here so nobody re-derives it.
+
+**What slice 2 found immediately.** Seed 777's 8 declines split **4 `cap` / 4 `no-wet-interval` /
+0 `end-no-dry`** — i.e. WCV 117's `nearestDry` rescue accounts for none of the residual.
+
+**What slice 1 actually did**, measured per-deck over **46 paired decks** across default/dawn/frost
+× 777/12345 (+ default × 424242/31337), reading the placed entity's `abut0`/`abut1` centres and
+judging water with `getRenderWaterMask` plus a continuous `getRenderWaterDist` sample at 0.05 tile:
+
+| property | improved | unchanged | worse |
+|---|---|---|---|
+| deck segment crosses the drawn channel (banks dry) | **0** | 44 | 2 (both degenerate 1.4-tile spans) |
+| segment passes through drawn water at all (continuous) | **0** | 46 | 0 |
+| max bank distance to nearest drawn road ribbon | 4 | 40 | 2 |
+
+Aggregates before → after: decks crossing **no** drawn water **6 → 6**; decks with **both** banks in
+water **4 → 4**; banks ≥2 tiles off every ribbon **16 → 15**; mean bank→road **1.40 → 1.37** tiles.
+Best single case dawn·777 `re19#0` 3.17 → 1.48. Decline count went **8/13 → 9/13** on default·777
+(`crossing@re16#0` was seated pre-pin against a curve the game never draws and now honestly
+declines; measured neutral-to-slightly-better on both siting properties). Deck counts, all four
+bridge/road contracts, and the opening↔deck id join (100% both states) are flat everywhere.
+
+**Conclusion.** The ordering defect in §A is REAL and slice 1 repairs it — one detection, one graph
+state, deck ids aligned with opening ids, ~5 ms against a ~2 min gen, no regressions. But it is
+**not** the cause of "the bridges are placed wrong, to the side of where they should cross." That
+population is unchanged.
+
+**Where the remaining defect actually lives** (measured, not inferred): `banksOnRibbon`'s
+`nearestDry` rescue seats a bank up to `RIBBON_BANK_MAX_TILES` (6) off the ribbon. Those banks are
+equally far from the RAW walked polyline, so smoothing — the whole subject of this plan — is not
+implicated. Three distinct classes remain, and they are the real next round:
+1. **6 decks span no visible water at all** — a bridge over dry ground (e.g. default·777 `re1#0`,
+   a 9-tile deck over 8 dry cells).
+2. **4 decks stand with both abutments IN the water.**
+3. **15 decks have a bank ≥2 tiles off every drawn road ribbon** (11 at ≥3), mostly SEATED decks.
+
+Slices 3 and 4 as written target the decline count, which the above shows is the wrong metric —
+they should be re-planned against these three classes instead.
+
+**Two corrections to this document's own reasoning**, found by adversarial review:
+- §B's "afterwards deck, ribbon pin, raster stamp and lint are all projections of ONE detection on
+  ONE graph state" is FALSE. `reconcileFilletRaster` computes `deckCellKeys` before its own
+  `reconcileCenterlineLegality` writes pins, so bridge TILES still come from a post-bow/pre-legality
+  detection. And `bridge.seating` consumes no detection — it judges the deck's own `bankCells`,
+  which is exactly why no lint could ever have caught this.
+- §C's "nothing joins on it hard" is FALSE. `crossing-tier-store.ts` joins `` `${opening.id}-bridge` ``
+  against the deck entity id. The id sets were measured identical pre- and post-pin on every probe
+  seed, so the hazard never fired — but the join exists, and slice 1 is what makes divergence
+  impossible rather than merely unobserved.
+- The parent-session note above under-enumerated the `edge.pins` writers: `road-graph.ts` (split /
+  unsplit propagation) and `desire-line-adoption.ts` also write them. None runs before detection, so
+  the ordering conclusion stands.
