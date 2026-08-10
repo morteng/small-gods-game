@@ -432,6 +432,25 @@ current shortlist (see `MEMORY.md` for status & next slices):
   masks-worldgen). *Brainstorm.*
 - **River crossings as generative sites**, **building-validity** (auto-fix +
   scored siting), **shrine procession connectome**, **skirt + affordance graph**.
+- **Siting believability round (live play, 2026-08-10)** — 🟡 **four of five shipped**
+  (WCV 120 + 121; audit reports + work-package plan in `docs/audit/`). Shipped: a watermill
+  wheel must hang over PAINTED water and reach it (per-site solved `submerge`; 0/14 → 4/4
+  built mills) · tall vegetation clears walls/palisades/ramparts, which `isBuilding` never
+  matched · ring gates dedup by angular separation so two approach roads stop planting twin
+  main gates (`gate.minimum-separation` 15 findings → 0) · timber arches are OPEN RIBS, not
+  filled spandrels drawn in the bridge's own timber, with the arch ring now solved against
+  the deck underside at mid-span.
+  **STILL OPEN — "the bridge sits beside the river".** Crossings are DETECTED against the raw
+  walked polyline while the road that is DRAWN is the smoothed ribbon; when they disagree the
+  deck falls back to the raw chord. `banksOnRibbon` declines two ways (measured, seed 777 =
+  4/8): the ribbon never touches the channel the raster crossing was found on, or it stays wet
+  longer than `RIBBON_BANK_MAX_TILES` can walk out of. WCV 115(b) and 117(a) both patched
+  downstream of this and did not hold. The "road node sited in water" theory those comments
+  blame is DEAD — a waypoint-snapping fix moved the count by zero and was reverted.
+  Also open: WP-6…WP-9 (party walls, church E–W orientation, ward consumption, gate budget /
+  posterns), all serializing on `building-placer.ts`, under the audit's real verdict that
+  settlements have **no street-frontage concept** — no burgage plots, every building an island
+  with a collision radius. That is the largest single believability lever left.
 - **UI v3 — "a proper, real game"** — ✅ **shipped, all phases**
   (`docs/superpowers/specs/2026-07-25-ui-v3-complete-game-design.md`; full history in
   `docs/superpowers/plans/2026-07-25-ui-v3-handoff.md`). Meta-mode (world-less) render path
