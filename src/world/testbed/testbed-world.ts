@@ -223,8 +223,25 @@ export function testbedSeed(): WorldSeed {
     // box is dried into open grassland: flat, treeless, clear of every settlement's
     // zone radius, and deliberately NOT organic townscape (its screenshots must never be
     // read as siting evidence). The id is a PINNED CROSS-SLICE CONTRACT — do not rename.
+    //
+    // SIZED BY TWO HARD WALLS, BOTH MEASURED — do not "just make it bigger":
+    //
+    //  1. WEST EDGE (x_min 36). A region-fill POI rewrites moisture/temperature, which
+    //     rewrites BIOMES, which rewrites TILES, which changes what `walkRoad` costs —
+    //     so the apron is not inert with respect to the road network. Measured: pushing
+    //     x_min to 20 or 0 overlaps Sloughmire's swamp region (x 4..34) and re-routes the
+    //     crossings, taking `probe-bridge-decks` from 4 decks / 0 class1 to 5 decks / 2
+    //     class1. The clean deck sheet outranks apron width. x_min 36 clears the mire.
+    //  2. EAST/SOUTH EDGES (AUTHOR_W / AUTHOR_H). The apron cannot grow past the
+    //     authoring frame: `contentBounds` (poi-layout.ts) unions POI regions, so a wider
+    //     box grows the derived map and re-rolls the entire terrain — see the OFFSET note.
+    //
+    // The flow layout in `specimens.ts` WRAPS at the apron's east edge but is free to run
+    // SOUTH past its bottom edge (it only checks map bounds + dryness), so the apron's
+    // height is not the constraint — the southern coastline is. See the SPECIMEN CAPACITY
+    // note at the bottom of this file for what that costs in coverage.
     { id: 'specimen_apron', type: 'plains', name: 'The Specimen Apron', position: { x: 60, y: 55 },
-      region: { x_min: 40, x_max: 82, y_min: 51, y_max: AUTHOR_H },
+      region: { x_min: 36, x_max: AUTHOR_W, y_min: 51, y_max: AUTHOR_H },
       description: 'A flat, open sward set aside on the southern terrace — the specimen ground.' },
 
     // ── Coast-anchored landforms ─────────────────────────────────────────────
@@ -387,9 +404,44 @@ export function testbedSeed(): WorldSeed {
 //                       millbeck_ring: `palisade`, 3 gates, 5 towers
 //   water buildings     4 × watermill, 1 × fisherman_hut (the mire pond, via Millbeck)
 //   POI type coverage   25 / 25
+//   specimen coverage   82 of 119 registry ids placed by WP-T2's pass (37 fail with
+//                       "no dry in-bounds slot") — see the SPECIMEN CAPACITY note below
 //   connectome-lint     75 findings — 6 error / 0 unmet requirement. NOT clean, and the
 //                       shipped `default` world at the same seed measures 47 findings /
 //                       4 errors, so "0 errors" is not a bar any world meets today. The
 //                       6 are: 4 × claims.unresolved (barrier×building where Kingsford's
 //                       and Millbeck's zones overlap), 1 × bridge.tiles-vs-deck, 1 ×
 //                       wall.crossing-only-at-gate on Kingsford.
+
+// ─── SPECIMEN CAPACITY: this island cannot hold the whole catalogue ───────────
+//
+// MEASURED, not estimated. WP-T2's flow layout was run against a flat, island-free,
+// water-free genome slab (`terrainGenome({terrainShape:{kind:'plain'}, island:false})`)
+// so nothing but its own geometry bounded it. At `GAP 2` / `ROW_GAP 3` the full set needs:
+//
+//    89 tiles wide → 62 rows      120 wide → 48 rows      140 wide → 45 rows
+//
+// i.e. it is AREA-bound at roughly 5,500 dry cells however you shape it.
+//
+// What this world can offer, at the widest apron the authoring frame permits
+// (final x 52..140, 89 tiles) and starting below the last settlement (final y 86):
+// the flow reaches final y≈119 before the southern coast stops it — 34 rows, ≈3,000
+// cells. Even a hypothetical zero-ocean 192×128 map bottoms out at 42 rows. Measured
+// placements: 43-wide apron 59/119 · 53-wide (shipped) 82/119 · 89-wide 100/119 ·
+// 89-wide starting up inside the settlements (y 78) 107/119. Nothing reaches 119.
+//
+// Closing the gap needs ONE of:
+//
+//  (a) A TALLER MAP. Solving `0.4·H − 21 ≥ 62` (land ends near ny 0.90; the content is
+//      centred, so the apron can start no higher than (H+58)/2) gives H ≥ ~208 — a 1.6×
+//      taller world. That is not a knob: `VALE_HALFWIDTH` is 0.30 of the map, so at
+//      H = 208 the trough's half-width is 62 tiles and the whole content sits in a broad
+//      near-sea-level basin. The vale would have to be re-tuned and all four crossings
+//      re-fitted from scratch, against the one thing that must not regress.
+//  (b) A DENSER SPECIMEN LAYOUT in `specimens.ts` (WP-T2's file, deliberately untouched
+//      here). The shortfall is ~35% of area, which is the size of the padding: `GAP 2`
+//      between items and `ROW_GAP 3` between rows, over ~119 specimens and ~11 rows.
+//
+// (b) is the cheaper and lower-risk of the two, and it is the one that does not put the
+// deck sheet at risk. This module deliberately stops at the widest apron that keeps
+// `probe-bridge-decks` at 4 decks / 0 class1 / 0 class2 / 0 class3.
