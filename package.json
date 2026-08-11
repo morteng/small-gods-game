@@ -19,6 +19,7 @@
     "bus": "tsx tools/bus-cli.ts",
     "mcp": "tsx tools/mcp-server.ts",
     "lint:world": "tsx scripts/connectome-lint.ts",
+    "lint:testbed": "tsx scripts/connectome-lint.ts --world testbed --max-errors 6",
     "vision": "tsx scripts/vision-diff.ts",
     "gallery": "tsx scripts/dev-gallery.ts",
     "gallery:serve": "tsx scripts/dev-gallery.ts && python3 -m http.server 8848 --directory .dev-grabs",

@@ -163,7 +163,14 @@ async function holdLoadingUntilArtSettled(deps: BootSequenceDeps, buildingArtRes
       deps.generatedBuildingArtSource.warm(e);
       buildingArtResolver.warm(e);
     }
-    for (const e of world.query({ kind: 'barrier' })) deps.parametricBarrierSource.warm(e);
+    // BY TAG, NOT KIND. `placeBarrier` sets `kind = \`${run.kind}_run\`` (wall_run,
+    // palisade_run, …) and tags the entity 'barrier' — NO World entity has ever had
+    // `kind: 'barrier'`, so this query matched nothing and no town wall was ever
+    // prewarmed. Walls composed on the FRAME path after the loading screen released,
+    // which is a real hole in the "loader holds until fully displayed, never grey
+    // boxes" rule. The draw list and the render graph both use the tag
+    // (`render/graph/world-render-graph.ts:31`); this now agrees with them.
+    for (const e of world.query({ tag: 'barrier' })) deps.parametricBarrierSource.warm(e);
   }
   await waitForArtSettled({
     // Compose-queue depth alone misses warm-cache boots (every pack is an IDB

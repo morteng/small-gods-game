@@ -60,7 +60,10 @@ import { WATER_TYPES } from '@/core/constants';
 export const TREELINE_ELEV = 0.72;
 
 /** Entity categories considered "nature" and therefore clearable. */
-const NATURE_CATEGORIES = new Set(['vegetation', 'terrain-feature']);
+/** Entity-kind categories this module treats as NATURE — the things a road, a
+ *  building or (testbed) a reserved specimen ground sweeps away. Exported so the
+ *  one definition is shared rather than re-guessed at each call site. */
+export const NATURE_CATEGORIES: ReadonlySet<string> = new Set(['vegetation', 'terrain-feature']);
 
 /**
  * Tag on entities the riparian pass DELIBERATELY placed in/beside the water margin

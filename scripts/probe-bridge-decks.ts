@@ -50,10 +50,10 @@ import { detectCrossings } from '@/world/connectome/detect-crossings';
 import { smoothCenterline, type Pt } from '@/terrain/road-centerline';
 import { WATER_TYPES } from '@/core/constants';
 import { WaterType } from '@/core/types';
-import type { WorldSeed } from '@/core/types';
+import type { GameMap, WorldSeed } from '@/core/types';
 import type { RoadGraph } from '@/world/road-graph';
 
-interface Row {
+export interface Row {
   world: string; seed: number; id: string; seated: boolean; declineReason?: string;
   b0: [number, number]; b1: [number, number]; spanLen: number;
   // interior chord cells (excluding the two bank cells)
@@ -69,23 +69,24 @@ interface Row {
   class1: boolean; class2: boolean; class3: boolean;
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const summary = args.includes('--summary');
-  const positional = args.filter((a) => !a.startsWith('--'));
-  const worldName = positional[0] ?? 'default';
-  const seed = Number(positional[1] ?? 777);
-  const ws = JSON.parse(readFileSync(`public/data/worlds/${worldName}.json`, 'utf8')) as WorldSeed;
-  const layout = planWorldLayout(ws);
-  const laidOut: WorldSeed = { ...ws, size: layout.size, pois: layout.pois, connections: layout.connections };
-  const { map } = await generateWithNoise(laidOut.size.width, laidOut.size.height, seed, laidOut, {});
+export interface BridgeCellStats {
+  bridged: number; cellTileWet: number; cellPaintedWet: number; tileOnly: number; unpaintedNearPaint: number;
+  unpaintedLines: string[];
+}
+
+/**
+ * THE per-deck classifier — the acceptance instrument for bridge siting (see file header).
+ * Exported so OTHER callers (tests, other probes) score a generated map the SAME way the
+ * CLI does; never reimplement this logic at a second call site.
+ */
+export function classifyBridgeDecks(map: GameMap, worldName = '', seed = 0): Row[] {
   const W = map.width;
   const mask = getRenderWaterMask(map);
   const dist = getRenderWaterDist(map);
   let ribbonArr: Uint8Array | null = null;
   try { ribbonArr = buildRenderWaterTypeMemo(map); } catch { ribbonArr = null; }
   const graph = (map as unknown as { roadGraph?: RoadGraph }).roadGraph;
-  if (!graph) { console.log('NO ROAD GRAPH'); return; }
+  if (!graph) return [];
 
   // Reproduce the span pass detection EXACTLY (see the header note on the map-generator call site).
   const specs = detectCrossings(graph, W, {
@@ -197,24 +198,29 @@ async function main(): Promise<void> {
     row.class3 = Math.max(row.bank0RoadDist, row.bank1RoadDist) >= 2;
     rows.push(row);
   }
+  return rows;
+}
 
-  const c1 = rows.filter((r) => r.class1), c2 = rows.filter((r) => r.class2), c3 = rows.filter((r) => r.class3);
-  if (summary) {
-    console.log(`| ${worldName}/${seed} | ${rows.length} | ${c1.length} | ${c2.length} | ${c3.length} |`);
-    return;
-  }
-
-  for (const r of rows) console.log(JSON.stringify(r));
-  console.log(`\n== ${worldName}/${seed}: decks ${rows.length} | class1(no-visible-water) ${c1.length} | class2(banks-in-water) ${c2.length} | class3(bank>=2-off-road) ${c3.length}`);
-  console.log(`   class1 with blind(baseType-water) chord cells: ${c1.filter((r) => r.blind > 0).length}`);
-  console.log(`   class1 with visible water within 2 of midpoint: ${c1.filter((r) => r.nearestVisWater >= 0 && r.nearestVisWater <= 2).length}`);
-  console.log(`   seated decks with a bank >0.75 off OWN ribbon (nearestDry fingerprint): ${rows.filter((r) => r.seated && Math.max(r.bank0OwnDist, r.bank1OwnDist) > 0.75).length}`);
-
-  // Routed-bridge-CELL audit: the router bridges `WATER_TYPES.has(tile.type)`
-  // (`src/world/road-graph.ts`), the crossing seater reads the painted mask. Where they
-  // disagree at a bridged cell, the deck spans something the player cannot see.
+/**
+ * Routed-bridge-CELL audit: the router bridges `WATER_TYPES.has(tile.type)`
+ * (`src/world/road-graph.ts`), the crossing seater reads the painted mask. Where they
+ * disagree at a bridged cell, the deck spans something the player cannot see. This is a
+ * LOOSER, whole-edge aggregate than {@link classifyBridgeDecks} (every tile the road walker
+ * marked as bridge, not just each crossing's own interior chord) — exported for the same
+ * "score it the way the CLI does" reason.
+ */
+export function classifyBridgeCells(map: GameMap): BridgeCellStats {
+  const W = map.width;
+  const mask = getRenderWaterMask(map);
+  const graph = (map as unknown as { roadGraph?: RoadGraph }).roadGraph;
+  const tileAt = (x: number, y: number) => map.tiles[y]?.[x];
+  const isBaseWet = (x: number, y: number) => {
+    const t = tileAt(x, y) as unknown as { type?: string; baseType?: string } | undefined;
+    return WATER_TYPES.has(t?.type ?? '') || (t?.baseType !== undefined && WATER_TYPES.has(t.baseType));
+  };
   let bridged = 0, cellTileWet = 0, cellPaintedWet = 0, tileOnly = 0, unpaintedNearPaint = 0;
   const unpaintedLines: string[] = [];
+  if (!graph) return { bridged, cellTileWet, cellPaintedWet, tileOnly, unpaintedNearPaint, unpaintedLines };
   for (const e of graph.edges) {
     if (!e.bridgeCells?.length) continue;
     const rows2: string[] = [];
@@ -235,8 +241,46 @@ async function main(): Promise<void> {
       unpaintedLines.push(`== ${e.id}: ${rows2.length}/${e.bridgeCells.length} bridged cells are NOT painted water`, ...rows2);
     }
   }
+  return { bridged, cellTileWet, cellPaintedWet, tileOnly, unpaintedNearPaint, unpaintedLines };
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const summary = args.includes('--summary');
+  const positional = args.filter((a) => !a.startsWith('--'));
+  const worldName = positional[0] ?? 'default';
+  const seed = Number(positional[1] ?? 777);
+  const ws = JSON.parse(readFileSync(`public/data/worlds/${worldName}.json`, 'utf8')) as WorldSeed;
+  const layout = planWorldLayout(ws);
+  const laidOut: WorldSeed = { ...ws, size: layout.size, pois: layout.pois, connections: layout.connections };
+  const { map } = await generateWithNoise(laidOut.size.width, laidOut.size.height, seed, laidOut, {});
+  const graph = (map as unknown as { roadGraph?: RoadGraph }).roadGraph;
+  if (!graph) { console.log('NO ROAD GRAPH'); return; }
+
+  const rows = classifyBridgeDecks(map, worldName, seed);
+
+  const c1 = rows.filter((r) => r.class1), c2 = rows.filter((r) => r.class2), c3 = rows.filter((r) => r.class3);
+  if (summary) {
+    console.log(`| ${worldName}/${seed} | ${rows.length} | ${c1.length} | ${c2.length} | ${c3.length} |`);
+    return;
+  }
+
+  for (const r of rows) console.log(JSON.stringify(r));
+  console.log(`\n== ${worldName}/${seed}: decks ${rows.length} | class1(no-visible-water) ${c1.length} | class2(banks-in-water) ${c2.length} | class3(bank>=2-off-road) ${c3.length}`);
+  console.log(`   class1 with blind(baseType-water) chord cells: ${c1.filter((r) => r.blind > 0).length}`);
+  console.log(`   class1 with visible water within 2 of midpoint: ${c1.filter((r) => r.nearestVisWater >= 0 && r.nearestVisWater <= 2).length}`);
+  console.log(`   seated decks with a bank >0.75 off OWN ribbon (nearestDry fingerprint): ${rows.filter((r) => r.seated && Math.max(r.bank0OwnDist, r.bank1OwnDist) > 0.75).length}`);
+
+  const { bridged, cellTileWet, cellPaintedWet, tileOnly, unpaintedNearPaint, unpaintedLines } = classifyBridgeCells(map);
   console.log('\n-- routed bridge cells vs painted water');
   for (const line of unpaintedLines) console.log(line);
   console.log(`bridged cells ${bridged} | tile/base-wet ${cellTileWet} | painted-wet ${cellPaintedWet} | tile-wet-but-NOT-painted ${tileOnly} | unpainted-with-paint-within-2 ${unpaintedNearPaint}`);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run the CLI only when this file is the entry point — `classifyBridgeDecks` /
+// `classifyBridgeCells` are also imported as a library (e.g. by
+// `tests/integration/testbed-context.test.ts`, which reuses this classifier rather than
+// reimplementing it), and an unconditional `main()` would re-run the whole CLI (default
+// world/seed, stdout spam, `process.exit`) as a side effect of that import.
+if (import.meta.url === new URL(process.argv[1] ?? '', 'file:').href) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

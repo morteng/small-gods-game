@@ -174,7 +174,10 @@ const WORLD_ENTRY_RATE = 1;
  */
 export type Autostart =
   | { kind: 'auto' }
-  | { kind: 'fresh'; genSeed?: number; genome?: string; worldSeed?: WorldSeed; ephemeral?: boolean }
+  | { kind: 'fresh'; genSeed?: number; genome?: string; worldSeed?: WorldSeed; ephemeral?: boolean;
+      /** DEV ONLY (`?world=testbed`): resolve the code-authored integration testbed seed
+       *  at its pinned gen seed. Dynamic-imported, so it ships in no distribution build. */
+      testbed?: boolean }
   | { kind: 'resume'; slot?: string };
 
 export interface GameOptions {
@@ -2902,9 +2905,12 @@ export class Game {
   /** Resolve an autostart descriptor into an actual world boot. */
   private async startFromAutostart(a: Autostart): Promise<void> {
     if (a.kind === 'fresh') {
+      // The dev testbed carries its OWN pinned gen seed — the world is only defined at
+      // that seed (see `src/world/testbed/testbed-world.ts`).
+      const testbed = a.testbed ? await this.testbedWorld() : undefined;
       await this.startWorld({
-        fresh: true, genSeed: a.genSeed, genome: a.genome,
-        worldSeed: a.worldSeed, ephemeral: a.ephemeral,
+        fresh: true, genSeed: testbed?.genSeed ?? a.genSeed, genome: a.genome,
+        worldSeed: testbed?.seed ?? a.worldSeed, ephemeral: a.ephemeral,
       });
       return;
     }
@@ -2946,6 +2952,26 @@ export class Game {
     return this.generateWorld(worldSeed, undefined, {
       fresh: opts.fresh, genSeed: opts.genSeed, slot: opts.slot,
     });
+  }
+
+  /** Resolve the dev integration testbed to its WorldSeed + pinned gen seed. Dynamic
+   *  import (the `genomeSeed` pattern) so the testbed chunk tree-shakes out of a
+   *  distribution build. */
+  private async testbedWorld(): Promise<{ seed: WorldSeed; genSeed: number } | undefined> {
+    // The `__DEV_TOOLS__` gate is what makes the tree-shake REAL, and it is not
+    // decoration: `genomeSeed` below has the same dynamic-import shape WITHOUT a gate,
+    // and a plain `npm run build` ships a `genome-*.js` chunk anyway (measured) — a bare
+    // `await import()` always earns a chunk. Folded to `if (true) return` in a
+    // distribution build, the import below becomes unreachable and no chunk is emitted.
+    // (`typeof` guard because `__DEV_TOOLS__` is a Vite `define`, absent under vitest.)
+    if (typeof __DEV_TOOLS__ !== 'undefined' && !__DEV_TOOLS__) return undefined;
+    try {
+      const { testbedSeed, TESTBED_GEN_SEED } = await import('@/world/testbed/testbed-world');
+      return { seed: testbedSeed(), genSeed: TESTBED_GEN_SEED };
+    } catch (err) {
+      console.warn('[boot] testbed world unavailable', err);
+      return undefined;
+    }
   }
 
   /** Resolve a named terrain genome to a WorldSeed (dev worlds only). */

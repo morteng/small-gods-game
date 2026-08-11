@@ -42,6 +42,36 @@ describe('resolveAutostart — which URLs skip the title', () => {
       .toEqual({ kind: 'fresh', genSeed: 7 });
   });
 
+  it('?world=testbed boots the dev integration testbed, fresh and EPHEMERAL', () => {
+    // No genSeed here: the testbed carries its own pinned one, resolved in `Game`
+    // alongside the seed module (dynamic import ⇒ tree-shaken from dist builds).
+    expect(resolveAutostart('?world=testbed', true))
+      .toEqual({ kind: 'fresh', testbed: true, ephemeral: true });
+  });
+
+  it('ignores ?world=testbed in a distribution build (no dev tools)', () => {
+    // Same gate as `?genome`: the testbed must be unreachable in a shipped build, and it
+    // is never in PLAYABLE_WORLD_NAMES either, so the New Game menu stays clean of it.
+    expect(resolveAutostart('?world=testbed', false)).toBeNull();
+  });
+
+  it('ignores any other ?world value rather than guessing at a world', () => {
+    // `?world` is NOT a general world selector — named playable worlds boot through the
+    // New Game screen / `new_game` verb. An unknown value must reach the title, not
+    // silently fold to `default`.
+    expect(resolveAutostart('?world=default', true)).toBeNull();
+    expect(resolveAutostart('?world=', true)).toBeNull();
+    expect(resolveAutostart('?world=nonsense', true)).toBeNull();
+  });
+
+  it('genseed and genome both WIN over ?world=testbed', () => {
+    // The testbed is only defined at its own pinned seed, so an explicit `?genseed`
+    // asking for a different world is the more specific ask and takes the whole boot.
+    expect(resolveAutostart('?world=testbed&genseed=7', true)).toEqual({ kind: 'fresh', genSeed: 7 });
+    expect(resolveAutostart('?world=testbed&genome=woodland', true))
+      .toEqual({ kind: 'fresh', genome: 'woodland', ephemeral: true });
+  });
+
   it('?bridge boots a world so an attaching CLI/MCP client finds one running', () => {
     expect(resolveAutostart('?bridge', true)).toEqual({ kind: 'auto' });
     expect(resolveAutostart('?bridge=rw', true)).toEqual({ kind: 'auto' });
