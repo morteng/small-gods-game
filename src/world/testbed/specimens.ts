@@ -64,7 +64,9 @@ import type { World } from '@/world/world';
 import type { Blueprint, BlueprintPatch, ResolvedBlueprint } from '@/blueprint/types';
 import { BUILDING_BLUEPRINTS, synthesizeBlueprint, isBridgePreset, bridgePresetNames } from '@/blueprint/presets';
 import { toCollision } from '@/blueprint/compile/to-collision';
-import { blueprintEntity } from '@/blueprint/entity';
+import { blueprintEntity, blueprintOf } from '@/blueprint/entity';
+import { buildingVisualCells } from '@/blueprint/footprint';
+import { tileBlockedByBuilding } from '@/world/building-collision';
 import { allFloraSpecies } from '@/flora/flora-registry';
 import { loadDefaultPacks } from '@/catalogue/default-packs';
 import { catalogue } from '@/catalogue/pack';
@@ -102,20 +104,53 @@ export const SPECIMEN_OF = 'specimenOf';
 export const SPECIMEN_ROW = 'specimenRow';
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
+//
+// THE APRON IS THE BINDING CONSTRAINT, and it cannot legitimately grow: WP-T1 measured that
+// pushing the apron's west edge past x_min 36 drags it into Sloughmire's swamp region, whose
+// region-fill rewrites moisture → biomes → tiles → road cost and takes `probe-bridge-decks`
+// from 4 decks · 0 · 0 · 0 to 5 decks with 2 class1. So the layout has to fit the ground,
+// not the other way round. Measured on the shipped world (192×128, gen seed 12345):
+//
+//   apron rect        (88,86)…(140,93) — 53 × 8, 424 dry cells
+//   usable band       the apron's x-range carried SOUTH to the coast: 1,716 cells free after
+//                     water (477), carved roads (20) and organic buildings (13) are removed.
+//                     Full 53 wide to y 112, then TAPERING (50·48·47·38·33·32·30·27·13) to
+//                     the shore at y 122.
+//   specimen area     974 tiles of footprint, of which the 9 bridges (273) sit OFF-grid on
+//                     real water ⇒ 701 tiles must fit in 1,716. Room for 2.4× — but only if
+//                     the padding is small: the original GAP 2 / ROW_GAP 3 wrapping flow
+//                     spent ~60% of the band on air and placed 82 of 119 ids.
+//   after this pass   118/119 ids (119 entities — `palisade` is both a preset and a kind),
+//                     0 failures, y 86..115, 575 dry cells still free.
+//
+// Four things bought that, in order of what they were worth:
+//   1. A real bottom-left PACKER instead of a wrapping flow ({@link Slab}) — a 1×1 herb can
+//      slide into the leftover width beside a 3×6 church instead of costing a whole line.
+//   2. SEP 1 / BAND_GAP 1 instead of GAP 2 / ROW_GAP 3.
+//   3. BANDS ORDERED TALLEST-FIRST, and BARRIER RUNS STOOD VERTICAL. Both are about the
+//      taper: a tall item needs all its rows dry in the SAME columns, so an 11-row wall run
+//      cannot stand near the shore (measured: barriers placed last lost 10 of 13 runs).
+//   4. The SWARD searches from the apron's north edge, sowing its 61 1×1 vegetation
+//      specimens through the ground the taller bands left over — the densest use of the
+//      apron, and the way a specimen ground wants to look anyway.
 
-/** Clear tiles between two specimens on a line. */
-const GAP = 2;
-/** Clear tiles between two ROWS (a row is one registry axis). */
-const ROW_GAP = 3;
+/** Clear tiles between any two specimens. ONE — the smallest separation that still reads as
+ *  "two things" rather than one clump at the tour's framing zoom, and the value the area
+ *  budget above can actually afford. Zero would let neighbouring silhouettes touch. */
+const SEP = 1;
+/** Extra clear lane between two BANDS, on top of {@link SEP} — so a station can frame one
+ *  band and the eye can tell the flora sward from the barrier line. */
+const BAND_GAP = 1;
 /** Side of the synthetic apron used when the POI carries a `position` but no `region`. */
 const DEFAULT_APRON_SIDE = 64;
 /** How far a wet-row search may wander from the apron looking for rendered water. */
 const WET_SEARCH_RADIUS = 90;
-/** Bounded retries when the flow cursor lands on water / off-map before giving up on a slot. */
-const MAX_SLOT_RETRIES = 512;
 /** Widest water run the wet row will call a "channel" — beyond this it is a lake or the sea,
  *  which no specimen deck spans. (The widest recipe, `stone-arch`, wants ~12 tiles.) */
 const MAX_WET_SPAN = 14;
+/** Road tile types the packer keeps clear of (a specimen standing in a carved lane reads as
+ *  a bug and would fight the road ribbon). Mirrors `building-placer.ts`'s ROAD_TYPES. */
+const ROAD_TILE_TYPES: ReadonlySet<string> = new Set(['dirt_road', 'stone_road', 'bridge']);
 
 export interface SpecimenRect { x0: number; y0: number; x1: number; y1: number }
 
@@ -136,10 +171,23 @@ export interface SpecimenReport {
   failed: { id: string; row: string; reason: string }[];
   /** Non-fatal notes (e.g. a bridge that found no channel and stands on dry ground). */
   warnings: string[];
-  /** Tiles the flow ran past the apron's south edge (0 ⇒ the apron was big enough). */
+  /** Rows the layout used on the dry terrace SOUTH of the apron rect. Expected to be > 0 and
+   *  NOT an error: the apron rect is 53×8 = 424 cells and the non-bridge specimens are 701
+   *  tiles of footprint, so the set cannot fit inside the rect at any packing density, and the
+   *  apron already runs to the authoring frame's south edge (`AUTHOR_H`) so it cannot be made
+   *  taller. WP-T1's own module note designs for this ("free to run SOUTH past its bottom
+   *  edge … the apron's height is not the constraint — the southern coast is"). The number to
+   *  watch is `failed`; this one is a framing hint for the tour. */
   overflowRows: number;
   /** Bounding box actually used (may exceed the apron — see `overflowRows`). */
   used: SpecimenRect | null;
+  /** Per-band north/south extent — the tour's station framing, and the first thing to look at
+   *  when the apron runs out of room. */
+  bands: { band: string; y0: number; y1: number; n: number }[];
+  /** Dry, unclaimed cells still left in the apron band after the pass — the HEADROOM for
+   *  future catalogue entries. When this approaches zero the next new preset will be the one
+   *  that fails, and the fix is the apron/world, not this file. */
+  freeCellsLeft: number;
 }
 
 // ─── Apron resolution ─────────────────────────────────────────────────────────
@@ -231,13 +279,22 @@ type PlaceFn = (x: number, y: number) => Entity | null;
 interface Specimen {
   /** The registry id this specimen stands for (what the coverage test looks up). */
   id: string;
+  /** Semantic label recorded on the entity (`specimenRow`) — what registry it came from. */
   row: string;
+  /** LAYOUT group. Defaults to `row`; two rows sharing a band are packed together (the two
+   *  barrier registries do, so the 13 runs form one wall line instead of two). */
+  band?: string;
   w: number;
   h: number;
   place: PlaceFn;
-  /** Fixed world origin, bypassing the flow grid — the wet row's bridges sit on the channel
-   *  the scan found, not on the apron lattice. */
+  /** Fixed world origin, bypassing the packer — the wet row's bridges sit on the channel the
+   *  scan found, not on the apron lattice. */
   at?: { x: number; y: number };
+  /** Search the WHOLE apron from its north edge rather than starting below the previous band.
+   *  Set on the sward: 1×1 vegetation is the only thing that fits the leftover ground between
+   *  the taller specimens and in the tapering cells at the coast, and sowing it there is both
+   *  the densest use of the apron and the way it actually wants to look. */
+  fromTop?: boolean;
 }
 
 /** A stable per-specimen seed — a pure hash of the id, so blueprint synthesis is reproducible
@@ -311,11 +368,14 @@ function placeBarrierSpecimen(
   map: GameMap, world: World, registryId: string, row: string,
   x: number, y: number, spec: Omit<BarrierRun, 'path' | 'gates' | 'towers'>, gateWidthTiles: number,
 ): Entity | null {
+  // Runs stand NORTH→SOUTH: a wall is long and thin, and 13 tall-thin boxes tile the apron's
+  // 53-tile width in ONE line (44 tiles all told) where 13 horizontal ones needed three.
+  // Measured: 11 rows for the whole barrier band, against ~25 laid out east–west.
   const len = BARRIER_SPECIMEN_LENGTH;
-  const cy = y + Math.max(0, Math.floor((spec.thickness - 1) / 2));
+  const cx = x + Math.floor(barrierBoxW(spec.thickness) / 2);
   const run: BarrierRun = {
     ...spec,
-    path: [[x, cy], [x + len, cy]],
+    path: [[cx, y], [cx, y + len]],
     gates: [{ t: len / 2, width: gateWidthTiles, kind: 'gate' }],
   };
   // Towers are a DERIVED defensive decision, not a hand-list: the shipped coverage pass
@@ -333,8 +393,18 @@ function placeBarrierSpecimen(
   return world.registry.get(id) ?? null;
 }
 
-/** Specimen barrier run length in tiles — "one SHORT run per kind". */
-const BARRIER_SPECIMEN_LENGTH = 12;
+/** Specimen barrier run length in tiles — "one SHORT run per kind". 8 keeps a real stretch of
+ *  curtain either side of the central gate (a 3-tile opening leaves 2.5 tiles of wall each
+ *  way) and keeps both gate-flanker towers ON the run (`GATE_FLANK_MARGIN` 1.3 puts them at
+ *  t = 4 ± 2.8). Shorter reads as a gatehouse with no wall; each extra tile costs the whole
+ *  band a row, and the apron has none to spare. */
+const BARRIER_SPECIMEN_LENGTH = 8;
+
+/** A vertical run's box width: the rasterized curtain spans `thickness` cells about its
+ *  centreline, plus a cell so a 2-thick wall's outer face is not flush with its neighbour. */
+function barrierBoxW(thickness: number): number {
+  return Math.max(1, Math.ceil(thickness)) + 1;
+}
 
 /** Enclosure's own default gate clearance when a run has no authored one (`enclosure.ts`). */
 const DEFAULT_GATE_WIDTH_TILES = 3;
@@ -375,7 +445,8 @@ function barrierSpecFromPreset(bp: Blueprint): { spec: Omit<BarrierRun, 'path' |
  */
 export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensOptions = {}): SpecimenReport {
   const report: SpecimenReport = {
-    rect: null, placed: new Map(), failed: [], warnings: [], overflowRows: 0, used: null,
+    rect: null, placed: new Map(), failed: [], warnings: [], overflowRows: 0, used: null, bands: [],
+    freeCellsLeft: 0,
   };
 
   // IDEMPOTENCY: the tag index is the sentinel. Re-running must not double-place entities
@@ -395,45 +466,62 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
 
   const specimens = buildSpecimenList(map, world, isWater, rect, report);
 
-  // ── Flow layout: rows top→bottom, items left→right in sorted-key order. Deterministic,
-  //    rng-free, and stable: the same registry yields the same coordinates every run.
-  let cx = rect.x0;
-  let cy = rect.y0;
-  let lineH = 0;
-  let lastRow = '';
-  const used: SpecimenRect = { x0: rect.x0, y0: rect.y0, x1: rect.x0, y1: rect.y0 };
+  // ── Layout: a bottom-left packer over the apron's x-band. The band runs from the apron's
+  //    north edge SOUTH to the map edge (WP-T1's apron is only 8 rows tall but the dry
+  //    terrace below it is the real ground; the apron's height was never the constraint —
+  //    the southern coast is). Deterministic, rng-free and stable: same registries ⇒ same
+  //    coordinates, every run, on every machine.
+  const slab = new Slab(rect.x0, rect.y0, rect.x1, map.height - 1);
+  slab.blockWhere((x, y) => isWater(x, y)
+    || ROAD_TILE_TYPES.has(map.tiles[y]?.[x]?.type ?? '')
+    || tileBlockedByBuilding(world, x, y));
+  for (const e of world.query({ tag: 'building' })) {
+    const bp = blueprintOf(e);
+    if (bp) for (const c of buildingVisualCells(bp.rb, Math.floor(e.x), Math.floor(e.y))) {
+      const ci = c.indexOf(',');
+      slab.block(Number(c.slice(0, ci)), Number(c.slice(ci + 1)));
+    }
+  }
+  for (const e of world.query({ tag: 'barrier' })) {
+    const cells = (e.properties as { footprintCells?: [number, number][] } | undefined)?.footprintCells;
+    if (Array.isArray(cells)) for (const [bx, by] of cells) slab.block(bx, by);
+  }
 
-  const dryAt = (x: number, y: number, w: number, h: number): boolean => {
-    if (x < 0 || y < 0 || x + w > map.width || y + h > map.height) return false;
-    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (isWater(x + dx, y + dy)) return false;
-    return true;
-  };
+  const used: SpecimenRect = { x0: rect.x0, y0: rect.y0, x1: rect.x0, y1: rect.y0 };
+  let bandTop = rect.y0;
+  let lastBand = '';
+  const outOfBand: string[] = [];
 
   for (const s of specimens) {
     let px: number, py: number;
     if (s.at) {
       px = s.at.x; py = s.at.y;                                // wet row: fixed, off-grid
     } else {
-      if (s.row !== lastRow) {
-        if (lastRow !== '') { cy += lineH + ROW_GAP; cx = rect.x0; lineH = 0; }
-        lastRow = s.row;
+      const band = s.band ?? s.row;
+      if (band !== lastBand) {
+        if (lastBand !== '') bandTop = used.y1 + 1 + BAND_GAP;
+        lastBand = band;
+        report.bands.push({ band, y0: bandTop, y1: bandTop, n: 0 });
       }
-      // Advance until the footprint fits on DRY, in-bounds ground. Rows wrap at the apron's
-      // east edge; a wet or off-map slot is skipped rather than drowning a dry-row specimen.
-      let tries = 0;
-      let fits = false;
-      while (tries++ < MAX_SLOT_RETRIES) {
-        if (cx + s.w - 1 > rect.x1) { cy += lineH + GAP; cx = rect.x0; lineH = 0; continue; }
-        if (dryAt(cx, cy, s.w, s.h)) { fits = true; break; }
-        cx += 1;
+      // Prefer this band's own ground; if the band is full, BACKFILL into any hole an
+      // earlier band left rather than refuse the specimen — coverage beats tidiness, and
+      // the fallback is reported by name so a drifting layout is still visible.
+      const top = s.fromTop ? rect.y0 : bandTop;
+      let spot = slab.find(s.w, s.h, top);
+      if (!spot && !s.fromTop) {
+        spot = slab.find(s.w, s.h, rect.y0);
+        if (spot) outOfBand.push(s.id);
       }
-      if (!fits) {
-        report.failed.push({ id: s.id, row: s.row, reason: 'no dry in-bounds slot in the apron' });
+      if (!spot) {
+        // LOUD, per specimen and by name — a five-minute diagnosis beats a tidy log.
+        report.failed.push({
+          id: s.id, row: s.row,
+          reason: `no free ${s.w}x${s.h} slot anywhere in the apron band (searched y ${rect.y0}..${map.height - 1})`,
+        });
         continue;
       }
-      px = cx; py = cy;
-      cx += s.w + GAP;
-      lineH = Math.max(lineH, s.h);
+      slab.mark(spot.x, spot.y, s.w, s.h);
+      px = spot.x; py = spot.y;
     }
     let entity: Entity | null = null;
     try {
@@ -448,6 +536,8 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
       if (!s.at) {
         used.x1 = Math.max(used.x1, px + s.w - 1);
         used.y1 = Math.max(used.y1, py + s.h - 1);
+        const b = report.bands[report.bands.length - 1];
+        if (b) { b.y0 = Math.min(b.y0, py); b.y1 = Math.max(b.y1, py + s.h - 1); b.n++; }
       }
     } else if (!report.failed.some((f) => f.id === s.id && f.row === s.row && f.reason.startsWith('placement'))) {
       report.failed.push({ id: s.id, row: s.row, reason: 'placement returned null' });
@@ -456,25 +546,117 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
 
   report.used = used;
   report.overflowRows = Math.max(0, used.y1 - rect.y1);
+  if (outOfBand.length) {
+    report.warnings.push(
+      `${outOfBand.length} specimen(s) backfilled OUTSIDE their band (the band ran out of `
+      + `ground): ${outOfBand.join(', ')}`);
+  }
 
   // Every `clearFootprint` above rewrote `tile.type`/`walkable` in place, and the flora tint
   // feeds the same colour field — without this the GPU repaints neither until reload.
   bumpTilesRev(map);
 
+  report.freeCellsLeft = slab.freeCount();
+
   if (!opts.quiet) {
     console.log(
       `[testbed] specimens: ${report.placed.size} ids placed, ${report.failed.length} failed; `
-      + `apron ${rect.x1 - rect.x0 + 1}x${rect.y1 - rect.y0 + 1} at (${rect.x0},${rect.y0}), `
-      + `used ${used.x1 - used.x0 + 1}x${used.y1 - used.y0 + 1}`
-      + (report.overflowRows > 0
-        ? ` — OVERFLOWED the apron by ${report.overflowRows} rows (grow specimen_apron to `
-          + `${used.y1 - rect.y0 + 1} tall)`
-        : ''),
+      + `apron ${rect.x1 - rect.x0 + 1}x${rect.y1 - rect.y0 + 1} at (${rect.x0},${rect.y0}); `
+      + `used y ${used.y0}..${used.y1} (${report.overflowRows} row(s) on the terrace south of `
+      + `the apron rect — expected, see SpecimenReport.overflowRows); `
+      + `${report.freeCellsLeft} dry cells of headroom left`,
     );
+    for (const b of report.bands) {
+      console.log(`[testbed]   band ${b.band}: y ${b.y0}..${b.y1}, ${b.n} specimen(s)`);
+    }
     for (const f of report.failed) console.warn(`[testbed] specimen '${f.id}' (${f.row}): ${f.reason}`);
     for (const w of report.warnings) console.warn(`[testbed] ${w}`);
   }
   return report;
+}
+
+// ─── The packer ───────────────────────────────────────────────────────────────
+
+/**
+ * A tile-occupancy slab over the apron's x-band, packed bottom-left-first.
+ *
+ * Replaces the original wrapping flow, which spent one line-height on every wrapped line and
+ * one uniform pitch on every item — ~60% of the band on air, and 37 specimens refused on the
+ * shipped apron. A slab lets a 1×1 herb slide into the leftover width beside a 3×6 church,
+ * and folds the "is this ground even usable" question (water, roads, organic buildings, the
+ * tapering southern coastline) into the same test as "is it already taken", so the packer
+ * follows the real shoreline instead of assuming a rectangle.
+ *
+ * Separation is enforced by testing a margin of {@link SEP} on the item's east and south
+ * sides: every neighbour reserved its own margin when it was placed, so no two specimens can
+ * end up adjacent. Deterministic — a fixed north→south, west→east scan, no rng.
+ */
+class Slab {
+  private readonly taken: Uint8Array;
+  constructor(
+    private readonly x0: number, private readonly y0: number,
+    private readonly x1: number, private readonly y1: number,
+  ) {
+    this.taken = new Uint8Array(Math.max(0, (x1 - x0 + 1) * (y1 - y0 + 1)));
+  }
+
+  private idx(x: number, y: number): number {
+    return (y - this.y0) * (this.x1 - this.x0 + 1) + (x - this.x0);
+  }
+
+  private inside(x: number, y: number): boolean {
+    return x >= this.x0 && x <= this.x1 && y >= this.y0 && y <= this.y1;
+  }
+
+  block(x: number, y: number): void {
+    if (this.inside(x, y)) this.taken[this.idx(x, y)] = 1;
+  }
+
+  /** Block every cell the predicate rejects (water, roads, organic footprints, off-map). */
+  blockWhere(pred: (x: number, y: number) => boolean): void {
+    for (let y = this.y0; y <= this.y1; y++) {
+      for (let x = this.x0; x <= this.x1; x++) if (pred(x, y)) this.taken[this.idx(x, y)] = 1;
+    }
+  }
+
+  /** Claim the item's cells AND its east/south margin. Marking the margin (not merely testing
+   *  it) is what actually guarantees separation: with the margin only tested, a later item
+   *  scanning west→east would find the untouched cell immediately east of a placed one and
+   *  sit flush against it. Marked + tested, every neighbour is {@link SEP} clear on all four
+   *  sides — the west/north sides because the WESTERN item's own margin already owns them. */
+  mark(x: number, y: number, w: number, h: number): void {
+    for (let dy = 0; dy < h + SEP; dy++) for (let dx = 0; dx < w + SEP; dx++) this.block(x + dx, y + dy);
+  }
+
+  /** Free for a w×h item at (x,y) INCLUDING its east/south separation margin. The margin is
+   *  only required where it falls inside the slab, so an item may sit flush against the
+   *  slab's own edge. */
+  private fits(x: number, y: number, w: number, h: number): boolean {
+    if (x < this.x0 || y < this.y0 || x + w - 1 > this.x1 || y + h - 1 > this.y1) return false;
+    for (let dy = 0; dy < h + SEP; dy++) {
+      for (let dx = 0; dx < w + SEP; dx++) {
+        const cx = x + dx, cy = y + dy;
+        if (!this.inside(cx, cy)) continue;              // margin off the slab edge is fine
+        if (this.taken[this.idx(cx, cy)]) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Dry, unclaimed cells left — the apron's remaining headroom for future catalogue growth. */
+  freeCount(): number {
+    let n = 0;
+    for (let i = 0; i < this.taken.length; i++) if (!this.taken[i]) n++;
+    return n;
+  }
+
+  /** The first free w×h slot at or below `fromY`, scanning north→south then west→east. */
+  find(w: number, h: number, fromY: number): { x: number; y: number } | null {
+    for (let y = Math.max(this.y0, fromY); y + h - 1 <= this.y1; y++) {
+      for (let x = this.x0; x + w - 1 <= this.x1; x++) if (this.fits(x, y, w, h)) return { x, y };
+    }
+    return null;
+  }
 }
 
 // ─── Row assembly ─────────────────────────────────────────────────────────────
@@ -488,75 +670,64 @@ function buildSpecimenList(
 
   /** Blueprint-entity rows (buildings, generative buildingTypes, props, plant presets with no
    *  entity kind). One helper so every one of them takes the identical commit path. */
-  const addBlueprint = (row: string, name: string, patches: BlueprintPatch[] = [], clear = true): void => {
+  const addBlueprint = (
+    row: string, name: string, patches: BlueprintPatch[] = [], clear = true, band?: string,
+  ): void => {
     const { rb, err } = resolve(name, patches);
     if (!rb) { report.failed.push({ id: name, row, reason: err ?? 'unresolved' }); return; }
     const fp = toCollision(rb).footprint;
     out.push({
-      id: name, row, w: Math.max(1, fp.w), h: Math.max(1, fp.h),
+      id: name, row, ...(band ? { band } : {}), w: Math.max(1, fp.w), h: Math.max(1, fp.h),
       place: (x, y) => placeBlueprintSpecimen(map, world, rb, name, row, x, y, { clear }),
     });
   };
 
-  // Row 1 — every hand preset that is a BUILDING.
-  for (const name of presetKeys((bp) => bp.class === 'building')) addBlueprint('buildings', name);
-
-  // Row 2 — the catalogue buildingTypes with NO hand preset (the generative bridge).
-  for (const name of presetlessBuildingTypes()) addBlueprint('buildingTypes', name);
-
-  // Row 3 — every hand preset that is a PROP, minus the stairs (their own graded row).
-  for (const name of presetKeys((bp) => bp.class === 'prop' && !isStairPreset(bp))) addBlueprint('props', name);
-
-  // Row 4 — the hand-authored PLANT presets. Those that own an entity kind take the organic
-  // kind-keyed vegetation path; the 7 that do not (see the header) take the blueprint path.
-  for (const name of presetKeys((bp) => bp.class === 'plant')) {
-    if (hasVegetationKind(name)) {
-      out.push({
-        id: name, row: 'plants', w: 1, h: 1,
-        place: (x, y) => placeVegetationSpecimen(map, world, name, 'plants', x, y),
-      });
-    } else {
-      addBlueprint('plants', name);
-    }
-  }
-
-  // Row 5 — every flora species (trees, shrubs, rocks AND the clutter herbs/grasses/ferns,
-  // which are vegetation entities exactly like a tree — see the header).
-  for (const id of floraSpeciesIds()) {
-    out.push({
-      id, row: 'flora', w: 1, h: 1,
-      place: (x, y) => placeVegetationSpecimen(map, world, id, 'flora', x, y),
-    });
-  }
-
-  // Row 6 — one run per `class:'barrier'` PRESET, built from the preset's own authored line.
+  // ── BAND ORDER IS TALLEST-FIRST, and that is load-bearing, not taste. The apron's own
+  //    8 rows hold nothing; the usable ground is the dry terrace running south of it, and
+  //    that terrace TAPERS as it reaches the coast (measured on the shipped world: 53 tiles
+  //    wide down to y 112, then 50·48·47·38·33·32·30·27·13 to the shore at y 122). A tall
+  //    item needs every one of its rows to be dry in the SAME columns, so a 11-row barrier
+  //    run cannot stand in the taper — placing barriers last cost 10 of 13 runs. Ordered
+  //    tall→short, the taper only ever meets 1×1 flora, which packs into any dry cell.
+  //
+  // Band 1 — the barrier line. Two registries, ONE layout band: a run per `class:'barrier'`
+  // PRESET (built from the preset's own authored line), then a run per ENGINE `BarrierKind`
+  // at its defaults — the latter is what covers `barricade`, which no hand preset uses. Each
+  // gets a gate; towers come from `placeCoverageTowers`.
   for (const name of presetKeys((bp) => bp.class === 'barrier')) {
     const b = barrierSpecFromPreset(BUILDING_BLUEPRINTS[name]);
     if (!b) { report.failed.push({ id: name, row: 'barrierPresets', reason: 'preset has no barrier part' }); continue; }
     out.push({
-      id: name, row: 'barrierPresets',
-      w: BARRIER_SPECIMEN_LENGTH + 1, h: Math.max(1, b.spec.thickness) + 1,
+      id: name, row: 'barrierPresets', band: 'barriers',
+      w: barrierBoxW(b.spec.thickness), h: BARRIER_SPECIMEN_LENGTH + 1,
       place: (x, y) => placeBarrierSpecimen(map, world, name, 'barrierPresets', x, y, b.spec, b.gate),
     });
   }
-
-  // Row 7 — one run per ENGINE `BarrierKind` at its defaults (this is what covers `barricade`,
-  // which no hand preset uses). Each gets a gate; towers come from `placeCoverageTowers`.
   for (const kind of (Object.keys(BARRIER_DEFAULTS) as BarrierKind[]).sort()) {
     const spec = { kind, ...BARRIER_DEFAULTS[kind] };
     out.push({
-      id: kind, row: 'barrierKinds',
-      w: BARRIER_SPECIMEN_LENGTH + 1, h: Math.max(1, spec.thickness) + 1,
+      id: kind, row: 'barrierKinds', band: 'barriers',
+      w: barrierBoxW(spec.thickness), h: BARRIER_SPECIMEN_LENGTH + 1,
       place: (x, y) => placeBarrierSpecimen(map, world, kind, 'barrierKinds', x, y, spec, DEFAULT_GATE_WIDTH_TILES),
     });
   }
 
-  // Row 8 — the STAIRS, each turned to face the local downhill so the flight reads against
-  // whatever grade the apron carries (a `params` patch, not a new preset).
+  // Band 2 — every hand preset that is a BUILDING.
+  for (const name of presetKeys((bp) => bp.class === 'building')) addBlueprint('buildings', name);
+
+  // …and, in the SAME band, the catalogue buildingTypes with NO hand preset (the generative
+  // bridge). Both are buildings; a band of five costs a whole row-height for 38% occupancy.
+  for (const name of presetlessBuildingTypes()) addBlueprint('buildingTypes', name, [], true, 'buildings');
+
+  // Band 3 — the small standing PROPS, and with them the STAIRS: four tiny items do not earn
+  // a band of their own, and the tallest of them (`stair_grand`, 3×4) is the same height as
+  // the props beside it. Each stair is turned to face the local downhill so the flight reads
+  // against whatever grade the apron carries (a `params` patch, not a new preset).
+  for (const name of presetKeys((bp) => bp.class === 'prop' && !isStairPreset(bp))) addBlueprint('props', name);
   for (const name of presetKeys((bp) => bp.class === 'prop' && isStairPreset(bp))) {
     const partKey = stairPartKey(BUILDING_BLUEPRINTS[name]);
-    // Footprint first (unpatched — `dir` does not change the flight's extent), so the flow
-    // layout can size the slot before the downhill direction at that slot is known.
+    // Footprint first (unpatched — `dir` does not change the flight's extent), so the packer
+    // can size the slot before the downhill direction at that slot is known.
     const { rb: probe, err } = resolve(name);
     if (!probe || !partKey) {
       report.failed.push({ id: name, row: 'stairs', reason: err ?? 'no stair_flight part' });
@@ -564,7 +735,7 @@ function buildSpecimenList(
     }
     const fp = toCollision(probe).footprint;
     out.push({
-      id: name, row: 'stairs', w: Math.max(1, fp.w), h: Math.max(1, fp.h),
+      id: name, row: 'stairs', band: 'props', w: Math.max(1, fp.w), h: Math.max(1, fp.h),
       place: (x, y) => {
         const dir = downhillCardinal(map, x + fp.w / 2, y + fp.h / 2);
         const turned = resolve(name, [{ parts: { [partKey]: { type: 'stair_flight', params: { dir } } } }]).rb;
@@ -573,7 +744,30 @@ function buildSpecimenList(
     });
   }
 
-  // Row 9 — THE WET ROW. Every bridge recipe, spanning REAL rendered water near the apron.
+  // Band 5 — THE SWARD: every 1×1 vegetation specimen, in one band because they are the only
+  // things that pack into the tapering ground at the coast. First the hand-authored PLANT
+  // presets — those that own an entity kind take the organic kind-keyed vegetation path; the
+  // 7 that do not (see the header) take the blueprint path — then every flora species (trees,
+  // shrubs, rocks AND the clutter herbs/grasses/ferns, which are vegetation entities exactly
+  // like a tree).
+  for (const name of presetKeys((bp) => bp.class === 'plant')) {
+    if (hasVegetationKind(name)) {
+      out.push({
+        id: name, row: 'plants', band: 'sward', fromTop: true, w: 1, h: 1,
+        place: (x, y) => placeVegetationSpecimen(map, world, name, 'plants', x, y),
+      });
+    } else {
+      addBlueprint('plants', name, [], true, 'sward');
+    }
+  }
+  for (const id of floraSpeciesIds()) {
+    out.push({
+      id, row: 'flora', band: 'sward', fromTop: true, w: 1, h: 1,
+      place: (x, y) => placeVegetationSpecimen(map, world, id, 'flora', x, y),
+    });
+  }
+
+  // Band 6 — THE WET ROW. Every bridge recipe, spanning REAL rendered water near the apron.
   // This row is the only coverage the low and high rungs of the crossing ladder get: worldgen
   // can only ever produce 3 distinct tiers at generation (`GEN_BRIDGE_CLASS_TIER`), so treat
   // it as load-bearing, not decoration. Sites are found at runtime (never hardcoded); if the
