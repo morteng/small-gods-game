@@ -268,6 +268,30 @@ export interface Connection {
   waypoints?: { x: number; y: number }[];
   width?: number;
   autoBridge?: boolean;
+  /**
+   * AUTHORED ROAD HISTORY — the state this road is already in when the world opens.
+   *
+   * `style` says what a road is MADE OF; this says what shape it is in. Without it every
+   * generated road is factory-fresh (`deriveRoadState` defaults condition 1, wear 0,
+   * overgrowth 0) and the whole disrepair vocabulary — open joints, lost setts, potholes,
+   * weed in the seams, polished wheel tracks — renders as its zero case no matter how old
+   * the fiction says the road is. Copied onto the edge's live `dynamics` at generation,
+   * after which the road-evolution tick owns it exactly as if the tick had produced it.
+   *
+   * Fields are the live {@link import('@/world/road-state').RoadDynamics} set; all 0..1
+   * except `ageYears`. Omit for a road that really is newly laid.
+   */
+  history?: {
+    ageYears?: number;
+    /** Upkeep: 1 = kept up, 0 = abandoned. Widens joints, loses setts, opens potholes. */
+    condition?: number;
+    /** Cumulative wear from use — potholes and hollows, deeper cart ruts. */
+    wear?: number;
+    /** Reclamation by vegetation — weed in the joints, worst at the verge. */
+    overgrowth?: number;
+    /** Use intensity — polishes the wheel tracks pale, holds the weed back. */
+    traffic?: number;
+  };
 }
 
 /** World seed -- full world definition */

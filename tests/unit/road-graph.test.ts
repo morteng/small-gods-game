@@ -381,3 +381,44 @@ describe('repairRoadDiagonalGaps', () => {
     expect(repairRoadDiagonalGaps(t, 6, 6)).toBe(0);
   });
 });
+
+describe('buildRoadGraph — authored road history', () => {
+  // Without this, a seed can describe a centuries-old lane but the renderer receives
+  // condition 1 / wear 0 / overgrowth 0 and paints it factory-fresh. See the
+  // `Connection.history` note in core/types.ts.
+  it('seeds the edge dynamics from Connection.history', () => {
+    const tiles = makeTiles(10, 1);
+    const fields = flatField(10, 1);
+    const pois = [poi('a', 0, 0), poi('b', 9, 0)];
+    const history = { ageYears: 220, condition: 0.12, wear: 0.78, overgrowth: 0.82, traffic: 0.04 };
+    const conns: Connection[] = [{ from: 'a', to: 'b', type: 'road', history }];
+
+    const graph = buildRoadGraph(conns, pois, tiles, fields);
+
+    expect(graph.edges[0].dynamics).toEqual(history);
+  });
+
+  it('leaves dynamics absent when no history is authored — a new road really is new', () => {
+    const tiles = makeTiles(10, 1);
+    const fields = flatField(10, 1);
+    const pois = [poi('a', 0, 0), poi('b', 9, 0)];
+    const graph = buildRoadGraph([{ from: 'a', to: 'b', type: 'road' }], pois, tiles, fields);
+    expect(graph.edges[0].dynamics).toBeUndefined();
+  });
+
+  it('gives each split segment its OWN dynamics object, never a shared mutable one', () => {
+    // The road-evolution tick mutates `edge.dynamics` in place; siblings sharing one
+    // object would evolve as a single road and drift out of step with their own traffic.
+    const tiles = makeTiles(10, 3);
+    const fields = flatField(10, 3);
+    const pois = [poi('a', 0, 1), poi('b', 5, 1), poi('c', 9, 1)];
+    const conns: Connection[] = [
+      { from: 'a', to: 'c', type: 'road', history: { condition: 0.5 }, waypoints: [{ x: 0, y: 1 }, { x: 5, y: 1 }, { x: 9, y: 1 }] },
+    ];
+    const graph = buildRoadGraph(conns, pois, tiles, fields);
+    const withDyn = graph.edges.filter((e) => e.dynamics);
+    expect(withDyn.length).toBeGreaterThan(0);
+    for (const e of withDyn) expect(e.dynamics).toEqual({ condition: 0.5 });
+    if (withDyn.length > 1) expect(withDyn[0].dynamics).not.toBe(withDyn[1].dynamics);
+  });
+});

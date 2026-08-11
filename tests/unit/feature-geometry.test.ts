@@ -3,7 +3,7 @@ import type { GameMap } from '@/core/types';
 import type { RoadGraph, RoadEdge } from '@/world/road-graph';
 import {
   buildRoadFeatureGeometry, roadPavednessAt, clearRoadFeatureGeometryCache,
-  binFeatureSegments, FEATURE_SEG_STRIDE, type FeatureSeg,
+  binFeatureSegments, FEATURE_SEG_STRIDE, ROAD_EXTRA_WORDS, ROAD_EXTRA, type FeatureSeg,
 } from '@/render/gpu/feature-geometry';
 
 function mapWith(roadGraph?: RoadGraph, seed = 1234, width = 24, height = 24): GameMap {
@@ -96,5 +96,72 @@ describe('buildRoadFeatureGeometry — analytic road pavedness', () => {
     expect(center).toBeGreaterThanOrEqual(mid);
     expect(mid).toBeGreaterThanOrEqual(off);
     expect(off).toBe(0);
+  });
+});
+
+// ── The ROAD STATE extension block ───────────────────────────────────────────────
+//
+// The buffer used to carry one surface scalar per end — `PAVEDNESS[material] ×
+// condition × (1 − 0.7·overgrowth)` — which made three independent facts about a road
+// indistinguishable downstream. These pin that the state now arrives SEPARATED, that
+// the shader can find it, and that the along-road coordinate the sett courses are drawn
+// in is continuous. See the ROAD_EXTRA_WORDS note in feature-geometry.ts.
+describe('buildRoadFeatureGeometry — the road state extension block', () => {
+  it('carries one ROAD_EXTRA row per segment, and the packed buffer has room for it', () => {
+    const geo = buildRoadFeatureGeometry(mapWith({ nodes: [], edges: [highway()] } as unknown as RoadGraph));
+    expect(geo.segCount).toBeGreaterThan(0);
+    expect(geo.extras.length).toBe(geo.segCount * ROAD_EXTRA_WORDS);
+    // The shader derives the extras base from segCount exactly this way; if the packing
+    // ever stops appending them, this is what catches it.
+    const nb = geo.nbx * geo.nby;
+    const extBase = 4 + (nb + 1) + geo.bucketSegs.length + geo.segCount * FEATURE_SEG_STRIDE;
+    expect(geo.packed.length).toBe(extBase + geo.segCount * ROAD_EXTRA_WORDS);
+    const first = new Float32Array(geo.packed.buffer, extBase * 4, ROAD_EXTRA_WORDS);
+    expect(first[ROAD_EXTRA.tier]).toBe(geo.extras[ROAD_EXTRA.tier]);
+  });
+
+  it('separates WHAT IT IS from WHAT SHAPE IT IS IN — the collapse this block exists to undo', () => {
+    // A well-kept GRAVEL highway (0.45 × 1.0) and a neglected COBBLED street
+    // (0.75 × 0.6) collapse to the very same 0.45 — the concrete case that made
+    // disrepair indistinguishable from having been built cheaper.
+    const kept = buildRoadFeatureGeometry(mapWith(
+      { nodes: [], edges: [roadEdge('g', STRAIGHT, { surface: 'dirt', class: 'highway' })] } as unknown as RoadGraph));
+    const ruined = buildRoadFeatureGeometry(mapWith(
+      { nodes: [], edges: [roadEdge('s', STRAIGHT, { surface: 'stone', class: 'road',
+        dynamics: { condition: 0.6 } })] } as unknown as RoadGraph, 99));
+    const pavedOf = (g: typeof kept) => g.segments[6];
+    expect(pavedOf(kept)).toBeCloseTo(pavedOf(ruined), 2);          // indistinguishable…
+    expect(kept.extras[ROAD_EXTRA.tier]).not.toBe(ruined.extras[ROAD_EXTRA.tier]);   // …but not any more
+    expect(ruined.extras[ROAD_EXTRA.condition]).toBeCloseTo(0.6, 5);
+    expect(kept.extras[ROAD_EXTRA.condition]).toBeCloseTo(1, 5);
+  });
+
+  it('arc length is cumulative along the edge — the courses must not restart at each vertex', () => {
+    // A CURVE, not STRAIGHT: `edgeRoadProfile` simplifies a straight run to a single
+    // segment, which would pass a monotonicity check vacuously.
+    const bend = Array.from({ length: 20 }, (_, i) => ({ x: 4 + i, y: 6 + Math.round(4 * Math.sin(i / 3)) }));
+    const geo = buildRoadFeatureGeometry(mapWith(
+      { nodes: [], edges: [roadEdge('c', bend, { surface: 'stone', class: 'highway' })] } as unknown as RoadGraph));
+    expect(geo.segCount).toBeGreaterThan(2);
+    let prev = -1;
+    for (let i = 0; i < geo.segCount; i++) {
+      const arc = geo.extras[i * ROAD_EXTRA_WORDS + ROAD_EXTRA.arc0];
+      expect(arc).toBeGreaterThan(prev);
+      prev = arc;
+    }
+    // …and it measures the real length, not the segment index.
+    const total = geo.extras[(geo.segCount - 1) * ROAD_EXTRA_WORDS + ROAD_EXTRA.arc0];
+    expect(total).toBeGreaterThan(1);
+  });
+
+  it('gives each edge its own pattern phase so two roads never wear in step', () => {
+    const geo = buildRoadFeatureGeometry(mapWith({
+      nodes: [],
+      edges: [highway('e1'), roadEdge('e2', Array.from({ length: 12 }, (_, i) => ({ x: 4, y: 4 + i })),
+        { surface: 'stone', class: 'highway' })],
+    } as unknown as RoadGraph));
+    const seeds = new Set<number>();
+    for (let i = 0; i < geo.segCount; i++) seeds.add(geo.extras[i * ROAD_EXTRA_WORDS + ROAD_EXTRA.edgeSeed]);
+    expect(seeds.size).toBe(2);
   });
 });

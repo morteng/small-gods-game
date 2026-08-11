@@ -110,6 +110,64 @@ export function segDist(ax: number, ay: number, bx: number, by: number, px: numb
 /** Surface material → base pavedness (how hard/stone-like the running surface reads). */
 const PAVEDNESS: Record<SurfaceMaterial, number> = { dirt: 0.2, gravel: 0.45, cobble: 0.75, paved: 1.0 };
 
+/** Surface material → the tier index the shader switches its LAID PATTERN on (bond,
+ *  sett size, joint width). Distinct from {@link PAVEDNESS}, which is a single blended
+ *  "how stone-like" ramp — see {@link ROAD_EXTRA_WORDS} for why one scalar was not enough. */
+const MATERIAL_TIER: Record<SurfaceMaterial, number> = { dirt: 0, gravel: 1, cobble: 2, paved: 3 };
+
+/**
+ * ── THE ROAD STATE EXTENSION BLOCK ────────────────────────────────────────────────
+ *
+ * WHY THIS EXISTS. The shared 8-word segment core carries ONE surface scalar, and for
+ * roads that scalar was `PAVEDNESS[material] × condition × (1 − 0.7·overgrowth)`. Three
+ * independent facts about a road multiplied into a single number — which means the
+ * renderer literally CANNOT tell them apart: a well-kept gravel lane (0.45 × 1.0) and a
+ * ruined cobbled high street (0.75 × 0.6) both arrive as 0.45 and paint identical
+ * pixels. Disrepair was indistinguishable from having been built cheaper, and
+ * `wear` / `traffic` / `construction` never reached the GPU at all.
+ *
+ * So the connectome's road state is carried THROUGH to the surface instead of being
+ * folded flat: what a road is MADE OF, what SHAPE it is in, and how hard it is USED are
+ * separate channels, and the shader composes the look from them (bond + sett size from
+ * material/construction, joint width + missing setts + patch repairs from condition and
+ * wear, weed in the joints from overgrowth, polished wheel tracks from traffic).
+ *
+ * WHY A SEPARATE BLOCK rather than a wider {@link FEATURE_SEG_STRIDE}: the 8-word core
+ * is SHARED with the river channel, and both `terrain-wgsl` and `water-wgsl` hardcode
+ * the `* 8u` segment stride. Widening it would make every river segment carry six dead
+ * floats and would couple a road change to the water shader. Instead the road packing
+ * APPENDS this block after the segments; it is indexed by the same segment id, and a
+ * consumer that doesn't know about it (every river path) reads the buffer unchanged.
+ *
+ * Per-SEGMENT, not per-end: road state is per-EDGE today. Should a future pass want a
+ * washed-out stretch mid-edge, these become per-end pairs and the shader lerps them by
+ * the same `t` it already computes — the layout is chosen to make that a widening, not
+ * a redesign.
+ */
+export const ROAD_EXTRA_WORDS = 8;
+
+/** Word offsets inside one segment's {@link ROAD_EXTRA_WORDS} block. Mirrored by name in
+ *  `terrain-wgsl.ts`'s `roadInfo()` — keep the two in step. */
+export const ROAD_EXTRA = {
+  /** 0 dirt · 1 gravel · 2 cobble · 3 paved — the PATTERN switch (see {@link MATERIAL_TIER}). */
+  tier: 0,
+  /** Upkeep 0..1. 1 = freshly laid, 0 = abandoned: widens joints, loses setts. */
+  condition: 1,
+  /** Cumulative wear 0..1 — potholes, sunken setts, polished wheel tracks. */
+  wear: 2,
+  /** Reclamation 0..1 — weed and moss in the joints, creeping in from the verge. */
+  overgrowth: 3,
+  /** Use intensity 0..1 — how hard the wheel tracks are polished clean. */
+  traffic: 4,
+  /** Engineered effort 0..1 — regularity of the courses (a lane wanders, a highway rules). */
+  construction: 5,
+  /** Arc length in TILES from the edge's start to this segment's `a` end. The along-road
+   *  coordinate: without it the sett courses restart at every centreline vertex. */
+  arc0: 6,
+  /** Per-edge id → the pattern's phase, so two roads never wear the same way. */
+  edgeSeed: 7,
+} as const;
+
 /** Carriageway shoulder lip beyond the carriage half-width (tiles) — where pavedness
  *  fades out. Kept narrow so the paved surface hugs the carriageway instead of
  *  bleeding a wide apron into the verge. Exported: placement/occupancy code
@@ -124,25 +182,36 @@ const ROAD_CORE_FRACTION = 0.7;
 export interface RoadFeatureGeometry extends BinnedFeatures {
   width: number;
   height: number;
+  /** Per-segment road state, `segCount * ROAD_EXTRA_WORDS` floats indexed by segment id.
+   *  See {@link ROAD_EXTRA_WORDS} for what it carries and why it is a separate block. */
+  extras: Float32Array;
   /** GPU upload (one u32 buffer; segment floats bit-reinterpreted). Layout:
    *    [bucketTiles, nbx, nby, segCount]              (4-word header)
    *    [bucketOffset : nbx*nby+1 words]
    *    [bucketSegs   : R words]   R = bucketOffset[nbx*nby]
    *    [segments     : segCount*FEATURE_SEG_STRIDE words]
-   *  The shader reads the header from word 0, so dims ride the buffer, not a uniform. */
+   *    [extras       : segCount*ROAD_EXTRA_WORDS words]   ROADS ONLY (absent for rivers)
+   *  The shader reads the header from word 0, so dims ride the buffer, not a uniform —
+   *  and it derives the extras base the same way, from segCount. */
   packed: Uint32Array;
 }
 
-/** Pack binned features into the self-describing u32 buffer the terrain shader reads. */
-function packSelfDescribing(b: BinnedFeatures): Uint32Array {
+/** Pack binned features into the self-describing u32 buffer the terrain shader reads.
+ *  `extras`, when given, is appended after the segments (see {@link ROAD_EXTRA_WORDS}). */
+function packSelfDescribing(b: BinnedFeatures, extras?: Float32Array): Uint32Array {
   const nb = b.nbx * b.nby;
   const offLen = nb + 1;
   const segWords = b.segCount * FEATURE_SEG_STRIDE;
-  const out = new Uint32Array(4 + offLen + b.bucketSegs.length + segWords);
+  const exWords = extras?.length ?? 0;
+  const out = new Uint32Array(4 + offLen + b.bucketSegs.length + segWords + exWords);
   out[0] = b.bucketTiles; out[1] = b.nbx; out[2] = b.nby; out[3] = b.segCount;
   out.set(b.bucketOffset, 4);
   out.set(b.bucketSegs, 4 + offLen);
-  out.set(new Uint32Array(b.segments.buffer, b.segments.byteOffset, segWords), 4 + offLen + b.bucketSegs.length);
+  const segAt = 4 + offLen + b.bucketSegs.length;
+  out.set(new Uint32Array(b.segments.buffer, b.segments.byteOffset, segWords), segAt);
+  if (extras && exWords > 0) {
+    out.set(new Uint32Array(extras.buffer, extras.byteOffset, exWords), segAt + segWords);
+  }
   return out;
 }
 
@@ -157,6 +226,8 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
   const W = map.width, H = map.height;
   const graph = map.roadGraph;
   const segs: FeatureSeg[] = [];
+  /** Parallel to `segs`, one {@link ROAD_EXTRA_WORDS}-long row each. */
+  const extraRows: number[][] = [];
   if (graph) {
     // NOTE: fillet↔raster reconciliation (`reconcileFilletRaster`) is an EXPLICIT worldgen
     // pass in map-generator — deliberately NOT triggered from this getter. A lazy trigger
@@ -165,6 +236,7 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
     // must never mutate tiles.
     const nodeById = new Map(graph.nodes.map((nd) => [nd.id, nd]));
     const poiById = new Map((map.worldSeed?.pois ?? []).map((p) => [p.id, p]));
+    let edgeIndex = 0;
     // The water the player SEES — NOT the tile raster. Roads carve 'bridge'/'dirt_road' straight
     // over the channel and the drawn river meanders up to a tile off the D8 line the tiles were
     // classified from, so a tile-only test kept painting cobble across open water at exactly the
@@ -174,12 +246,31 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
       const profile = edgeRoadProfile(map, edge, nodeById, poiById);
       if (!profile) continue;
       const { centerline, state, x } = profile;
-      const paved = Math.max(0, Math.min(1, PAVEDNESS[state.surfaceMaterial] * state.condition * (1 - 0.7 * state.overgrowth)));
+      // COVERAGE — how much hard surface is there at all, which is a different question
+      // from what shape it is in. Straight `× condition × (1 − 0.7·overgrowth)` drove a
+      // ruined cobbled lane to 0.04 and it disappeared into the grass: the road stopped
+      // being DRAWN before any of the disrepair vocabulary (open joints, lost setts,
+      // potholes, weed) could show it was ruined. A neglected stone road is still a stone
+      // road — decay thins the ribbon, it does not delete it, and the state channels now
+      // carry the ruin. Both factors keep a floor for that reason.
+      //   Unchanged for every world generated today: condition 1 / overgrowth 0 gives
+      //   exactly PAVEDNESS[material], as before. Only an AGED or authored road moves.
+      const wearFade = (0.5 + 0.5 * state.condition) * (1 - 0.5 * state.overgrowth);
+      const paved = Math.max(0, Math.min(1, PAVEDNESS[state.surfaceMaterial] * wearFade));
       if (paved <= 0) continue;
       const half = x.carriageHalf + SHOULDER_LIP_TILES;
       const reach = half + 0.5;
+      // Every edge gets its own pattern phase, so two roads meeting at a junction do not
+      // share a course grid (and do not wear in step). Index, not id-hash: deterministic
+      // and stable for a given graph, which is what the render memo keys on.
+      const edgeSeed = (edgeIndex++ * 2654435761) % 4096;
+      // Arc length accumulates across SKIPPED segments too (see the bridge skip below):
+      // the courses must run continuously onto the far bank, not restart at the deck.
+      let arc = 0;
       for (let k = 0; k + 1 < centerline.length; k++) {
         const a = centerline[k], b = centerline[k + 1];
+        const arc0 = arc;
+        arc += Math.hypot(b.x - a.x, b.y - a.y);
         // The ribbon STOPS AT THE BANKS: over a crossing the parametric deck entity IS the
         // running surface — painting pavedness under it double-drew the span and smeared
         // road colour down the carved channel walls beside the deck sprite.
@@ -187,11 +278,17 @@ export function buildRoadFeatureGeometry(map: GameMap): RoadFeatureGeometry {
         const mt = map.tiles?.[my]?.[mx]?.type ?? '';
         if (mt === 'bridge' || WATER_TYPES.has(mt) || wet(mx, my)) continue;
         segs.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, halfA: half, halfB: half, surfA: paved, surfB: paved, reach });
+        extraRows.push([
+          MATERIAL_TIER[state.surfaceMaterial], state.condition, state.wear, state.overgrowth,
+          state.traffic, state.construction, arc0, edgeSeed,
+        ]);
       }
     }
   }
   const binned = binFeatureSegments(segs, W, H);
-  return { width: W, height: H, ...binned, packed: packSelfDescribing(binned) };
+  const extras = new Float32Array(extraRows.length * ROAD_EXTRA_WORDS);
+  for (let i = 0; i < extraRows.length; i++) extras.set(extraRows[i], i * ROAD_EXTRA_WORDS);
+  return { width: W, height: H, ...binned, extras, packed: packSelfDescribing(binned, extras) };
 }
 
 /**

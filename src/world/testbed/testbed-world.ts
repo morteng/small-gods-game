@@ -62,6 +62,54 @@ export const TESTBED_GEN_SEED = 12345;
 const AUTHOR_W = 88;
 const AUTHOR_H = 58;
 
+// ─── ROOM TO BREATHE: the authored frame is written at 1×, then SCALED ────────
+//
+// Every coordinate in this file stays in the readable 88×58 frame above — including all
+// the measured notes, which would rot instantly if the literals were multiplied through
+// by hand. {@link scaleAuthored} applies this ONE factor to positions, regions, and
+// waypoints as the last step of {@link testbedSeed}, and `planWorldLayout` then derives
+// the map from the scaled content bounds as usual.
+//
+// WHY 1.5 AND NOT MORE — measured end to end at TESTBED_GEN_SEED (gen + specimens,
+// same box, same run):
+//     1.0 → 192×128 ·  24,576 tiles ·  39 s ·  3,566 entities ·   291 free apron cells
+//     1.5 → 288×192 ·  55,296 tiles · 122 s · 11,953 entities · 2,350 free apron cells
+//     2.0 → 384×256 ·  98,304 tiles · 239 s · 23,717 entities · 5,420 free apron cells
+// Specimen headroom was the binding complaint and 1.5 already multiplies it EIGHTFOLD,
+// which is the difference between "the next catalogue entry fails to place" and years of
+// slack. The cost is superlinear in the wrong places: entity count grows ~2.2× per 2.25×
+// of area (the vegetation brushes cover area, and only the apron gets mown), and BOTH the
+// headless gen and the in-browser art settle grow with it. At 2.0 the coverage test's
+// 300 s budget is 80% spent on generation alone and the browser load roughly doubles
+// again — for headroom nothing needs. Raise it only with a measurement, not a feeling.
+const TESTBED_SCALE = 1.5;
+
+/** Scale an authored seed out of the readable {@link AUTHOR_W}×{@link AUTHOR_H} frame.
+ *  Positions, region boxes and waypoints only: `summitM` is metres, and `size` /
+ *  `importance` are categories — scaling either would change what the world MEANS. */
+function scaleAuthored(seed: WorldSeed, k: number): WorldSeed {
+  if (k === 1) return seed;
+  const s = (n: number) => Math.round(n * k);
+  return {
+    ...seed,
+    size: { width: s(seed.size.width), height: s(seed.size.height) },
+    pois: (seed.pois ?? []).map((p) => ({
+      ...p,
+      // `POI.position` is optional on the type (a region-only POI need not carry one);
+      // every POI here has one, so preserve absence rather than inventing an origin.
+      ...(p.position ? { position: { x: s(p.position.x), y: s(p.position.y) } } : {}),
+      ...(p.region
+        ? { region: { x_min: s(p.region.x_min), x_max: s(p.region.x_max),
+          y_min: s(p.region.y_min), y_max: s(p.region.y_max) } }
+        : {}),
+    })),
+    connections: (seed.connections ?? []).map((c) => ({
+      ...c,
+      ...(c.waypoints ? { waypoints: c.waypoints.map((w) => ({ x: s(w.x), y: s(w.y) })) } : {}),
+    })),
+  };
+}
+
 // ─── Terrain shape ────────────────────────────────────────────────────────────
 //
 // A VALE is a river+terrace+slope machine: high dry flanks, a low trough tilted downhill
@@ -313,7 +361,11 @@ export function testbedSeed(): WorldSeed {
     // segment, and a highway's grade envelope (`gradeEnvelope`, road-graph.ts:342) makes
     // it hug the flat valley FLOOR — measured, one loose segment sent a highway 160 cells
     // down the trough and across the river five times.
+    // Also the ladder's POUNDED rung (see THE ROAD-CONDITION LADDER below): the trunk
+    // highway carries everything and is still worth repairing, so it wears hard without
+    // decaying — the case that separates `wear` from `condition`.
     { from: 'kingsford_bridge', to: 'greyward_castle', type: 'road', style: 'stone',
+      history: { ageYears: 60, condition: 0.88, wear: 0.72, overgrowth: 0.0, traffic: 0.97 },
       waypoints: [{ x: 66, y: 31 }, { x: 66, y: 33 }, { x: 66, y: 39 }, { x: 66, y: 41 },
         { x: 71, y: 45 }] },
     // ROAD — Netherquay (high, rank 2) ↔ Longacre (medium size, rank 1) ⇒ rank 2.
@@ -334,13 +386,38 @@ export function testbedSeed(): WorldSeed {
       waypoints: [{ x: 46, y: 31 }, { x: 46, y: 33 }, { x: 46, y: 36 }, { x: 46, y: 41 }] },
 
     // ── Dry-land roads (no crossing) — the settled network the vale reads as ──
-    { from: 'kingsford', to: 'vale_crossroads', type: 'road', style: 'stone',
-      waypoints: [{ x: 48, y: 20 }, { x: 50, y: 25 }, { x: 53, y: 29 }, { x: 54, y: 32 }] },
+    //
+    // ── THE ROAD-CONDITION LADDER ────────────────────────────────────────────
+    // `Connection.history` is the ONLY way this world can show the disrepair half of
+    // the road vocabulary. Every generated road is factory-fresh (`deriveRoadState`
+    // defaults condition 1 / wear 0 / overgrowth 0) and the live road-evolution tick
+    // needs game-YEARS to move them — so an instrument world that authors nothing here
+    // renders the zero case of open joints, lost setts, potholes, weed and polished
+    // wheel tracks, and a regression in any of them is invisible. These four stone
+    // roads stand the ladder end to end; the dirt network is left new on purpose, as
+    // the control. Verified against the live states (`edgeRoadProfile`) — the numbers
+    // below are what the SHADER receives, not a wish.
+    //
+    // KEPT — the temple road, the one the town actually maintains. No history: this is
+    // the pristine control the other three are read against.
     { from: 'kingsford', to: 'sunsrest_temple', type: 'road', style: 'stone',
       waypoints: [{ x: 48, y: 20 }, { x: 50, y: 18 }, { x: 52, y: 17 }, { x: 54, y: 16 }] },
+    // WORKED — hard use, still repaired: heavy wear polishing the wheel tracks, joints
+    // only starting to open. What a busy town street should look like.
+    { from: 'kingsford', to: 'vale_crossroads', type: 'road', style: 'stone',
+      history: { ageYears: 45, condition: 0.66, wear: 0.55, overgrowth: 0.06, traffic: 0.85 },
+      waypoints: [{ x: 48, y: 20 }, { x: 50, y: 25 }, { x: 53, y: 29 }, { x: 54, y: 32 }] },
     { from: 'kingsford', to: 'millbeck', type: 'road', style: 'dirt',
       waypoints: [{ x: 48, y: 20 }, { x: 40, y: 25 }, { x: 32, y: 30 }] },
-    { from: 'millbeck', to: 'fordstones', type: 'road', style: 'dirt',
+    // ABANDONED — the old paved way to a ruin nobody visits. `style:'stone'` on a
+    // TRACK-class road resolves to 'cobble' rather than 'paved' (`deriveRoadState`
+    // needs construction > 0.8 for dressed stone), so this is also the world's only
+    // cobble-tier carriageway — the rung the generated network never reaches.
+    { from: 'millbeck', to: 'fordstones', type: 'road', style: 'stone',
+      // MEASURED: at overgrowth 0.82 / condition 0.12 the ribbon thinned to 0.04 coverage
+      // and the lane simply was not there to look at. An instrument has to show the RUIN,
+      // not the absence — these are the deepest values that still read as a broken road.
+      history: { ageYears: 220, condition: 0.20, wear: 0.78, overgrowth: 0.50, traffic: 0.04 },
       waypoints: [{ x: 32, y: 30 }, { x: 39, y: 31 }, { x: 46, y: 31 }] },
     { from: 'netherquay', to: 'kingsford_bridge', type: 'road', style: 'dirt',
       waypoints: [{ x: 71, y: 29 }, { x: 69, y: 30 }, { x: 66, y: 31 }] },
@@ -373,12 +450,15 @@ export function testbedSeed(): WorldSeed {
     constraints: [],
   };
 
+  // Scaled BEFORE validation so what is checked is what generation actually receives.
+  const scaled = scaleAuthored(seed, TESTBED_SCALE);
+
   // Loud, never fatal — same contract as `terrainGenome`. An invalid testbed should
   // still boot so an author can look at what they broke.
-  const v = validateWorldSeed(seed);
+  const v = validateWorldSeed(scaled);
   if (v.errors.length) console.error('[testbed] seed invalid:', v.errors);
   if (v.warnings.length) console.warn('[testbed] seed warnings:', v.warnings);
-  return seed;
+  return scaled;
 }
 
 // ─── CROSSING TIERS AT GENERATION: what is actually reachable ─────────────────

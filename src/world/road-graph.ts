@@ -397,6 +397,11 @@ export function buildRoadGraph(
         surface,
         bridgeCells,
       };
+      // Authored history (`Connection.history`) seeds the edge's live dynamics, so a seed can
+      // say "this lane was abandoned a generation ago" and have the carve AND the surface
+      // agree about it from the first frame. A fresh object per edge: a connection that
+      // splits into several segments must not share one mutable dynamics with its siblings.
+      if (conn.history) edge.dynamics = { ...conn.history };
       graph.edges.push(edge);
 
       // Carve this segment immediately so the next walkRoad sees it (parity).
