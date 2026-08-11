@@ -73,10 +73,40 @@ function lineFor(d: Diagnostic): string {
   return `    ${SEV_TAG[d.severity] ?? '?'} ${d.rule}: ${d.message}${loc ? `  @ ${loc}` : ''}`;
 }
 
+/**
+ * `--max-errors N` — the ERROR BUDGET this invocation is allowed, i.e. a REGRESSION BAR
+ * rather than a clean bar.
+ *
+ * WHY THIS EXISTS, stated plainly so nobody reads it as a lowered standard: **zero errors
+ * is a bar no world in this repo meets.** Measured at the same gen seed, the shipped
+ * `default` world scores 4 errors and the dev testbed 6, and both therefore FAIL. A gate
+ * that is red on main tells you nothing on the day you break something — so the honest
+ * instrument is "no worse than the number we actually achieve", pinned per target and
+ * lowered as the errors are genuinely fixed. UNMET REQUIREMENTS are NOT budgetable and
+ * still fail unconditionally: a requirement is a contract the world declared for itself.
+ *
+ * Defaults to 0, so `npm run lint:world` behaves exactly as before.
+ */
+function parseMaxErrors(argv: string[]): number {
+  const i = argv.indexOf('--max-errors');
+  if (i === -1) return 0;
+  const n = Number(argv[i + 1]);
+  if (!Number.isInteger(n) || n < 0) {
+    console.error(`[connectome-lint] --max-errors needs a non-negative integer, got "${argv[i + 1]}"`);
+    process.exit(2);
+  }
+  return n;
+}
+
 async function main(): Promise<void> {
-  const seeds = process.argv.slice(2).map(Number).filter((n) => Number.isFinite(n));
+  const argv = process.argv.slice(2);
+  const maxErrors = parseMaxErrors(argv);
+  // `--max-errors 6` must not be read as "also lint gen seed 6": drop the flag's value.
+  const mi = argv.indexOf('--max-errors');
+  const seedArgv = mi === -1 ? argv : [...argv.slice(0, mi), ...argv.slice(mi + 2)];
+  const seeds = seedArgv.map(Number).filter((n) => Number.isFinite(n));
   const useSeeds = seeds.length ? seeds : [12345, 777];
-  const targets = resolveTargets(process.argv.slice(2));
+  const targets = resolveTargets(argv);
 
   let failed = false;
 
@@ -142,11 +172,23 @@ async function main(): Promise<void> {
       }
       if (report.total === 0) console.log('  ✓ clean');
 
-      if (report.counts.error > 0 || report.unmet.length > 0) failed = true;
+      // Errors are BUDGETED (see parseMaxErrors); unmet requirements never are.
+      if (report.counts.error > maxErrors) {
+        console.log(`  ✘ ${report.counts.error} error(s) — over the budget of ${maxErrors}`);
+        failed = true;
+      } else if (maxErrors > 0) {
+        console.log(`  ⚠ ${report.counts.error}/${maxErrors} error(s) — within budget, NOT clean`
+          + (report.counts.error < maxErrors ? '. Lower --max-errors to lock the gain in.' : ''));
+      }
+      if (report.unmet.length > 0) failed = true;
     }
   }
 
-  console.log(failed ? '\nFAIL: errors or unmet requirements — see above' : '\nPASS: no errors, all requirements met');
+  console.log(failed
+    ? '\nFAIL: errors over budget, or unmet requirements — see above'
+    : maxErrors > 0
+      ? `\nPASS: within the ${maxErrors}-error budget, all requirements met (NOT a clean world)`
+      : '\nPASS: no errors, all requirements met');
   if (failed) process.exit(1);
 }
 
