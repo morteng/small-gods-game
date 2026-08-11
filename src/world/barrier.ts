@@ -185,12 +185,12 @@ export function gateOpeningCell(run: BarrierRun, gate: BarrierGate): [number, nu
  *  artifact can OWN exactly the cells of its own gate span (a Gatehouse owns a `gate`, a
  *  WaterGate a `gap`). Deterministic; cells sorted (y, then x). */
 export function gateFootprintTiles(run: BarrierRun, gate: BarrierGate): [number, number][] {
-  const r = Math.max(0, (run.thickness - 1) / 2);
+  const { lo, hi } = thicknessOffsets(run.thickness);
   const cells = new Map<string, [number, number]>();
   const half = gate.width / 2;
   for (let t = Math.max(0, gate.t - half); t <= gate.t + half; t += 0.34) {
     const [px, py] = pointAt(run.path, t);
-    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+    for (let dx = lo; dx <= hi; dx++) for (let dy = lo; dy <= hi; dy++) {
       const cx = Math.round(px) + dx, cy = Math.round(py) + dy;
       cells.set(`${cx},${cy}`, [cx, cy]);
     }
@@ -198,22 +198,44 @@ export function gateFootprintTiles(run: BarrierRun, gate: BarrierGate): [number,
   return [...cells.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
 }
 
+/**
+ * The INTEGER cell offsets a run of `thickness` tiles spans either side of its centreline.
+ *
+ * THIS EXISTS BECAUSE `(thickness - 1) / 2` IS HALF-INTEGER AT EVEN THICKNESS, and both
+ * rasterizers here used it as a loop bound directly: at thickness 2 the loop stepped
+ * `-0.5, +0.5`, so every emitted key was `"12.5,30.5"` — a cell coordinate that can never
+ * match an integer tile lookup. The cells were still returned and still stored, so the bug
+ * was silent: `vegetation-clear.ts` built its tall-barrier cell set from them and matched
+ * NOTHING (vegetation was never cleared along a rampart, a hole in the WCV 121 work), and
+ * `entity-registry.ts` indexed occupancy from the same cells. Every even-thickness barrier
+ * type in the shipped catalogue was affected — `rampart` (thickness 2 and 3) and the
+ * fortress-grade stone `wall` rung (thickness 2).
+ *
+ * Odd thickness is symmetric and unchanged (T=1 → {0}; T=3 → {-1,0,1}). Even thickness has
+ * no symmetric integer answer, so it biases one cell to the low side (T=2 → {-1,0}), which
+ * is the standard grid convention and yields exactly `T` cells across for every integer T.
+ */
+export function thicknessOffsets(thickness: number): { lo: number; hi: number } {
+  const r = Math.max(0, (thickness - 1) / 2);
+  return { lo: -Math.ceil(r), hi: Math.floor(r) };
+}
+
 /** Rasterize the polyline at `thickness` into tile cells, split blocking vs gate-gap. */
 export function barrierFootprintTiles(run: BarrierRun): { blocking: [number, number][]; gate: [number, number][] } {
   const cells = new Map<string, [number, number]>();
   const gateCells = new Set<string>();
-  const r = Math.max(0, (run.thickness - 1) / 2);
+  const { lo, hi } = thicknessOffsets(run.thickness);
   for (const g of run.gates) {
     const half = g.width / 2;
     for (let t = Math.max(0, g.t - half); t <= g.t + half; t += 0.34) {
       const [px, py] = pointAt(run.path, t);
-      for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) gateCells.add(`${Math.round(px) + dx},${Math.round(py) + dy}`);
+      for (let dx = lo; dx <= hi; dx++) for (let dy = lo; dy <= hi; dy++) gateCells.add(`${Math.round(px) + dx},${Math.round(py) + dy}`);
     }
   }
   const total = pathLength(run.path);
   for (let t = 0; t <= total; t += 0.34) {
     const [px, py] = pointAt(run.path, t);
-    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+    for (let dx = lo; dx <= hi; dx++) for (let dy = lo; dy <= hi; dy++) {
       const cx = Math.round(px) + dx, cy = Math.round(py) + dy, k = `${cx},${cy}`;
       if (!gateCells.has(k)) cells.set(k, [cx, cy]);
     }
