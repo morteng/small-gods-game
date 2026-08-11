@@ -121,18 +121,26 @@ describe('buildRoadFeatureGeometry — the road state extension block', () => {
   });
 
   it('separates WHAT IT IS from WHAT SHAPE IT IS IN — the collapse this block exists to undo', () => {
-    // A well-kept GRAVEL highway (0.45 × 1.0) and a neglected COBBLED street
-    // (0.75 × 0.6) collapse to the very same 0.45 — the concrete case that made
-    // disrepair indistinguishable from having been built cheaper.
+    // A well-kept GRAVEL highway and a neglected COBBLED street collapse to the very same
+    // pavedness scalar — the concrete case that made disrepair indistinguishable from
+    // having been built cheaper.
+    //
+    // The COLLIDING CONDITION IS DERIVED, not decorative: coverage is
+    // `PAVEDNESS[material] * (0.5 + 0.5*condition) * (1 - 0.5*overgrowth)`, so cobble 0.75
+    // meets gravel-highway 0.45 at `0.5 + 0.5c = 0.6`, i.e. condition 0.2. It used to be
+    // 0.6, back when condition multiplied in raw; the wearFade FLOOR (added so a ruined lane
+    // does not thin out of existence before its disrepair can be seen) moved the meeting
+    // point. If this assertion starts failing, re-solve it — do not loosen the tolerance,
+    // because a near-miss is not the collapse this test is about.
     const kept = buildRoadFeatureGeometry(mapWith(
       { nodes: [], edges: [roadEdge('g', STRAIGHT, { surface: 'dirt', class: 'highway' })] } as unknown as RoadGraph));
     const ruined = buildRoadFeatureGeometry(mapWith(
       { nodes: [], edges: [roadEdge('s', STRAIGHT, { surface: 'stone', class: 'road',
-        dynamics: { condition: 0.6 } })] } as unknown as RoadGraph, 99));
+        dynamics: { condition: 0.2 } })] } as unknown as RoadGraph, 99));
     const pavedOf = (g: typeof kept) => g.segments[6];
     expect(pavedOf(kept)).toBeCloseTo(pavedOf(ruined), 2);          // indistinguishable…
     expect(kept.extras[ROAD_EXTRA.tier]).not.toBe(ruined.extras[ROAD_EXTRA.tier]);   // …but not any more
-    expect(ruined.extras[ROAD_EXTRA.condition]).toBeCloseTo(0.6, 5);
+    expect(ruined.extras[ROAD_EXTRA.condition]).toBeCloseTo(0.2, 5);
     expect(kept.extras[ROAD_EXTRA.condition]).toBeCloseTo(1, 5);
   });
 

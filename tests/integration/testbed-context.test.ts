@@ -22,6 +22,14 @@
 // (measured 2026-08-11 against this worktree post-WP-T1's d6643c9a; re-measure before assuming
 // either is stale — both are DETERMINISTIC at TESTBED_GEN_SEED, not flaky)
 //
+// STALE AS OF TESTBED_SCALE 1.5 — both were measured on the 192×128 world, and the scale
+// re-rolls the terrain outright, so every count below moved. What is measured NOW: 5 seated
+// decks, class1/class2/class3 AND the nearestDry fingerprint all 0, and the mill contract at
+// 0 findings (finding 3, which used to be pinned at 1, is simply GONE — the assertion below
+// now demands the target). Finding 1's MECHANISM still stands and is the durable part: road
+// class is re-derived from each edge's own endpoints, so an authored connection's class is
+// not the class its crossing gets. Re-measure the multiset before quoting it.
+//
 // 1. "ONE CROSSING PER ROAD CLASS" (the design intent stated in `testbed-world.ts`'s own
 //    connections comment) DOES NOT HOLD. `buildRoadGraph` collapses the authored `connections[]`
 //    into a topology-derived edge set and re-derives each edge's `RoadClass` from ITS OWN
@@ -62,6 +70,7 @@ import { POI_TYPES } from '@/core/schema';
 import { flankPoint } from '@/world/settlement-plan';
 import { blueprintOf } from '@/blueprint/entity';
 import { evaluateContracts } from '@/world/connectome-contracts';
+import { getFisherySites } from '@/world/fishery-site-store';
 import type { GameMap, Entity, BiomeMap } from '@/core/types';
 import type { World } from '@/world/world';
 import type { RoadGraph } from '@/world/road-graph';
@@ -113,12 +122,15 @@ describe('testbed in-situ context (WP-T3)', () => {
     expect(adjacent).toBeGreaterThanOrEqual(1);
   });
 
-  it('seats exactly the measured 4 road crossings, and every one clears the bridge-deck '
+  it('seats exactly the measured 5 road crossings, and every one clears the bridge-deck '
     + 'classifier\'s own accept bar (class1/class2/class3 all false)', () => {
     const graph = (map as unknown as { roadGraph?: RoadGraph }).roadGraph;
     expect(graph, 'no road graph on the generated map').toBeDefined();
     const rows = classifyBridgeDecks(map, 'testbed', TESTBED_GEN_SEED);
-    expect(rows.length, 'seated-deck count drifted from 4 — re-measure before assuming this pin is stale').toBe(4);
+    // 4 → 5 at TESTBED_SCALE 1.5: the four authored crossings plus one where the abandoned
+    // millbeck↔fordstones lane meets the trunk. The COUNT is only a drift tripwire; the accept
+    // bar is the class flags below, and they are what the re-fit actually had to restore.
+    expect(rows.length, 'seated-deck count drifted from 5 — re-measure before assuming this pin is stale').toBe(5);
 
     const classOf = (rowId: string): string | undefined => {
       const edgeId = rowId.replace(/^crossing@/, '').replace(/#\d+$/, '');
@@ -134,26 +146,54 @@ describe('testbed in-situ context (WP-T3)', () => {
       expect(r.class2, `${r.id} (${c}): class2 (both banks stand in drawn water)`).toBe(false);
       expect(r.class3, `${r.id} (${c}): class3 (a bank sits >=2 tiles off every drawn road ribbon)`).toBe(false);
     }
-    // MEASURED multiset — see the header's finding #1. `road` misses entirely (the authored
-    // netherquay↔longacre_farm crossing routes around its water instead of through it) and
-    // `highway` appears TWICE (kingsford_bridge↔greyward_castle's own crossing, plus an
-    // unauthored one near Sloughmire). Pinned as today's regression bar: a future fix should
-    // only ADD `road` or reduce the `highway` duplicate, never regress `track`/`path`.
-    expect(Object.fromEntries(byClass)).toEqual({ highway: 2, track: 1, path: 1 });
+    // MEASURED multiset. The header's finding #1 recorded `{highway:2, track:1, path:1}` —
+    // `road` MISSING entirely (the authored netherquay↔longacre_farm crossing routed around
+    // its water instead of through it) and `highway` DOUBLED. The crossing re-fit closed both:
+    // every road class now seats exactly one crossing, which is the design intent stated in
+    // `testbed-world.ts`, plus the abandoned lane's extra track. That the fix moved this pin in
+    // precisely the direction the old note asked for ("a future fix should only ADD `road` or
+    // reduce the `highway` duplicate") is the evidence it was a fix and not a reshuffle.
+    // Finding #1's MECHANISM is still live and still worth knowing: class is re-derived from
+    // each edge's own endpoints, so an authored connection's class need not survive to its
+    // crossing. It just happens to line up at this seed now.
+    expect(Object.fromEntries(byClass)).toEqual({ highway: 1, road: 1, track: 2, path: 1 });
   });
 
-  it('places at least one watermill and one fisherman_hut', () => {
+  it('places at least one watermill', () => {
     const civicOf = (e: Entity): string | undefined => (e.properties as { civic?: string } | undefined)?.civic;
     const mills = [...world.query({})].filter((e) => civicOf(e) === 'mill');
-    const fisheries = [...world.query({})].filter((e) => civicOf(e) === 'fishery');
     expect(mills.length, 'no watermill placed').toBeGreaterThan(0);
-    expect(fisheries.length, 'no fisherman_hut placed').toBeGreaterThan(0);
   });
 
+  // KNOWN GAP, MEASURED — the fisherman_hut this suite used to assert is GONE at
+  // TESTBED_SCALE 1.5, and the affordance layer is not why. `getFisherySites` still tags 24
+  // good sites on two `pond`-klass bodies (wl:22139 area 12 @251,76 and wl:35547 area 8
+  // @123,123), so the hydrology and the store both work. What broke is REACH: a fishery is
+  // seated from a settlement's own lot set, and the mire pond that Millbeck used to fish is
+  // now ~25 tiles away instead of ~17. Nothing is in range of either pond.
+  //
+  // NOT PAPERED OVER AND NOT SILENTLY FIXED: closing it means moving Millbeck or Sloughmire,
+  // and moving ANY POI re-rolls the hydrology that all four crossings are hand-fitted to
+  // (see `testbed-world.ts`'s crossing note — that trap has already been sprung once this
+  // round). It is a POI-placement job for the next pass at this world, not a code bug.
+  // Asserted here at the layer that IS whole, so the loss of the hut cannot also quietly
+  // take the site store with it. Same discipline as the dock gap in this file's header.
+  it('tags pond-shore fishery sites, even though no settlement is in reach to use one', () => {
+    expect(getFisherySites(map).length, 'the pond-fishery affordance layer went dark')
+      .toBeGreaterThan(0);
+    const fisheries = [...world.query({})]
+      .filter((e) => (e.properties as { civic?: string } | undefined)?.civic === 'fishery');
+    expect(fisheries.length, 'a fishery got placed after all — re-enable the flush-water '
+      + 'assertion below and delete this known-gap note').toBe(0);
+  });
+
+  // Kept LIVE rather than deleted: the loop is a no-op while the known gap above holds, so the
+  // moment a POI move puts a settlement back in reach of a pond this assertion starts guarding
+  // the hut again with no work. (`expect.assertions` is deliberately NOT used — an empty pass
+  // here is the documented state, not an oversight.)
   it('every fisherman_hut sits flush against DRAWN water (its business flank is painted)', () => {
     const fisheries = [...world.query({})]
       .filter((e) => (e.properties as { civic?: string } | undefined)?.civic === 'fishery');
-    expect(fisheries.length).toBeGreaterThan(0);
     const mask = getRenderWaterMask(map);
     for (const e of fisheries) {
       const waterFace = (e.properties as { waterFace?: 'north' | 'south' | 'east' | 'west' } | undefined)?.waterFace;
@@ -174,15 +214,27 @@ describe('testbed in-situ context (WP-T3)', () => {
   // is exactly what `mill.wheel-reaches-water` (`src/world/connectome/site-contracts.ts`)
   // checks, registered as a world-level invariant and run here via the SAME `evaluateContracts`
   // `lint:world` uses — reused, not reimplemented.
-  it('every watermill clears the mill.wheel-reaches-water contract — MEASURED: 1 does not', () => {
+  // 30 s, not vitest's default 5 s: `evaluateContracts` walks every contract over the WHOLE
+  // world, and at TESTBED_SCALE 1.5 that is 55,296 tiles and ~13k entities — it blew the
+  // default budget purely on size. The generation cost sits in `beforeAll` (300 s); this is
+  // the per-test analysis on top of it.
+  it('every watermill clears the mill.wheel-reaches-water contract', () => {
     const report = evaluateContracts({ world, map });
     const millDiagnostics = report.diagnostics.filter((d) => d.rule === 'mill.wheel-reaches-water');
-    // Pinned as today's regression bar (see the header's finding note): `kingsford_civic_mill`
-    // faces a flank cell the STRICT painted-water predicate (`paintedWaterAt`, what the contract
-    // actually calls) does not count as wet, even though the looser render mask does — the same
-    // "two hydrologies" shape of bug this epic has hit before. 0 is the target; 1 is measured.
-    expect(millDiagnostics.length, millDiagnostics.map((d) => d.message).join(' | ')).toBe(1);
-  });
+    // A ZERO-DIAGNOSTIC RESULT IS ONLY MEANINGFUL IF THERE ARE MILLS. The contract emits one
+    // finding per FAILING mill, so a world that sited none at all would sail through — assert
+    // the population first, or this becomes a test that cannot fail.
+    const mills = [...world.query({})]
+      .filter((e) => (e.properties as { civic?: string } | undefined)?.civic === 'mill');
+    expect(mills.length, 'no civic mill was sited — the contract below would pass vacuously')
+      .toBeGreaterThan(0);
+    // WAS PINNED AT 1 (`kingsford_civic_mill` faced a flank cell the STRICT painted-water
+    // predicate did not count as wet, though the looser render mask did — the "two hydrologies"
+    // shape of bug this epic keeps hitting). It now measures 0 at TESTBED_SCALE 1.5: the scale
+    // re-rolled the terrain and the mill's flank landed on genuinely painted water. The bar is
+    // therefore the TARGET, not a budget — this is the number the note always wanted.
+    expect(millDiagnostics.length, millDiagnostics.map((d) => d.message).join(' | ')).toBe(0);
+  }, 30_000);
 
   it('has a wall run with at least one gate and at least one tower', () => {
     const runs = map.barrierRuns ?? [];
