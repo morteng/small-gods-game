@@ -117,6 +117,31 @@ async function resolvePoiTarget(page: Page, poiId: string): Promise<ResolvedTarg
   }, poiId);
 }
 
+/**
+ * The live entity of `kind` nearest to `nearPoi`. A blueprint entity's `kind` IS its
+ * preset name (`blueprint/entity.ts`), so `kind:'watermill'` is the mill itself —
+ * `world.query({kind})` goes through World's own kind index, the same read path the
+ * renderer uses, not a parallel scan.
+ */
+async function resolveEntityKindTarget(
+  page: Page, kind: string, nearPoi: string,
+): Promise<ResolvedTarget | null> {
+  const anchor = await resolvePoiTarget(page, nearPoi);
+  if (!anchor) return null;
+  return page.evaluate(({ kind, ax, ay }) => {
+    type Ent = { x: number; y: number };
+    const g = (window as unknown as { __game?: { state?: { world?: { query: (o: { kind: string }) => Ent[] } } } }).__game;
+    const ents = g?.state?.world?.query({ kind }) ?? [];
+    if (ents.length === 0) return null;
+    let best = ents[0], bestD = Infinity;
+    for (const e of ents) {
+      const d = (e.x - ax) ** 2 + (e.y - ay) ** 2;
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return { x: best.x, y: best.y, count: ents.length };
+  }, { kind, ax: anchor.x, ay: anchor.y });
+}
+
 async function resolveSpecimenRowTarget(
   page: Page, row: string, tag: string, rowKey: string,
 ): Promise<ResolvedTarget | null> {
@@ -159,6 +184,15 @@ async function resolveTarget(
 ): Promise<{ target: ResolvedTarget; emptyRow: boolean } | null> {
   if ('poi' in station.target) {
     const t = await resolvePoiTarget(page, station.target.poi);
+    return t ? { target: t, emptyRow: false } : null;
+  }
+  if ('entityKind' in station.target) {
+    // NO FALLBACK, deliberately: an entity-kind station names a specific in-situ
+    // context (a mill on its millrace). If the world stopped producing one, framing
+    // some nearby POI instead would hand back a plausible-looking capture of the
+    // wrong thing — which is exactly how the mill went unphotographed for a round.
+    // Better to fail the tour by name.
+    const t = await resolveEntityKindTarget(page, station.target.entityKind, station.target.nearPoi);
     return t ? { target: t, emptyRow: false } : null;
   }
   return resolveSpecimenRowOrApronFallback(
@@ -212,8 +246,11 @@ async function captureStation(
 ): Promise<CaptureResult> {
   const resolved = await resolveTarget(page, station);
   if (!resolved) {
-    const what = 'poi' in station.target ? `poi '${station.target.poi}'` : `specimenRow '${station.target.specimenRow}'`;
-    throw new Error(`station '${station.id}': could not resolve ${what} in the live world (and no apron fallback either)`);
+    const t = station.target;
+    const what = 'poi' in t ? `poi '${t.poi}'`
+      : 'entityKind' in t ? `nearest '${t.entityKind}' entity to poi '${t.nearPoi}' (the world produced none)`
+        : `specimenRow '${t.specimenRow}'`;
+    throw new Error(`station '${station.id}': could not resolve ${what} in the live world`);
   }
   const { target, emptyRow } = resolved;
   if (emptyRow) {

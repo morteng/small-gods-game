@@ -176,6 +176,13 @@ export function testbedSeed(): WorldSeed {
     { id: 'kingsford', type: 'city', name: 'Kingsford', position: { x: 48, y: 20 }, size: 'huge', importance: 'critical',
       npcs: CITY_FOLK,
       description: 'The vale\'s one walled town, straddling the high bank above the ford it is named for.' },
+    // MEASURED: Millbeck gets NO watermill. `planCivics` is flush-or-omit — a settlement that
+    // is not on a wheel-scale reach gets no mill rather than a wheel turning on grass — and
+    // Millbeck sits high in the vale near the lake head. The four mills this world does stand
+    // belong to kingsford / netherquay / greyward / longacre. The name and description are
+    // kept as authored fiction; the tour's `mill_at_water` station frames NETHERQUAY's mill,
+    // and it says so (`stations.ts`). Do not "fix" this by dragging Millbeck onto the
+    // channel: moving a POI re-rolls the hydrology and every crossing waypoint downstream.
     { id: 'millbeck', type: 'village', name: 'Millbeck', position: { x: 32, y: 30 }, size: 'medium', npcs: MILL_FOLK,
       description: 'A village on the river bank whose mill wheel turns in the race below the green.' },
     // The river quay. `importance:'high'` (rank 2) is what makes its crossing a `road`

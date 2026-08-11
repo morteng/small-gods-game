@@ -49,10 +49,20 @@ export const KNOWN_SPECIMEN_ROWS = SPECIMEN_ROW_NAMES;
 export interface TestbedStation {
   /** Stable id — becomes the capture filename (`testbed-<id>.png`). */
   id: string;
-  /** A POI id (resolved from the live world's `worldSeed.pois`) or a specimen row
-   *  name (resolved as the centroid of that row's live, tagged entities). Never a
-   *  tile coordinate — see the module header. */
-  target: { poi: string } | { specimenRow: string };
+  /** WHAT TO FRAME, resolved from the LIVE world at capture time — never a tile
+   *  coordinate (see the module header):
+   *    `{ poi }`          a POI id, from `worldSeed.pois`.
+   *    `{ specimenRow }`  the centroid of that row's live, tagged specimens.
+   *    `{ entityKind }`   the nearest live entity of that KIND to `nearPoi`. A
+   *                       blueprint entity's `kind` IS its preset name
+   *                       (`blueprint/entity.ts:blueprintEntity`), so this frames
+   *                       the actual building rather than the settlement that
+   *                       contains it — which is the whole point of a station like
+   *                       `mill_at_water`, and was the one thing the first cut of
+   *                       this tour got wrong: it framed Millbeck's POI centre and
+   *                       the mill wheel, the epic's own headline example, was not
+   *                       in the picture. */
+  target: { poi: string } | { specimenRow: string } | { entityKind: string; nearPoi: string };
   /** Camera zoom (iso projection; `ISO_ZOOM_MAX` is 1 — the hard-rule default for
    *  a "centred on the tile" close shot). Omit to use the tour's own default
    *  (1). A handful of stations need to zoom OUT to show their subject at all
@@ -111,8 +121,24 @@ const ROW_ZOOM = 0.45;
 // warnings) — never hand-tune the zoom to paper over a target that drifted off the
 // deck.
 const CONTEXT_STATIONS: readonly TestbedStation[] = [
-  // The mill wheel reaching painted water — Millbeck's civic mill, `nearWater 3`.
-  { id: 'mill_at_water', target: { poi: 'millbeck' }, zoom: CLOSE_ZOOM },
+  // THE MILL WHEEL REACHING PAINTED WATER — the epic's headline in-situ context, and the
+  // reason `{ entityKind }` exists. Two corrections are baked into this one line, both
+  // found by looking at the capture instead of at the acceptance count:
+  //
+  //  1. It framed a POI (`millbeck`) and photographed a village green. A mill is seated by
+  //     `getMillSites` on a hydrology-tagged bank cell, nowhere near the POI centre.
+  //  2. Re-aimed at "the watermill nearest millbeck", it resolved to KINGSFORD's — because
+  //     MILLBECK HAS NO MILL, despite its own seed description promising one. Measured: the
+  //     world stands four watermills (kingsford 99,67 · netherquay 130,65 · greyward 123,69
+  //     · longacre 110,73) and none belongs to Millbeck; `planCivics` is flush-or-omit, so a
+  //     settlement off a wheel-scale reach simply gets none. And Kingsford's is the ONE mill
+  //     `lint:testbed` reports as `mill.wheel-reaches-water` FAILING — its wheel hangs over
+  //     dry ground. The station named after the context was framing the counter-example.
+  //
+  // Netherquay's mill stands 1 tile off drawn water on the trunk river, with the stone-arch
+  // crossing in the same frame. Re-derive from `scripts/probe-bridge-decks.ts` / the lint's
+  // mill rule if the seed ever moves a POI — never by assuming the nearest mill is a good one.
+  { id: 'mill_at_water', target: { entityKind: 'watermill', nearPoi: 'netherquay' }, zoom: CLOSE_ZOOM },
 
   // Each of the four road-class crossings (see the derivation note above).
   { id: 'crossing_highway', target: { poi: 'kingsford_bridge' }, zoom: CLOSE_ZOOM },
