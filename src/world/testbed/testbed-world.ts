@@ -236,10 +236,14 @@ export function testbedSeed(): WorldSeed {
     //     authoring frame: `contentBounds` (poi-layout.ts) unions POI regions, so a wider
     //     box grows the derived map and re-rolls the entire terrain — see the OFFSET note.
     //
-    // The flow layout in `specimens.ts` WRAPS at the apron's east edge but is free to run
-    // SOUTH past its bottom edge (it only checks map bounds + dryness), so the apron's
-    // height is not the constraint — the southern coastline is. See the SPECIMEN CAPACITY
-    // note at the bottom of this file for what that costs in coverage.
+    // The packer in `specimens.ts` is bounded by the apron's X-RANGE but is free to run
+    // SOUTH past its bottom edge (it only checks map bounds + dryness + occupancy), so the
+    // apron's height is not the constraint — the southern coastline is. It reaches y 120 of
+    // the 8-row-tall rect. See the SPECIMEN CAPACITY note at the bottom of this file.
+    //
+    // A `plains` REGION-FILL DRIES THE BIOME; IT DOES NOT SWEEP THE TREES. The brushes had
+    // already draped 680 nature entities over this band by the time the specimen pass runs,
+    // which is what made the finished ground unreadable — `specimens.ts` mows them.
     { id: 'specimen_apron', type: 'plains', name: 'The Specimen Apron', position: { x: 60, y: 55 },
       region: { x_min: 36, x_max: AUTHOR_W, y_min: 51, y_max: AUTHOR_H },
       description: 'A flat, open sward set aside on the southern terrace — the specimen ground.' },
@@ -404,16 +408,35 @@ export function testbedSeed(): WorldSeed {
 //                       millbeck_ring: `palisade`, 3 gates, 5 towers
 //   water buildings     4 × watermill, 1 × fisherman_hut (the mire pond, via Millbeck)
 //   POI type coverage   25 / 25
-//   specimen coverage   82 of 119 registry ids placed by WP-T2's pass (37 fail with
-//                       "no dry in-bounds slot") — see the SPECIMEN CAPACITY note below
+//   specimen coverage   118 of 118 registry ids (119 entities — `palisade` is both a
+//                       preset name and a BarrierKind), 0 failures, 647 organic nature
+//                       entities mown off the ground, 291 dry cells of headroom left.
+//                       See `specimens.ts`'s header for how the ground was made READABLE
+//                       as opposed to merely full — those are different problems and only
+//                       one of them has a metric.
 //   connectome-lint     75 findings — 6 error / 0 unmet requirement. NOT clean, and the
 //                       shipped `default` world at the same seed measures 47 findings /
 //                       4 errors, so "0 errors" is not a bar any world meets today. The
 //                       6 are: 4 × claims.unresolved (barrier×building where Kingsford's
 //                       and Millbeck's zones overlap), 1 × bridge.tiles-vs-deck, 1 ×
 //                       wall.crossing-only-at-gate on Kingsford.
+//                       THE BAR IS THEREFORE A BUDGET, NOT ZERO: `npm run lint:testbed`
+//                       runs `--max-errors 6` (connectome-lint.ts), so a REGRESSION is
+//                       loud while the instrument stays green. Unmet requirements are
+//                       never budgetable. Lower the 6 as the errors are genuinely fixed —
+//                       the script prints "within budget, NOT clean" so nobody mistakes a
+//                       pass for a clean world.
 
-// ─── SPECIMEN CAPACITY: this island cannot hold the whole catalogue ───────────
+// ─── SPECIMEN CAPACITY (HISTORICAL — the gap below was CLOSED) ────────────────
+//
+// RESOLVED: the shortfall this note diagnoses was option (b), and `specimens.ts` took it —
+// a bottom-left packer + tallest-band-first + tight separation now stands 118/118 on the
+// SAME apron. Keep the analysis: the AREA BUDGET it derives is still true and still binds
+// (291 dry cells of headroom left, so the ~15th new catalogue entry is the one that fails),
+// and it is the reason an ordered one-row-per-registry specimen ground — the layout this
+// artifact actually wants — does NOT fit on this island at any packing density.
+//
+// ─── (original note follows) ──────────────────────────────────────────────────
 //
 // MEASURED, not estimated. WP-T2's flow layout was run against a flat, island-free,
 // water-free genome slab (`terrainGenome({terrainShape:{kind:'plain'}, island:false})`)

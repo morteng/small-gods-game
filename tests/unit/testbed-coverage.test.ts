@@ -138,6 +138,22 @@ describe('testbed specimen coverage (WP-T3)', () => {
     expect(new Set(ids).size, 'the two "palisade" entities must have distinct entity ids').toBe(2);
   });
 
+  // THE LEGIBILITY GATE. Everything above measures COVERAGE, and coverage went 118/118
+  // with 0 failures while the finished ground was visually unusable: 680 organic nature
+  // entities stood between the specimens (the vegetation brushes' output — the apron POI's
+  // `plains` region-fill changes the BIOME, it does not sweep what is already there). The
+  // metrics were all true and the artifact failed its one purpose. `mowSpecimenGround` is
+  // the fix; this is the tripwire for it silently ceasing to fire, which would put the
+  // thicket back with every other number still green.
+  it('mows the organic nature off the specimen ground', () => {
+    expect(
+      report.natureCleared,
+      'no organic nature was swept off the specimen ground — either the sweep stopped firing '
+      + '(the ground is about to read as a thicket again) or the world stopped vegetating the '
+      + 'apron band. Measured baseline is ~680.',
+    ).toBeGreaterThan(100);
+  });
+
   it('reports the measured totals (documents the current state, not a pass/fail gate)', () => {
     // Informational only — logs today's numbers so a CI reader sees the real state
     // without having to re-run the pass. Not an assertion: see the header note on why
@@ -145,7 +161,8 @@ describe('testbed specimen coverage (WP-T3)', () => {
     // eslint-disable-next-line no-console
     console.log(
       `[testbed-coverage] placed=${report.placed.size} failed=${report.failed.length} `
-      + `overflowRows=${report.overflowRows} warnings=${report.warnings.length}`,
+      + `overflowRows=${report.overflowRows} warnings=${report.warnings.length} `
+      + `natureCleared=${report.natureCleared} freeCellsLeft=${report.freeCellsLeft}`,
     );
     if (report.failed.length) {
       // eslint-disable-next-line no-console

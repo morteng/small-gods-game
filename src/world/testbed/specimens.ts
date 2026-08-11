@@ -58,6 +58,15 @@
 // * `BUILDING_BLUEPRINTS` currently holds ZERO `bridge-*` keys (bridges live in their own
 //   `BRIDGE_RECIPES` registry), so the "except bridge-*" filter below is future-proofing, not
 //   a live exclusion.
+// * NO LIVESTOCK, and it is not a testbed gap: there are no animals IN THE WORLD to stand up.
+//   A sheep RIG ships (`render/paperdoll/rig-catalog.ts:208`, quadruped paperdoll, driven by
+//   the motion studio) but nothing binds it to a world entity — there is no animal entity
+//   kind, no brush, no seed vocabulary and no spawner anywhere. An instrument can only show
+//   one of each thing that exists; inventing livestock inside a dev testbed would be building
+//   gameplay content through the wrong door. When an animal entity kind does land it will
+//   need a ROW here (the rows enumerate blueprint presets / buildingTypes / flora species /
+//   barrier kinds / bridge recipes — a creature registry is none of those), so this is the
+//   one place the derive-don't-enumerate property does NOT cover it for free.
 
 import type { GameMap, Entity, POI } from '@/core/types';
 import type { World } from '@/world/world';
@@ -73,6 +82,7 @@ import { catalogue } from '@/catalogue/pack';
 import { clearFootprint } from '@/world/building-placer';
 import { defaultEntity } from '@/world/brush-helpers';
 import { tryGetEntityKindDef } from '@/world/entity-kinds';
+import { NATURE_CATEGORIES } from '@/world/vegetation-clear';
 import { accumulateFloraTint } from '@/world/brushes/vegetation-placer';
 import { placeBarrier } from '@/world/place-barrier';
 import { placeCoverageTowers } from '@/world/enclosure';
@@ -134,26 +144,74 @@ export type SpecimenRowName = (typeof SPECIMEN_ROW_NAMES)[number];
 //                     the padding is small: the original GAP 2 / ROW_GAP 3 wrapping flow
 //                     spent ~60% of the band on air and placed 82 of 119 ids.
 //   after this pass   118/119 ids (119 entities — `palisade` is both a preset and a kind),
-//                     0 failures, y 86..115, 575 dry cells still free.
+//                     0 failures, y 86..120, 647 organic nature entities mown off, 291 dry
+//                     cells still free (575 before {@link SEP_BIG} widened the ring around
+//                     the big items — that headroom is what legibility was bought with).
 //
-// Four things bought that, in order of what they were worth:
+// Four things bought the COVERAGE, in order of what they were worth:
 //   1. A real bottom-left PACKER instead of a wrapping flow ({@link Slab}) — a 1×1 herb can
 //      slide into the leftover width beside a 3×6 church instead of costing a whole line.
 //   2. SEP 1 / BAND_GAP 1 instead of GAP 2 / ROW_GAP 3.
 //   3. BANDS ORDERED TALLEST-FIRST, and BARRIER RUNS STOOD VERTICAL. Both are about the
 //      taper: a tall item needs all its rows dry in the SAME columns, so an 11-row wall run
 //      cannot stand near the shore (measured: barriers placed last lost 10 of 13 runs).
-//   4. The SWARD searches from the apron's north edge, sowing its 61 1×1 vegetation
-//      specimens through the ground the taller bands left over — the densest use of the
-//      apron, and the way a specimen ground wants to look anyway.
+//   4. The SWARD was broadcast-sown from the apron's north edge, through the ground the
+//      taller bands left over. That was the densest use of the apron — and it is exactly
+//      what the legibility pass below had to undo.
+//
+// ── AND THEN THE METRICS WENT GREEN WHILE THE ARTIFACT FAILED ────────────────────────────
+// 118/119 placed, 0 failures, 0 touching pairs — and the first capture of the finished
+// ground was UNREADABLE: a chaotic town, not a specimen ground. Measuring the PICTURE
+// rather than the report found why, and it was not the packing. **680 ORGANIC NATURE
+// ENTITIES ALREADY STOOD IN THE PACKING BAND BEFORE A SINGLE SPECIMEN WAS PLACED** — 211
+// tussock-grass, 50 english-oak, 41 hawthorn, 38 beech, 20 birch … against the 61
+// vegetation specimens the pass itself sows. The apron POI's `plains` region-fill dries the
+// ground's BIOME; it does not sweep what the vegetation brushes already draped over it, and
+// `clearFootprint` only sweeps each specimen's OWN footprint, so every tree BETWEEN
+// specimens survived. A specimen english-oak stood indistinguishable among fifty organic
+// ones. Hence {@link mowSpecimenGround} (647 swept, and `natureCleared` is gated in
+// `tests/unit/testbed-coverage.test.ts` so it cannot silently stop firing), and hence
+// {@link SEP_BIG} — a footprint tile is not what occludes in an isometric view, HEIGHT is.
+// Those two are what made it readable. Two OTHER plausible fixes were tried and rejected on
+// measurement: the sward as its own band (does not fit — see its note below) and BAND_GAP 3
+// (bought no aisle, cost 10 extra out-of-band placements).
+//
+// Legibility is what this ground is FOR, and it is not a number the report can carry: every
+// coverage metric was green while the artifact was useless. The same shape of error as three
+// bridge rounds shipping green against a decline count. LOOK AT THE PICTURE.
 
-/** Clear tiles between any two specimens. ONE — the smallest separation that still reads as
+/** Clear tiles between two SMALL specimens. ONE — the smallest separation that still reads as
  *  "two things" rather than one clump at the tour's framing zoom, and the value the area
  *  budget above can actually afford. Zero would let neighbouring silhouettes touch. */
 const SEP = 1;
-/** Extra clear lane between two BANDS, on top of {@link SEP} — so a station can frame one
- *  band and the eye can tell the flora sward from the barrier line. */
+/** Clear tiles around a BIG specimen ({@link BIG_SPECIMEN_TILES} or more on either axis).
+ *  A footprint tile is not what occludes in an isometric view — HEIGHT is, and a keep's
+ *  sprite rises far above its four cells, so at SEP 1 a tall specimen simply eats the one
+ *  standing behind it. Measured cost of the extra ring on the ~38 big items: ~495 cells
+ *  against 577 free, i.e. it fits and nothing else does. */
+const SEP_BIG = 2;
+/** Footprint extent (either axis) at which a specimen claims {@link SEP_BIG}. Four: the
+ *  three big bands (barrier runs h 9, buildings, the larger props) clear it and the sward's
+ *  1×1s do not, which is exactly the split that matters for occlusion. */
+const BIG_SPECIMEN_TILES = 4;
+
+/** The separation ring a w×h specimen claims. */
+function sepFor(w: number, h: number): number {
+  return Math.max(w, h) >= BIG_SPECIMEN_TILES ? SEP_BIG : SEP;
+}
+/** Extra clear lane between two BANDS, on top of {@link SEP}.
+ *
+ *  STAYS AT ONE, and that is measured rather than assumed. Widening it to 3 to cut visible
+ *  aisles was TRIED: it bought no aisle, because the bands do not hold their rows anyway
+ *  (the sward is broadcast across all of them and the packer backfills a full band into
+ *  earlier holes), and it cost 10 extra out-of-band placements — 19 backfilled at 3 against
+ *  9 at 1. Aisles are not a knob on a ground this full; {@link mowSpecimenGround} and
+ *  {@link SEP_BIG} are what made the layout readable. */
 const BAND_GAP = 1;
+/** How far past the specimens' own bounding box {@link mowSpecimenGround} sweeps organic
+ *  nature. Two tiles: a tree's drawn canopy is ~2-3 tiles across (`TREE_CLEAR_RADIUS` 2.2),
+ *  so a trunk standing just outside the box still splats foliage over the edge specimens. */
+const MOW_MARGIN = 2;
 /** Side of the synthetic apron used when the POI carries a `position` but no `region`. */
 const DEFAULT_APRON_SIDE = 64;
 /** How far a wet-row search may wander from the apron looking for rendered water. */
@@ -201,6 +259,12 @@ export interface SpecimenReport {
    *  future catalogue entries. When this approaches zero the next new preset will be the one
    *  that fails, and the fix is the apron/world, not this file. */
   freeCellsLeft: number;
+  /** Organic nature entities {@link mowSpecimenGround} swept off the specimen ground. The
+   *  measured baseline is ~680 — an order of magnitude more than the pass's own 61 vegetation
+   *  specimens, and the reason the ground was unreadable before this existed. A number near
+   *  ZERO here means the sweep has stopped finding the brushes' output and the ground is
+   *  about to silently go back to being a thicket. */
+  natureCleared: number;
 }
 
 // ─── Apron resolution ─────────────────────────────────────────────────────────
@@ -304,9 +368,9 @@ interface Specimen {
    *  scan found, not on the apron lattice. */
   at?: { x: number; y: number };
   /** Search the WHOLE apron from its north edge rather than starting below the previous band.
-   *  Set on the sward: 1×1 vegetation is the only thing that fits the leftover ground between
-   *  the taller specimens and in the tapering cells at the coast, and sowing it there is both
-   *  the densest use of the apron and the way it actually wants to look. */
+   *  Set on the SWARD only: 1×1 vegetation is the only thing that fits both the leftover
+   *  ground between the taller specimens and the tapering cells at the coast, and the island
+   *  has no room for it as a band of its own (measured — see the sward's own note below). */
   fromTop?: boolean;
 }
 
@@ -459,7 +523,7 @@ function barrierSpecFromPreset(bp: Blueprint): { spec: Omit<BarrierRun, 'path' |
 export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensOptions = {}): SpecimenReport {
   const report: SpecimenReport = {
     rect: null, placed: new Map(), failed: [], warnings: [], overflowRows: 0, used: null, bands: [],
-    freeCellsLeft: 0,
+    freeCellsLeft: 0, natureCleared: 0,
   };
 
   // IDEMPOTENCY: the tag index is the sentinel. Re-running must not double-place entities
@@ -565,6 +629,8 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
       + `ground): ${outOfBand.join(', ')}`);
   }
 
+  report.natureCleared = mowSpecimenGround(world, used);
+
   // Every `clearFootprint` above rewrote `tile.type`/`walkable` in place, and the flora tint
   // feeds the same colour field — without this the GPU repaints neither until reload.
   bumpTilesRev(map);
@@ -577,6 +643,7 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
       + `apron ${rect.x1 - rect.x0 + 1}x${rect.y1 - rect.y0 + 1} at (${rect.x0},${rect.y0}); `
       + `used y ${used.y0}..${used.y1} (${report.overflowRows} row(s) on the terrace south of `
       + `the apron rect — expected, see SpecimenReport.overflowRows); `
+      + `${report.natureCleared} organic nature entities mown off the ground; `
       + `${report.freeCellsLeft} dry cells of headroom left`,
     );
     for (const b of report.bands) {
@@ -586,6 +653,50 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
     for (const w of report.warnings) console.warn(`[testbed] ${w}`);
   }
   return report;
+}
+
+// ─── Mowing the ground ────────────────────────────────────────────────────────
+
+/**
+ * Sweep ORGANIC nature (the vegetation brushes' trees, shrubs, grasses, rocks and debris)
+ * off the specimen ground, leaving the specimens as the only things standing on it.
+ *
+ * THIS IS THE LEGIBILITY PASS, and it was the missing one. The apron POI is a `plains`
+ * region-fill: it dries the ground's BIOME, which changes what the brushes would seed there,
+ * but it neither runs after them nor removes what they already draped over the terrace the
+ * band overflows onto. Measured on the shipped world: **680 organic nature entities inside
+ * the packing band before a single specimen existed** (211 tussock-grass, 50 english-oak, 41
+ * hawthorn, 38 beech, 20 birch…), against 61 vegetation specimens. `clearFootprint` sweeps
+ * only each specimen's own cells, so all 680 stood in the aisles.
+ *
+ * BOUNDED TO WHAT THE PASS ACTUALLY USED (`used`, inflated by {@link MOW_MARGIN}) — never
+ * the whole band. `used` excludes the wet row, so this cannot bald a riverbank: the bridge
+ * specimens keep their surroundings, which are ordinary world ground and read as such. A
+ * blanket sweep of the apron's x-band to the map edge would shave a bare strip down to the
+ * shore and look like a bug.
+ *
+ * Specimen-tagged entities are exempt (the 61 vegetation specimens are nature by category —
+ * that is the whole point of them).
+ *
+ * KNOWN, ACCEPTED: removal does NOT reverse the ground flora TINT those entities contributed
+ * during generation (`accumulateFloraTint` has no inverse, and nothing in the engine reverses
+ * it — the shipped road/building sweeps `clearObstructedVegetation` leave it too). So the mown
+ * ground keeps a faint memory of the wood that stood there. Consistent with the rest of the
+ * engine, and on a specimen apron it reads as meadow colour.
+ */
+function mowSpecimenGround(world: World, used: SpecimenRect): number {
+  const region = {
+    x: used.x0 - MOW_MARGIN, y: used.y0 - MOW_MARGIN,
+    w: used.x1 - used.x0 + 1 + MOW_MARGIN * 2, h: used.y1 - used.y0 + 1 + MOW_MARGIN * 2,
+  };
+  const doomed: string[] = [];
+  for (const e of world.query({ region })) {
+    if (e.tags?.includes(SPECIMEN_TAG)) continue;
+    const def = tryGetEntityKindDef(e.kind);
+    if (def && NATURE_CATEGORIES.has(def.category)) doomed.push(e.id);
+  }
+  for (const id of doomed) world.removeEntity(id);
+  return doomed.length;
 }
 
 // ─── The packer ───────────────────────────────────────────────────────────────
@@ -600,9 +711,13 @@ export function placeSpecimens(map: GameMap, world: World, opts: PlaceSpecimensO
  * tapering southern coastline) into the same test as "is it already taken", so the packer
  * follows the real shoreline instead of assuming a rectangle.
  *
- * Separation is enforced by testing a margin of {@link SEP} on the item's east and south
+ * Separation is enforced by testing a margin of {@link sepFor} on the item's east and south
  * sides: every neighbour reserved its own margin when it was placed, so no two specimens can
  * end up adjacent. Deterministic — a fixed north→south, west→east scan, no rng.
+ *
+ * The margin is PER ITEM (a big specimen claims a wider ring — see {@link SEP_BIG}), which
+ * makes the guarantee asymmetric in an important way: two neighbours are separated by the
+ * LARGER of their two rings, because whichever was placed first already marked its own.
  */
 class Slab {
   private readonly taken: Uint8Array;
@@ -638,7 +753,8 @@ class Slab {
    *  sit flush against it. Marked + tested, every neighbour is {@link SEP} clear on all four
    *  sides — the west/north sides because the WESTERN item's own margin already owns them. */
   mark(x: number, y: number, w: number, h: number): void {
-    for (let dy = 0; dy < h + SEP; dy++) for (let dx = 0; dx < w + SEP; dx++) this.block(x + dx, y + dy);
+    const sep = sepFor(w, h);
+    for (let dy = 0; dy < h + sep; dy++) for (let dx = 0; dx < w + sep; dx++) this.block(x + dx, y + dy);
   }
 
   /** Free for a w×h item at (x,y) INCLUDING its east/south separation margin. The margin is
@@ -646,8 +762,9 @@ class Slab {
    *  slab's own edge. */
   private fits(x: number, y: number, w: number, h: number): boolean {
     if (x < this.x0 || y < this.y0 || x + w - 1 > this.x1 || y + h - 1 > this.y1) return false;
-    for (let dy = 0; dy < h + SEP; dy++) {
-      for (let dx = 0; dx < w + SEP; dx++) {
+    const sep = sepFor(w, h);
+    for (let dy = 0; dy < h + sep; dy++) {
+      for (let dx = 0; dx < w + sep; dx++) {
         const cx = x + dx, cy = y + dy;
         if (!this.inside(cx, cy)) continue;              // margin off the slab edge is fine
         if (this.taken[this.idx(cx, cy)]) return false;
@@ -763,6 +880,19 @@ function buildSpecimenList(
   // 7 that do not (see the header) take the blueprint path — then every flora species (trees,
   // shrubs, rocks AND the clutter herbs/grasses/ferns, which are vegetation entities exactly
   // like a tree).
+  //
+  // THE SWARD IS BROADCAST (`fromTop`), AND THAT IS MEASURED, NOT LAZY. Laying it as an
+  // ordinary band — one nursery block below the props, which is what a specimen ground wants
+  // to look like — was TRIED and does not fit: with the props ending at y117 the sward's band
+  // starts at y121, and the coast leaves ~102 dry cells below that against the ~250 a 61-item
+  // 2×2 lattice needs. All 61 fell through to the backfill path, i.e. straight back to
+  // broadcast, with a 61-name warning attached. Re-ordering does not rescue it either — the
+  // three big bands plus their aisles already need ~32 of the ~36 usable rows, so whichever
+  // band is pushed into the taper is the one that starts failing, and a coverage regression is
+  // a worse outcome than a mixed sward. THE GROUND IS FULL: an ordered, aisled, one-row-per-
+  // registry specimen ground needs more land than this island has (see the header's area
+  // budget). What made the difference here was {@link mowSpecimenGround} — broadcast among 680
+  // organic trees is a thicket; broadcast on mown ground is a collection.
   for (const name of presetKeys((bp) => bp.class === 'plant')) {
     if (hasVegetationKind(name)) {
       out.push({
