@@ -281,7 +281,9 @@ fn roadInfo(fx : f32, fy : f32) -> RoadInfo {
   var out : RoadInfo;
   out.paved = 0.0; out.edge = 0.0; out.d = 9.0; out.half = 1.0; out.verge = 9.0; out.near = 0.0;
   out.along = 0.0; out.across = 0.0; out.cond = 1.0; out.wear = 0.0;
-  out.over = 0.0; out.traffic = 0.0; out.constr = 0.0; out.eseed = 0.0;
+  // eseed is the edge tie-break below and every real edge seed is >= 0, so the initial
+  // value must sit BELOW all of them or edge-seed 0 would fail to claim an empty frame.
+  out.over = 0.0; out.traffic = 0.0; out.constr = 0.0; out.eseed = -1.0;
   // Below every real tier, so the first covering segment always claims the frame.
   out.tier = -1.0;
   // Distance to the frame winner, tracked separately from out.d: out.d is the distance to
@@ -322,17 +324,32 @@ fn roadInfo(fx : f32, fy : f32) -> RoadInfo {
       let core = half * 0.7;
       let fade = select((half - d) / max(half - core, 1e-4), 1.0, d <= core);
       let cover = paved * fade;
-      // THE MATERIAL AND ITS FRAME FOLLOW THE DOMINANT ROAD — highest TIER first, then
-      // nearest among that tier. Two failures bound this rule:
+      // THE MATERIAL AND ITS FRAME FOLLOW THE DOMINANT ROAD — highest TIER, then a
+      // deterministic per-EDGE priority at that tier, then nearest among that edge's
+      // segments. The middle key is the edge's hashed seed: which edge it favours is
+      // arbitrary, but it is CONSTANT over the whole overlap, which is the point.
+      // Three failures bound this rule:
       //  · nearest-overall gave the material to whichever segment happened to be closer,
       //    so a dirt lane meeting a paved street painted a blob of mud across the paving;
       //  · highest-faded-pavedness (paved·fade) is not STABLE — fade falls off laterally,
       //    so the winning segment changed from fragment to fragment and the sett courses
-      //    tore into a fan of smears around every curve.
-      // Tier is constant along a road, so within one road this reduces exactly to the
-      // min-d rule the lateral coordinate has always used.
-      if (tierOf(extBase, sid) > out.tier + 1e-4
-          || (tierOf(extBase, sid) > out.tier - 1e-4 && d < frameD)) {
+      //    tore into a fan of smears around every curve;
+      //  · tier-then-nearest is stable WITHIN a road but not BETWEEN two roads of the
+      //    same tier. out.along is cumulative arc length measured from each EDGE's own
+      //    origin, so where two same-tier carriageways overlap — every town junction —
+      //    the min-d winner alternates and the fragment reads two unrelated arc origins
+      //    in bands. That is the parallel streaking at Kingsford: not noise, two course
+      //    systems interleaving. Ordering by edge first means one edge owns the whole
+      //    overlap and the handover happens on that edge's coverage boundary, which is a
+      //    clean line across the carriageway — a joint, which is what a junction IS.
+      // Within one edge the seed ties, so this reduces exactly to the min-d rule the
+      // lateral coordinate has always used.
+      let tr = tierOf(extBase, sid);
+      let es = rfF(extBase + sid * 8u + 7u);
+      if (tr > out.tier + 1e-4
+          || (tr > out.tier - 1e-4
+              && (es > out.eseed + 1e-4
+                  || (es > out.eseed - 1e-4 && d < frameD)))) {
         frameD = d;
         let segLen = sqrt(max(len2, 1e-12));
         let ux = dx / segLen; let uy = dy / segLen;
@@ -530,18 +547,73 @@ fn analyticSetts(r : RoadInfo, fwTiles : vec2<f32>, earth : vec3<f32>) -> vec3<f
   }
   return col;
 }
-// Loose gravel — small jittered chips, no mortar; chips fade to packed tone at range.
-fn analyticGravel(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
-  let chipTiles = 0.05;                        // 0.10 m chips
-  let uv = uvTiles / chipTiles;
-  let cellFw = max(fwTiles.x, fwTiles.y) / chipTiles;
+const GRAVEL_CHIP_TILES = 0.05;                // 0.10 m chips
+struct Chips { tone : f32, dome : f32, lod : f32 }
+// The bare chip field — loose stone, no state, no direction. SHARED so the weathered-rock
+// SCREE apron and the road metalling cannot drift apart: scree is literally the same chips
+// cooled toward the rock they came off.
+fn gravelChips(uv : vec2<f32>, cellFw : f32) -> Chips {
   let v = vorCell(uv, 0.9);
-  let lod = detailLod(cellFw);
+  var c : Chips;
+  c.lod = detailLod(cellFw);
   let t = min(1.0, v.x / 0.5);
-  let dome = sqrt(max(0.0, 1.0 - t * t)) * lod;
-  let tone = 0.42 + 0.16 * v.y;
-  let val = tone * (0.7 + 0.3 * dome);
+  c.dome = sqrt(max(0.0, 1.0 - t * t)) * c.lod;
+  c.tone = 0.42 + 0.16 * v.y;
+  return c;
+}
+// Chips on open ground (the scree apron) — grid-sampled, stateless.
+fn analyticGravelPlain(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
+  let c = gravelChips(uvTiles / GRAVEL_CHIP_TILES,
+                      max(fwTiles.x, fwTiles.y) / GRAVEL_CHIP_TILES);
+  let val = c.tone * (0.7 + 0.3 * c.dome);
   return vec3<f32>(val, val * 0.95, val * 0.86);
+}
+// Loose gravel as a ROAD SURFACE — small jittered chips, no mortar.
+//
+// STATE-DRIVEN like \`analyticSetts\`, and for the same reason: a metalled road is not one
+// texture, it is a surface in a CONDITION. Chips stay an isotropic Voronoi (loose stone has
+// no bond to lay in), but everything ON it is read from the road frame, so the wheel tracks,
+// the scour and the weed all run with the carriageway instead of the map axes.
+//  · traffic  → two compacted wheel bands, chips pressed flat and darkened
+//  · wear     → the metalling thins overall and the earth beneath starts to show
+//  · cond     → scour hollows where the surface has failed, elongated ALONG the road
+//  · over     → grass down the crown and in from the verges (the two-track lane read)
+// \`earth\` is the road-dirt albedo — whatever the metalling has lost shows it.
+fn analyticGravel(r : RoadInfo, fwTiles : vec2<f32>, earth : vec3<f32>) -> vec3<f32> {
+  // Chips in the ROAD frame: a curve then carries its own metalling instead of sliding over a
+  // world-locked lattice. The seed offset keeps two roads from sharing one chip field.
+  let uv = vec2<f32>(r.across / GRAVEL_CHIP_TILES + r.eseed * 0.53,
+                     r.along  / GRAVEL_CHIP_TILES + r.eseed * 0.29);
+  let c = gravelChips(uv, max(fwTiles.x, fwTiles.y) / GRAVEL_CHIP_TILES);
+  let lod = c.lod;
+  let dome = c.dome;
+  let decay = 1.0 - r.cond;
+
+  // A long drift along the road — re-metalled stretches, different pits.
+  let drift = (vnoise(vec2<f32>(r.along * 0.05, r.across * 0.20 + r.eseed)) - 0.5) * 0.10;
+  var tone = c.tone + drift;
+
+  // WHEEL BANDS — on loose stone the wheels PRESS the chips in rather than polishing them,
+  // so the tracks read darker and smoother (the opposite sign to the sett tier).
+  let rutOff = min(0.36, r.half * 0.62);
+  let z = (abs(r.across) - rutOff) / 0.17;
+  let track = exp(-z * z) * r.traffic;
+  tone = tone - 0.07 * track;
+  let val = tone * (0.7 + 0.3 * dome * (1.0 - 0.55 * track));
+  var col = vec3<f32>(val, val * 0.95, val * 0.86);
+
+  // THINNING + SCOUR — a neglected metalling wears through to the earth it was laid on,
+  // worst where the traffic is heaviest.
+  let bare = clamp(r.wear * (0.18 + 0.5 * decay) + 0.35 * decay * track, 0.0, 0.7);
+  let bf = vnoise(vec2<f32>(r.along * 0.26 + r.eseed, r.across * 0.8));
+  col = mix(col, earth * 0.9, smoothstep(1.0 - bare, 1.0 - bare + 0.18, bf) * 0.85);
+
+  // WEED — grass takes the crown first (no wheel kills it there) and creeps in from the verge.
+  let crown = 1.0 - smoothstep(0.0, rutOff * 0.75, abs(r.across));
+  let vergeLean = smoothstep(0.35, 1.0, abs(r.across) / max(r.half, 1e-3));
+  let weed = clamp(r.over * (0.35 + 0.7 * max(crown, vergeLean)), 0.0, 1.0);
+  col = mix(col, vec3<f32>(0.24, 0.34, 0.16), weed * 0.55 * lod);
+  return col;
 }
 // Scattered pebble STONES on open ground — analytic like the road gravel, because a
 // baked swatch cannot survive gameplay-zoom minification (at 1:1 the pebble layer sits
@@ -981,9 +1053,22 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
     // what it is MADE OF; the state channels below say what shape it is in.
     let toGravel = smoothstep(0.35, 1.00, rInfo.tier);   // dirt → gravel
     let toSetts  = smoothstep(1.35, 2.00, rInfo.tier);   // gravel → laid stone
-    let gravelA = analyticGravel(in.vGrid, fwTiles);
+    // DIRT reads its state too, or the bottom of the ladder is the only surface in the game
+    // that cannot show its condition. An earth track has no fabric to lose, so the channels
+    // act on the earth itself: traffic darkens and compacts it, weather + neglect mottle it,
+    // and overgrowth greens the whole running surface (a lane going back to grass).
+    var dirtS = dirtA;
+    let dRut = min(0.36, rInfo.half * 0.62);
+    let dz = (abs(rInfo.across) - dRut) / 0.19;
+    let dTrack = exp(-dz * dz) * rInfo.traffic;
+    dirtS = dirtS * mix(1.0, 0.82, dTrack);                        // beaten wheel lines
+    let dMot = vnoise(vec2<f32>(rInfo.along * 0.22 + rInfo.eseed, rInfo.across * 0.7));
+    dirtS = dirtS * mix(1.0, 0.88 + 0.24 * dMot, (1.0 - rInfo.cond) * 0.8);
+    let dWeed = clamp(rInfo.over * 0.85, 0.0, 1.0);
+    dirtS = mix(dirtS, vec3<f32>(0.24, 0.34, 0.16), dWeed * 0.5);
+    let gravelA = analyticGravel(rInfo, fwTiles, dirtA);
     let settsA  = analyticSetts(rInfo, fwTiles, dirtA);
-    roadAlb = mix(mix(dirtA, gravelA, toGravel), settsA, toSetts);
+    roadAlb = mix(mix(dirtS, gravelA, toGravel), settsA, toSetts);
     // Lateral coordinate with a light wander so the ruts are not laser-parallel.
     let dJit = rInfo.d + (vnoise(in.vGrid * 1.3 + vec2<f32>(57.0, 13.0)) - 0.5) * 0.05;
     let gaugeFade = smoothstep(0.30, 0.14, fwG);   // gameplay zooms only (sub-px at overview)
@@ -1056,7 +1141,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // neutral grey of the rock it weathered off; gated so the Voronoi only runs on aprons.
   var SCREE = vec3<f32>(0.40, 0.40, 0.41);
   if (wScree > 0.0) {
-    let g = analyticGravel(in.vGrid, fwTiles);
+    let g = analyticGravelPlain(in.vGrid, fwTiles);
     SCREE = vec3<f32>(g.x * 0.88, g.y * 0.92, g.z * 1.04);
   }
   // Snow = the harvested fresh-snow swatch (drift bumps + sparkle + the odd rock tip), not the

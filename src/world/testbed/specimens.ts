@@ -132,7 +132,13 @@ export type SpecimenRowName = (typeof SPECIMEN_ROW_NAMES)[number];
 // pushing the apron's west edge past x_min 36 drags it into Sloughmire's swamp region, whose
 // region-fill rewrites moisture → biomes → tiles → road cost and takes `probe-bridge-decks`
 // from 4 decks · 0 · 0 · 0 to 5 decks with 2 class1. So the layout has to fit the ground,
-// not the other way round. Measured on the shipped world (192×128, gen seed 12345):
+// not the other way round.
+//
+// EVERY FIGURE IN THIS BLOCK IS FROM THE 192×128 WORLD (TESTBED_SCALE 1.0). The world is now
+// 288×192 and the apron scales with it — headroom measured ~2,350 dry cells, not 291. The
+// numbers below are kept because the ARGUMENT they carry is what matters and still binds
+// (the band's shape, where the area goes, what padding costs, why the flow layout failed);
+// re-measure before quoting any of them as current. Measured at gen seed 12345:
 //
 //   apron rect        (88,86)…(140,93) — 53 × 8, 424 dry cells
 //   usable band       the apron's x-range carried SOUTH to the coast: 1,716 cells free after

@@ -78,6 +78,19 @@ const MAX_FLIGHT_RUN_TILES = 4;
  *  flight floats its head). Finer than `MAX_FLIGHT_RUN_TILES` on purpose. */
 const STAIR_STACK_SEG_TILES = 2;
 const MIN_TREADS = 3;
+/** Shallowest riser that still reads as a STEP rather than a groove in a ramp (~12 cm; a real
+ *  outdoor flight runs 15–19 cm, and `stairTreads` designs 15–30 cm by construction).
+ *
+ *  This is a FLOOR ON THE FITTED TREAD COUNT, and without it every road stair in every world is
+ *  too shallow — not occasionally, always. The tread count is fitted to the GROUND RUN so the
+ *  flight cannot overshoot the slope it climbs (see `stairEntity`), but a run only earns a stair
+ *  when its grade clears `CLASS_STAIR.grade` (0.12–0.33), while the flight's own design grade is
+ *  riser/going ≈ 0.58 at construction 0.65. The whole operating band therefore sits BELOW the
+ *  design grade, so run-fitting always divides a modest rise into far too many treads: measured
+ *  on the testbed, a 0.95 m rise over 2 tiles came out as ELEVEN 8.6 cm treads. Capping the count
+ *  at `riseM / MIN_RISER_M` lets the flight fall short of the ground run — a few honest steps with
+ *  the remainder rolled as approach, which is what a shallow bank actually gets built. */
+const MIN_RISER_M = 0.12;
 /** Two runs from DIFFERENT roads whose feet are closer than this (Chebyshev tiles) read as a
  *  pile-up, not two staircases — parallel roads climbing the same riverbank near a crossing each
  *  spawned a flight, jamming a knot of steps into a few tiles. The first-detected (deterministic
@@ -240,7 +253,12 @@ function stairEntity(
   // relation to the slope, so the staircase shoots off into the air past the terrain it climbs.
   const runM = stairTreads({ riseM, construction }).runM;
   const groundRunM = runTilesGround * METRES_PER_TILE;
-  const treads = Math.max(MIN_TREADS, Math.round(groundRunM / runM));
+  // Fit to the ground run, but never past the riser floor (see MIN_RISER_M) — the run fit alone
+  // shaves the riser to a groove on every grade this system actually fires at. MIN_TREADS wins
+  // last so a very small rise still reads as a flight rather than a single kerb.
+  const runFitted = Math.round(groundRunM / runM);
+  const riserCap = Math.floor(riseM / MIN_RISER_M);
+  const treads = Math.max(MIN_TREADS, Math.min(runFitted, riserCap));
   const fp = stairFootprint({ riseM, treads, construction, widthM });
   const bp: Blueprint = {
     version: BLUEPRINT_VERSION, class: 'prop', preset: 'stair_flight', category: 'infrastructure',

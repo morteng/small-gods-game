@@ -48,6 +48,12 @@ export function effectiveTech(i: EnvelopeInputs): number {
 export function bridgeClassFor(i: EnvelopeInputs, importance: number): BridgeClass {
   const tech = effectiveTech(i);
   if (tech >= 2 && importance >= 2 && (i.economy >= 2 || importance >= 3)) return 'dressed-stone';
+  // A PLANK is what an unimportant crossing in a poor place gets, however advanced the era —
+  // knowing how to build a trestle is not a reason to build one over a woodland footpath.
+  // Without this clause the bottom rung keys on TECH alone (`tech < 1`), so no medieval world
+  // could ever reach it: every generated crossing, down to a footpath over a brook, was at
+  // least a timber trestle. Economics, not capability, is what decides the bottom of a ladder.
+  if (importance <= 0 && i.economy <= 1) return 'log-plank';
   if (tech >= 1 || i.economy >= 1) return 'timber';
   return 'log-plank';
 }
