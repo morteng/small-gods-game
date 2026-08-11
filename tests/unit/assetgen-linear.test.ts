@@ -48,4 +48,78 @@ describe('linearFacets', () => {
       new Set(r.facets.flatMap(f => f.pts.map(p => Math.round(p[2] * 4) / 4)));
     expect(tops(cren).size).toBeGreaterThan(tops(plain).size);
   });
+
+  // ── Cap coursing (ART v38) ──────────────────────────────────────────────────────────────
+  // The horizontal surfaces of a wall — the walk, the coping, the merlon tops — used to take
+  // `frameFor`'s world +y fallback, because world-up degenerates as the "v" reference on a
+  // horizontal facet. Every cap in the world therefore got ONE grid (rows stacked in +y, courses
+  // running along −x) whatever its wall's bearing, and an iso camera draws a world-axis grid as a
+  // diamond lattice. These pin the contract that fixed it: a cap courses ALONG ITS OWN RUN.
+  type Linear = Awaited<ReturnType<typeof linearFacets>>;
+  type PlanarCap = { normal: number[]; uAxis: number[]; vAxis: number[] };
+  /** The z-dominant (cap) facets, with their frame asserted planar and unwrapped. */
+  const capsOf = (r: Linear): PlanarCap[] =>
+    r.facets
+      .filter((f) => Math.abs(f.normal[2]) >= Math.abs(f.normal[0])
+                  && Math.abs(f.normal[2]) >= Math.abs(f.normal[1]))
+      .map((f) => {
+        expect(f.frame?.kind).toBe('planar');
+        const fr = f.frame as { kind: 'planar'; uAxis: number[]; vAxis: number[] };
+        return { normal: f.normal, uAxis: fr.uAxis, vAxis: fr.vAxis };
+      });
+
+  it('a cap courses ALONG the run — and follows the wall when the wall turns', async () => {
+    // The same wall on two bearings. If the cap frame were world-derived these would agree;
+    // the whole point is that they must NOT.
+    const alongX = await linearFacets({ ...base, path: [[0, 0], [4, 0]], crenellated: true });
+    const alongY = await linearFacets({ ...base, path: [[0, 0], [0, 4]], crenellated: true });
+    const uOf = (r: Linear) => {
+      const caps = capsOf(r);
+      expect(caps.length).toBeGreaterThan(0);
+      return caps[0].uAxis;
+    };
+    // u runs along the wall: |u·bearing| ≈ 1 for each, and the two bearings disagree.
+    const ux = uOf(alongX), uy = uOf(alongY);
+    expect(Math.abs(ux[0])).toBeCloseTo(1, 5);   // x-running wall → u along x
+    expect(Math.abs(uy[1])).toBeCloseTo(1, 5);   // y-running wall → u along y
+    expect(Math.abs(ux[0] * uy[0] + ux[1] * uy[1])).toBeLessThan(1e-6);   // perpendicular
+  });
+
+  it('leaves UPRIGHT faces on the normal-derived basis (they already course level)', async () => {
+    const r = await linearFacets(base);
+    const upright = r.facets.filter((f) => {
+      const n = f.normal;
+      return Math.abs(n[2]) < Math.abs(n[0]) || Math.abs(n[2]) < Math.abs(n[1]);
+    });
+    expect(upright.length).toBeGreaterThan(0);
+    for (const f of upright) expect(f.frame).toBeUndefined();
+  });
+
+  it('an L-shaped run courses each LEG along its own bearing', async () => {
+    // One wall, two legs. A single run-wide direction would give both legs the same coursing —
+    // the nearest-segment rule is what makes the corner turn.
+    const r = await linearFacets({ ...base, path: [[0, 0], [6, 0], [6, 6]] });
+    const caps = capsOf(r);
+    const xLeg = caps.filter((f) => Math.abs(f.uAxis[0]) > 0.9);
+    const yLeg = caps.filter((f) => Math.abs(f.uAxis[1]) > 0.9);
+    expect(xLeg.length).toBeGreaterThan(0);
+    expect(yLeg.length).toBeGreaterThan(0);
+  });
+
+  it('the cap basis is ORTHONORMAL and lies in the facet plane (metric, not sheared)', async () => {
+    const r = await linearFacets({ ...base, path: [[0, 0], [5, 3]], crenellated: true });
+    const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const caps = capsOf(r);
+    expect(caps.length).toBeGreaterThan(0);
+    for (const f of caps) {
+      const { uAxis: u, vAxis: v } = f;
+      const nl = Math.hypot(...f.normal);
+      const n = f.normal.map((c) => c / nl);
+      expect(Math.hypot(...u)).toBeCloseTo(1, 6);
+      expect(Math.hypot(...v)).toBeCloseTo(1, 6);
+      expect(dot(u, v)).toBeCloseTo(0, 6);   // orthogonal to each other…
+      expect(dot(u, n)).toBeCloseTo(0, 6);   // …and both IN the facet plane
+      expect(dot(v, n)).toBeCloseTo(0, 6);
+    }
+  });
 });

@@ -3,8 +3,8 @@ import { ART_RECIPE_VERSION, NPC_ART_RECIPE_VERSION, WORLD_CONTENT_VERSION } fro
 import { SAVE_VERSION } from '@/core/save-file';
 
 describe('content-version constants', () => {
-  it('declares the current art recipe version (v37: Manning the Walls W4 — drum tower flank door at allure height + vice turret)', () => {
-    expect(ART_RECIPE_VERSION).toBe('v37');
+  it('declares the current art recipe version (v38: wall CAPS course along the run — the wall-walk/coping/merlon tops took `frameFor`\'s world +y fallback, which an iso camera draws as a diagonal lattice)', () => {
+    expect(ART_RECIPE_VERSION).toBe('v38');
   });
 
   it('declares the current NPC sprite recipe version (n1: G0, the rig-frame img2img pipeline — nothing generated through it yet)', () => {

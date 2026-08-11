@@ -25,7 +25,7 @@
 import type { Vec3, Mat, WorldFacet } from '@/assetgen/types';
 import type { Manifold } from 'manifold-3d';
 import { getManifold } from '@/assetgen/geometry/manifold-runtime';
-import { manifoldToFacets } from '@/assetgen/geometry/solids';
+import { manifoldToFacets, runCapProjector } from '@/assetgen/geometry/solids';
 import { mToTiles } from '@/render/scale-contract';
 import { MERLON_PERIOD_TILES, MERLON_WIDTH_FRAC, PARAPET_BASE_COURSE_FRAC, masonryCrestHeight, parapetHeight, toothRun } from '@/assetgen/geometry/battlement';
 import type { BarrierRun } from '@/world/barrier';
@@ -524,6 +524,10 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
   }
   const cuts = run.gates.map((g) => gateCut(M, run, g.t, g.width));
 
+  // Cap facets (wall-walk, coping, merlon tops, kerbs) course ALONG the run — see
+  // `runCapProjector`. Upright faces are untouched: the projector returns undefined for them.
+  const capFrame = runCapProjector(run.path);
+
   const facets: WorldFacet[] = [];
   let volume = 0;
   const gateAnchors: Vec3[] = run.gates.map((g) => {
@@ -533,7 +537,7 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
   for (const g of groups) {
     let solid = g.solid;
     for (const cut of cuts) solid = solid.subtract(cut);
-    facets.push(...manifoldToFacets(solid.getMesh(), g.mat, g.work));
+    facets.push(...manifoldToFacets(solid.getMesh(), g.mat, g.work, capFrame));
     volume += solid.volume();
   }
   // Proud voussoir ring + springers around each ARCHED gate (added after the cuts so the band
@@ -543,7 +547,7 @@ export async function linearFacets(run: BarrierRun): Promise<LinearResult> {
     for (const g of run.gates) {
       let ring = gateRing(M, run, g.t, g.width);
       for (const cut of cuts) ring = ring.subtract(cut);
-      facets.push(...manifoldToFacets(ring.getMesh(), baseMat, 'ashlar'));
+      facets.push(...manifoldToFacets(ring.getMesh(), baseMat, 'ashlar', capFrame));
       volume += ring.volume();
     }
   }

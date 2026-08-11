@@ -45,6 +45,57 @@ export function cylindricalProjector(center: [number, number], radius: number): 
   };
 }
 
+/**
+ * Cap frame for a LINEAR run (a wall-walk, a coping cope, a merlon top, a kerb): every
+ * near-horizontal facet gets a planar frame aligned to the run's LOCAL direction — u ALONG the
+ * run, v ACROSS it — so coursing rows follow the wall they cap. Upright faces return `undefined`
+ * and keep the normal-derived basis, which is already right for them (v = world-up).
+ *
+ * Why this exists: `frameFor` has no caller context, so for a horizontal facet (where world-up
+ * degenerates as the "v" reference) it falls back to world +y. Every cap in the world therefore
+ * got the SAME grid — stacked in +y, running along −x — regardless of which way its wall ran. On
+ * an x-running wall that happens to be right; on a y-running one the courses lie ACROSS the walk,
+ * and on anything oblique they sit at an arbitrary skew. In an isometric view a world-axis grid
+ * draws as a diamond lattice, so a capped wall reads as though a diagonal net had been laid over
+ * masonry whose own faces course level — the "diagonal brick pattern".
+ *
+ * The basis is built IN the facet plane (u = the run direction projected onto it, v = N × u), so
+ * it stays metric on a tilted cap and is continuous across a cambered one — two opposite slopes
+ * meeting at a ridge get the same u and a v that agrees in the limit, instead of two mirrored
+ * frames that would chevron along the joint.
+ *
+ * `path` is the run's polyline in the same space as the facets; the nearest segment wins, so an
+ * L-shaped or curving run courses each leg along its own bearing.
+ */
+export function runCapProjector(path: readonly Vec2[]): FacetProjector {
+  return (c, n): SurfaceFrame | undefined => {
+    const az = Math.abs(n[2]);
+    if (az < Math.abs(n[0]) || az < Math.abs(n[1])) return undefined;   // an upright face
+    const dir = nearestSegmentDir(path, c[0], c[1]);
+    if (!dir) return undefined;                                         // degenerate path — leave it alone
+    const N = norm(n);
+    const dn = dir[0] * N[0] + dir[1] * N[1];                           // dir is horizontal ⇒ no z term
+    const uAxis = norm([dir[0] - N[0] * dn, dir[1] - N[1] * dn, -N[2] * dn]);
+    return { kind: 'planar', uAxis, vAxis: cross(N, uAxis) };
+  };
+}
+
+/** Unit direction of the `path` segment nearest to (x,y), or null if the path has no length. */
+function nearestSegmentDir(path: readonly Vec2[], x: number, y: number): Vec2 | null {
+  let best = Infinity, dir: Vec2 | null = null;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const [ax, ay] = path[i], [bx, by] = path[i + 1];
+    const ex = bx - ax, ey = by - ay;
+    const len2 = ex * ex + ey * ey;
+    if (len2 === 0) continue;
+    const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / len2));
+    const dx = x - (ax + t * ex), dy = y - (ay + t * ey);
+    const d2 = dx * dx + dy * dy;
+    if (d2 < best) { best = d2; const l = Math.sqrt(len2); dir = [ex / l, ey / l]; }
+  }
+  return dir;
+}
+
 // `srcId` (last arg) is the OPT-IN pick provenance stamped on every emitted facet — used
 // where a mesh is a self-contained pickable unit (e.g. one vent stack). Absent everywhere on
 // the default path, so it never perturbs a colour channel or the golden hashes.
