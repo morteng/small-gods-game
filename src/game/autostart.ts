@@ -40,6 +40,16 @@ export function resolveAutostart(search: string, devTools: boolean): Autostart |
   // A genome world is a throwaway terrain study: fresh, and never autosaved.
   if (genome) return { kind: 'fresh', genome, ephemeral: true };
 
+  // `?world=testbed` — the DEV-ONLY integration testbed (`src/world/testbed/`). Same
+  // shape as `?genome`: dev-gated, fresh, and never autosaved. It is deliberately NOT
+  // routed through `resolvePlayableWorld` (the testbed is not a playable world and must
+  // stay out of the New Game menu); `Game` resolves the marker by dynamic import so the
+  // testbed chunk tree-shakes out of a distribution build. Any other `?world=` value is
+  // ignored here rather than guessed at.
+  if (devTools && params.get('world') === 'testbed') {
+    return { kind: 'fresh', testbed: true, ephemeral: true };
+  }
+
   if (params.has('bridge')) return { kind: 'auto' };
   if (params.has('autostart')) return { kind: 'auto' };
 

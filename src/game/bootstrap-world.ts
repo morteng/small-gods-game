@@ -183,6 +183,22 @@ export async function bootstrapWorld(deps: BootstrapDeps): Promise<GameMap> {
   // Desire-line trample grid, prewarmed from authored roads/markets; live NPC
   // traffic keeps carving from here (fed by the trample systems in game.ts).
   state.trample = trample;
+
+  // DEV-ONLY post-generation pass for the integration TESTBED world (`?world=testbed`,
+  // `src/world/testbed/`): lay out one specimen of every renderable catalogue entry on
+  // the reserved `specimen_apron`. Gated on the seed's own id AND the build-time dev
+  // flag, and dynamic-imported, so a distribution build neither runs nor ships it. Runs
+  // BEFORE the visual/blob maps are computed so any tile it writes is picked up.
+  // (`typeof` guard because `__DEV_TOOLS__` is a Vite `define`, absent under vitest.)
+  if (typeof __DEV_TOOLS__ !== 'undefined' && __DEV_TOOLS__ && ws.id === 'testbed') {
+    try {
+      const { placeSpecimens } = await import('@/world/testbed/specimens');
+      placeSpecimens(map, world);
+    } catch (err) {
+      console.warn('[testbed] specimen pass failed', err);
+    }
+  }
+
   progress('Preparing the view...');
   await yieldToPaint();
   state.visualMap = Autotiler.computeVisualMap(map);
