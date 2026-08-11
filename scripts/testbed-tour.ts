@@ -118,28 +118,27 @@ async function resolvePoiTarget(page: Page, poiId: string): Promise<ResolvedTarg
 }
 
 /**
- * The live entity of `kind` nearest to `nearPoi`. A blueprint entity's `kind` IS its
- * preset name (`blueprint/entity.ts`), so `kind:'watermill'` is the mill itself —
- * `world.query({kind})` goes through World's own kind index, the same read path the
- * renderer uses, not a parallel scan.
+ * The live entity of `kind` OWNED BY `ofPoi`. A blueprint entity's `kind` IS its preset
+ * name and a civic building records its settlement in `properties.poiId`
+ * (`blueprint/entity.ts`), so `kind:'watermill'` + `poiId:'netherquay'` is exactly one
+ * mill. `world.query({kind})` goes through World's own kind index — the same read path
+ * the renderer uses, not a parallel scan.
+ *
+ * OWNERSHIP, NOT PROXIMITY. Resolving "the nearest watermill" instead returned a
+ * DIFFERENT settlement's mill (Greyward's, 5.0 tiles from the Netherquay POI, against
+ * Netherquay's own at 7.1) — a plausible capture of the wrong building, which is the
+ * exact failure mode this target type exists to remove.
  */
 async function resolveEntityKindTarget(
-  page: Page, kind: string, nearPoi: string,
+  page: Page, kind: string, ofPoi: string,
 ): Promise<ResolvedTarget | null> {
-  const anchor = await resolvePoiTarget(page, nearPoi);
-  if (!anchor) return null;
-  return page.evaluate(({ kind, ax, ay }) => {
-    type Ent = { x: number; y: number };
+  return page.evaluate(({ kind, ofPoi }) => {
+    type Ent = { x: number; y: number; properties?: Record<string, unknown> };
     const g = (window as unknown as { __game?: { state?: { world?: { query: (o: { kind: string }) => Ent[] } } } }).__game;
-    const ents = g?.state?.world?.query({ kind }) ?? [];
-    if (ents.length === 0) return null;
-    let best = ents[0], bestD = Infinity;
-    for (const e of ents) {
-      const d = (e.x - ax) ** 2 + (e.y - ay) ** 2;
-      if (d < bestD) { bestD = d; best = e; }
-    }
-    return { x: best.x, y: best.y, count: ents.length };
-  }, { kind, ax: anchor.x, ay: anchor.y });
+    const owned = (g?.state?.world?.query({ kind }) ?? []).filter((e) => e.properties?.poiId === ofPoi);
+    if (owned.length === 0) return null;
+    return { x: owned[0].x, y: owned[0].y, count: owned.length };
+  }, { kind, ofPoi });
 }
 
 async function resolveSpecimenRowTarget(
@@ -192,7 +191,7 @@ async function resolveTarget(
     // some nearby POI instead would hand back a plausible-looking capture of the
     // wrong thing — which is exactly how the mill went unphotographed for a round.
     // Better to fail the tour by name.
-    const t = await resolveEntityKindTarget(page, station.target.entityKind, station.target.nearPoi);
+    const t = await resolveEntityKindTarget(page, station.target.entityKind, station.target.ofPoi);
     return t ? { target: t, emptyRow: false } : null;
   }
   return resolveSpecimenRowOrApronFallback(
@@ -248,7 +247,7 @@ async function captureStation(
   if (!resolved) {
     const t = station.target;
     const what = 'poi' in t ? `poi '${t.poi}'`
-      : 'entityKind' in t ? `nearest '${t.entityKind}' entity to poi '${t.nearPoi}' (the world produced none)`
+      : 'entityKind' in t ? `the '${t.entityKind}' entity owned by poi '${t.ofPoi}' (the world produced none)`
         : `specimenRow '${t.specimenRow}'`;
     throw new Error(`station '${station.id}': could not resolve ${what} in the live world`);
   }

@@ -53,16 +53,22 @@ export interface TestbedStation {
    *  coordinate (see the module header):
    *    `{ poi }`          a POI id, from `worldSeed.pois`.
    *    `{ specimenRow }`  the centroid of that row's live, tagged specimens.
-   *    `{ entityKind }`   the nearest live entity of that KIND to `nearPoi`. A
+   *    `{ entityKind }`   the live entity of that KIND belonging to `ofPoi`. A
    *                       blueprint entity's `kind` IS its preset name
-   *                       (`blueprint/entity.ts:blueprintEntity`), so this frames
-   *                       the actual building rather than the settlement that
-   *                       contains it — which is the whole point of a station like
-   *                       `mill_at_water`, and was the one thing the first cut of
-   *                       this tour got wrong: it framed Millbeck's POI centre and
-   *                       the mill wheel, the epic's own headline example, was not
-   *                       in the picture. */
-  target: { poi: string } | { specimenRow: string } | { entityKind: string; nearPoi: string };
+   *                       (`blueprint/entity.ts:blueprintEntity`) and a civic
+   *                       building carries its owning settlement in
+   *                       `properties.poiId`, so this frames the actual building
+   *                       rather than the settlement that contains it — the whole
+   *                       point of a station like `mill_at_water`, and the one
+   *                       thing the first cut of this tour got wrong.
+   *
+   *                       OWNERSHIP, NOT PROXIMITY, and that distinction cost a
+   *                       round: an earlier `nearPoi` version resolved "nearest
+   *                       watermill to netherquay" to GREYWARD's mill (5.0 tiles
+   *                       away) over Netherquay's own (7.1) — a plausible-looking
+   *                       capture of the wrong building, which is precisely the
+   *                       failure this target type was added to fix. */
+  target: { poi: string } | { specimenRow: string } | { entityKind: string; ofPoi: string };
   /** Camera zoom (iso projection; `ISO_ZOOM_MAX` is 1 — the hard-rule default for
    *  a "centred on the tile" close shot). Omit to use the tour's own default
    *  (1). A handful of stations need to zoom OUT to show their subject at all
@@ -136,9 +142,10 @@ const CONTEXT_STATIONS: readonly TestbedStation[] = [
   //     dry ground. The station named after the context was framing the counter-example.
   //
   // Netherquay's mill stands 1 tile off drawn water on the trunk river, with the stone-arch
-  // crossing in the same frame. Re-derive from `scripts/probe-bridge-decks.ts` / the lint's
-  // mill rule if the seed ever moves a POI — never by assuming the nearest mill is a good one.
-  { id: 'mill_at_water', target: { entityKind: 'watermill', nearPoi: 'netherquay' }, zoom: CLOSE_ZOOM },
+  // crossing in the same frame. Re-derive from the lint's `mill.wheel-reaches-water` rule if
+  // the seed ever moves a POI — never by assuming the nearest mill is a good one, and never
+  // by proximity at all (see the `ofPoi` note above).
+  { id: 'mill_at_water', target: { entityKind: 'watermill', ofPoi: 'netherquay' }, zoom: CLOSE_ZOOM },
 
   // Each of the four road-class crossings (see the derivation note above).
   { id: 'crossing_highway', target: { poi: 'kingsford_bridge' }, zoom: CLOSE_ZOOM },
