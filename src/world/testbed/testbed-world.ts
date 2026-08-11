@@ -58,9 +58,60 @@ export const TESTBED_GEN_SEED = 12345;
 //
 // Measured at TESTBED_GEN_SEED: an 88×58 authored frame derives a 192×128 map
 // (24,576 tiles ≈ 14% of `default`'s 488×352, which itself lays out to 488×352 from an
-// authored 230×163) and generates headless in ~15–25 s — inside the ~60 s test budget.
+// authored 230×163) and generates headless in ~15–25 s.
+// NOTE those are the UNSCALED figures — what this frame would derive at TESTBED_SCALE 1.0.
+// The world actually ships at 1.5, i.e. 288×192 / 55,296 tiles / ~120 s; see the scale
+// table below and the measured baseline at the foot of this file.
 const AUTHOR_W = 88;
 const AUTHOR_H = 58;
+
+// ─── ROOM TO BREATHE: the authored frame is written at 1×, then SCALED ────────
+//
+// Every coordinate in this file stays in the readable 88×58 frame above — including all
+// the measured notes, which would rot instantly if the literals were multiplied through
+// by hand. {@link scaleAuthored} applies this ONE factor to positions, regions, and
+// waypoints as the last step of {@link testbedSeed}, and `planWorldLayout` then derives
+// the map from the scaled content bounds as usual.
+//
+// WHY 1.5 AND NOT MORE — measured end to end at TESTBED_GEN_SEED (gen + specimens,
+// same box, same run):
+//     1.0 → 192×128 ·  24,576 tiles ·  39 s ·  3,566 entities ·   291 free apron cells
+//     1.5 → 288×192 ·  55,296 tiles · 122 s · 11,953 entities · 2,350 free apron cells
+//     2.0 → 384×256 ·  98,304 tiles · 239 s · 23,717 entities · 5,420 free apron cells
+// Specimen headroom was the binding complaint and 1.5 already multiplies it EIGHTFOLD,
+// which is the difference between "the next catalogue entry fails to place" and years of
+// slack. The cost is superlinear in the wrong places: entity count grows ~2.2× per 2.25×
+// of area (the vegetation brushes cover area, and only the apron gets mown), and BOTH the
+// headless gen and the in-browser art settle grow with it. At 2.0 the coverage test's
+// 300 s budget is 80% spent on generation alone and the browser load roughly doubles
+// again — for headroom nothing needs. Raise it only with a measurement, not a feeling.
+const TESTBED_SCALE = 1.5;
+
+/** Scale an authored seed out of the readable {@link AUTHOR_W}×{@link AUTHOR_H} frame.
+ *  Positions, region boxes and waypoints only: `summitM` is metres, and `size` /
+ *  `importance` are categories — scaling either would change what the world MEANS. */
+function scaleAuthored(seed: WorldSeed, k: number): WorldSeed {
+  if (k === 1) return seed;
+  const s = (n: number) => Math.round(n * k);
+  return {
+    ...seed,
+    size: { width: s(seed.size.width), height: s(seed.size.height) },
+    pois: (seed.pois ?? []).map((p) => ({
+      ...p,
+      // `POI.position` is optional on the type (a region-only POI need not carry one);
+      // every POI here has one, so preserve absence rather than inventing an origin.
+      ...(p.position ? { position: { x: s(p.position.x), y: s(p.position.y) } } : {}),
+      ...(p.region
+        ? { region: { x_min: s(p.region.x_min), x_max: s(p.region.x_max),
+          y_min: s(p.region.y_min), y_max: s(p.region.y_max) } }
+        : {}),
+    })),
+    connections: (seed.connections ?? []).map((c) => ({
+      ...c,
+      ...(c.waypoints ? { waypoints: c.waypoints.map((w) => ({ x: s(w.x), y: s(w.y) })) } : {}),
+    })),
+  };
+}
 
 // ─── Terrain shape ────────────────────────────────────────────────────────────
 //
@@ -300,47 +351,96 @@ export function testbedSeed(): WorldSeed {
     // Road class drives carriageway width, surface and deck width. It does NOT give four
     // crossing tiers — see the CROSSING TIER note at the bottom of this file.
     //
-    // Each crossing runs PERPENDICULAR across a reach measured to be 2–5 drawn cells wide
-    // with dry ground on both banks: path at final x≈98, track x≈106, road x≈112,
-    // highway x≈118 — spread along the trunk so their carriageways never bundle.
-    // The reaches were read off the generated world (`buildRenderWaterTypeMemo`) with
-    // `connections: []`, since roads do not move hydrology; re-measure that way if a POI
-    // ever moves, because moving one POI moves the channel and every waypoint here.
+    // Each crossing runs PERPENDICULAR across a reach measured to be 2–4 drawn cells wide
+    // with dry ground on both banks: path at final x=147, track x=159, road x=168,
+    // highway x=177 — spread along the trunk so their carriageways never bundle.
+    //
+    // AUTHORED → FINAL IS `round(v * TESTBED_SCALE) + (78, 53)` — a pure translation once
+    // `planWorldLayout` has fitted the content bounds into the derived 288×192 map. That
+    // offset is what makes these waypoints fittable by hand; re-derive it with the layout
+    // (`planWorldLayout(testbedSeed()).connections`) rather than assuming it, because it
+    // moves whenever TESTBED_SCALE or the outermost POIs move.
+    //
+    // MEASURE THE CHANNEL, DO NOT GUESS. Read painted-water runs per column off
+    // `getRenderWaterMask` on the generated map, pick a 2–4 cell run with dry ground both
+    // sides, and place the straddling pair 2 cells clear of each bank. Verify with
+    // `npx tsx scripts/probe-bridge-decks.ts testbed`, whose acceptance criteria are
+    // class1 = class2 = class3 = 0 — NOT a deck count.
+    //
+    // THIS IS THE TRAP, AND IT HAS BEEN SPRUNG ONCE: scaling the world 1.0 → 1.5 slid the
+    // trunk channel southward underneath three of these four waypoint pairs, so
+    // `{60,39}`, `{54,35}` and `{46,36}` came to sit IN THE RIVER. The crossings still
+    // generated — class1 and class2 stayed 0 — but the banks landed off the road ribbon
+    // and class3 went 0 → 4, with two spurious extra decks where roads re-crossed the
+    // channel. Moving ANY POI, or TESTBED_SCALE, invalidates every number above.
     //
     // HIGHWAY — Kingsford Bridge (critical, rank 3) ↔ Greyward (high, rank 2) ⇒ rank 3.
-    // Crosses the trunk at final x≈118, a measured 5-cell reach with dry banks. The
+    // Crosses the trunk at final x=174, a measured 4-cell reach (y 106..109) with dry banks.
+    // NOT at Kingsford Bridge's own x=177: there the channel splits into two runs (y 105..107
+    // and a second at ~109), the settlement site eats the north approach, and the drawn ribbon
+    // did not reach the deck — measured `bank0OwnDist 3`, i.e. a bridge with a 3-tile gap
+    // between it and its road. x=174 is where the two runs merge into one clean span. The
     // waypoints STRADDLE the channel tightly: the walker is free to wander within a
     // segment, and a highway's grade envelope (`gradeEnvelope`, road-graph.ts:342) makes
     // it hug the flat valley FLOOR — measured, one loose segment sent a highway 160 cells
     // down the trough and across the river five times.
+    // Also the ladder's POUNDED rung (see THE ROAD-CONDITION LADDER below): the trunk
+    // highway carries everything and is still worth repairing, so it wears hard without
+    // decaying — the case that separates `wear` from `condition`.
     { from: 'kingsford_bridge', to: 'greyward_castle', type: 'road', style: 'stone',
-      waypoints: [{ x: 66, y: 31 }, { x: 66, y: 33 }, { x: 66, y: 39 }, { x: 66, y: 41 },
-        { x: 71, y: 45 }] },
+      history: { ageYears: 60, condition: 0.88, wear: 0.72, overgrowth: 0.0, traffic: 0.97 },
+      waypoints: [{ x: 66, y: 31 }, { x: 64, y: 34 }, { x: 64, y: 39 }, { x: 71, y: 45 }] },
     // ROAD — Netherquay (high, rank 2) ↔ Longacre (medium size, rank 1) ⇒ rank 2.
-    // Runs WEST along the dry north bank first and crosses at final x≈112, a measured
+    // Runs WEST along the dry north bank first and crosses at final x=168, a measured
     // 4-cell reach: the x≈124 reach where the trunk fans into the east lake is broad and
     // diagonal, and a crossing there measured class1 + class3 on `probe-bridge-decks`.
     { from: 'netherquay', to: 'longacre_farm', type: 'road', style: 'dirt',
-      waypoints: [{ x: 71, y: 29 }, { x: 66, y: 29 }, { x: 60, y: 30 }, { x: 60, y: 33 },
-        { x: 60, y: 39 }, { x: 60, y: 43 }, { x: 60, y: 44 }] },
+      waypoints: [{ x: 71, y: 29 }, { x: 66, y: 29 }, { x: 60, y: 30 }, { x: 60, y: 34 },
+        { x: 60, y: 37 }, { x: 60, y: 41 }, { x: 60, y: 44 }] },
     // TRACK — the Vale Crossroads (small, rank 0) ↔ Longacre (medium size, rank 1) ⇒ rank 1.
-    // Crosses at final x≈106, a measured 3-cell reach.
+    // Crosses at final x=159, a measured 4-cell reach (y 105..108).
     { from: 'vale_crossroads', to: 'longacre_farm', type: 'road', style: 'dirt',
-      waypoints: [{ x: 54, y: 32 }, { x: 54, y: 35 }, { x: 54, y: 39 }, { x: 54, y: 42 },
+      waypoints: [{ x: 54, y: 32 }, { x: 54, y: 33 }, { x: 54, y: 38 }, { x: 54, y: 42 },
         { x: 60, y: 44 }] },
     // PATH — the Fordstones and the Ford & Firkin are both `small` with NO `importance`,
-    // so both rank 0. Crosses at final x≈98, the narrowest measured reach (2 cells).
+    // so both rank 0. Crosses at final x=147, the narrowest measured reach (2 cells, y 107..108).
+    // Rank 0 at both ends is also what makes this the world's only LOG-PLANK span.
     { from: 'fordstones', to: 'ford_and_firkin', type: 'road', style: 'dirt',
-      waypoints: [{ x: 46, y: 31 }, { x: 46, y: 33 }, { x: 46, y: 36 }, { x: 46, y: 41 }] },
+      waypoints: [{ x: 46, y: 31 }, { x: 46, y: 34 }, { x: 46, y: 38 }, { x: 46, y: 41 }] },
 
     // ── Dry-land roads (no crossing) — the settled network the vale reads as ──
-    { from: 'kingsford', to: 'vale_crossroads', type: 'road', style: 'stone',
-      waypoints: [{ x: 48, y: 20 }, { x: 50, y: 25 }, { x: 53, y: 29 }, { x: 54, y: 32 }] },
+    //
+    // ── THE ROAD-CONDITION LADDER ────────────────────────────────────────────
+    // `Connection.history` is the ONLY way this world can show the disrepair half of
+    // the road vocabulary. Every generated road is factory-fresh (`deriveRoadState`
+    // defaults condition 1 / wear 0 / overgrowth 0) and the live road-evolution tick
+    // needs game-YEARS to move them — so an instrument world that authors nothing here
+    // renders the zero case of open joints, lost setts, potholes, weed and polished
+    // wheel tracks, and a regression in any of them is invisible. These four stone
+    // roads stand the ladder end to end; the dirt network is left new on purpose, as
+    // the control. Verified against the live states (`edgeRoadProfile`) — the numbers
+    // below are what the SHADER receives, not a wish.
+    //
+    // KEPT — the temple road, the one the town actually maintains. No history: this is
+    // the pristine control the other three are read against.
     { from: 'kingsford', to: 'sunsrest_temple', type: 'road', style: 'stone',
       waypoints: [{ x: 48, y: 20 }, { x: 50, y: 18 }, { x: 52, y: 17 }, { x: 54, y: 16 }] },
+    // WORKED — hard use, still repaired: heavy wear polishing the wheel tracks, joints
+    // only starting to open. What a busy town street should look like.
+    { from: 'kingsford', to: 'vale_crossroads', type: 'road', style: 'stone',
+      history: { ageYears: 45, condition: 0.66, wear: 0.55, overgrowth: 0.06, traffic: 0.85 },
+      waypoints: [{ x: 48, y: 20 }, { x: 50, y: 25 }, { x: 53, y: 29 }, { x: 54, y: 32 }] },
     { from: 'kingsford', to: 'millbeck', type: 'road', style: 'dirt',
       waypoints: [{ x: 48, y: 20 }, { x: 40, y: 25 }, { x: 32, y: 30 }] },
-    { from: 'millbeck', to: 'fordstones', type: 'road', style: 'dirt',
+    // ABANDONED — the old paved way to a ruin nobody visits. `style:'stone'` on a
+    // TRACK-class road resolves to 'cobble' rather than 'paved' (`deriveRoadState`
+    // needs construction > 0.8 for dressed stone), so this is also the world's only
+    // cobble-tier carriageway — the rung the generated network never reaches.
+    { from: 'millbeck', to: 'fordstones', type: 'road', style: 'stone',
+      // MEASURED: at overgrowth 0.82 / condition 0.12 the ribbon thinned to 0.04 coverage
+      // and the lane simply was not there to look at. An instrument has to show the RUIN,
+      // not the absence — these are the deepest values that still read as a broken road.
+      history: { ageYears: 220, condition: 0.20, wear: 0.78, overgrowth: 0.50, traffic: 0.04 },
       waypoints: [{ x: 32, y: 30 }, { x: 39, y: 31 }, { x: 46, y: 31 }] },
     { from: 'netherquay', to: 'kingsford_bridge', type: 'road', style: 'dirt',
       waypoints: [{ x: 71, y: 29 }, { x: 69, y: 30 }, { x: 66, y: 31 }] },
@@ -373,12 +473,15 @@ export function testbedSeed(): WorldSeed {
     constraints: [],
   };
 
+  // Scaled BEFORE validation so what is checked is what generation actually receives.
+  const scaled = scaleAuthored(seed, TESTBED_SCALE);
+
   // Loud, never fatal — same contract as `terrainGenome`. An invalid testbed should
   // still boot so an author can look at what they broke.
-  const v = validateWorldSeed(seed);
+  const v = validateWorldSeed(scaled);
   if (v.errors.length) console.error('[testbed] seed invalid:', v.errors);
   if (v.warnings.length) console.warn('[testbed] seed warnings:', v.warnings);
-  return seed;
+  return scaled;
 }
 
 // ─── CROSSING TIERS AT GENERATION: what is actually reachable ─────────────────
@@ -389,44 +492,68 @@ export function testbedSeed(): WorldSeed {
 //   an `arch_span` part → GEN_BRIDGE_CLASS_TIER.timber = 5
 //   otherwise → GEN_BRIDGE_CLASS_TIER['log-plank'] = 3          (road-use.ts:418-420)
 // The material class comes from `bridgeClassFor(env, ROAD_RANK[roadClass])`
-// (`buildability-envelope.ts:48-53`), and `env` is NOT authorable from a seed: worldgen
-// calls `detectCrossings` with HARDCODED `defaults: { era: 'late-medieval', prosperity:
-// 'modest' }` (`map-generator.ts:726-729` and again at :987-990) and supplies no
-// `siteParamsAt` resolver anywhere in the codebase. So every crossing generates with
-// tech = 3 and economy = 1, which means:
-//   highway (importance 3) → 'dressed-stone' → tier 6
-//   road / track / path    → 'timber'        → tier 5
-//   'log-plank' (tier 3) requires tech < 1 AND economy < 1 ⇒ UNREACHABLE at gen.
-// TWO distinct tiers is therefore the ceiling for organically generated crossings, and
-// no arrangement of POI size/importance/era changes that. Tiers 0/1/2/3/4 are covered by
-// WP-T2's specimen `bridge-*` row — that is the designed backstop, not a gap.
+// (`buildability-envelope.ts`), and `env` now comes from the crossing's OWN SITE.
+//
+// THIS NOTE USED TO RECORD A CEILING OF TWO TIERS, and the ceiling was real: worldgen
+// called `detectCrossings` with a HARDCODED `defaults: { era: 'late-medieval',
+// prosperity: 'modest' }` and supplied no `siteParamsAt` resolver — none existed anywhere
+// in the codebase — so every crossing in every world resolved tech 3 / economy 1 and only
+// the road class varied (highway → dressed-stone, everything else → timber). `log-plank`
+// needed tech < 1, and no medieval world can go there, so it had NEVER been built.
+//
+// Both halves are fixed. `world/connectome/site-params.ts` resolves era + prosperity from
+// the nearest POI, and `bridgeClassFor` gained a bottom clause keyed on ECONOMICS rather
+// than capability (an unimportant crossing in a poor place gets a plank however advanced
+// the era — knowing how to trestle is not a reason to trestle a woodland footpath).
+// MEASURED here at TESTBED_GEN_SEED: dressed-stone ×1, timber-arch ×3, log-plank ×1.
+//
+// A GEN-TIME SPAN STILL ONLY REACHES THREE OF THE SEVEN LADDER RUNGS — the `standingSpanTier`
+// read-back above maps exactly three material classes (6 / 5 / 3). Tiers 0/1/2/4 belong to the
+// runtime year-pass (`stepCrossingTiers`) and to WP-T2's specimen `bridge-*` row; that is the
+// designed backstop, not a gap.
 
 // ─── WHAT THIS WORLD MEASURED AT TESTBED_GEN_SEED (WP-T1 baseline) ───────────
 //
 // Re-measure before blaming a round; these are the numbers to diff against.
-//   map                 192×128 (24,576 tiles), headless gen ~15–25 s
-//   render waterTypes   Dry 13,537 / Ocean 10,500 / Lake 174 / River 365 — all four
-//                       present; 7 River cells adjacent to Ocean
-//   probe-bridge-decks  4 decks · class1 0 · class2 0 · class3 0 ·
-//                       27 of 28 routed bridge cells over painted water
-//                       (`npx tsx scripts/probe-bridge-decks.ts <world> 12345`)
-//   crossing tiers      2 distinct (5 ×3, 6 ×1) — the ceiling, see the note above
+// RE-MEASURED at TESTBED_SCALE 1.5 (the 1.0 figures they replace are gone — every one of
+// them moved, because the scale re-rolls the terrain outright).
+//   map                 288×192 (55,296 tiles), headless gen ~120 s
+//   render waterTypes   Dry 31,707 / Ocean 22,310 / River 785 / Lake 494 — all four
+//                       present; 5 River cells adjacent to Ocean
+//   entities            13,164 (world.query({}) after gen)
+//   probe-bridge-decks  5 decks · class1 0 · class2 0 · class3 0 · nearestDry 0 ·
+//                       7 of 12 routed bridge cells over painted water
+//                       (`npx tsx scripts/probe-bridge-decks.ts testbed`)
+//                       THE ACCEPTANCE CRITERIA ARE THE CLASS FLAGS, ALL ZERO. The 5
+//                       unpainted cells are all `base=river` with paint within 2 tiles —
+//                       the known +0.7-tile render stamp margin at a channel fringe, which
+//                       measured 3 at scale 1.0 too. It is not a deck-siting fault and a
+//                       deck COUNT is not a success metric (see the probe's own header).
+//   bridge classes      3 distinct, one per rung the envelope can reach:
+//                       dressed-stone ×1 (the highway) · timber-arch ×3 · log-plank ×1
+//                       (the footpath). Was 2 until `site-params.ts` gave each crossing
+//                       its own site — see the CROSSING TIER note above.
 //   walls               kingsford_ring: stone `wall`, 3 gates, 11 towers ·
 //                       millbeck_ring: `palisade`, 3 gates, 5 towers
 //   water buildings     4 × watermill, 1 × fisherman_hut (the mire pond, via Millbeck)
 //   POI type coverage   25 / 25
 //   specimen coverage   118 of 118 registry ids (119 entities — `palisade` is both a
-//                       preset name and a BarrierKind), 0 failures, 647 organic nature
-//                       entities mown off the ground, 291 dry cells of headroom left.
+//                       preset name and a BarrierKind), 0 failures. Apron headroom is
+//                       ~2,350 dry cells at TESTBED_SCALE 1.5 (was 291 at 1.0) — the
+//                       whole reason for the scale. The AREA-BUDGET analysis below still
+//                       holds; only its headroom figure moved.
 //                       See `specimens.ts`'s header for how the ground was made READABLE
 //                       as opposed to merely full — those are different problems and only
 //                       one of them has a metric.
-//   connectome-lint     75 findings — 6 error / 0 unmet requirement. NOT clean, and the
+//   connectome-lint     4 errors / 0 unmet requirement at TESTBED_SCALE 1.5 (was 6 at 1.0;
+//                       the crossing re-fit took two of them). NOT clean, and the
 //                       shipped `default` world at the same seed measures 47 findings /
-//                       4 errors, so "0 errors" is not a bar any world meets today. The
-//                       6 are: 4 × claims.unresolved (barrier×building where Kingsford's
-//                       and Millbeck's zones overlap), 1 × bridge.tiles-vs-deck, 1 ×
-//                       wall.crossing-only-at-gate on Kingsford.
+//                       4 errors, so "0 errors" is not a bar any world meets today.
+//                       (At scale 1.0 the 6 were: 4 × claims.unresolved where Kingsford's
+//                       and Millbeck's zones overlap, 1 × bridge.tiles-vs-deck, 1 ×
+//                       wall.crossing-only-at-gate. The surviving 4 have NOT been
+//                       re-enumerated — run `npm run lint:testbed` and read them off
+//                       rather than trusting that breakdown.)
 //                       THE BAR IS THEREFORE A BUDGET, NOT ZERO: `npm run lint:testbed`
 //                       runs `--max-errors 6` (connectome-lint.ts), so a REGRESSION is
 //                       loud while the instrument stays green. Unmet requirements are

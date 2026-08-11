@@ -49,6 +49,7 @@ import { stampFarmland } from '@/world/farmland';
 import { stampIrrigation } from '@/world/irrigation';
 import { buildCrossingStructureEntities, buildBridgeObject } from '@/world/connectome/crossing-structures';
 import { detectCrossings } from '@/world/connectome/detect-crossings';
+import { makeCrossingSiteResolver } from '@/world/connectome/site-params';
 import type { CrossingSpec } from '@/world/connectome/crossing-builder';
 import { buildRoadOccupancyMaskUncached } from '@/world/road-occupancy-mask';
 import { deriveBuiltJunctions } from '@/world/junction-artifacts';
@@ -725,7 +726,11 @@ export async function generateWithNoise(
     // spans are built later, from these same specs (`buildCrossingSpans`, after the reconcile).
     crossingSpecs = detectCrossings(roadGraph, width, {
       isWater: renderWaterAt, bridgeAt: renderWaterAt,
+      // Site params come from the NEAREST POI, not a constant — see `site-params.ts`. The old
+      // constant made every crossing in every world resolve one site, so only the road class
+      // varied and exactly two bridge looks could ever generate.
       defaults: { era: 'late-medieval', prosperity: 'modest' },
+      siteParamsAt: makeCrossingSiteResolver(worldSeed, { era: 'late-medieval', prosperity: 'modest' }),
     });
     for (const e of buildCrossingStructureEntities(roadGraph, width, {
       specs: crossingSpecs,

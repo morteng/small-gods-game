@@ -117,7 +117,10 @@ const POI_KEYS = new Set(['id', 'type', 'name', 'description', 'position', 'regi
   'importance', 'npcs', 'era', 'coast', 'summitM']);
 /** Types whose summit height a per-POI `summitM` can override. */
 const SUMMIT_POI_TYPES = new Set(['mountain', 'volcano', 'glacier']);
-const CONNECTION_KEYS = new Set(['from', 'to', 'type', 'style', 'waypoints', 'width', 'autoBridge']);
+const CONNECTION_KEYS = new Set(['from', 'to', 'type', 'style', 'waypoints', 'width', 'autoBridge', 'history']);
+/** `Connection.history` fields that are normalised 0..1 (`ageYears` is the exception). */
+const HISTORY_UNIT_KEYS = ['condition', 'wear', 'overgrowth', 'traffic'] as const;
+const HISTORY_KEYS = new Set<string>(['ageYears', ...HISTORY_UNIT_KEYS]);
 const STYLE_KEYS = new Set(['scalePreset', 'ratingPreset', 'overrides']);
 
 function levenshtein(a: string, b: string): number {
@@ -273,6 +276,19 @@ export function validateWorldSeed(seed: Partial<WorldSeed>): SeedValidation {
       }
       if (conn.width !== undefined && (conn.width < 1 || conn.width > 3)) {
         errors.push(`Connection width must be 1-3, got: ${conn.width}`);
+      }
+      if (conn.history) {
+        const h = conn.history as Record<string, unknown>;
+        unknownKeys(h, HISTORY_KEYS, `Connection ${conn.from}→${conn.to} history`, warnings);
+        for (const k of HISTORY_UNIT_KEYS) {
+          const v = h[k];
+          if (v !== undefined && (typeof v !== 'number' || v < 0 || v > 1)) {
+            errors.push(`Connection ${conn.from}→${conn.to} history.${k} must be 0..1, got: ${String(v)}`);
+          }
+        }
+        if (h.ageYears !== undefined && (typeof h.ageYears !== 'number' || h.ageYears < 0)) {
+          errors.push(`Connection ${conn.from}→${conn.to} history.ageYears must be ≥ 0, got: ${String(h.ageYears)}`);
+        }
       }
       if (conn.waypoints) {
         if (!Array.isArray(conn.waypoints)) {

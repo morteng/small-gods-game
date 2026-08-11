@@ -236,6 +236,8 @@ fn sampleColorBi(b : BiCell) -> vec3<f32> {
 // take the MAX of paved·fade over its segments (fade = 1 inside the core, → 0 at the
 // half-width). Byte-equivalent to roadPavednessAt() in feature-geometry.ts.
 fn rfF(i : u32) -> f32 { return bitcast<f32>(roadFeat[i]); }
+/** A segment's material tier out of the ROAD_EXTRA block (word 0). */
+fn tierOf(extBase : u32, sid : u32) -> f32 { return rfF(extBase + sid * 8u); }
 // Everything the path-biome treatment needs from ONE bucket walk:
 //   paved — max paved·fade over the covering segments (byte-equivalent to the old
 //           roadPavedEdge .x / the CPU roadPavednessAt mirror).
@@ -249,6 +251,15 @@ fn rfF(i : u32) -> f32 { return bitcast<f32>(roadFeat[i]); }
 //           verge coordinate is valid ~half a tile beyond the surface.
 //   near  — max UNfaded pavedness among near segments — gates verge dressing by
 //           the road's tier even where the faded pavedness is already 0.
+//   along/across — THE ROAD FRAME. \`across\` is the SIGNED lateral offset in tiles and
+//           \`along\` the arc length from the road's start, both taken from the same
+//           nearest (min-d) segment the rut band uses. Every laid pattern is drawn in
+//           this frame instead of the map grid, which is what lets courses of setts
+//           TURN WITH THE ROAD. Arc length is carried per-segment (feature-geometry's
+//           ROAD_EXTRA.arc0) precisely so the courses do not restart at each vertex.
+//   tier/cond/wear/over/traffic/constr/eseed — the connectome's road state, carried
+//           through instead of pre-multiplied into \`paved\`. See the long note on
+//           ROAD_EXTRA_WORDS in feature-geometry.ts for why one scalar was not enough.
 struct RoadInfo {
   paved : f32,
   edge  : f32,
@@ -256,10 +267,29 @@ struct RoadInfo {
   half  : f32,
   verge : f32,
   near  : f32,
+  along : f32,
+  across: f32,
+  tier  : f32,
+  cond  : f32,
+  wear  : f32,
+  over  : f32,
+  traffic : f32,
+  constr : f32,
+  eseed : f32,
 }
 fn roadInfo(fx : f32, fy : f32) -> RoadInfo {
   var out : RoadInfo;
   out.paved = 0.0; out.edge = 0.0; out.d = 9.0; out.half = 1.0; out.verge = 9.0; out.near = 0.0;
+  out.along = 0.0; out.across = 0.0; out.cond = 1.0; out.wear = 0.0;
+  // eseed is the edge tie-break below and every real edge seed is >= 0, so the initial
+  // value must sit BELOW all of them or edge-seed 0 would fail to claim an empty frame.
+  out.over = 0.0; out.traffic = 0.0; out.constr = 0.0; out.eseed = -1.0;
+  // Below every real tier, so the first covering segment always claims the frame.
+  out.tier = -1.0;
+  // Distance to the frame winner, tracked separately from out.d: out.d is the distance to
+  // the polyline as a WHOLE (min over all covering segments) and the rut band needs that,
+  // while the frame must stay on ONE road's segments to keep its courses continuous.
+  var frameD = 1e9;
   let segCount = roadFeat[3];
   if (segCount == 0u) { return out; }
   let bt  = f32(roadFeat[0]);
@@ -269,13 +299,15 @@ fn roadInfo(fx : f32, fy : f32) -> RoadInfo {
   let offBase = 4u;                              // bucketOffset starts after the header
   let refBase = offBase + nb + 1u;               // bucketSegs start
   let segBase = refBase + roadFeat[offBase + nb]; // segments start (R = bucketOffset[nb])
+  let extBase = segBase + segCount * 8u;          // ROAD_EXTRA block, indexed by segment id
   let bx = u32(clamp(floor(fx / bt), 0.0, f32(nbx) - 1.0));
   let by = u32(clamp(floor(fy / bt), 0.0, f32(nby) - 1.0));
   let b = by * nbx + bx;
   let start = roadFeat[offBase + b];
   let end   = roadFeat[offBase + b + 1u];
   for (var p = start; p < end; p = p + 1u) {
-    let o = segBase + roadFeat[refBase + p] * 8u;
+    let sid = roadFeat[refBase + p];
+    let o = segBase + sid * 8u;
     let ax = rfF(o); let ay = rfF(o + 1u);
     let bx2 = rfF(o + 2u); let by2 = rfF(o + 3u);
     let dx = bx2 - ax; let dy = by2 - ay;
@@ -291,7 +323,48 @@ fn roadInfo(fx : f32, fy : f32) -> RoadInfo {
     if (d <= half) {
       let core = half * 0.7;
       let fade = select((half - d) / max(half - core, 1e-4), 1.0, d <= core);
-      out.paved = max(out.paved, paved * fade);
+      let cover = paved * fade;
+      // THE MATERIAL AND ITS FRAME FOLLOW THE DOMINANT ROAD — highest TIER, then a
+      // deterministic per-EDGE priority at that tier, then nearest among that edge's
+      // segments. The middle key is the edge's hashed seed: which edge it favours is
+      // arbitrary, but it is CONSTANT over the whole overlap, which is the point.
+      // Three failures bound this rule:
+      //  · nearest-overall gave the material to whichever segment happened to be closer,
+      //    so a dirt lane meeting a paved street painted a blob of mud across the paving;
+      //  · highest-faded-pavedness (paved·fade) is not STABLE — fade falls off laterally,
+      //    so the winning segment changed from fragment to fragment and the sett courses
+      //    tore into a fan of smears around every curve;
+      //  · tier-then-nearest is stable WITHIN a road but not BETWEEN two roads of the
+      //    same tier. out.along is cumulative arc length measured from each EDGE's own
+      //    origin, so where two same-tier carriageways overlap — every town junction —
+      //    the min-d winner alternates and the fragment reads two unrelated arc origins
+      //    in bands. That is the parallel streaking at Kingsford: not noise, two course
+      //    systems interleaving. Ordering by edge first means one edge owns the whole
+      //    overlap and the handover happens on that edge's coverage boundary, which is a
+      //    clean line across the carriageway — a joint, which is what a junction IS.
+      // Within one edge the seed ties, so this reduces exactly to the min-d rule the
+      // lateral coordinate has always used.
+      let tr = tierOf(extBase, sid);
+      let es = rfF(extBase + sid * 8u + 7u);
+      if (tr > out.tier + 1e-4
+          || (tr > out.tier - 1e-4
+              && (es > out.eseed + 1e-4
+                  || (es > out.eseed - 1e-4 && d < frameD)))) {
+        frameD = d;
+        let segLen = sqrt(max(len2, 1e-12));
+        let ux = dx / segLen; let uy = dy / segLen;
+        let e = extBase + sid * 8u;
+        out.along  = rfF(e + 6u) + t * segLen;
+        out.across = ux * (fy - ay) - uy * (fx - ax);   // signed: + = left of travel
+        out.tier    = rfF(e);
+        out.cond    = rfF(e + 1u);
+        out.wear    = rfF(e + 2u);
+        out.over    = rfF(e + 3u);
+        out.traffic = rfF(e + 4u);
+        out.constr  = rfF(e + 5u);
+        out.eseed   = rfF(e + 7u);
+      }
+      out.paved = max(out.paved, cover);
       // Lateral coordinate = MIN distance over covering segments — the distance to the
       // polyline as a whole. Taking it from the pavedness winner instead (first-covering
       // segment on ties) read the RADIAL cap distance near every joint, and the rut band
@@ -350,37 +423,197 @@ fn vorCell(uv : vec2<f32>, jitter : f32) -> vec3<f32> {
 // below the pixel footprint (IQ band-limiting).
 fn detailLod(cellFw : f32) -> f32 { return clamp(smoothstep(1.1, 0.55, cellFw), 0.0, 1.0); }
 
-// Cobbled carriageway. uvTiles = world position in tiles, fwTiles = its pixel
-// footprint (both passed in so no derivative builtin runs in non-uniform flow).
-fn analyticCobble(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
-  let settTiles = 0.15;                       // 0.30 m setts / 2 m-per-tile
-  let uv = uvTiles / settTiles;
-  let cellFw = max(fwTiles.x, fwTiles.y) / settTiles;
-  let v = vorCell(uv, 0.7);
-  let lod = detailLod(cellFw);
-  // Grout = F2−F1 seam, kept ~constant screen width and AA'd; fades out (lod) when
-  // a sett drops below a pixel so it averages to stone instead of aliasing.
-  let groutW = 0.07;
-  let aa = max(cellFw, 1e-4);
-  let grout = (1.0 - smoothstep(groutW - aa, groutW + aa, v.z)) * lod;
-  let dome = (1.0 - smoothstep(0.0, 0.5, v.x)) * lod;     // brighter sett crown
-  let tone = 0.50 + 0.13 * v.y;
-  let stone = tone * (0.85 + 0.15 * dome);
-  let lit = mix(stone, 0.22, grout);                      // grout darkens
-  return vec3<f32>(lit, lit * 0.98, lit * 0.94);
+// ── A LAID CARRIAGEWAY ────────────────────────────────────────────────────────
+// Setts are not scattered stones: they are laid in COURSES, and the courses follow
+// the road. So this is drawn entirely in the ROAD FRAME (RoadInfo.along/across) —
+// feeding a world-grid lattice to a Voronoi, as this did before, gives an isotropic
+// rubble field locked to the map axes that neither turns with the road nor reads as
+// anything a person laid.
+//
+// Everything it varies is READ FROM THE CONNECTOME (see ROAD_EXTRA_WORDS in
+// feature-geometry.ts), never invented here:
+//    material + construction → sett size, course regularity, bond   (WHAT IT IS)
+//    condition + wear        → open joints, lost setts, potholes    (WHAT SHAPE IT'S IN)
+//    overgrowth              → weed in the joints, worst at the verge
+//    traffic                 → wheel tracks polished pale and smooth
+// A well-kept gravel lane and a ruined cobbled high street used to arrive as the same
+// number and paint the same pixels; they no longer can.
+struct Sett {
+  f1   : f32,   // distance to the winning sett's centre (the dome)
+  joint: f32,   // F2−F1 — proximity to the mortar joint
+  h    : f32,   // per-sett hash
+  row  : f32,   // course index (along the road)
+  col  : f32,   // sett index within the course (across the road)
 }
-// Loose gravel — small jittered chips, no mortar; chips fade to packed tone at range.
-fn analyticGravel(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
-  let chipTiles = 0.05;                        // 0.10 m chips
-  let uv = uvTiles / chipTiles;
-  let cellFw = max(fwTiles.x, fwTiles.y) / chipTiles;
-  let v = vorCell(uv, 0.9);
+// Voronoi in the road frame with a per-COURSE phase — the running bond. Centres stay
+// within 0.5·bond + 0.5·jitter of their cell, so the 3×3 search still finds the true
+// nearest for the bond/jitter this file uses (both ≤ 1).
+fn settCell(uv : vec2<f32>, jitter : f32, bond : f32) -> Sett {
+  let ip = floor(uv);
+  let fp = uv - ip;
+  var best : Sett;
+  best.f1 = 8.0; best.joint = 0.0; best.h = 0.0; best.row = 0.0; best.col = 0.0;
+  var f2 = 8.0;
+  for (var oy = -1; oy <= 1; oy = oy + 1) {
+    for (var ox = -1; ox <= 1; ox = ox + 1) {
+      let id = vec2<i32>(ip) + vec2<i32>(ox, oy);
+      let g = vec2<f32>(f32(ox), f32(oy));
+      // Each course starts at its own offset, so joints never line up into a grid of
+      // crosses. Keyed on the COURSE index alone, so every fragment in a course agrees.
+      let ph = (hashI(vec2<i32>(id.y, 1013)) - 0.5) * bond;
+      let hx = hashI(id);
+      let hy = hashI(id + vec2<i32>(7, 3));
+      let centre = g + vec2<f32>(0.5 + ph, 0.5) + (vec2<f32>(hx, hy) - 0.5) * jitter;
+      let d = length(centre - fp);
+      if (d < best.f1) {
+        f2 = best.f1; best.f1 = d; best.h = hx;
+        best.row = f32(id.y); best.col = f32(id.x);
+      } else if (d < f2) { f2 = d; }
+    }
+  }
+  best.joint = f2 - best.f1;
+  return best;
+}
+// \`earth\` is the road-dirt albedo, shown by whatever the stone has lost: hollows where
+// setts have gone, and potholes where the surface failed outright.
+fn analyticSetts(r : RoadInfo, fwTiles : vec2<f32>, earth : vec3<f32>) -> vec3<f32> {
+  // Dressed ashlar (tier 3 'paved') is bigger, truer and tighter-jointed than rough
+  // setts (tier 2 'cobble'); engineered construction rules its courses straighter.
+  let dressed = smoothstep(2.05, 2.95, r.tier);
+  // MEASURED against the carriageway this has to sit on: a highway's half-width is
+  // ~1.24 tiles, i.e. a 5 m running surface. At 0.34 that is seven slabs across and
+  // reads as crazy paving; 0.22 gives ~11 setts across, which is a road.
+  let settW   = mix(0.145, 0.22, dressed);   // across the road: 0.29 m setts → 0.44 m flags
+  let courseW = mix(0.115, 0.18, dressed);   // along the road: the depth of one course
+  let jitter  = mix(0.62, 0.18, max(dressed, r.constr * 0.75));
+  let bond    = mix(1.0, 0.45, dressed);
+
+  let uv = vec2<f32>(r.across / settW + r.eseed * 0.37,
+                     r.along  / courseW + r.eseed * 0.11);
+  let cellFw = max(fwTiles.x, fwTiles.y) / min(settW, courseW);
   let lod = detailLod(cellFw);
+  let aa = max(cellFw, 1e-4);
+  let s = settCell(uv, jitter, bond);
+
+  let decay = 1.0 - r.cond;
+  // Three scales of tone, which is what stops a stone surface reading as one repeated
+  // texture: per sett, per COURSE (a course is laid from one load of stone), and a long
+  // drift down the road (different quarries, older stretches, past repairs).
+  let batch = (hashI(vec2<i32>(i32(s.row), 331)) - 0.5) * 0.10;
+  let drift = (vnoise(vec2<f32>(r.along * 0.055, r.across * 0.22 + r.eseed)) - 0.5) * 0.13;
+  var tone = 0.44 + 0.24 * s.h + batch + drift;
+
+  // The two lines the wheels actually run on, polished pale. Straight from \`traffic\`.
+  let rutOff = min(0.36, r.half * 0.62);
+  let z = (abs(r.across) - rutOff) / 0.15;
+  let track = exp(-z * z) * r.traffic;
+  tone = tone + 0.085 * track;
+
+  let dome = (1.0 - smoothstep(0.0, 0.5, s.f1)) * lod;
+  var col = vec3<f32>(tone, tone * 0.985, tone * 0.945) * (0.86 + 0.14 * dome);
+
+  // LOST SETTS — a stone prised out leaves a hollow of bare earth.
+  let loss = clamp(decay * (0.22 + 0.55 * r.wear) - 0.05, 0.0, 0.55);
+  let hLoss = hashI(vec2<i32>(i32(s.col) * 31 + i32(r.eseed), i32(s.row) * 17 + 5));
+  col = mix(col, earth * 0.80, step(hLoss, loss) * lod * 0.85);
+
+  // POTHOLES — where the surface failed altogether. Elongated ALONG the road, as real
+  // ones are, and only where hard use meets neglect.
+  let pf = vnoise(vec2<f32>(r.along * 0.30 + r.eseed, r.across * 0.85));
+  let holeT = 1.0 - clamp(r.wear * decay * 1.8, 0.0, 0.5);
+  let hole = smoothstep(holeT, holeT + 0.12, pf);
+  col = mix(col, earth * 0.88, hole * 0.8);
+
+  // Joints: dark, and GREEN where the road is being reclaimed — weed comes in from the
+  // verge, so it leans on the lateral coordinate rather than sprouting evenly.
+  let groutW = 0.055 + 0.075 * decay + 0.05 * r.over;
+  let joint = (1.0 - smoothstep(groutW - aa, groutW + aa, s.joint)) * lod;
+  let vergeLean = smoothstep(0.35, 1.0, abs(r.across) / max(r.half, 1e-3));
+  let weed = clamp(r.over * (0.45 + 0.75 * vergeLean), 0.0, 1.0);
+  let jointCol = mix(vec3<f32>(0.20, 0.195, 0.185), vec3<f32>(0.24, 0.34, 0.16), weed);
+  col = mix(col, jointCol, joint * (1.0 - hole * 0.8));
+
+  // KERB — a course of LONG stones laid along the road, which is how an engineered
+  // carriageway is finished. Same gate the carve uses for its kerb lip
+  // (\`roadCrossSection.hasCurb\`: a stone surface built with real effort).
+  if (r.tier >= 1.5 && r.constr > 0.6) {
+    let kuv = vec2<f32>((abs(r.across) - r.half) / 0.30, r.along / 0.55 + r.eseed * 0.13);
+    let ks = settCell(kuv, 0.16, 0.22);
+    let kTone = 0.50 + 0.13 * ks.h + batch * 0.5;
+    let kJoint = (1.0 - smoothstep(0.05 - aa, 0.05 + aa, ks.joint)) * lod;
+    let kCol = mix(vec3<f32>(kTone, kTone * 0.99, kTone * 0.96), jointCol, kJoint);
+    let band = smoothstep(r.half - 0.34, r.half - 0.22, abs(r.across));
+    col = mix(col, kCol, band * (1.0 - hole * 0.6));
+  }
+  return col;
+}
+const GRAVEL_CHIP_TILES = 0.05;                // 0.10 m chips
+struct Chips { tone : f32, dome : f32, lod : f32 }
+// The bare chip field — loose stone, no state, no direction. SHARED so the weathered-rock
+// SCREE apron and the road metalling cannot drift apart: scree is literally the same chips
+// cooled toward the rock they came off.
+fn gravelChips(uv : vec2<f32>, cellFw : f32) -> Chips {
+  let v = vorCell(uv, 0.9);
+  var c : Chips;
+  c.lod = detailLod(cellFw);
   let t = min(1.0, v.x / 0.5);
-  let dome = sqrt(max(0.0, 1.0 - t * t)) * lod;
-  let tone = 0.42 + 0.16 * v.y;
-  let val = tone * (0.7 + 0.3 * dome);
+  c.dome = sqrt(max(0.0, 1.0 - t * t)) * c.lod;
+  c.tone = 0.42 + 0.16 * v.y;
+  return c;
+}
+// Chips on open ground (the scree apron) — grid-sampled, stateless.
+fn analyticGravelPlain(uvTiles : vec2<f32>, fwTiles : vec2<f32>) -> vec3<f32> {
+  let c = gravelChips(uvTiles / GRAVEL_CHIP_TILES,
+                      max(fwTiles.x, fwTiles.y) / GRAVEL_CHIP_TILES);
+  let val = c.tone * (0.7 + 0.3 * c.dome);
   return vec3<f32>(val, val * 0.95, val * 0.86);
+}
+// Loose gravel as a ROAD SURFACE — small jittered chips, no mortar.
+//
+// STATE-DRIVEN like \`analyticSetts\`, and for the same reason: a metalled road is not one
+// texture, it is a surface in a CONDITION. Chips stay an isotropic Voronoi (loose stone has
+// no bond to lay in), but everything ON it is read from the road frame, so the wheel tracks,
+// the scour and the weed all run with the carriageway instead of the map axes.
+//  · traffic  → two compacted wheel bands, chips pressed flat and darkened
+//  · wear     → the metalling thins overall and the earth beneath starts to show
+//  · cond     → scour hollows where the surface has failed, elongated ALONG the road
+//  · over     → grass down the crown and in from the verges (the two-track lane read)
+// \`earth\` is the road-dirt albedo — whatever the metalling has lost shows it.
+fn analyticGravel(r : RoadInfo, fwTiles : vec2<f32>, earth : vec3<f32>) -> vec3<f32> {
+  // Chips in the ROAD frame: a curve then carries its own metalling instead of sliding over a
+  // world-locked lattice. The seed offset keeps two roads from sharing one chip field.
+  let uv = vec2<f32>(r.across / GRAVEL_CHIP_TILES + r.eseed * 0.53,
+                     r.along  / GRAVEL_CHIP_TILES + r.eseed * 0.29);
+  let c = gravelChips(uv, max(fwTiles.x, fwTiles.y) / GRAVEL_CHIP_TILES);
+  let lod = c.lod;
+  let dome = c.dome;
+  let decay = 1.0 - r.cond;
+
+  // A long drift along the road — re-metalled stretches, different pits.
+  let drift = (vnoise(vec2<f32>(r.along * 0.05, r.across * 0.20 + r.eseed)) - 0.5) * 0.10;
+  var tone = c.tone + drift;
+
+  // WHEEL BANDS — on loose stone the wheels PRESS the chips in rather than polishing them,
+  // so the tracks read darker and smoother (the opposite sign to the sett tier).
+  let rutOff = min(0.36, r.half * 0.62);
+  let z = (abs(r.across) - rutOff) / 0.17;
+  let track = exp(-z * z) * r.traffic;
+  tone = tone - 0.07 * track;
+  let val = tone * (0.7 + 0.3 * dome * (1.0 - 0.55 * track));
+  var col = vec3<f32>(val, val * 0.95, val * 0.86);
+
+  // THINNING + SCOUR — a neglected metalling wears through to the earth it was laid on,
+  // worst where the traffic is heaviest.
+  let bare = clamp(r.wear * (0.18 + 0.5 * decay) + 0.35 * decay * track, 0.0, 0.7);
+  let bf = vnoise(vec2<f32>(r.along * 0.26 + r.eseed, r.across * 0.8));
+  col = mix(col, earth * 0.9, smoothstep(1.0 - bare, 1.0 - bare + 0.18, bf) * 0.85);
+
+  // WEED — grass takes the crown first (no wheel kills it there) and creeps in from the verge.
+  let crown = 1.0 - smoothstep(0.0, rutOff * 0.75, abs(r.across));
+  let vergeLean = smoothstep(0.35, 1.0, abs(r.across) / max(r.half, 1e-3));
+  let weed = clamp(r.over * (0.35 + 0.7 * max(crown, vergeLean)), 0.0, 1.0);
+  col = mix(col, vec3<f32>(0.24, 0.34, 0.16), weed * 0.55 * lod);
+  return col;
 }
 // Scattered pebble STONES on open ground — analytic like the road gravel, because a
 // baked swatch cannot survive gameplay-zoom minification (at 1:1 the pebble layer sits
@@ -813,29 +1046,47 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   //    (gravel and up); a dirt track keeps its ragged organic boundary instead.
   var roadAlb = dirtA;
   if (roadMix > 0.0) {
-    let gravelA = analyticGravel(in.vGrid, fwTiles);
-    let cobbleA = analyticCobble(in.vGrid, fwTiles);
-    let upper = road >= 0.45;                      // above the gravel anchor?
-    roadAlb = select(
-      mix(dirtA,   gravelA, smoothstep(0.20, 0.45, road)),   // dirt → gravel
-      mix(gravelA, cobbleA, smoothstep(0.45, 0.78, road)),   // gravel → cobble
-      upper);
+    // WHICH MATERIAL comes from the road's own tier, not from the faded pavedness
+    // scalar. Blending on \`paved\` double-counted decay — pavedness is already
+    // material×condition, so a neglected cobbled street slid toward "gravel" and
+    // its disrepair was indistinguishable from having been built cheaper. Tier says
+    // what it is MADE OF; the state channels below say what shape it is in.
+    let toGravel = smoothstep(0.35, 1.00, rInfo.tier);   // dirt → gravel
+    let toSetts  = smoothstep(1.35, 2.00, rInfo.tier);   // gravel → laid stone
+    // DIRT reads its state too, or the bottom of the ladder is the only surface in the game
+    // that cannot show its condition. An earth track has no fabric to lose, so the channels
+    // act on the earth itself: traffic darkens and compacts it, weather + neglect mottle it,
+    // and overgrowth greens the whole running surface (a lane going back to grass).
+    var dirtS = dirtA;
+    let dRut = min(0.36, rInfo.half * 0.62);
+    let dz = (abs(rInfo.across) - dRut) / 0.19;
+    let dTrack = exp(-dz * dz) * rInfo.traffic;
+    dirtS = dirtS * mix(1.0, 0.82, dTrack);                        // beaten wheel lines
+    let dMot = vnoise(vec2<f32>(rInfo.along * 0.22 + rInfo.eseed, rInfo.across * 0.7));
+    dirtS = dirtS * mix(1.0, 0.88 + 0.24 * dMot, (1.0 - rInfo.cond) * 0.8);
+    let dWeed = clamp(rInfo.over * 0.85, 0.0, 1.0);
+    dirtS = mix(dirtS, vec3<f32>(0.24, 0.34, 0.16), dWeed * 0.5);
+    let gravelA = analyticGravel(rInfo, fwTiles, dirtA);
+    let settsA  = analyticSetts(rInfo, fwTiles, dirtA);
+    roadAlb = mix(mix(dirtS, gravelA, toGravel), settsA, toSetts);
     // Lateral coordinate with a light wander so the ruts are not laser-parallel.
     let dJit = rInfo.d + (vnoise(in.vGrid * 1.3 + vec2<f32>(57.0, 13.0)) - 0.5) * 0.05;
     let gaugeFade = smoothstep(0.30, 0.14, fwG);   // gameplay zooms only (sub-px at overview)
     let rutOff = min(0.36, rInfo.half * 0.62);     // half-gauge, squeezed on narrow tracks
     let rutAA = max(0.055, fwG * 1.6);
+    // Ruts cut into earth and gravel; a laid stone surface polishes instead (the pale
+    // wheel tracks in analyticSetts), so the carved rut band hands over to it.
     let rutMask = (1.0 - smoothstep(0.045, 0.045 + rutAA, abs(dJit - rutOff)))
-                * (1.0 - smoothstep(0.55, 0.78, road))        // cobble loses its ruts
+                * (1.0 - toSetts)
                 * step(0.24, rInfo.half) * gaugeFade;
     roadAlb = roadAlb * mix(vec3<f32>(1.0), vec3<f32>(0.78, 0.74, 0.70), rutMask);
     let crownMask = (1.0 - smoothstep(rutOff * 0.20, rutOff * 0.55, dJit))
-                  * (1.0 - smoothstep(0.26, 0.48, road))      // dirt tier only
+                  * (1.0 - toGravel)                          // dirt tier only
                   * step(0.24, rInfo.half) * gaugeFade;
     roadAlb = mix(roadAlb, ground * vec3<f32>(0.94, 1.02, 0.90), crownMask * 0.62);
     let edgeAA = max(max(fwTiles.x, fwTiles.y), 1e-4);
     let edgeLine = (1.0 - smoothstep(0.0, edgeAA, roadEdgeDepth))
-                 * smoothstep(0.28, 0.50, road);
+                 * toGravel;                                  // engineered tiers only
     roadAlb = roadAlb * mix(1.0, 0.85, edgeLine);
   }
   let base = mix(ground, roadAlb, roadMix);
@@ -890,7 +1141,7 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   // neutral grey of the rock it weathered off; gated so the Voronoi only runs on aprons.
   var SCREE = vec3<f32>(0.40, 0.40, 0.41);
   if (wScree > 0.0) {
-    let g = analyticGravel(in.vGrid, fwTiles);
+    let g = analyticGravelPlain(in.vGrid, fwTiles);
     SCREE = vec3<f32>(g.x * 0.88, g.y * 0.92, g.z * 1.04);
   }
   // Snow = the harvested fresh-snow swatch (drift bumps + sparkle + the odd rock tip), not the

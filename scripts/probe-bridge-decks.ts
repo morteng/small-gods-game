@@ -249,8 +249,14 @@ async function main(): Promise<void> {
   const summary = args.includes('--summary');
   const positional = args.filter((a) => !a.startsWith('--'));
   const worldName = positional[0] ?? 'default';
-  const seed = Number(positional[1] ?? 777);
-  const ws = JSON.parse(readFileSync(`public/data/worlds/${worldName}.json`, 'utf8')) as WorldSeed;
+  // The testbed is AUTHORED IN CODE, not a `public/data/worlds/*.json` file, so a plain
+  // readFileSync cannot see it — and its crossings are the ones most worth measuring,
+  // since they are hand-fitted to measured narrow reaches and every POI move re-rolls them.
+  const ws = worldName === 'testbed'
+    ? (await import('@/world/testbed/testbed-world')).testbedSeed()
+    : JSON.parse(readFileSync(`public/data/worlds/${worldName}.json`, 'utf8')) as WorldSeed;
+  const seed = Number(positional[1]
+    ?? (worldName === 'testbed' ? (await import('@/world/testbed/testbed-world')).TESTBED_GEN_SEED : 777));
   const layout = planWorldLayout(ws);
   const laidOut: WorldSeed = { ...ws, size: layout.size, pois: layout.pois, connections: layout.connections };
   const { map } = await generateWithNoise(laidOut.size.width, laidOut.size.height, seed, laidOut, {});
