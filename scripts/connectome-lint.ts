@@ -10,6 +10,7 @@
 //   npx tsx scripts/connectome-lint.ts 12345 777 42        # those seeds, all worlds
 //   npx tsx scripts/connectome-lint.ts --world dawn 42     # one playable world
 //   npx tsx scripts/connectome-lint.ts --world some/path.json # an arbitrary seed file
+//   npm run lint:testbed              # the DEV-ONLY testbed vale, pinned to TESTBED_GEN_SEED
 import { readFileSync } from 'node:fs';
 import { generateWithNoise } from '../src/map/map-generator';
 import { evaluateContracts, type ContractLevel } from '../src/world/connectome-contracts';
@@ -22,12 +23,37 @@ import { PLAYABLE_WORLD_NAMES, resolvePlayableWorld } from '../src/world/playabl
 const LEVELS: ContractLevel[] = ['world', 'settlement', 'site', 'building'];
 const SEV_TAG: Record<string, string> = { error: '✘', warn: '▲', info: '·' };
 
+/** The one literal id that is NOT a `public/data/worlds/*.json` file: the dev-only
+ *  integration testbed (`src/world/testbed/testbed-world.ts`, WP-T1/T3). It is never in
+ *  `PLAYABLE_WORLD_NAMES` by design, so it can never appear from the no-args default
+ *  sweep — only an explicit `--world testbed` reaches it. */
+const TESTBED_TARGET_ID = 'testbed';
+
+interface LintTarget {
+  id: string;
+  path: string;
+  /** Load the seed a different way than `JSON.parse(readFileSync(path))`, optionally
+   *  pinning the gen seed(s) to generate at — only the testbed target sets this (a
+   *  code-authored seed defined at exactly one gen seed, not a JSON file). */
+  load?: () => Promise<{ seed: WorldSeed; genSeeds?: number[] }>;
+}
+
 /** Resolve the worlds to lint: an explicit `--world <id|path>` (one) else every
  *  playable world. */
-function resolveTargets(argv: string[]): { id: string; path: string }[] {
+function resolveTargets(argv: string[]): LintTarget[] {
   const wi = argv.indexOf('--world');
   if (wi !== -1 && argv[wi + 1]) {
     const raw = argv[wi + 1];
+    if (raw.trim().toLowerCase() === TESTBED_TARGET_ID) {
+      return [{
+        id: TESTBED_TARGET_ID,
+        path: 'src/world/testbed/testbed-world.ts',
+        load: async () => {
+          const { testbedSeed, TESTBED_GEN_SEED } = await import('../src/world/testbed/testbed-world');
+          return { seed: testbedSeed(), genSeeds: [TESTBED_GEN_SEED] };
+        },
+      }];
+    }
     // A path (contains a slash or ends .json) is loaded as-is; otherwise a bare
     // playable-world id, resolved through the registry (unknown -> the default).
     if (raw.includes('/') || raw.endsWith('.json')) return [{ id: raw, path: raw }];
@@ -54,10 +80,15 @@ async function main(): Promise<void> {
 
   let failed = false;
 
-  for (const { id, path } of targets) {
+  for (const { id, path, load } of targets) {
     console.log(`\n════════ WORLD: ${id} ════════`.replace(/\s*=\s*$/, ''));
     console.log(`  source: ${path}`);
-    const ws = JSON.parse(readFileSync(path, 'utf8')) as WorldSeed;
+    const loaded = load ? await load() : { seed: JSON.parse(readFileSync(path, 'utf8')) as WorldSeed };
+    const ws = loaded.seed;
+    // A target that pins its own gen seed(s) (the testbed — defined at exactly one
+    // seed, see TESTBED_GEN_SEED) overrides the CLI/default seed list; every other
+    // target keeps today's behaviour untouched.
+    const seedsForTarget = loaded.genSeeds ?? useSeeds;
 
     // Schema validation first — a structurally broken seed makes every downstream
     // finding suspect. Errors fail the lint; warnings print but pass.
@@ -78,7 +109,7 @@ async function main(): Promise<void> {
     const layout = planWorldLayout(ws);
     const laidOut: WorldSeed = { ...ws, size: layout.size, pois: layout.pois, connections: layout.connections };
 
-    for (const seed of useSeeds) {
+    for (const seed of seedsForTarget) {
       // Fresh layout per seed: generateWithNoise snaps dry-settlement POIs off standing
       // water IN PLACE (preserving map.worldSeed identity), so a SHARED layout object
       // would leak one seed's snapped positions into the next. Deep-clone the pois.
