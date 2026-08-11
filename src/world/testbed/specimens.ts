@@ -103,6 +103,19 @@ export const SPECIMEN_OF = 'specimenOf';
 /** Property key recording the row a specimen belongs to (station framing + legibility). */
 export const SPECIMEN_ROW = 'specimenRow';
 
+/** The rows a specimen can belong to — the authoritative list, in layout order.
+ *  `SpecimenRowName` types every `row:` literal below, so ADDING A ROW WITHOUT ADDING IT
+ *  HERE FAILS TYPECHECK. That is deliberate: the tour (`src/world/testbed/stations.ts`)
+ *  frames one station per row and derives them from this array, so a hand-maintained copy
+ *  over there would silently drift the moment a row was added — the same enumerate-by-hand
+ *  rot this whole pass exists to avoid. */
+export const SPECIMEN_ROW_NAMES = [
+  'barrierPresets', 'barrierKinds', 'buildings', 'buildingTypes',
+  'props', 'stairs', 'plants', 'flora', 'bridges',
+] as const;
+
+export type SpecimenRowName = (typeof SPECIMEN_ROW_NAMES)[number];
+
 // ─── Layout constants ─────────────────────────────────────────────────────────
 //
 // THE APRON IS THE BINDING CONSTRAINT, and it cannot legitimately grow: WP-T1 measured that
@@ -168,7 +181,7 @@ export interface SpecimenReport {
   /** registry id → the entity id(s) standing for it. */
   placed: Map<string, string[]>;
   /** registry ids the pass could not stand up, with the reason. */
-  failed: { id: string; row: string; reason: string }[];
+  failed: { id: string; row: SpecimenRowName; reason: string }[];
   /** Non-fatal notes (e.g. a bridge that found no channel and stands on dry ground). */
   warnings: string[];
   /** Rows the layout used on the dry terrace SOUTH of the apron rect. Expected to be > 0 and
@@ -280,7 +293,7 @@ interface Specimen {
   /** The registry id this specimen stands for (what the coverage test looks up). */
   id: string;
   /** Semantic label recorded on the entity (`specimenRow`) — what registry it came from. */
-  row: string;
+  row: SpecimenRowName;
   /** LAYOUT group. Defaults to `row`; two rows sharing a band are packed together (the two
    *  barrier registries do, so the 13 runs form one wall line instead of two). */
   band?: string;
@@ -323,7 +336,7 @@ function resolve(name: string, patches: BlueprintPatch[] = []): { rb?: ResolvedB
  *  thresholds, then register on the World (registry + BOTH index layers). */
 function placeBlueprintSpecimen(
   map: GameMap, world: World, rb: ResolvedBlueprint,
-  registryId: string, row: string, x: number, y: number,
+  registryId: string, row: SpecimenRowName, x: number, y: number,
   opts: { clear?: boolean } = {},
 ): Entity {
   const col = toCollision(rb);
@@ -348,7 +361,7 @@ function placeBlueprintSpecimen(
 /** Commit a vegetation specimen the way a vegetation brush does: a kind-keyed entity with the
  *  brush's own in-cell offsets, plus its contribution to the ground flora tint. */
 function placeVegetationSpecimen(
-  map: GameMap, world: World, kind: string, row: string, x: number, y: number,
+  map: GameMap, world: World, kind: string, row: SpecimenRowName, x: number, y: number,
 ): Entity {
   const fx = 0.5, fy = 0.5;
   const e = defaultEntity('specimen', kind, x + fx, y + fy,
@@ -365,7 +378,7 @@ function placeVegetationSpecimen(
  *  hand-list). Commits through `placeBarrier` and declares itself on `map.barrierRuns`, so the
  *  stepped foundation footing carves under it exactly like a town wall's. */
 function placeBarrierSpecimen(
-  map: GameMap, world: World, registryId: string, row: string,
+  map: GameMap, world: World, registryId: string, row: SpecimenRowName,
   x: number, y: number, spec: Omit<BarrierRun, 'path' | 'gates' | 'towers'>, gateWidthTiles: number,
 ): Entity | null {
   // Runs stand NORTH→SOUTH: a wall is long and thin, and 13 tall-thin boxes tile the apron's
@@ -671,7 +684,7 @@ function buildSpecimenList(
   /** Blueprint-entity rows (buildings, generative buildingTypes, props, plant presets with no
    *  entity kind). One helper so every one of them takes the identical commit path. */
   const addBlueprint = (
-    row: string, name: string, patches: BlueprintPatch[] = [], clear = true, band?: string,
+    row: SpecimenRowName, name: string, patches: BlueprintPatch[] = [], clear = true, band?: string,
   ): void => {
     const { rb, err } = resolve(name, patches);
     if (!rb) { report.failed.push({ id: name, row, reason: err ?? 'unresolved' }); return; }

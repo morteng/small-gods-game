@@ -2,6 +2,8 @@
 //
 // STATION DATA for the testbed screenshot tour (WP-T4, `scripts/testbed-tour.ts`).
 //
+// (import below: the specimen row list is owned by `specimens.ts`, not copied here.)
+//
 // ── READ THIS BEFORE TRUSTING A GREEN TOUR ─────────────────────────────────────
 // The tour's output is for HUMAN REVIEW. There is no pixel-diff baseline here,
 // deliberately: no diff infra exists in this repo, every render contains animated
@@ -23,41 +25,25 @@
 // the live centroid of tagged specimen entities for a row target), never from a
 // coordinate baked in here.
 //
-// ── The `specimenRow` list is HARDCODED, and here is why ──────────────────────
-// The plan (§4, WP-T4 brief) says to "import the row names from specimens.ts'
-// SPECIMEN_ROW — do not hardcode a list." That claim does not survive contact
-// with the source: `SPECIMEN_ROW` (`src/world/testbed/specimens.ts:102`) is the
-// PROPERTY KEY string `'specimenRow'` that a specimen entity carries, not an
-// enumerable list of the row VALUES. There is no exported row-name registry in
-// that file (checked: its only exports are `SPECIMEN_APRON_POI_ID`, `SPECIMEN_TAG`,
-// `SPECIMEN_OF`, `SPECIMEN_ROW`, the rect/report types, `findApronPoi`,
-// `resolveApronRect`, `placeSpecimens`). `specimens.ts` is owned by WP-T2 and this
-// slice may not edit it, so deriving the row list at RUNTIME would mean either (a)
+// ── Where the `specimenRow` list comes from ───────────────────────────────────
+// The plan (§4, WP-T4 brief) said to "import the row names from specimens.ts'
+// SPECIMEN_ROW". That was wrong as written: `SPECIMEN_ROW` is the PROPERTY KEY
+// string `'specimenRow'` a specimen entity carries, not an enumerable list of row
+// VALUES — and at the time no row-name registry was exported at all.
+// Deriving the list at RUNTIME is the wrong answer too: it would mean either (a)
 // generating the whole testbed world at import time just to read a data module —
 // wrong layering, and expensive (~15-25s) for something imported by a test or the
 // tour — or (b) querying the live browser world in the tour script and improvising
 // a station per row it happens to find, which breaks the acceptance contract that
 // `TESTBED_STATIONS.length` is the tour's own definition of "how many stations".
-// So: the 9 row names below are read DIRECTLY off `specimens.ts`'s
-// `buildSpecimenList` (the literal string passed as `row:` at each of its 9
-// `out.push(...)` / `addBlueprint(...)` call sites, in the order they appear —
-// `buildings` :502, `buildingTypes` :505, `props` :508, `plants` :512-521,
-// `flora` :525-530, `barrierPresets` :533-541, `barrierKinds` :545-552,
-// `stairs` :556-574, `bridges` :576-621). If WP-T2 (or a later slice) adds a 10th
-// row, this list goes stale silently — the honest fix is for `specimens.ts` to
-// export a `SPECIMEN_ROW_NAMES` array derived the same way its other rows are
-// (registry-derived), which this slice cannot add itself. Flagged, not hidden.
-export const KNOWN_SPECIMEN_ROWS = [
-  'buildings',
-  'buildingTypes',
-  'props',
-  'plants',
-  'flora',
-  'barrierPresets',
-  'barrierKinds',
-  'stairs',
-  'bridges',
-] as const;
+// So the row list is IMPORTED from `specimens.ts`, which is the only module that
+// knows what its rows are. It was briefly hand-copied here; that was a rot vector in
+// an epic whose whole premise is derive-don't-enumerate, so `specimens.ts` now exports
+// `SPECIMEN_ROW_NAMES` and types every one of its `row:` literals against it — adding a
+// row without listing it there fails typecheck, and the tour picks it up for free.
+import { SPECIMEN_ROW_NAMES } from '@/world/testbed/specimens';
+
+export const KNOWN_SPECIMEN_ROWS = SPECIMEN_ROW_NAMES;
 
 /** A tour station: what to frame, and how. */
 export interface TestbedStation {
@@ -83,10 +69,11 @@ const CLOSE_ZOOM = 1;
 /** Wide framing for a whole walled settlement — has to fit `kingsford_ring`'s full
  *  circuit (3 gates, 11 towers) in one frame, which CLOSE_ZOOM cannot. */
 const CITY_ZOOM = 0.28;
-/** Specimen rows are long flow-laid strips (`GAP 2` between items, items wrapping
- *  at the apron's east edge — `specimens.ts:104-118`); CLOSE_ZOOM would show at
- *  most one or two items astride the row's centroid. This is the widest zoom that
- *  still reads as "close to the ground" rather than a top-down map view. */
+/** Specimen rows are long strips laid by a bottom-left packer (`SEP 1` between
+ *  items, `BAND_GAP 1` between bands — see `specimens.ts`'s layout constants);
+ *  CLOSE_ZOOM would show at most one or two items astride the row's centroid.
+ *  This is the widest zoom that still reads as "close to the ground" rather than
+ *  a top-down map view. */
 const ROW_ZOOM = 0.45;
 
 // ─── Context stations ───────────────────────────────────────────────────────────
